@@ -1,0 +1,15 @@
+# python cache
+__pycache__/
+*.pyc
+
+# virtual environment
+.venv/
+venv/
+
+# build output
+dist/
+build/
+*.exe
+
+# vscode 설정
+.vscode/
