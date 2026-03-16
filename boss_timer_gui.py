@@ -1,6 +1,7 @@
 import configparser
 import math
 import os
+import sys
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -12,10 +13,42 @@ WINDOW_HEIGHT = 438
 APP_VERSION = "v1.0.0"
 LAST_UPDATED = "2026-03-16"
 AUTHOR_NAME = "나츠"
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "boss_timer_settings.ini")
-DEFAULT_BG_PATH = os.path.join(os.path.dirname(__file__), "assets", "기본배경.png")
-ALT_BG_PATH = os.path.join(os.path.dirname(__file__), "assets", "벽지.png")
-JANG_WONYOUNG_BG_PATH = os.path.join(os.path.dirname(__file__), "assets", "장원영.png")
+DEFAULT_BG_KEY = "default"
+ALT_BG_KEY = "wallpaper"
+JANG_WONYOUNG_BG_KEY = "jang_wonyoung"
+BUILTIN_BACKGROUNDS = {
+    DEFAULT_BG_KEY: ("assets", "기본배경.png"),
+    ALT_BG_KEY: ("assets", "벽지.png"),
+    JANG_WONYOUNG_BG_KEY: ("assets", "장원영.png"),
+}
+
+
+def get_resource_root() -> str:
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_app_root() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+CONFIG_PATH = os.path.join(get_app_root(), "boss_timer_settings.ini")
+
+
+def get_builtin_background_path(background_key: str) -> str:
+    parts = BUILTIN_BACKGROUNDS.get(background_key, BUILTIN_BACKGROUNDS[DEFAULT_BG_KEY])
+    return os.path.join(get_resource_root(), *parts)
+
+
+def get_background_key_from_legacy_path(path: str) -> str | None:
+    normalized_name = os.path.basename(path)
+    for background_key, parts in BUILTIN_BACKGROUNDS.items():
+        if normalized_name == parts[-1]:
+            return background_key
+    return None
 
 
 def format_seconds(seconds: float, show_centiseconds: bool = False) -> str:
@@ -37,7 +70,7 @@ class BossTimerApp:
 
         self.available_font_families = sorted(set(tkfont.families(self.root)))
         self.current_font_family = "Arial Black" if "Arial Black" in self.available_font_families else self.available_font_families[0]
-        self.background_path = DEFAULT_BG_PATH
+        self.background_path = DEFAULT_BG_KEY
         self.background_alignment = "nw"
         self.main_window_x = 100
         self.main_window_y = 100
@@ -91,6 +124,32 @@ class BossTimerApp:
         self._draw_progress_graph(None)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+    def _is_builtin_background(self, source: str) -> bool:
+        return source in BUILTIN_BACKGROUNDS
+
+    def _normalize_background_source(self, source: str | None) -> str:
+        normalized_source = (source or "").strip()
+        if not normalized_source:
+            return DEFAULT_BG_KEY
+        if self._is_builtin_background(normalized_source):
+            return normalized_source
+        legacy_key = get_background_key_from_legacy_path(normalized_source)
+        if legacy_key is not None:
+            return legacy_key
+        return normalized_source
+
+    def _resolve_background_path(self, source: str | None) -> tuple[str, str]:
+        normalized_source = self._normalize_background_source(source)
+        if self._is_builtin_background(normalized_source):
+            return normalized_source, get_builtin_background_path(normalized_source)
+        return normalized_source, normalized_source
+
+    def _get_background_dialog_dir(self) -> str:
+        assets_dir = os.path.join(get_app_root(), "assets")
+        if os.path.isdir(assets_dir):
+            return assets_dir
+        return get_app_root()
+
     def _load_settings(self) -> None:
         config = configparser.ConfigParser()
         if not os.path.exists(CONFIG_PATH):
@@ -100,15 +159,19 @@ class BossTimerApp:
         if "settings" not in config:
             return
         settings = config["settings"]
-        saved_bg = settings.get("background_path", DEFAULT_BG_PATH)
+        saved_bg = settings.get("background_path", DEFAULT_BG_KEY)
         saved_font = settings.get("font_family", "Arial Black")
         saved_alignment = settings.get("background_alignment", "center")
         self.main_window_x = self._parse_int(settings.get("main_window_x"), self.main_window_x)
         self.main_window_y = self._parse_int(settings.get("main_window_y"), self.main_window_y)
         self.settings_window_x = self._parse_int(settings.get("settings_window_x"), self.settings_window_x)
         self.settings_window_y = self._parse_int(settings.get("settings_window_y"), self.settings_window_y)
-        if os.path.exists(saved_bg):
-            self.background_path = saved_bg
+        normalized_bg = self._normalize_background_source(saved_bg)
+        _, resolved_bg_path = self._resolve_background_path(normalized_bg)
+        if self._is_builtin_background(normalized_bg) or os.path.exists(resolved_bg_path):
+            self.background_path = normalized_bg
+        else:
+            self.background_path = DEFAULT_BG_KEY
         if saved_font in self.available_font_families:
             self.current_font_family = saved_font
         if saved_alignment in {"center", "nw"}:
@@ -123,7 +186,7 @@ class BossTimerApp:
     def _save_settings(self) -> None:
         config = configparser.ConfigParser()
         config["settings"] = {
-            "background_path": self.background_path,
+            "background_path": self._normalize_background_source(self.background_path),
             "font_family": self.current_font_family,
             "background_alignment": self.background_alignment,
             "main_window_x": str(self.main_window_x),
@@ -586,22 +649,26 @@ class BossTimerApp:
         self._flash_save_notice()
 
     def select_background_file(self) -> None:
-        path = filedialog.askopenfilename(title="배경 이미지 선택", filetypes=[("Image Files", "*.png *.gif *.ppm *.pgm"), ("All Files", "*.*")])
+        path = filedialog.askopenfilename(
+            title="배경 이미지 선택",
+            initialdir=self._get_background_dialog_dir(),
+            filetypes=[("Image Files", "*.png *.gif *.ppm *.pgm"), ("All Files", "*.*")],
+        )
         if path:
             self.settings_path_var.set(path)
             self._apply_background(path)
 
     def apply_default_background(self) -> None:
-        self.settings_path_var.set(DEFAULT_BG_PATH)
-        self._apply_background(DEFAULT_BG_PATH)
+        self.settings_path_var.set(DEFAULT_BG_KEY)
+        self._apply_background(DEFAULT_BG_KEY)
 
     def apply_blue_wallpaper(self) -> None:
-        self.settings_path_var.set(ALT_BG_PATH)
-        self._apply_background(ALT_BG_PATH)
+        self.settings_path_var.set(ALT_BG_KEY)
+        self._apply_background(ALT_BG_KEY)
 
     def apply_jang_wonyoung_background(self) -> None:
-        self.settings_path_var.set(JANG_WONYOUNG_BG_PATH)
-        self._apply_background(JANG_WONYOUNG_BG_PATH)
+        self.settings_path_var.set(JANG_WONYOUNG_BG_KEY)
+        self._apply_background(JANG_WONYOUNG_BG_KEY)
 
     def apply_background_alignment(self) -> None:
         self.background_alignment = self.background_alignment_var.get()
@@ -646,6 +713,38 @@ class BossTimerApp:
             self.settings_window.update_idletasks()
             self.settings_window_x = self.settings_window.winfo_x()
             self.settings_window_y = self.settings_window.winfo_y()
+
+    def _apply_background(self, path: str, update_setting_var: bool = True) -> None:
+        source, resolved_path = self._resolve_background_path(path)
+        if not os.path.exists(resolved_path):
+            if not self._is_builtin_background(source):
+                messagebox.showerror("배경 오류", "선택한 이미지 파일을 찾을 수 없습니다.")
+            source = DEFAULT_BG_KEY
+            resolved_path = get_builtin_background_path(DEFAULT_BG_KEY)
+        try:
+            image = tk.PhotoImage(file=resolved_path)
+        except tk.TclError:
+            if not self._is_builtin_background(source):
+                messagebox.showerror("배경 오류", "지원하지 않는 이미지 형식입니다.\nPNG, GIF, PPM, PGM 파일을 사용해 주세요.")
+                source = DEFAULT_BG_KEY
+                resolved_path = get_builtin_background_path(DEFAULT_BG_KEY)
+                image = tk.PhotoImage(file=resolved_path)
+            else:
+                raise
+        self.background_image = image
+        self.background_path = source
+        self.bg_canvas.itemconfig(self.background_item, image=self.background_image)
+        if self.background_alignment == "nw":
+            self.bg_canvas.itemconfig(self.background_item, anchor="nw")
+            self.bg_canvas.coords(self.background_item, 0, 0)
+        else:
+            self.bg_canvas.itemconfig(self.background_item, anchor="center")
+            self.bg_canvas.coords(self.background_item, WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)
+        self.bg_canvas.tag_lower(self.background_item)
+        if hasattr(self, "settings_bg_label") and self.settings_bg_label.winfo_exists():
+            self.settings_bg_label.config(image=self.background_image)
+        if update_setting_var:
+            self.settings_path_var.set(source)
 
     def close_settings_window(self) -> None:
         if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
