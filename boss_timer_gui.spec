@@ -25,6 +25,7 @@ datas = [
     ("assets\\벽지.png", "assets"),
     ("assets\\장원영.png", "assets"),
 ]
+datas += collect_tree(Path("icons"), "icons")
 datas += collect_tree(tcl_root / "tcl8.6", "tcl8.6")
 datas += collect_tree(tcl_root / "tk8.6", "tk8.6")
 
