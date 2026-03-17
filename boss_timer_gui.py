@@ -1,4 +1,5 @@
 import configparser
+import ctypes
 import math
 import os
 import sys
@@ -16,8 +17,8 @@ ALERT_TAG = "alert_overlay"
 GRAPH_AREA_X = 29
 GRAPH_AREA_Y = 330
 GRAPH_TAG = "graph_overlay"
-APP_VERSION = "v1.0.0"
-LAST_UPDATED = "2026-03-16"
+APP_VERSION = "v1.1.0"
+LAST_UPDATED = "2026-03-17"
 AUTHOR_NAME = "나츠"
 DEFAULT_BG_KEY = "default"
 ALT_BG_KEY = "wallpaper"
@@ -64,6 +65,20 @@ PREFERRED_FONT_FAMILIES = [
     "Arial",
     "Tahoma",
 ]
+DEFAULT_TK_SCALING = 96 / 72
+ELAPSED_BRUSH_TAG = "elapsed_brush"
+ELAPSED_BRUSH_COLORS = {
+    "노랑": "#facc15",
+    "주황": "#fb923c",
+    "핑크": "#f9a8d4",
+    "하늘": "#7dd3fc",
+    "연두": "#bef264",
+    "검은색": "#111827",
+    "연빨강": "#fca5a5",
+    "연보라": "#c4b5fd",
+    "아이보리": "#f8f1df",
+    "황토색": "#c2410c",
+}
 
 
 def get_resource_root() -> str:
@@ -104,6 +119,27 @@ def get_progress_bar_path(bar_key: str) -> str:
     return os.path.join(get_resource_root(), *parts)
 
 
+def configure_windows_dpi() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+def configure_tk_scaling(root: tk.Tk) -> None:
+    try:
+        root.tk.call("tk", "scaling", DEFAULT_TK_SCALING)
+    except tk.TclError:
+        pass
+
+
 def format_seconds(seconds: float, show_centiseconds: bool = False) -> str:
     safe_seconds = max(0.0, seconds)
     whole_seconds = int(safe_seconds)
@@ -128,6 +164,8 @@ class BossTimerApp:
         self.show_alert_overlay = True
         self.show_alert_percent = True
         self.show_hodulgap_banner = True
+        self.show_elapsed_brush = True
+        self.elapsed_brush_color_name = "노랑"
         self.main_window_x = 100
         self.main_window_y = 100
         self.settings_window_x = 140
@@ -141,6 +179,8 @@ class BossTimerApp:
         self.show_alert_overlay_var = tk.BooleanVar(value=self.show_alert_overlay)
         self.show_alert_percent_var = tk.BooleanVar(value=self.show_alert_percent)
         self.show_hodulgap_banner_var = tk.BooleanVar(value=self.show_hodulgap_banner)
+        self.show_elapsed_brush_var = tk.BooleanVar(value=self.show_elapsed_brush)
+        self.elapsed_brush_color_var = tk.StringVar(value=self.elapsed_brush_color_name)
 
         self.running = False
         self.base_elapsed_seconds = 0.0
@@ -167,7 +207,7 @@ class BossTimerApp:
         self.settings_notice_after_id = None
         self.settings_notice_end_time = 0.0
 
-        self.title_font = tkfont.Font(family=self.current_font_family, size=26, weight="bold")
+        self.title_font = tkfont.Font(family=self.current_font_family, size=40, weight="bold")
         self.header_font = tkfont.Font(family=self.current_font_family, size=13, weight="bold")
         self.alert_font = tkfont.Font(family=self.current_font_family, size=11, weight="bold")
         self.label_font = tkfont.Font(family=self.current_font_family, size=12, weight="bold")
@@ -236,6 +276,8 @@ class BossTimerApp:
         saved_alert_overlay = settings.getboolean("show_alert_overlay", fallback=True)
         saved_alert_percent = settings.getboolean("show_alert_percent", fallback=True)
         saved_hodulgap_banner = settings.getboolean("show_hodulgap_banner", fallback=True)
+        saved_elapsed_brush = settings.getboolean("show_elapsed_brush", fallback=True)
+        saved_elapsed_brush_color = settings.get("elapsed_brush_color", "노랑")
         self.main_window_x = self._parse_int(settings.get("main_window_x"), self.main_window_x)
         self.main_window_y = self._parse_int(settings.get("main_window_y"), self.main_window_y)
         self.settings_window_x = self._parse_int(settings.get("settings_window_x"), self.settings_window_x)
@@ -253,6 +295,9 @@ class BossTimerApp:
         self.show_alert_overlay = saved_alert_overlay
         self.show_alert_percent = saved_alert_percent
         self.show_hodulgap_banner = saved_hodulgap_banner
+        self.show_elapsed_brush = saved_elapsed_brush
+        if saved_elapsed_brush_color in ELAPSED_BRUSH_COLORS:
+            self.elapsed_brush_color_name = saved_elapsed_brush_color
 
     def _parse_int(self, value: str | None, fallback: int) -> int:
         try:
@@ -269,6 +314,8 @@ class BossTimerApp:
             "show_alert_overlay": str(self.show_alert_overlay),
             "show_alert_percent": str(self.show_alert_percent),
             "show_hodulgap_banner": str(self.show_hodulgap_banner),
+            "show_elapsed_brush": str(self.show_elapsed_brush),
+            "elapsed_brush_color": self.elapsed_brush_color_name,
             "main_window_x": str(self.main_window_x),
             "main_window_y": str(self.main_window_y),
             "settings_window_x": str(self.settings_window_x),
@@ -292,37 +339,41 @@ class BossTimerApp:
 
         self.settings_button = self._create_canvas_icon_button("settings", 440, 26, self.open_settings_window)
 
-        self.elapsed_label = tk.Label(
-            self.root,
-            textvariable=self.elapsed_var,
+        self.elapsed_color = "#cbd5e1"
+        self._draw_elapsed_brush()
+        self.elapsed_shadow_item = self.bg_canvas.create_text(
+            238,
+            61,
+            text=self.elapsed_var.get(),
+            fill="#0f172a",
             font=self.title_font,
-            bg="#020617",
-            fg="#cbd5e1",
-            relief="flat",
-            bd=0,
-            padx=10,
-            pady=4,
         )
-        self.bg_canvas.create_window(236, 34, anchor="n", window=self.elapsed_label, width=230)
+        self.elapsed_text_item = self.bg_canvas.create_text(
+            236,
+            59,
+            text=self.elapsed_var.get(),
+            fill=self.elapsed_color,
+            font=self.title_font,
+        )
 
         self.start_button = self._create_canvas_icon_button("play", 203, 118, self.toggle_timer)
         self.reset_button = self._create_canvas_icon_button("reset", 268, 118, self.reset_timer)
 
         self.record_button_frame = tk.Frame(
             self.root,
-            bg="#fda4af",
-            bd=2,
+            bg="#fb923c",
+            bd=1,
             relief="raised",
-            highlightthickness=1,
-            highlightbackground="#fecdd3",
-            highlightcolor="#fecdd3",
+            highlightthickness=0,
+            highlightbackground="#fdba74",
+            highlightcolor="#fdba74",
             cursor="hand2",
         )
         self.record_paw_label = tk.Label(
             self.record_button_frame,
             text="🐾",
             font=tkfont.Font(family=self.current_font_family, size=16, weight="bold"),
-            bg="#fda4af",
+            bg="#fb923c",
             fg="#111827",
             padx=1,
             pady=0,
@@ -333,9 +384,9 @@ class BossTimerApp:
             self.record_button_frame,
             text="광 췍",
             font=tkfont.Font(family=self.current_font_family, size=11, weight="bold"),
-            bg="#fda4af",
+            bg="#fb923c",
             fg="#ffffff",
-            activebackground="#fb7185",
+            activebackground="#ea580c",
             activeforeground="#ffffff",
             relief="flat",
             bd=0,
@@ -396,6 +447,14 @@ class BossTimerApp:
             x + 8, y + height - 3,
         ]
         canvas.create_polygon(points, fill=color, outline="", smooth=True, splinesteps=12, tags=tags)
+
+    def _draw_elapsed_brush(self) -> None:
+        self.bg_canvas.delete(ELAPSED_BRUSH_TAG)
+        if not self.show_elapsed_brush:
+            return
+        brush_color = ELAPSED_BRUSH_COLORS.get(self.elapsed_brush_color_name, ELAPSED_BRUSH_COLORS["노랑"])
+        self._draw_brush_stroke(self.bg_canvas, 84, 41, 302, 40, brush_color, tags=ELAPSED_BRUSH_TAG)
+        self.bg_canvas.tag_raise(ELAPSED_BRUSH_TAG, self.background_item)
 
     def _create_timer_row(self, y: int, label_text: str, value_var: tk.StringVar, box_bg: str, box_fg: str, store_as: str | None = None, visible: bool = True, label_fg: str = "#f8fafc", brush_color: str = "#c65d1e") -> None:
         if not visible:
@@ -604,6 +663,16 @@ class BossTimerApp:
         self.show_hodulgap_banner = self.show_hodulgap_banner_var.get()
         self._draw_progress_graph(self.current_percent)
 
+    def apply_elapsed_brush_setting(self, *_args) -> None:
+        self.show_elapsed_brush = self.show_elapsed_brush_var.get()
+        selected_color = self.elapsed_brush_color_var.get()
+        if selected_color in ELAPSED_BRUSH_COLORS:
+            self.elapsed_brush_color_name = selected_color
+        self._draw_elapsed_brush()
+        self.bg_canvas.tag_raise(self.elapsed_shadow_item)
+        self.bg_canvas.tag_raise(self.elapsed_text_item)
+        self._save_settings()
+
     def _apply_font_family(self, family: str) -> None:
         self.current_font_family = family
         for font_obj in [self.title_font, self.header_font, self.alert_font, self.label_font, self.value_font, self.button_font, self.banner_font, self.percent_font, self.burst_font, self.signature_font, self.icon_font]:
@@ -631,7 +700,7 @@ class BossTimerApp:
             return
         self.running = True
         self.start_perf_time = time.perf_counter()
-        self.elapsed_label.config(fg="#16a34a")
+        self._set_elapsed_color("#16a34a")
         self._sync_start_button_icon()
         self._schedule_update()
 
@@ -639,7 +708,7 @@ class BossTimerApp:
         if self.running:
             self.base_elapsed_seconds = self._now_elapsed()
         self.running = False
-        self.elapsed_label.config(fg="#cbd5e1")
+        self._set_elapsed_color("#cbd5e1")
         self._sync_start_button_icon()
         self._cancel_update()
         self._start_pause_blink()
@@ -652,8 +721,8 @@ class BossTimerApp:
         self.reached_70_display_seconds = None
         self.current_percent = None
         self._stop_pause_blink()
-        self.elapsed_var.set("00:00:00")
-        self.elapsed_label.config(fg="#cbd5e1")
+        self._update_elapsed_display("00:00:00")
+        self._set_elapsed_color("#cbd5e1")
         self.reached_70_var.set("00:00:00")
         self.remain_90_var.set("00:00:00")
         self.remain_kill_var.set("00:00:00")
@@ -684,6 +753,15 @@ class BossTimerApp:
             self.root.after_cancel(self.update_after_id)
             self.update_after_id = None
 
+    def _set_elapsed_color(self, color: str) -> None:
+        self.elapsed_color = color
+        self.bg_canvas.itemconfig(self.elapsed_text_item, fill=color)
+
+    def _update_elapsed_display(self, text: str) -> None:
+        self.elapsed_var.set(text)
+        self.bg_canvas.itemconfig(self.elapsed_shadow_item, text=text)
+        self.bg_canvas.itemconfig(self.elapsed_text_item, text=text)
+
     def _start_pause_blink(self) -> None:
         self._stop_pause_blink()
         if self.base_elapsed_seconds <= 0:
@@ -694,7 +772,7 @@ class BossTimerApp:
     def _pause_blink_tick(self) -> None:
         if self.running:
             return
-        self.elapsed_label.config(fg="#cbd5e1" if self.pause_blink_on else "#6b7280")
+        self._set_elapsed_color("#cbd5e1" if self.pause_blink_on else "#6b7280")
         self.pause_blink_on = not self.pause_blink_on
         self.pause_blink_after_id = self.root.after(500, self._pause_blink_tick)
 
@@ -711,7 +789,7 @@ class BossTimerApp:
 
     def _refresh_ui(self) -> None:
         current_elapsed = self._now_elapsed()
-        self.elapsed_var.set(format_seconds(current_elapsed, show_centiseconds=True))
+        self._update_elapsed_display(format_seconds(current_elapsed, show_centiseconds=True))
         if self.reached_70_display_seconds is not None:
             self.reached_70_var.set(format_seconds(self.reached_70_display_seconds, show_centiseconds=True))
         self._update_prediction_labels(current_elapsed)
@@ -899,8 +977,10 @@ class BossTimerApp:
         now = time.perf_counter()
         if now >= self.settings_notice_end_time:
             self.save_notice_label.config(text="")
+            self.save_notice_label.place_forget()
             self.settings_notice_after_id = None
             return
+        self.save_notice_label.place(x=18, y=404)
         self.save_notice_label.config(text="설정이 저장 되었습니다." if int(now * 2) % 2 == 0 else "")
         self.settings_notice_after_id = self.settings_window.after(500, self._flash_save_notice)
 
@@ -910,7 +990,7 @@ class BossTimerApp:
             return
         self.settings_window = tk.Toplevel(self.root)
         self.settings_window.title("환경설정")
-        self.settings_window.geometry(f"430x420+{self.settings_window_x}+{self.settings_window_y}")
+        self.settings_window.geometry(f"430x500+{self.settings_window_x}+{self.settings_window_y}")
         self.settings_window.resizable(False, False)
         self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings_window)
         self.settings_bg_label = tk.Label(self.settings_window, bd=0)
@@ -921,10 +1001,10 @@ class BossTimerApp:
         tk.Label(self.settings_window, text="환경설정", font=self.header_font, bg="#000001", fg="#f8fafc").place(x=18, y=14)
         tk.Label(self.settings_window, text="배경 이미지", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=48)
         tk.Entry(self.settings_window, textvariable=self.settings_path_var, font=(self.current_font_family, 10), width=33, bd=0, highlightthickness=0).place(x=18, y=76, width=276, height=26)
-        tk.Button(self.settings_window, text="파일 선택", font=self.button_font, bg="#1e293b", fg="white", activebackground="#334155", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.select_background_file, cursor="hand2").place(x=304, y=74, width=98, height=28)
-        tk.Button(self.settings_window, text="기본배경", font=self.button_font, bg="#1e293b", fg="white", activebackground="#334155", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_default_background, cursor="hand2").place(x=18, y=106, width=86, height=28)
-        tk.Button(self.settings_window, text="벽지", font=self.button_font, bg="#1e293b", fg="white", activebackground="#334155", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_blue_wallpaper, cursor="hand2").place(x=112, y=106, width=86, height=28)
-        tk.Button(self.settings_window, text="장원영", font=self.button_font, bg="#1e293b", fg="white", activebackground="#334155", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_jang_wonyoung_background, cursor="hand2").place(x=206, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="파일 선택", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.select_background_file, cursor="hand2").place(x=304, y=74, width=98, height=28)
+        tk.Button(self.settings_window, text="기본배경", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_default_background, cursor="hand2").place(x=18, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="벽지", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_blue_wallpaper, cursor="hand2").place(x=112, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="장원영", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_jang_wonyoung_background, cursor="hand2").place(x=206, y=106, width=86, height=28)
         tk.Label(self.settings_window, text="배경 정렬", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=142)
         tk.Radiobutton(self.settings_window, text="좌상단", value="nw", variable=self.background_alignment_var, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", command=self.apply_background_alignment).place(x=18, y=168)
         tk.Radiobutton(self.settings_window, text="중앙", value="center", variable=self.background_alignment_var, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", command=self.apply_background_alignment).place(x=104, y=168)
@@ -1277,7 +1357,7 @@ class BossTimerApp:
         elif self.current_percent is not None and self.current_percent >= 80.0:
             speech = "80% 돌파!"
         else:
-            speech = "괜찮았어~!"
+            speech = "광 떴어요~!"
         if self.show_alert_overlay:
             self._draw_sleepy_pomeranian(80, 33)
             self.bg_canvas.create_oval(160, 307, 292, 335, fill="#f8fafc", outline="#cbd5e1", width=2, tags=ALERT_TAG)
@@ -1318,6 +1398,120 @@ class BossTimerApp:
         if update_setting_var:
             self.settings_path_var.set(source)
 
+    def open_settings_window(self) -> None:
+        if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
+            self.settings_window.focus_force()
+            return
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title("환경설정")
+        self.settings_window.geometry(f"430x470+{self.settings_window_x}+{self.settings_window_y}")
+        self.settings_window.resizable(False, False)
+        self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings_window)
+        self.settings_bg_label = tk.Label(self.settings_window, bd=0)
+        self.settings_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+        if self.background_image is not None:
+            self.settings_bg_label.config(image=self.background_image)
+
+        tk.Label(self.settings_window, text="환경설정", font=self.header_font, bg="#000001", fg="#f8fafc").place(x=18, y=14)
+        tk.Label(self.settings_window, text="배경 이미지", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=48)
+        tk.Entry(self.settings_window, textvariable=self.settings_path_var, font=(self.current_font_family, 10), width=33, bd=0, highlightthickness=0).place(x=18, y=76, width=276, height=26)
+        tk.Button(self.settings_window, text="파일 선택", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.select_background_file, cursor="hand2").place(x=304, y=74, width=98, height=28)
+        tk.Button(self.settings_window, text="기본배경", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_default_background, cursor="hand2").place(x=18, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="벽지", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_blue_wallpaper, cursor="hand2").place(x=112, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="장원영", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_jang_wonyoung_background, cursor="hand2").place(x=206, y=106, width=86, height=28)
+        tk.Label(self.settings_window, text="배경 정렬", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=142)
+        tk.Radiobutton(self.settings_window, text="좌상단", value="nw", variable=self.background_alignment_var, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", command=self.apply_background_alignment).place(x=18, y=168)
+        tk.Radiobutton(self.settings_window, text="중앙", value="center", variable=self.background_alignment_var, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", command=self.apply_background_alignment).place(x=104, y=168)
+        tk.Checkbutton(self.settings_window, text="강아지/말풍선 표시", variable=self.show_alert_overlay_var, command=self.apply_alert_overlay_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=202)
+        tk.Checkbutton(self.settings_window, text="퍼센트 표시", variable=self.show_alert_percent_var, command=self.apply_alert_percent_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=226)
+        tk.Checkbutton(self.settings_window, text="호들갑 오더 배너", variable=self.show_hodulgap_banner_var, command=self.apply_hodulgap_banner_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=250)
+        tk.Checkbutton(self.settings_window, text="스톱워치 붓 배경 사용", variable=self.show_elapsed_brush_var, command=self.apply_elapsed_brush_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=274)
+        tk.Label(self.settings_window, text="스톱워치 배경색", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=300)
+        self.elapsed_brush_color_menu = tk.OptionMenu(self.settings_window, self.elapsed_brush_color_var, *ELAPSED_BRUSH_COLORS.keys(), command=self.apply_elapsed_brush_setting)
+        self.elapsed_brush_color_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        self.elapsed_brush_color_menu["menu"].config(font=(self.current_font_family, 9), bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18")
+        self.elapsed_brush_color_menu.place(x=18, y=324, width=130, height=30)
+        tk.Label(self.settings_window, text="폰트", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=360)
+        self.font_menu = tk.OptionMenu(self.settings_window, self.font_family_var, *self.available_font_families)
+        self.font_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        self.font_menu["menu"].config(font=(self.current_font_family, 9), bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18")
+        self.font_menu.place(x=18, y=384, width=276, height=30)
+        self.apply_button = tk.Button(self.settings_window, text="저장", font=self.button_font, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_settings, cursor="hand2")
+        self.apply_button.place(x=304, y=432, width=98, height=30)
+        self.save_notice_label = tk.Label(self.settings_window, text="", font=self.button_font, bg="#000001", fg="#fef08a")
+        self.save_notice_label.place(x=18, y=404)
+        tk.Label(self.settings_window, text=f"Made by {AUTHOR_NAME}", font=(self.current_font_family, 10, "bold"), bg="#000001", fg="#b45309").place(x=18, y=422)
+        tk.Label(self.settings_window, text=APP_VERSION, font=(self.current_font_family, 10, "bold"), bg="#000001", fg="#b45309").place(x=132, y=422)
+        tk.Label(self.settings_window, text=f"마지막 작업일자: {LAST_UPDATED}", font=(self.current_font_family, 10, "bold"), bg="#000001", fg="#7c3aed").place(x=18, y=460)
+
+    def apply_settings(self) -> None:
+        if self.font_family_var.get() in self.available_font_families:
+            self._apply_font_family(self.font_family_var.get())
+        self.background_alignment = self.background_alignment_var.get()
+        self.show_alert_overlay = self.show_alert_overlay_var.get()
+        self.show_alert_percent = self.show_alert_percent_var.get()
+        self.show_hodulgap_banner = self.show_hodulgap_banner_var.get()
+        self.show_elapsed_brush = self.show_elapsed_brush_var.get()
+        if self.elapsed_brush_color_var.get() in ELAPSED_BRUSH_COLORS:
+            self.elapsed_brush_color_name = self.elapsed_brush_color_var.get()
+        self._apply_background(self.settings_path_var.get().strip())
+        self._draw_elapsed_brush()
+        self.bg_canvas.tag_raise(self.elapsed_shadow_item)
+        self.bg_canvas.tag_raise(self.elapsed_text_item)
+        self._draw_alert_banner()
+        self._draw_progress_graph(self.current_percent)
+        self._update_window_positions()
+        self._save_settings()
+        if self.settings_notice_after_id is not None and hasattr(self, "settings_window") and self.settings_window.winfo_exists():
+            self.settings_window.after_cancel(self.settings_notice_after_id)
+        self.settings_notice_end_time = time.perf_counter() + 3.0
+        self._flash_save_notice()
+
+    def open_settings_window(self) -> None:
+        if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
+            self.settings_window.focus_force()
+            return
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title("환경설정")
+        self.settings_window.geometry(f"430x470+{self.settings_window_x}+{self.settings_window_y}")
+        self.settings_window.resizable(False, False)
+        self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings_window)
+        self.settings_bg_label = tk.Label(self.settings_window, bd=0)
+        self.settings_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+        if self.background_image is not None:
+            self.settings_bg_label.config(image=self.background_image)
+
+        tk.Label(self.settings_window, text="환경설정", font=self.header_font, bg="#000001", fg="#f8fafc").place(x=18, y=14)
+        tk.Label(self.settings_window, text="배경 이미지", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=48)
+        tk.Entry(self.settings_window, textvariable=self.settings_path_var, font=(self.current_font_family, 10), width=33, bd=0, highlightthickness=0).place(x=18, y=76, width=276, height=26)
+        tk.Button(self.settings_window, text="파일 선택", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.select_background_file, cursor="hand2").place(x=304, y=74, width=98, height=28)
+        tk.Button(self.settings_window, text="기본배경", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_default_background, cursor="hand2").place(x=18, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="벽지", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_blue_wallpaper, cursor="hand2").place(x=112, y=106, width=86, height=28)
+        tk.Button(self.settings_window, text="장원영", font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", relief="flat", bd=0, highlightthickness=0, command=self.apply_jang_wonyoung_background, cursor="hand2").place(x=206, y=106, width=86, height=28)
+        tk.Label(self.settings_window, text="배경 정렬", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=142)
+        tk.Radiobutton(self.settings_window, text="좌상단", value="nw", variable=self.background_alignment_var, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", command=self.apply_background_alignment).place(x=18, y=168)
+        tk.Radiobutton(self.settings_window, text="중앙", value="center", variable=self.background_alignment_var, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", command=self.apply_background_alignment).place(x=104, y=168)
+        tk.Checkbutton(self.settings_window, text="강아지/말풍선 표시", variable=self.show_alert_overlay_var, command=self.apply_alert_overlay_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=202)
+        tk.Checkbutton(self.settings_window, text="퍼센트 표시", variable=self.show_alert_percent_var, command=self.apply_alert_percent_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=226)
+        tk.Checkbutton(self.settings_window, text="호들갑 오더 배너", variable=self.show_hodulgap_banner_var, command=self.apply_hodulgap_banner_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=250)
+        tk.Checkbutton(self.settings_window, text="스톱워치 붓 배경 사용", variable=self.show_elapsed_brush_var, command=self.apply_elapsed_brush_setting, font=self.button_font, bg="#000001", fg="#f8fafc", selectcolor="#1e293b", activebackground="#000001", activeforeground="#f8fafc", highlightthickness=0, bd=0).place(x=18, y=274)
+        tk.Label(self.settings_window, text="스톱워치 배경색", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=300)
+        self.elapsed_brush_color_menu = tk.OptionMenu(self.settings_window, self.elapsed_brush_color_var, *ELAPSED_BRUSH_COLORS.keys(), command=self.apply_elapsed_brush_setting)
+        self.elapsed_brush_color_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        self.elapsed_brush_color_menu["menu"].config(font=(self.current_font_family, 9), bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18")
+        self.elapsed_brush_color_menu.place(x=18, y=324, width=130, height=30)
+        tk.Label(self.settings_window, text="폰트", font=self.label_font, bg="#000001", fg="#f8fafc").place(x=18, y=360)
+        self.font_menu = tk.OptionMenu(self.settings_window, self.font_family_var, *self.available_font_families)
+        self.font_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        self.font_menu["menu"].config(font=(self.current_font_family, 9), bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18")
+        self.font_menu.place(x=18, y=384, width=276, height=30)
+        self.apply_button = tk.Button(self.settings_window, text="저장", font=self.button_font, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_settings, cursor="hand2")
+        self.apply_button.place(x=304, y=432, width=98, height=30)
+        self.save_notice_label = tk.Label(self.settings_window, text="", font=self.button_font, bg="#f8f1df", fg="#b45309")
+        tk.Label(self.settings_window, text=f"Made by {AUTHOR_NAME}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309").place(x=18, y=422)
+        tk.Label(self.settings_window, text=APP_VERSION, font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309").place(x=132, y=422)
+        tk.Label(self.settings_window, text=f"마지막 작업일자: {LAST_UPDATED}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#7c3aed").place(x=18, y=440)
+
     def close_settings_window(self) -> None:
         if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
             self.settings_window.update_idletasks()
@@ -1340,9 +1534,11 @@ class BossTimerApp:
 
 
 def main() -> None:
+    configure_windows_dpi()
     root = tk.Tk()
+    configure_tk_scaling(root)
     app = BossTimerApp(root)
-    app.elapsed_label.config(fg="#cbd5e1")
+    app._set_elapsed_color("#cbd5e1")
     root.mainloop()
 
 
