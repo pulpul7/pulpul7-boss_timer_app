@@ -57,6 +57,13 @@ BUTTON_ICON_MAX_SIZE = {
 }
 PROGRESS_BAR_CROP = (28, 320, 1508, 438)
 PROGRESS_BAR_SCALE = 4
+PREFERRED_FONT_FAMILIES = [
+    "Arial Black",
+    "Malgun Gothic",
+    "Segoe UI",
+    "Arial",
+    "Tahoma",
+]
 
 
 def get_resource_root() -> str:
@@ -115,7 +122,7 @@ class BossTimerApp:
         self.root.resizable(False, False)
 
         self.available_font_families = sorted(set(tkfont.families(self.root)))
-        self.current_font_family = "Arial Black" if "Arial Black" in self.available_font_families else self.available_font_families[0]
+        self.current_font_family = self._get_default_font_family()
         self.background_path = DEFAULT_BG_KEY
         self.background_alignment = "nw"
         self.show_alert_overlay = True
@@ -185,6 +192,12 @@ class BossTimerApp:
     def _is_builtin_background(self, source: str) -> bool:
         return source in BUILTIN_BACKGROUNDS
 
+    def _get_default_font_family(self) -> str:
+        for family in PREFERRED_FONT_FAMILIES:
+            if family in self.available_font_families:
+                return family
+        return self.available_font_families[0]
+
     def _normalize_background_source(self, source: str | None) -> str:
         normalized_source = (source or "").strip()
         if not normalized_source:
@@ -218,7 +231,7 @@ class BossTimerApp:
             return
         settings = config["settings"]
         saved_bg = settings.get("background_path", DEFAULT_BG_KEY)
-        saved_font = settings.get("font_family", "Arial Black")
+        saved_font = settings.get("font_family", self._get_default_font_family())
         saved_alignment = settings.get("background_alignment", "center")
         saved_alert_overlay = settings.getboolean("show_alert_overlay", fallback=True)
         saved_alert_percent = settings.getboolean("show_alert_percent", fallback=True)
@@ -290,7 +303,7 @@ class BossTimerApp:
             padx=10,
             pady=4,
         )
-        self.bg_canvas.create_window(236, 40, anchor="n", window=self.elapsed_label, width=230)
+        self.bg_canvas.create_window(236, 34, anchor="n", window=self.elapsed_label, width=230)
 
         self.start_button = self._create_canvas_icon_button("play", 203, 118, self.toggle_timer)
         self.reset_button = self._create_canvas_icon_button("reset", 268, 118, self.reset_timer)
@@ -1256,9 +1269,9 @@ class BossTimerApp:
             self.bg_canvas.tag_raise(ALERT_TAG, self.background_item)
             return
         if self.current_percent is not None and self.current_percent >= 94.0:
-            speech = "그냥 빼야 돼?"
+            speech = "그냥 빡딜 해~!!"
         elif self.current_percent is not None and self.current_percent >= 90.0:
-            speech = "빼기 준비!"
+            speech = "빡딜 준비~!"
         elif self.current_percent is not None and self.current_percent >= 85.0:
             speech = "85% 돌파!!"
         elif self.current_percent is not None and self.current_percent >= 80.0:
