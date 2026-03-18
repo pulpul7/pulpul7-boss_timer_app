@@ -671,6 +671,9 @@ class BossTimerApp:
 
     def _save_settings(self) -> None:
         config = configparser.ConfigParser()
+        analysis_count_value = self.analysis_count_default
+        if hasattr(self, "analysis_count_var") and self.analysis_count_var is not None:
+            analysis_count_value = self.analysis_count_var.get()
         config["settings"] = {
             "background_path": self._normalize_background_source(self.background_path),
             "font_family": self.current_font_family,
@@ -680,7 +683,7 @@ class BossTimerApp:
             "show_hodulgap_banner": str(self.show_hodulgap_banner),
             "show_elapsed_brush": str(self.show_elapsed_brush),
             "elapsed_brush_color": self.elapsed_brush_color_name,
-            "analysis_count": self.analysis_count_var.get(),
+            "analysis_count": analysis_count_value,
             "main_window_x": str(self.main_window_x),
             "main_window_y": str(self.main_window_y),
             "settings_window_x": str(self.settings_window_x),
