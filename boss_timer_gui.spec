@@ -1,6 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import json
+from datetime import datetime
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -19,8 +22,44 @@ def collect_tree(src_dir: Path, dest_root: str) -> list[tuple[str, str]]:
 python_root = Path(sys.executable).resolve().parent
 dll_dir = python_root / "DLLs"
 tcl_root = python_root / "tcl"
+project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
+
+
+def read_git_text(args: list[str]) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+    except Exception:
+        return ""
+    return completed.stdout.strip()
+
+
+def write_build_metadata() -> Path:
+    tag_lines = read_git_text(["tag", "--sort=-creatordate"]).splitlines()
+    last_updated = read_git_text(["log", "-1", "--format=%cs"])
+    detail_version = read_git_text(["describe", "--tags", "--always", "--dirty"])
+    metadata = {
+        "author": "나츠",
+        "version": tag_lines[0].strip() if tag_lines else "v 2.0.0.Beta",
+        "last_updated": last_updated or "2026-03-17",
+        "build_detail_version": detail_version or "unknown",
+        "build_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    metadata_path = project_root / "build_metadata.json"
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    return metadata_path
+
+
+build_metadata_path = write_build_metadata()
 
 datas = [
+    (str(build_metadata_path), "."),
     ("assets\\기본배경.png", "assets"),
     ("assets\\벽지.png", "assets"),
     ("assets\\장원영.png", "assets"),
