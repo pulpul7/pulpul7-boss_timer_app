@@ -1,0 +1,728 @@
+[2026-03-20 06:49:15]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:49:30]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:49:30]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:49:30]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3306, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3283, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:51:51]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3302, in _on_record_book_mousewheel
+    if not self._is_pointer_inside_record_book_window():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3279, in _is_pointer_inside_record_book_window
+    pointer_widget = self._get_pointer_widget()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3264, in _get_pointer_widget
+    return self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1131, in winfo_containing
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:51:51]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3302, in _on_record_book_mousewheel
+    if not self._is_pointer_inside_record_book_window():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3279, in _is_pointer_inside_record_book_window
+    pointer_widget = self._get_pointer_widget()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3264, in _get_pointer_widget
+    return self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1131, in winfo_containing
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3302, in _on_record_book_mousewheel
+    if not self._is_pointer_inside_record_book_window():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3279, in _is_pointer_inside_record_book_window
+    pointer_widget = self._get_pointer_widget()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3264, in _get_pointer_widget
+    return self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1131, in winfo_containing
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:52:02]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3302, in _on_record_book_mousewheel
+    if not self._is_pointer_inside_record_book_window():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3279, in _is_pointer_inside_record_book_window
+    pointer_widget = self._get_pointer_widget()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3264, in _get_pointer_widget
+    return self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1131, in winfo_containing
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:52:02]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3302, in _on_record_book_mousewheel
+    if not self._is_pointer_inside_record_book_window():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3279, in _is_pointer_inside_record_book_window
+    pointer_widget = self._get_pointer_widget()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3264, in _get_pointer_widget
+    return self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1131, in winfo_containing
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3302, in _on_record_book_mousewheel
+    if not self._is_pointer_inside_record_book_window():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3279, in _is_pointer_inside_record_book_window
+    pointer_widget = self._get_pointer_widget()
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3264, in _get_pointer_widget
+    return self.root.winfo_containing(self.root.winfo_pointerx(), self.root.winfo_pointery())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1131, in winfo_containing
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 06:53:09]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3304, in _on_record_book_mousewheel
+    if self._is_record_book_date_input_active():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3290, in _is_record_book_date_input_active
+    focus_widget = self.root.focus_get()
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-03-20 07:09:11]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3958, in <lambda>
+    command=lambda: self._set_record_book_all_enabled(False),
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3502, in _set_record_book_all_enabled
+    self._update_record_book_row_enabled_states()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3553, in _update_record_book_row_enabled_states
+    widgets["memo"].config(
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1722, in configure
+    return self._configure('configure', cnf, kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1712, in _configure
+    self.tk.call(_flatten((self._w, cmd)) + self._options(cnf))
+_tkinter.TclError: unknown option "-disabledbackground"
+
+[2026-03-20 07:11:08]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3562, in _on_record_book_date_field_change
+    self._load_record_book_date_if_changed()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 1009, in _load_record_book_date_if_changed
+    self._load_record_book_date()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4053, in _load_record_book_date
+    self._update_record_book_row_enabled_states()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3553, in _update_record_book_row_enabled_states
+    widgets["memo"].config(
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1722, in configure
+    return self._configure('configure', cnf, kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1712, in _configure
+    self.tk.call(_flatten((self._w, cmd)) + self._options(cnf))
+_tkinter.TclError: unknown option "-disabledbackground"
+
+[2026-03-27 12:06:50]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 10407, in close_log_stats_window
+    bd=0,
+        ^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 10487, in _reset_log_stats_pending_state
+    if use_invasion and entry.get("enemy_invasion"):
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 10455, in _update_log_stats_save_button_state
+    recent_count = max(1, self._parse_int(self.record_book_recent_count_var.get(), RECORD_BOOK_DEFAULT_RECENT_COUNT))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1722, in configure
+    return self._configure('configure', cnf, kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1712, in _configure
+    self.tk.call(_flatten((self._w, cmd)) + self._options(cnf))
+_tkinter.TclError: invalid command name ".!toplevel3.!frame.!button"
+
+[2026-03-27 15:29:07]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 7700, in open_schedule_boss_config_window
+    self._ensure_schedule_boss_config_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 8997, in _ensure_schedule_boss_config_window
+    font=self.small_font,
+         ^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute 'small_font'
+
+[2026-03-27 15:34:10]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 7814, in open_schedule_boss_config_window
+    self._ensure_schedule_boss_config_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 9117, in _ensure_schedule_boss_config_window
+    font=self.small_font,
+         ^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute 'small_font'
+
+[2026-03-27 15:35:04]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 7814, in open_schedule_boss_config_window
+    self._ensure_schedule_boss_config_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 9117, in _ensure_schedule_boss_config_window
+    font=self.small_font,
+         ^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute 'small_font'
+
+[2026-03-28 21:37:36]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14071, in show_log_file_list
+    self._render_log_file_summary_cards(summaries, self._open_log_history_file)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 13755, in _render_log_file_summary_cards
+    ).pack(side="left", padx=(-3, 0))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2483, in pack_configure
+    self.tk.call(
+_tkinter.TclError: bad pad value "-3": must be positive screen distance
+
+[2026-03-28 21:37:43]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14071, in show_log_file_list
+    self._render_log_file_summary_cards(summaries, self._open_log_history_file)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 13755, in _render_log_file_summary_cards
+    ).pack(side="left", padx=(-3, 0))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2483, in pack_configure
+    self.tk.call(
+_tkinter.TclError: bad pad value "-3": must be positive screen distance
+
+[2026-03-28 21:38:05]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14071, in show_log_file_list
+    self._render_log_file_summary_cards(summaries, self._open_log_history_file)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 13755, in _render_log_file_summary_cards
+    ).pack(side="left", padx=(-3, 0))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2483, in pack_configure
+    self.tk.call(
+_tkinter.TclError: bad pad value "-3": must be positive screen distance
+
+[2026-03-28 21:38:17]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14071, in show_log_file_list
+    self._render_log_file_summary_cards(summaries, self._open_log_history_file)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 13755, in _render_log_file_summary_cards
+    ).pack(side="left", padx=(-3, 0))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2483, in pack_configure
+    self.tk.call(
+_tkinter.TclError: bad pad value "-3": must be positive screen distance
+
+[2026-03-28 21:56:41]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14071, in show_log_file_list
+    self._render_log_file_summary_cards(summaries, self._open_log_history_file)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 13755, in _render_log_file_summary_cards
+    ).pack(side="left")
+      ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2483, in pack_configure
+    self.tk.call(
+_tkinter.TclError: bad pad value "-3": must be positive screen distance
+
+[2026-03-29 13:02:28]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14026, in _sync_log_archive_view_text
+    self._set_text_widget(
+TypeError: BossTimerApp._set_text_widget() got an unexpected keyword argument 'bg'
+
+[2026-03-29 13:02:57]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14026, in _sync_log_archive_view_text
+    self._set_text_widget(
+TypeError: BossTimerApp._set_text_widget() got an unexpected keyword argument 'bg'
+
+[2026-03-29 13:03:13]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14026, in _sync_log_archive_view_text
+    self._set_text_widget(
+TypeError: BossTimerApp._set_text_widget() got an unexpected keyword argument 'bg'
+
+[2026-04-02 19:44:25]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4893, in <lambda>
+    command=lambda current_item=dict(item), boss_text=display_name, current_identity=identity: self._on_schedule_active_cut_time(
+                                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4083, in _on_schedule_active_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+[2026-04-02 19:44:31]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4893, in <lambda>
+    command=lambda current_item=dict(item), boss_text=display_name, current_identity=identity: self._on_schedule_active_cut_time(
+                                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4083, in _on_schedule_active_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+[2026-04-02 19:44:53]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4893, in <lambda>
+    command=lambda current_item=dict(item), boss_text=display_name, current_identity=identity: self._on_schedule_active_cut_time(
+                                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4083, in _on_schedule_active_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5055, in _apply_selected_schedule_tree_cut_time
+    self._apply_schedule_tree_cut_time(
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5898, in _apply_schedule_tree_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+[2026-04-02 19:44:56]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4893, in <lambda>
+    command=lambda current_item=dict(item), boss_text=display_name, current_identity=identity: self._on_schedule_active_cut_time(
+                                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4083, in _on_schedule_active_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5055, in _apply_selected_schedule_tree_cut_time
+    self._apply_schedule_tree_cut_time(
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5898, in _apply_schedule_tree_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4893, in <lambda>
+    command=lambda current_item=dict(item), boss_text=display_name, current_identity=identity: self._on_schedule_active_cut_time(
+                                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4083, in _on_schedule_active_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+[2026-04-02 20:46:55]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4893, in <lambda>
+    command=lambda current_item=dict(item), boss_text=display_name, current_identity=identity: self._on_schedule_active_cut_time(
+                                                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4083, in _on_schedule_active_cut_time
+    cut_token = self._show_schedule_cut_time_dialog(boss_text, parent=self.schedule_window)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 3535, in _show_schedule_cut_time_dialog
+    (entry if delete_candidates else delete_button).focus_force()
+              ^^^^^^^^^^^^^^^^^
+NameError: name 'delete_candidates' is not defined
+
+[2026-04-10 17:22:07]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21873, in close_schedule_window
+    self._ensure_schedule_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21918, in close_schedule_input_window
+    return
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6768, in _hide_schedule_input_ocr_loading_dialog
+    self._set_schedule_input_ocr_loading_lock(False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6654, in _set_schedule_input_ocr_loading_lock
+    self._configure_schedule_input_window_mode(prefill=False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14283, in _configure_schedule_input_window_mode
+    pass
+AttributeError: 'BossTimerApp' object has no attribute 'schedule_input_sort_check'
+
+[2026-04-10 17:22:11]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21873, in close_schedule_window
+    self.schedule_window_busy = True
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21918, in close_schedule_input_window
+    self.schedule_input_window.lift()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6768, in _hide_schedule_input_ocr_loading_dialog
+    pass
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6654, in _set_schedule_input_ocr_loading_lock
+    continue
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14283, in _configure_schedule_input_window_mode
+    try:
+AttributeError: 'BossTimerApp' object has no attribute 'schedule_input_sort_check'
+
+[2026-04-10 17:31:53]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21876, in close_schedule_window
+    self.font_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21921, in close_schedule_input_window
+    self.close_schedule_alarm_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6771, in _hide_schedule_input_ocr_loading_dialog
+    self._set_schedule_input_ocr_loading_lock(False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6657, in _set_schedule_input_ocr_loading_lock
+    self._configure_schedule_input_window_mode(prefill=False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14286, in _configure_schedule_input_window_mode
+    if self.schedule_input_undo_button is not None and self.schedule_input_undo_button.winfo_exists():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute 'schedule_input_sort_check'
+
+[2026-04-10 17:34:20]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21876, in close_schedule_window
+    self.font_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21921, in close_schedule_input_window
+    self.close_schedule_alarm_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6771, in _hide_schedule_input_ocr_loading_dialog
+    self._set_schedule_input_ocr_loading_lock(False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6657, in _set_schedule_input_ocr_loading_lock
+    self._configure_schedule_input_window_mode(prefill=False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14286, in _configure_schedule_input_window_mode
+    if self.schedule_input_undo_button is not None and self.schedule_input_undo_button.winfo_exists():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute 'schedule_input_sort_check'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21876, in close_schedule_window
+    self.font_menu.config(font=self.button_font, bg="#f8f1df", fg="#3f2d18", activebackground="#efe2c5", activeforeground="#3f2d18", highlightthickness=0, bd=0)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 21921, in close_schedule_input_window
+    self.close_schedule_alarm_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6771, in _hide_schedule_input_ocr_loading_dialog
+    self._set_schedule_input_ocr_loading_lock(False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 6657, in _set_schedule_input_ocr_loading_lock
+    self._configure_schedule_input_window_mode(prefill=False)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 14286, in _configure_schedule_input_window_mode
+    if self.schedule_input_undo_button is not None and self.schedule_input_undo_button.winfo_exists():
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute 'schedule_input_sort_check'
+
+
+[2026-04-12 11:22:40]
+schedule share copy failed
+include_break_rows=True
+rows=77
+error=[System.Object[]]에 이름이 'op_Subtraction'인 메서드가 없으므로 메서드를 호출하지 못했습니다.
+output={"ok":false,"error":"[System.Object[]]에 이름이 \u0027op_Subtraction\u0027인 메서드가 없으므로 메서드를 호출하지 못했습니다."}
+
+[2026-04-12 11:23:00]
+schedule share copy failed
+include_break_rows=True
+rows=77
+error=[System.Object[]]에 이름이 'op_Subtraction'인 메서드가 없으므로 메서드를 호출하지 못했습니다.
+output={"ok":false,"error":"[System.Object[]]에 이름이 \u0027op_Subtraction\u0027인 메서드가 없으므로 메서드를 호출하지 못했습니다."}
+[2026-04-12 12:22:36]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 24623, in open_schedule_boss_metrics_window
+    self._ensure_schedule_boss_metrics_window()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'BossTimerApp' object has no attribute '_ensure_schedule_boss_metrics_window'
+

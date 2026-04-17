@@ -1,0 +1,38 @@
+[
+  {
+    "record_id": "20260411031931760609",
+    "season_no": "17",
+    "recorded_at": "2026-04-11 03:19:22",
+    "boss_name": "호드",
+    "validation_state": "검증 완료",
+    "validation_note": "",
+    "gwang_time": "00:32:00",
+    "expected_time": "00:45:70",
+    "actual_cut_time": "00:50:55",
+    "overrun_time": "00:04:84",
+    "gwang_seconds": 32.0,
+    "expected_total_seconds": 45.7,
+    "actual_cut_seconds": 50.55,
+    "overrun_seconds": 4.84,
+    "created_at": "2026-04-11 03:19:31",
+    "updated_at": "2026-04-11 03:19:31"
+  },
+  {
+    "record_id": "20260411031820337348",
+    "season_no": "17",
+    "recorded_at": "2026-04-11 03:17:56",
+    "boss_name": "호드",
+    "validation_state": "검증 완료",
+    "validation_note": "",
+    "gwang_time": "00:30:00",
+    "expected_time": "00:42:84",
+    "actual_cut_time": "00:48:37",
+    "overrun_time": "00:05:52",
+    "gwang_seconds": 30.0,
+    "expected_total_seconds": 42.84,
+    "actual_cut_seconds": 48.37,
+    "overrun_seconds": 5.52,
+    "created_at": "2026-04-11 03:18:20",
+    "updated_at": "2026-04-11 03:18:20"
+  }
+]

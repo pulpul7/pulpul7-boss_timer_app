@@ -1,0 +1,20 @@
+[
+  {
+    "record_id": "20260409053018179810",
+    "season_no": "17",
+    "recorded_at": "2026-04-09 05:27:49",
+    "boss_name": "그로아",
+    "validation_state": "검증 완료",
+    "validation_note": "",
+    "gwang_time": "00:38:47",
+    "expected_time": "00:54:77",
+    "actual_cut_time": "00:58:78",
+    "overrun_time": "00:04:01",
+    "gwang_seconds": 38.47,
+    "expected_total_seconds": 54.77,
+    "actual_cut_seconds": 58.78,
+    "overrun_seconds": 4.01,
+    "created_at": "2026-04-09 05:30:18",
+    "updated_at": "2026-04-09 05:30:18"
+  }
+]

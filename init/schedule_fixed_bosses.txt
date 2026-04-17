@@ -1,0 +1,10 @@
+# 보스명|시간(HH:MM:SS)|요일(월,화,...)|반복(weekly/biweekly_current/biweekly_next)|사용여부(1/0)|글자색(#RRGGBB)|배경색(#RRGGBB)
+월드보스|12:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#0080FF
+발할라 대전|13:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#09A2A6
+발할라 대전|18:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#09A2A6
+월드보스|20:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#0080FF
+발할라 대전|21:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#09A2A6
+성채|21:30:00|화,목|weekly|1|#FF8000|#F8C6FF
+트리니티 리그|21:30:00|일|biweekly_current|1|#00FF40|#FF0000
+공성전|22:30:00|일|biweekly_next|1|#00FF40|#FF0000
+지옥 성채|22:30:00|목|weekly|1|#FF0000|#FF80FF

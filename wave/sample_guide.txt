@@ -1,0 +1,17 @@
+샘플 가이드
+
+단음
+- single_01_very_low_round: 가장 낮고 둥근 소리
+- single_02_low_round: 낮고 무난한 둥 소리
+- single_03_mid_balanced: 너무 낮지도 높지도 않은 중간
+- single_04_mid_clear: 조금 더 또렷한 안내음
+- single_05_high_clear: 높은 편이지만 아직 부드러움
+- single_06_higher_glassy: 가장 높고 맑은 쪽
+
+이음
+- double_01_plane_low_classic: 전형적인 낮은 기내 안내음
+- double_02_plane_lower_broad: 더 넓고 둥근 둥둥
+- double_03_balanced_clean: 균형 잡힌 맑은 안내음
+- double_04_clear_notice: 더 또렷한 공지음
+- double_05_higher_clear_notice: 더 높고 맑은 공지음
+- double_06_same_note_soft: 같은 음 두 번으로 순한 알림음

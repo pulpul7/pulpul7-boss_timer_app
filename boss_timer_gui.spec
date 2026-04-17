@@ -23,6 +23,8 @@ python_root = Path(sys.executable).resolve().parent
 dll_dir = python_root / "DLLs"
 tcl_root = python_root / "tcl"
 project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
+BUILD_VERSION = "v3.0.0"
+BUILD_LAST_UPDATED = "2026-04-17"
 
 
 def read_git_text(args: list[str]) -> str:
@@ -41,14 +43,13 @@ def read_git_text(args: list[str]) -> str:
 
 
 def write_build_metadata() -> Path:
-    tag_lines = read_git_text(["tag", "--sort=-creatordate"]).splitlines()
     last_updated = read_git_text(["log", "-1", "--format=%cs"])
     detail_version = read_git_text(["describe", "--tags", "--always", "--dirty"])
     metadata = {
         "author": "나츠",
-        "version": tag_lines[0].strip() if tag_lines else "v 2.0.0.Beta",
-        "last_updated": last_updated or "2026-03-17",
-        "build_detail_version": detail_version or "unknown",
+        "version": BUILD_VERSION,
+        "last_updated": last_updated or BUILD_LAST_UPDATED,
+        "build_detail_version": detail_version or BUILD_VERSION,
         "build_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     metadata_path = project_root / "build_metadata.json"
@@ -64,6 +65,7 @@ datas = [
     ("assets\\벽지.png", "assets"),
     ("assets\\장원영.png", "assets"),
 ]
+datas += collect_tree(Path("init"), "init")
 datas += collect_tree(Path("icons"), "icons")
 datas += collect_tree(tcl_root / "tcl8.6", "tcl8.6")
 datas += collect_tree(tcl_root / "tk8.6", "tk8.6")

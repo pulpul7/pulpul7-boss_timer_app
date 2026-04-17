@@ -1,0 +1,375 @@
+{
+  "master_enabled": true,
+  "common_offsets": [
+    300,
+    60
+  ],
+  "countdown_enabled": true,
+  "countdown_start_seconds": 15,
+  "fixed_boss_enabled": true,
+  "voice_name": "Microsoft Heami Desktop - Korean",
+  "boss_overrides": {
+    "10층": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "4층": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "7층": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "굴베이그": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "그로아": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "노트": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "니드호그": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "두라스로르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "드라우그": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "라이노르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "라타토스크": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "메기르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "모네가름": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "미미르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "바우티": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "발리": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "브륀힐드": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "비요른": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "샤무크": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "셀로비아": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "수드리": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "수르트": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "스바르트": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "스카디": {
+      "enabled": true,
+      "offsets": [
+        600,
+        300,
+        60
+      ]
+    },
+    "스칼드메르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "스칼라니르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "스쿨드": {
+      "enabled": true,
+      "offsets": [
+        600,
+        300,
+        60
+      ]
+    },
+    "신마라": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "안나": {
+      "enabled": true,
+      "offsets": [
+        600,
+        300,
+        60
+      ]
+    },
+    "야른": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "에기르": {
+      "enabled": true,
+      "offsets": [
+        600,
+        300,
+        60
+      ]
+    },
+    "엘드룬": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "엘디르": {
+      "enabled": true,
+      "offsets": [
+        600,
+        300,
+        60
+      ]
+    },
+    "오딘": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "우로보로스": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "이미르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "최하층강글": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "최하층굴베": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "최하층스네르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "탕그리스니르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "토르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "티르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "파르바": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "페티": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "프레이": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "헤르가름": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "헤르모드": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "헤이드": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "호드": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "흐니르": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "히로킨": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    }
+  }
+}

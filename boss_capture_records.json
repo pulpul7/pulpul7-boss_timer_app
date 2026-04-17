@@ -1,0 +1,653 @@
+{
+  "version": 1,
+  "section_order": [
+    "절대자",
+    "요툰하임",
+    "니다벨리르",
+    "알브하임",
+    "아스가르드",
+    "무스펠하임",
+    "니플하임",
+    "던전"
+  ],
+  "chapter_enabled": {
+    "절대자": true,
+    "요툰하임": true,
+    "니다벨리르": false,
+    "알브하임": false,
+    "무스펠하임": true,
+    "아스가르드": true,
+    "니플하임": true,
+    "던전": true
+  },
+  "boss_enabled": {
+    "미미르": true,
+    "수르트": true,
+    "오딘": true,
+    "이미르": true,
+    "토르": true,
+    "티르": true,
+    "라이노르": true,
+    "헤르모드": true,
+    "브륀힐드": true,
+    "수드리": true,
+    "비요른": true,
+    "스칼라니르": true,
+    "라타토스크": true,
+    "스바르트": true,
+    "모네가름": true,
+    "굴베이그": true,
+    "두라스로르": true,
+    "드라우그": true,
+    "메기르": true,
+    "헤르가름": true,
+    "엘드룬": true,
+    "신마라": true,
+    "탕그리스니르": true,
+    "우로보로스": true,
+    "발리": true,
+    "샤무크": true,
+    "그로아": true,
+    "노트": true,
+    "스칼드메르": true,
+    "히로킨": true,
+    "헤이드": true,
+    "호드": true,
+    "프레이": true,
+    "최하층굴베": false,
+    "최하층스네르": false,
+    "7층": true,
+    "최하층강글": false,
+    "4층": false,
+    "10층": true
+  },
+  "records": {
+    "2026-03-19": {
+      "미미르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "수르트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "오딘": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "이미르": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "토르": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "티르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "메기르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤르가름": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "엘드룬": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "신마라": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "탕그리스니르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "우로보로스": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "발리": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "샤무크": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "그로아": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "노트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "스칼드메르": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "히로킨": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤이드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "호드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "프레이": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "7층": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "10층": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      }
+    },
+    "2026-03-17": {
+      "미미르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "수르트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "오딘": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "이미르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "토르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "티르": {
+        "ally_main": true,
+        "ally_invasion": true,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "메기르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤르가름": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "엘드룬": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "신마라": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "탕그리스니르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "우로보로스": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "발리": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "샤무크": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "그로아": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "노트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "스칼드메르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "히로킨": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤이드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "호드": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "프레이": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      }
+    },
+    "2026-03-20": {
+      "미미르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "수르트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "오딘": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "이미르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "토르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "티르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "발리": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "샤무크": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "그로아": {
+        "ally_main": false,
+        "ally_invasion": false,
+        "enemy_main": true,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "노트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "스칼드메르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "메기르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤르가름": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "엘드룬": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "신마라": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "탕그리스니르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "우로보로스": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "히로킨": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤이드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "호드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "프레이": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "최하층굴베": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "최하층스네르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "7층": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "최하층강글": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "4층": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "10층": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "라이노르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "헤르모드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "브륀힐드": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "수드리": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "비요른": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "스칼라니르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "라타토스크": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "스바르트": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "모네가름": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "굴베이그": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "두라스로르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      },
+      "드라우그": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "memo": ""
+      }
+    }
+  }
+}
