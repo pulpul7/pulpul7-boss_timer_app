@@ -16,7 +16,7 @@
     "min_gap_minutes": 55,
     "max_gap_minutes": 79,
     "label_text": "휴식",
-    "display_mode": "actual",
+    "display_mode": "fixed",
     "display_text": "1시간 0분",
     "row_scale": 1.5,
     "font_size": 15,

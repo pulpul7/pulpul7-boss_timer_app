@@ -317,27 +317,27 @@
     "score": null,
     "war_score": null
   },
+  "공성전": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 3600,
+    "score": null,
+    "war_score": null
+  },
   "성채": {
     "source_mode": "user_first",
     "user_duration_seconds": 300,
     "score": null,
     "war_score": null
   },
-  "트리니티 리그": {
-    "source_mode": "user_first",
-    "user_duration_seconds": 0,
-    "score": null,
-    "war_score": null
-  },
-  "공성전": {
-    "source_mode": "user_first",
-    "user_duration_seconds": 0,
-    "score": null,
-    "war_score": null
-  },
   "지옥 성채": {
     "source_mode": "user_first",
     "user_duration_seconds": 1800,
+    "score": null,
+    "war_score": null
+  },
+  "트리니티 리그": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   }

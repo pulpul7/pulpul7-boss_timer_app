@@ -788,6 +788,7 @@ class BossTimerApp:
         self.schedule_share_include_break_rows_default = True
         self.schedule_share_duration_minutes_default = (24 + 8) * 60
         self.schedule_share_start_time_default = "00:00"
+        self.schedule_share_end_time_default = "08:00"
         self.schedule_share_end_datetime_default = ""
         self.schedule_share_font_size_default = 14
         self.schedule_share_bold_default = True
@@ -1626,6 +1627,7 @@ class BossTimerApp:
         saved_schedule_share_include_break_rows = settings.getboolean("schedule_share_include_break_rows", fallback=self.schedule_share_include_break_rows_default)
         saved_schedule_share_duration_minutes = settings.get("schedule_share_duration_minutes", str(self.schedule_share_duration_minutes_default)).strip()
         saved_schedule_share_start_time = settings.get("schedule_share_start_time", self.schedule_share_start_time_default).strip()
+        saved_schedule_share_end_time = settings.get("schedule_share_end_time", "").strip()
         saved_schedule_share_end_datetime = settings.get("schedule_share_end_datetime", self.schedule_share_end_datetime_default).strip()
         saved_schedule_share_font_size = settings.get("schedule_share_font_size", str(self.schedule_share_font_size_default)).strip()
         saved_schedule_share_bold = settings.getboolean("schedule_share_bold", fallback=self.schedule_share_bold_default)
@@ -1720,7 +1722,15 @@ class BossTimerApp:
             self.schedule_share_start_time_default = saved_schedule_share_start_time
         else:
             self.schedule_share_start_time_default = "00:00"
-        self.schedule_share_end_datetime_default = saved_schedule_share_end_datetime if self._parse_schedule_time_sync_datetime(saved_schedule_share_end_datetime) else ""
+        if re.fullmatch(r"\d{1,2}:\d{2}", saved_schedule_share_end_time):
+            self.schedule_share_end_time_default = saved_schedule_share_end_time
+        else:
+            parsed_saved_end = self._parse_schedule_time_sync_datetime(saved_schedule_share_end_datetime)
+            if isinstance(parsed_saved_end, datetime):
+                self.schedule_share_end_time_default = parsed_saved_end.strftime("%H:%M")
+            else:
+                self.schedule_share_end_time_default = "08:00"
+        self.schedule_share_end_datetime_default = ""
         self.schedule_share_font_size_default = min(24, max(8, self._parse_int(saved_schedule_share_font_size, self.schedule_share_font_size_default)))
         self.schedule_share_bold_default = saved_schedule_share_bold
         self.schedule_share_elapsed_strike_default = saved_schedule_share_elapsed_strike
@@ -8182,10 +8192,16 @@ class BossTimerApp:
         return default_start
 
     def _get_schedule_share_default_end_datetime(self, start_datetime: datetime) -> datetime:
-        saved_end_text = str(getattr(self, "schedule_share_end_datetime_default", "") or "").strip()
-        saved_end = self._parse_schedule_time_sync_datetime(saved_end_text)
-        if isinstance(saved_end, datetime):
-            return saved_end.replace(second=0, microsecond=0)
+        end_base = (start_datetime.replace(second=0, microsecond=0) + timedelta(days=1)).replace(second=0, microsecond=0)
+        time_text = str(getattr(self, "schedule_share_end_time_default", "08:00") or "08:00").strip()
+        time_match = re.fullmatch(r"(\d{1,2}):(\d{2})", time_text)
+        if time_match:
+            try:
+                hour_value = min(23, max(0, int(time_match.group(1))))
+                minute_value = min(59, max(0, int(time_match.group(2))))
+                return end_base.replace(hour=hour_value, minute=minute_value)
+            except ValueError:
+                pass
         return self._get_schedule_share_reset_end_datetime(start_datetime)
 
     def _get_schedule_share_reset_end_datetime(self, start_datetime: datetime) -> datetime:
@@ -8319,7 +8335,8 @@ class BossTimerApp:
             self.schedule_share_use_fixed_boss_colors_default = bool(use_fixed_boss_color_var.get())
             self.schedule_share_include_break_rows_default = bool(include_break_rows_var.get())
             self.schedule_share_start_time_default = start_value.strftime("%H:%M")
-            self.schedule_share_end_datetime_default = end_value.strftime("%Y-%m-%d %H:%M:%S")
+            self.schedule_share_end_time_default = end_value.strftime("%H:%M")
+            self.schedule_share_end_datetime_default = ""
             self.schedule_share_duration_minutes_default = max(1, int((end_value - start_value).total_seconds() // 60))
             self.schedule_share_font_size_default = font_size_value
             self.schedule_share_bold_default = bool(share_bold_var.get())
@@ -23587,6 +23604,7 @@ class BossTimerApp:
             "schedule_share_include_break_rows": str(schedule_share_include_break_rows_value),
             "schedule_share_duration_minutes": str(schedule_share_duration_minutes_value),
             "schedule_share_start_time": str(getattr(self, "schedule_share_start_time_default", "00:00") or "00:00").strip(),
+            "schedule_share_end_time": str(getattr(self, "schedule_share_end_time_default", "08:00") or "08:00").strip(),
             "schedule_share_end_datetime": str(getattr(self, "schedule_share_end_datetime_default", "") or "").strip(),
             "schedule_share_font_size": str(schedule_share_font_size_value),
             "schedule_share_bold": str(schedule_share_bold_value),

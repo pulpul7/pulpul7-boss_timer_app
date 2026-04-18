@@ -4,7 +4,7 @@
 발할라 대전|18:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#09A2A6
 월드보스|20:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#0080FF
 발할라 대전|21:00:00|월,화,수,목,금,토,일|weekly|1|#FFFFFF|#09A2A6
+공성전|21:30:00|토|biweekly_current|1|#00FF40|#FF0000
 성채|21:30:00|화,목|weekly|1|#FF8000|#F8C6FF
-트리니티 리그|21:30:00|일|biweekly_current|1|#00FF40|#FF0000
-공성전|22:30:00|일|biweekly_next|1|#00FF40|#FF0000
 지옥 성채|22:30:00|목|weekly|1|#FF0000|#FF80FF
+트리니티 리그|22:30:00|일|biweekly_next|1|#00FF40|#FF0000
