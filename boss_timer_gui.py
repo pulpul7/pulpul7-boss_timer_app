@@ -3,6 +3,7 @@ import ctypes
 import base64
 import hashlib
 import json
+import locale
 import math
 import os
 import queue
@@ -37,10 +38,12 @@ DEFAULT_LAST_UPDATED = "2026-04-17"
 DEFAULT_AUTHOR_NAME = "나츠"
 DEFAULT_BUILD_DETAIL_VERSION = "unknown"
 DEFAULT_BUILD_TIMESTAMP = ""
-DEFAULT_FIXED_BOSS_TEXT_COLOR = "#0f172a"
-DEFAULT_FIXED_BOSS_BG_COLOR = "#ffffff"
-DEFAULT_SCHEDULE_BREAK_TEXT_COLOR = "#1e3a8a"
-DEFAULT_SCHEDULE_BREAK_BG_COLOR = "#dbeafe"
+DEFAULT_FIXED_BOSS_TEXT_COLOR = "#00FF40"
+DEFAULT_FIXED_BOSS_BG_COLOR = "#FF0000"
+DEFAULT_SCHEDULE_INVASION_TEXT_COLOR = "#C8C8C8"
+DEFAULT_SCHEDULE_INVASION_BG_COLOR = "#B90746"
+DEFAULT_SCHEDULE_BREAK_TEXT_COLOR = "#FFFFFF"
+DEFAULT_SCHEDULE_BREAK_BG_COLOR = "#4646FF"
 DEFAULT_SCHEDULE_TEXT_COLOR = "#0f172a"
 DEFAULT_SCHEDULE_BG_COLOR = "#f8fafc"
 SCHEDULE_ELAPSED_DISABLED_TEXT_COLOR = "#94a3b8"
@@ -202,6 +205,8 @@ SCHEDULE_INPUT_OCR_ADDON_HOTKEY_F2 = 0x71
 SCHEDULE_INPUT_OCR_ADDON_HOTKEY_F3 = 0x72
 SCHEDULE_INPUT_OCR_ADDON_MOUSE_RIGHT_BUTTON = 0x02
 SCHEDULE_INPUT_OCR_ADDON_GLOBAL_HOTKEY_ID_F2 = 0xB201
+SCHEDULE_TIME_SYNC_INTERVAL_SECONDS = 2 * 24 * 60 * 60
+SCHEDULE_TIME_SYNC_PERIODIC_CHECK_MS = 5 * 60 * 1000
 SCHEDULE_OCR_CORRECTIONS_FILENAME = "schedule_ocr_corrections.json"
 SCHEDULE_OCR_CORRECTION_AUTO_APPLY_THRESHOLD = 2
 SCHEDULE_BOSS_CONFIG_WINDOW_WIDTH = 920
@@ -721,21 +726,28 @@ class BossTimerApp:
         self.schedule_share_use_fixed_boss_colors_default = True
         self.schedule_share_include_break_rows_default = True
         self.schedule_share_duration_minutes_default = (24 + 8) * 60
-        self.schedule_share_font_size_default = 9
-        self.schedule_share_bold_default = False
+        self.schedule_share_start_time_default = "00:00"
+        self.schedule_share_end_datetime_default = ""
+        self.schedule_share_font_size_default = 14
+        self.schedule_share_bold_default = True
         self.schedule_share_elapsed_strike_default = False
+        self.schedule_share_exclude_elapsed_default = False
         self.schedule_break_rows_enabled_default = True
         self.schedule_break_apply_all_text_default = True
-        self.schedule_break_apply_all_display_mode_default = True
-        self.schedule_break_apply_all_row_scale_default = True
+        self.schedule_break_apply_all_display_mode_default = False
+        self.schedule_break_apply_all_row_scale_default = False
         self.schedule_break_apply_all_font_size_default = True
         self.schedule_break_apply_all_bold_default = True
-        self.schedule_break_apply_all_enabled_default = True
+        self.schedule_break_apply_all_enabled_default = False
         self.schedule_break_apply_all_text_color_default = True
         self.schedule_break_apply_all_bg_color_default = True
         self.schedule_boss_metric_source_mode_default = "user_first"
-        self.schedule_boss_metric_duration_enabled_default = False
-        self.schedule_boss_metric_schedule_duration_enabled_default = False
+        self.schedule_boss_metric_duration_enabled_default = True
+        self.schedule_boss_metric_schedule_duration_enabled_default = True
+        self.schedule_time_sync_last_success_at = ""
+        self.schedule_time_sync_last_attempt_at = ""
+        self.schedule_time_sync_last_status = ""
+        self.schedule_time_sync_last_error = ""
         self.schedule_boss_metric_bulk_area_default = RECORD_BOOK_AREAS[0]
         self.schedule_boss_metric_bulk_source_mode_default = "user_first"
         self.schedule_boss_metric_bulk_user_duration_default = ""
@@ -757,6 +769,8 @@ class BossTimerApp:
         self.fixed_boss_last_bg_color = "#FFFF00"
         self.schedule_break_last_text_color = DEFAULT_SCHEDULE_BREAK_TEXT_COLOR
         self.schedule_break_last_bg_color = DEFAULT_SCHEDULE_BREAK_BG_COLOR
+        self.schedule_invasion_last_text_color = DEFAULT_SCHEDULE_INVASION_TEXT_COLOR
+        self.schedule_invasion_last_bg_color = DEFAULT_SCHEDULE_INVASION_BG_COLOR
         self.initial_elapsed_seconds = 0.0
         self.schedule_input_ocr_addon_fast_input_enabled = True
         self.schedule_input_ocr_addon_fast_input_var = tk.BooleanVar(value=self.schedule_input_ocr_addon_fast_input_enabled)
@@ -998,6 +1012,8 @@ class BossTimerApp:
         self.remain_kill_var = tk.StringVar(value="00:00:00")
         self.overrun_var = tk.StringVar(value="00:00:00")
         self.main_clock_after_id = None
+        self.schedule_time_sync_after_id = None
+        self.schedule_time_sync_in_progress = False
         now_text = datetime.now()
         self.main_current_datetime_var = tk.StringVar(
             value=f"{now_text.month}월{now_text.day}일({self._get_weekday_label(now_text)})\n{now_text.strftime('%H:%M:%S')}"
@@ -1099,6 +1115,7 @@ class BossTimerApp:
         self.schedule_break_status_var = tk.StringVar(value="휴식시간 규칙을 관리할 준비 중입니다.")
         self.schedule_break_inline_status_var = tk.StringVar(value="")
         self.schedule_current_time_var = tk.StringVar(value=datetime.now().strftime("%H:%M:%S"))
+        self.schedule_time_sync_status_var = tk.StringVar(value="마지막 인터넷 시간 동기화: 기록 없음")
         self.schedule_previous_boss_var = tk.StringVar(value="지나간 보스 없음")
         self.schedule_next_boss_var = tk.StringVar(value="다음 보스 없음")
         self.schedule_next_boss_remaining_var = tk.StringVar(value="--:--")
@@ -1146,6 +1163,8 @@ class BossTimerApp:
         self.schedule_boss_metric_bulk_apply_war_score_var = tk.BooleanVar(value=self.schedule_boss_metric_bulk_apply_war_score_default)
         self.schedule_area_text_color_var = tk.StringVar(value=DEFAULT_SCHEDULE_TEXT_COLOR)
         self.schedule_area_bg_color_var = tk.StringVar(value=DEFAULT_SCHEDULE_BG_COLOR)
+        self.schedule_invasion_text_color_var = tk.StringVar(value=self.schedule_invasion_last_text_color)
+        self.schedule_invasion_bg_color_var = tk.StringVar(value=self.schedule_invasion_last_bg_color)
         self.schedule_boss_selected_name: str | None = None
         self.schedule_boss_metric_draft_entries: dict[str, dict[str, object]] = {}
         self.schedule_boss_metric_form_syncing = False
@@ -1191,6 +1210,8 @@ class BossTimerApp:
         self.schedule_boss_bg_color_button = None
         self.schedule_area_text_color_button = None
         self.schedule_area_bg_color_button = None
+        self.schedule_invasion_text_color_button = None
+        self.schedule_invasion_bg_color_button = None
         self.schedule_boss_respawn_placeholder_active = False
         self.schedule_boss_deleted_backup: list[dict[str, str | bool]] | None = None
         self.schedule_color_data_enabled_var = tk.BooleanVar(value=self.schedule_color_data_enabled_default)
@@ -1291,6 +1312,7 @@ class BossTimerApp:
         self.schedule_active_rows_scrollbar = None
         self.schedule_active_panel_content_height = 24
         self.schedule_option_frame = None
+        self.schedule_time_sync_info_label = None
         self.schedule_tree_scrollbar = None
         self.schedule_tree_footer_label = None
         self.schedule_tree_add_button = None
@@ -1464,10 +1486,12 @@ class BossTimerApp:
             "enemy_invasion": True,
         }
         self._update_schedule_base_label()
+        self._refresh_schedule_time_sync_status_text()
 
         self._build_ui()
         self._schedule_main_clock_tick()
         self._schedule_alarm_tick()
+        self._schedule_time_sync_periodic_check(initial=True)
         self._apply_background(self.background_path, update_setting_var=False)
         self._draw_progress_graph(None)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -1539,9 +1563,15 @@ class BossTimerApp:
         saved_schedule_share_use_fixed_boss_colors = settings.getboolean("schedule_share_use_fixed_boss_colors", fallback=self.schedule_share_use_fixed_boss_colors_default)
         saved_schedule_share_include_break_rows = settings.getboolean("schedule_share_include_break_rows", fallback=self.schedule_share_include_break_rows_default)
         saved_schedule_share_duration_minutes = settings.get("schedule_share_duration_minutes", str(self.schedule_share_duration_minutes_default)).strip()
+        saved_schedule_share_start_time = settings.get("schedule_share_start_time", self.schedule_share_start_time_default).strip()
+        saved_schedule_share_end_datetime = settings.get("schedule_share_end_datetime", self.schedule_share_end_datetime_default).strip()
         saved_schedule_share_font_size = settings.get("schedule_share_font_size", str(self.schedule_share_font_size_default)).strip()
         saved_schedule_share_bold = settings.getboolean("schedule_share_bold", fallback=self.schedule_share_bold_default)
         saved_schedule_share_elapsed_strike = settings.getboolean("schedule_share_elapsed_strike", fallback=self.schedule_share_elapsed_strike_default)
+        saved_schedule_share_exclude_elapsed = settings.getboolean(
+            "schedule_share_exclude_elapsed",
+            fallback=not settings.getboolean("schedule_share_show_elapsed", fallback=not self.schedule_share_exclude_elapsed_default),
+        )
         saved_schedule_break_rows_enabled = settings.getboolean("schedule_break_rows_enabled", fallback=self.schedule_break_rows_enabled_default)
         saved_schedule_break_apply_all_text = settings.getboolean("schedule_break_apply_all_text", fallback=self.schedule_break_apply_all_text_default)
         saved_schedule_break_apply_all_display_mode = settings.getboolean("schedule_break_apply_all_display_mode", fallback=self.schedule_break_apply_all_display_mode_default)
@@ -1562,6 +1592,10 @@ class BossTimerApp:
         saved_schedule_boss_metric_bulk_apply_user_duration = settings.getboolean("schedule_boss_metric_bulk_apply_user_duration", fallback=self.schedule_boss_metric_bulk_apply_user_duration_default)
         saved_schedule_boss_metric_bulk_apply_score = settings.getboolean("schedule_boss_metric_bulk_apply_score", fallback=self.schedule_boss_metric_bulk_apply_score_default)
         saved_schedule_boss_metric_bulk_apply_war_score = settings.getboolean("schedule_boss_metric_bulk_apply_war_score", fallback=self.schedule_boss_metric_bulk_apply_war_score_default)
+        saved_schedule_time_sync_last_success_at = settings.get("schedule_time_sync_last_success_at", "").strip()
+        saved_schedule_time_sync_last_attempt_at = settings.get("schedule_time_sync_last_attempt_at", "").strip()
+        saved_schedule_time_sync_last_status = settings.get("schedule_time_sync_last_status", "").strip()
+        saved_schedule_time_sync_last_error = settings.get("schedule_time_sync_last_error", "").strip()
         saved_archive_keep_seasons = settings.get("archive_keep_seasons", str(self.archive_keep_seasons_default))
         saved_log_archive_filter = settings.get("log_archive_filter", self.log_archive_filter_default).strip()
         saved_log_archive_previous_season = settings.get("log_archive_previous_season", self.log_archive_previous_season_default).strip()
@@ -1570,6 +1604,8 @@ class BossTimerApp:
         saved_log_stats_enabled = settings.get("log_stats_boss_enabled_json", "{}")
         saved_fixed_boss_text_color = settings.get("fixed_boss_last_text_color", DEFAULT_FIXED_BOSS_TEXT_COLOR)
         saved_fixed_boss_bg_color = settings.get("fixed_boss_last_bg_color", DEFAULT_FIXED_BOSS_BG_COLOR)
+        saved_schedule_invasion_text_color = settings.get("schedule_invasion_last_text_color", DEFAULT_SCHEDULE_INVASION_TEXT_COLOR)
+        saved_schedule_invasion_bg_color = settings.get("schedule_invasion_last_bg_color", DEFAULT_SCHEDULE_INVASION_BG_COLOR)
         saved_schedule_break_text_color = settings.get("schedule_break_last_text_color", DEFAULT_SCHEDULE_BREAK_TEXT_COLOR)
         saved_schedule_break_bg_color = settings.get("schedule_break_last_bg_color", DEFAULT_SCHEDULE_BREAK_BG_COLOR)
         self.main_window_x = self._parse_int(settings.get("main_window_x"), self.main_window_x)
@@ -1618,9 +1654,15 @@ class BossTimerApp:
         self.schedule_share_use_fixed_boss_colors_default = saved_schedule_share_use_fixed_boss_colors
         self.schedule_share_include_break_rows_default = saved_schedule_share_include_break_rows
         self.schedule_share_duration_minutes_default = max(1, self._parse_int(saved_schedule_share_duration_minutes, self.schedule_share_duration_minutes_default))
+        if re.fullmatch(r"\d{1,2}:\d{2}", saved_schedule_share_start_time):
+            self.schedule_share_start_time_default = saved_schedule_share_start_time
+        else:
+            self.schedule_share_start_time_default = "00:00"
+        self.schedule_share_end_datetime_default = saved_schedule_share_end_datetime if self._parse_schedule_time_sync_datetime(saved_schedule_share_end_datetime) else ""
         self.schedule_share_font_size_default = min(24, max(8, self._parse_int(saved_schedule_share_font_size, self.schedule_share_font_size_default)))
         self.schedule_share_bold_default = saved_schedule_share_bold
         self.schedule_share_elapsed_strike_default = saved_schedule_share_elapsed_strike
+        self.schedule_share_exclude_elapsed_default = saved_schedule_share_exclude_elapsed
         self.schedule_break_rows_enabled_default = saved_schedule_break_rows_enabled
         self.schedule_break_apply_all_text_default = saved_schedule_break_apply_all_text
         self.schedule_break_apply_all_display_mode_default = saved_schedule_break_apply_all_display_mode
@@ -1643,6 +1685,10 @@ class BossTimerApp:
         self.schedule_boss_metric_bulk_apply_user_duration_default = saved_schedule_boss_metric_bulk_apply_user_duration
         self.schedule_boss_metric_bulk_apply_score_default = saved_schedule_boss_metric_bulk_apply_score
         self.schedule_boss_metric_bulk_apply_war_score_default = saved_schedule_boss_metric_bulk_apply_war_score
+        self.schedule_time_sync_last_success_at = saved_schedule_time_sync_last_success_at
+        self.schedule_time_sync_last_attempt_at = saved_schedule_time_sync_last_attempt_at
+        self.schedule_time_sync_last_status = saved_schedule_time_sync_last_status
+        self.schedule_time_sync_last_error = saved_schedule_time_sync_last_error
         if hasattr(self, "schedule_break_rows_enabled_var") and self.schedule_break_rows_enabled_var is not None:
             try:
                 self.schedule_break_rows_enabled_var.set(saved_schedule_break_rows_enabled)
@@ -1734,8 +1780,14 @@ class BossTimerApp:
             self.log_stats_enabled_saved_map = {str(key): bool(value) for key, value in loaded_enabled.items()}
         self.fixed_boss_last_text_color = self._normalize_hex_color(saved_fixed_boss_text_color, DEFAULT_FIXED_BOSS_TEXT_COLOR)
         self.fixed_boss_last_bg_color = self._normalize_hex_color(saved_fixed_boss_bg_color, DEFAULT_FIXED_BOSS_BG_COLOR)
+        self.schedule_invasion_last_text_color = self._normalize_hex_color(saved_schedule_invasion_text_color, DEFAULT_SCHEDULE_INVASION_TEXT_COLOR)
+        self.schedule_invasion_last_bg_color = self._normalize_hex_color(saved_schedule_invasion_bg_color, DEFAULT_SCHEDULE_INVASION_BG_COLOR)
         self.schedule_break_last_text_color = self._normalize_hex_color(saved_schedule_break_text_color, DEFAULT_SCHEDULE_BREAK_TEXT_COLOR)
         self.schedule_break_last_bg_color = self._normalize_hex_color(saved_schedule_break_bg_color, DEFAULT_SCHEDULE_BREAK_BG_COLOR)
+        if hasattr(self, "schedule_invasion_text_color_var") and self.schedule_invasion_text_color_var is not None:
+            self.schedule_invasion_text_color_var.set(self.schedule_invasion_last_text_color)
+        if hasattr(self, "schedule_invasion_bg_color_var") and self.schedule_invasion_bg_color_var is not None:
+            self.schedule_invasion_bg_color_var.set(self.schedule_invasion_last_bg_color)
         self.initial_elapsed_seconds = 0.0
 
     def _parse_int(self, value: str | None, fallback: int) -> int:
@@ -3680,6 +3732,221 @@ class BossTimerApp:
     def _get_weekday_label(self, date_value: datetime) -> str:
         return ("월", "화", "수", "목", "금", "토", "일")[date_value.weekday()]
 
+    def _parse_schedule_time_sync_datetime(self, raw_value: str | None) -> datetime | None:
+        text = str(raw_value or "").strip()
+        if not text:
+            return None
+        normalized = re.sub(r"\s+", " ", text)
+        korean_ampm_match = re.match(r"^(\d{4}-\d{1,2}-\d{1,2})\s+(오전|오후)\s+(\d{1,2}:\d{2}:\d{2})$", normalized)
+        if korean_ampm_match:
+            date_part, ampm_text, time_part = korean_ampm_match.groups()
+            try:
+                hour_text, minute_text, second_text = time_part.split(":")
+                hour_value = int(hour_text)
+                if ampm_text == "오후" and hour_value < 12:
+                    hour_value += 12
+                elif ampm_text == "오전" and hour_value == 12:
+                    hour_value = 0
+                return datetime.strptime(
+                    f"{date_part} {hour_value:02d}:{minute_text}:{second_text}",
+                    "%Y-%m-%d %H:%M:%S",
+                )
+            except ValueError:
+                pass
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+            "%m/%d/%Y %I:%M:%S %p",
+            "%m/%d/%Y %H:%M:%S",
+        ):
+            try:
+                return datetime.strptime(normalized, fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _refresh_schedule_time_sync_status_text(self) -> None:
+        if getattr(self, "schedule_time_sync_in_progress", False):
+            text = "Windows 시간 동기화 기록 확인 중..."
+        else:
+            success_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_success_at", ""))
+            last_status = str(getattr(self, "schedule_time_sync_last_status", "") or "").strip().lower()
+            if isinstance(success_at, datetime):
+                text = f"Windows 마지막 시간 동기화: {success_at.strftime('%Y-%m-%d %H:%M:%S')}"
+            elif last_status == "query_failed":
+                failed_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_attempt_at", ""))
+                if isinstance(failed_at, datetime):
+                    text = f"Windows 시간 동기화 기록 확인 실패: {failed_at.strftime('%Y-%m-%d %H:%M:%S')}"
+                else:
+                    text = "Windows 시간 동기화 기록 확인 실패"
+            elif last_status == "query_ok":
+                text = "Windows 마지막 시간 동기화: 기록 없음"
+            else:
+                text = "Windows 마지막 시간 동기화: 확인 필요"
+        if hasattr(self, "schedule_time_sync_status_var") and self.schedule_time_sync_status_var is not None:
+            try:
+                self.schedule_time_sync_status_var.set(text)
+            except tk.TclError:
+                pass
+
+    def _should_auto_sync_schedule_time(self, now_value: datetime | None = None) -> bool:
+        now_value = now_value or datetime.now()
+        success_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_success_at", ""))
+        if not isinstance(success_at, datetime):
+            return True
+        attempt_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_attempt_at", ""))
+        if not isinstance(attempt_at, datetime):
+            return True
+        return (now_value - attempt_at).total_seconds() >= SCHEDULE_TIME_SYNC_INTERVAL_SECONDS
+
+    def _extract_w32tm_status_field(self, output_text: str, *prefixes: str) -> str:
+        lines = [str(line or "").strip() for line in str(output_text or "").splitlines()]
+        lowered_prefixes = [prefix.lower() for prefix in prefixes]
+        for line in lines:
+            lowered = line.lower()
+            for prefix in lowered_prefixes:
+                if lowered.startswith(prefix):
+                    return line.split(":", 1)[1].strip() if ":" in line else ""
+        return ""
+
+    def _extract_w32tm_last_success_time_text(self, output_text: str) -> str:
+        lines = [str(line or "").strip() for line in str(output_text or "").splitlines() if str(line or "").strip()]
+        for line in lines:
+            lowered = line.lower()
+            if "last successful sync time" in lowered:
+                return line.split(":", 1)[1].strip() if ":" in line else ""
+            if "마지막으로 동기화한 시간" in line and ":" in line:
+                candidate = line.split(":", 1)[1].strip()
+                if self._parse_schedule_time_sync_datetime(candidate) is not None:
+                    return candidate
+            if "성공" in line and "동기화" in line and "시간" in line and ":" in line:
+                candidate = line.split(":", 1)[1].strip()
+                if self._parse_schedule_time_sync_datetime(candidate) is not None:
+                    return candidate
+        return ""
+
+    def _run_windows_time_sync_command(self) -> tuple[bool, str]:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            completed = subprocess.run(
+                ["w32tm", "/query", "/status", "/verbose"],
+                capture_output=True,
+                text=False,
+                creationflags=creation_flags,
+                check=False,
+            )
+        except OSError as exc:
+            return False, str(exc)
+        output_chunks: list[str] = []
+        for raw_part in (completed.stdout, completed.stderr):
+            if not raw_part:
+                continue
+            decoded_part = None
+            for encoding_name in (
+                locale.getpreferredencoding(False),
+                "cp949",
+                "utf-8",
+            ):
+                if not encoding_name:
+                    continue
+                try:
+                    decoded_part = raw_part.decode(encoding_name)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if decoded_part is None:
+                decoded_part = raw_part.decode("utf-8", errors="replace")
+            output_chunks.append(decoded_part)
+        output = "\n".join(part for part in output_chunks if part).strip()
+        if completed.returncode != 0:
+            return False, output or "Windows 시간 상태 조회에 실패했습니다."
+        last_success = self._extract_w32tm_last_success_time_text(output)
+        last_error = self._extract_w32tm_status_field(output, "Last Sync Error:", "마지막 동기화 오류:")
+        source = self._extract_w32tm_status_field(output, "Source:", "원본:")
+        status_parts = []
+        if last_success:
+            status_parts.append(f"success={last_success}")
+        if source:
+            status_parts.append(f"source={source}")
+        if last_error:
+            status_parts.append(f"error={last_error}")
+        return True, " | ".join(status_parts)
+
+    def _finalize_schedule_time_sync_result(
+        self,
+        *,
+        success: bool,
+        attempted_at_text: str,
+        message: str,
+        reason: str,
+    ) -> None:
+        self.schedule_time_sync_in_progress = False
+        self.schedule_time_sync_last_attempt_at = attempted_at_text
+        self.schedule_time_sync_last_status = "query_ok" if success else "query_failed"
+        self.schedule_time_sync_last_error = "" if success else str(message or "").strip()
+        if success:
+            success_text = ""
+            for part in str(message or "").split("|"):
+                key, _, value = part.strip().partition("=")
+                if key == "success":
+                    success_text = value.strip()
+                    break
+            parsed_success = self._parse_schedule_time_sync_datetime(success_text)
+            if isinstance(parsed_success, datetime):
+                self.schedule_time_sync_last_success_at = parsed_success.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            self.schedule_time_sync_last_success_at = str(getattr(self, "schedule_time_sync_last_success_at", "") or "")
+        self._refresh_schedule_time_sync_status_text()
+        try:
+            self._save_settings()
+        except Exception:
+            pass
+
+    def _perform_schedule_time_sync(self, *, reason: str = "auto") -> None:
+        if self.schedule_time_sync_in_progress:
+            return
+        self.schedule_time_sync_in_progress = True
+        self._refresh_schedule_time_sync_status_text()
+        attempted_at_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        def worker() -> None:
+            success, message = self._run_windows_time_sync_command()
+
+            def finish() -> None:
+                self._finalize_schedule_time_sync_result(
+                    success=success,
+                    attempted_at_text=attempted_at_text,
+                    message=message,
+                    reason=reason,
+                )
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _schedule_time_sync_periodic_check(self, *, initial: bool = False) -> None:
+        if self.schedule_time_sync_after_id is not None and self.root is not None and self.root.winfo_exists():
+            try:
+                self.root.after_cancel(self.schedule_time_sync_after_id)
+            except tk.TclError:
+                pass
+            self.schedule_time_sync_after_id = None
+        if not self._callbacks_available():
+            return
+        # Windows 시간 동기화 상태 조회는 실제 시간 변경이 아니라 status query라서,
+        # 앱 시작 시점과 실행 중 주기적으로 다시 읽어와야 표시가 최신으로 유지된다.
+        self._perform_schedule_time_sync(reason="startup" if initial else "poll")
+        try:
+            self.schedule_time_sync_after_id = self.root.after(
+                SCHEDULE_TIME_SYNC_PERIODIC_CHECK_MS,
+                self._schedule_time_sync_periodic_check,
+            )
+        except tk.TclError:
+            self.schedule_time_sync_after_id = None
+
     def _get_schedule_maintenance_weekday_index(self) -> int:
         weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
         weekday_text = str(self.schedule_maintenance_weekday_var.get() or "").strip()
@@ -4443,17 +4710,23 @@ class BossTimerApp:
             }
         return defaults
 
+    def _strip_schedule_invasion_prefix(self, text: str | None) -> str:
+        normalized_text = str(text or "").strip()
+        if not normalized_text:
+            return ""
+        return re.sub(r"^침공[\s_:：-]*", "", normalized_text).strip()
+
     def _get_schedule_boss_metric_target_name(self, item_or_name: dict[str, object] | str | None) -> str:
         candidates: list[str] = []
         if isinstance(item_or_name, dict):
             for key in ("boss_name", "display_name", "raw_name"):
                 text = str(item_or_name.get(key) or "").strip()
                 if text:
-                    candidates.append(re.sub(r"^침공\s*", "", text).strip())
+                    candidates.append(self._strip_schedule_invasion_prefix(text))
         else:
             text = str(item_or_name or "").strip()
             if text:
-                candidates.append(re.sub(r"^침공\s*", "", text).strip())
+                candidates.append(self._strip_schedule_invasion_prefix(text))
         fixed_names = {
             self._get_canonical_boss_name(str(entry.get("boss_name") or "").strip()) or str(entry.get("boss_name") or "").strip()
             for entry in self.fixed_boss_entries
@@ -4819,9 +5092,6 @@ class BossTimerApp:
         if not isinstance(scheduled_at, datetime):
             return None
         if self._is_schedule_boss_metric_break_duration_enabled():
-            cycle_anchor_at = item.get("cycle_anchor_at")
-            if isinstance(cycle_anchor_at, datetime):
-                return cycle_anchor_at.replace(microsecond=0)
             metric_duration_seconds = self._get_schedule_boss_metric_effective_duration_seconds(item)
             if isinstance(metric_duration_seconds, int) and metric_duration_seconds > 0:
                 return (scheduled_at + timedelta(seconds=metric_duration_seconds)).replace(microsecond=0)
@@ -7757,22 +8027,37 @@ class BossTimerApp:
     def _get_schedule_share_default_start_datetime(self, reference_datetime: datetime) -> datetime:
         resolved_reference = reference_datetime.replace(microsecond=0)
         default_start = resolved_reference.replace(hour=0, minute=0, second=0, microsecond=0)
-        previous_maintenance = self._get_schedule_previous_maintenance_datetime(resolved_reference)
-        if isinstance(previous_maintenance, datetime):
-            previous_maintenance = previous_maintenance.replace(microsecond=0)
-            if previous_maintenance.date() == resolved_reference.date() and resolved_reference >= previous_maintenance:
-                default_start = max(default_start, previous_maintenance)
-        active_control = self._get_schedule_active_control_event(resolved_reference)
-        if isinstance(active_control, dict):
-            control_type = str(active_control.get("control_type") or "")
-            control_time = active_control.get("scheduled_at")
-            if control_type == "server_open" and isinstance(control_time, datetime):
-                control_time = control_time.replace(microsecond=0)
-                if control_time.date() == resolved_reference.date() and resolved_reference >= control_time:
-                    default_start = max(default_start, control_time)
+        time_text = str(getattr(self, "schedule_share_start_time_default", "00:00") or "00:00").strip()
+        time_match = re.fullmatch(r"(\d{1,2}):(\d{2})", time_text)
+        if time_match:
+            try:
+                hour_value = min(23, max(0, int(time_match.group(1))))
+                minute_value = min(59, max(0, int(time_match.group(2))))
+                default_start = default_start.replace(hour=hour_value, minute=minute_value)
+            except ValueError:
+                pass
         return default_start
 
     def _get_schedule_share_default_end_datetime(self, start_datetime: datetime) -> datetime:
+        saved_end_text = str(getattr(self, "schedule_share_end_datetime_default", "") or "").strip()
+        saved_end = self._parse_schedule_time_sync_datetime(saved_end_text)
+        if isinstance(saved_end, datetime):
+            return saved_end.replace(second=0, microsecond=0)
+        return self._get_schedule_share_reset_end_datetime(start_datetime)
+
+    def _get_schedule_share_reset_end_datetime(self, start_datetime: datetime) -> datetime:
+        start_value = start_datetime.replace(second=0, microsecond=0)
+        return (start_value + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+
+    def _get_schedule_share_today_start_datetime(self, reference_datetime: datetime) -> datetime:
+        base = reference_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+        return base
+
+    def _get_schedule_share_today_end_datetime(self, reference_datetime: datetime) -> datetime:
+        base = reference_datetime.replace(hour=23, minute=59, second=0, microsecond=0)
+        return base
+
+    def _get_schedule_share_default_end_datetime_legacy(self, start_datetime: datetime) -> datetime:
         duration_minutes = max(1, int(getattr(self, "schedule_share_duration_minutes_default", (24 + 8) * 60) or ((24 + 8) * 60)))
         return start_datetime.replace(microsecond=0) + timedelta(minutes=duration_minutes)
 
@@ -7785,15 +8070,15 @@ class BossTimerApp:
         dialog.transient(host)
         dialog.grab_set()
         width = 520
-        height = 372
+        height = 420
         self._center_window_over_parent(dialog, host, width, height)
 
         result: dict[str, object] = {"payload": None}
         now = self._get_schedule_reference_datetime().replace(microsecond=0)
         default_start = self._get_schedule_share_default_start_datetime(now)
         default_end = self._get_schedule_share_default_end_datetime(default_start)
-        today_start = datetime(now.year, now.month, now.day, 0, 0, 0)
-        today_end = datetime(now.year, now.month, now.day, 23, 59, 0)
+        today_start = self._get_schedule_share_today_start_datetime(now)
+        today_end = self._get_schedule_share_today_end_datetime(now)
 
         year_values = [f"{year}년" for year in range(now.year - 1, now.year + 3)]
         month_values = [f"{month:02d}월" for month in range(1, 13)]
@@ -7817,6 +8102,7 @@ class BossTimerApp:
         share_font_size_var = tk.StringVar(value=str(getattr(self, "schedule_share_font_size_default", 9)))
         share_bold_var = tk.BooleanVar(value=bool(getattr(self, "schedule_share_bold_default", False)))
         share_elapsed_strike_var = tk.BooleanVar(value=bool(getattr(self, "schedule_share_elapsed_strike_default", False)))
+        share_exclude_elapsed_var = tk.BooleanVar(value=bool(getattr(self, "schedule_share_exclude_elapsed_default", False)))
         preview_var = tk.StringVar()
         font_size_values = [str(size) for size in range(8, 25)]
 
@@ -7889,10 +8175,13 @@ class BossTimerApp:
             self.schedule_share_use_boss_colors_default = bool(use_boss_color_var.get())
             self.schedule_share_use_fixed_boss_colors_default = bool(use_fixed_boss_color_var.get())
             self.schedule_share_include_break_rows_default = bool(include_break_rows_var.get())
+            self.schedule_share_start_time_default = start_value.strftime("%H:%M")
+            self.schedule_share_end_datetime_default = end_value.strftime("%Y-%m-%d %H:%M:%S")
             self.schedule_share_duration_minutes_default = max(1, int((end_value - start_value).total_seconds() // 60))
             self.schedule_share_font_size_default = font_size_value
             self.schedule_share_bold_default = bool(share_bold_var.get())
             self.schedule_share_elapsed_strike_default = bool(share_elapsed_strike_var.get())
+            self.schedule_share_exclude_elapsed_default = bool(share_exclude_elapsed_var.get())
             self._save_settings()
             close_with(
                 {
@@ -7904,6 +8193,7 @@ class BossTimerApp:
                     "font_size": self.schedule_share_font_size_default,
                     "bold": self.schedule_share_bold_default,
                     "strike_elapsed": self.schedule_share_elapsed_strike_default,
+                    "exclude_elapsed": self.schedule_share_exclude_elapsed_default,
                 }
             )
 
@@ -8045,7 +8335,7 @@ class BossTimerApp:
             highlightthickness=0,
             anchor="w",
         ).place(x=240, y=240, width=66, height=24)
-        tk.Checkbutton(
+        strike_elapsed_check = tk.Checkbutton(
             dialog,
             text="지난스케쥴 취소선",
             variable=share_elapsed_strike_var,
@@ -8057,11 +8347,49 @@ class BossTimerApp:
             selectcolor="#ffffff",
             highlightthickness=0,
             anchor="w",
-        ).place(x=320, y=240, width=160, height=24)
+        )
+        strike_elapsed_check.place(x=320, y=240, width=160, height=24)
+        share_exclude_elapsed_check = tk.Checkbutton(
+            dialog,
+            text="지난스케쥴 제외",
+            variable=share_exclude_elapsed_var,
+            font=self.button_font,
+            bg="#eef2ff",
+            fg="#1e3a8a",
+            activebackground="#eef2ff",
+            activeforeground="#1e3a8a",
+            selectcolor="#ffffff",
+            highlightthickness=0,
+            anchor="w",
+        )
+        share_exclude_elapsed_check.place(x=320, y=266, width=160, height=24)
+
+        def update_elapsed_option_state(*_args) -> None:
+            state = "disabled" if bool(share_exclude_elapsed_var.get()) else "normal"
+            try:
+                if state == "disabled":
+                    share_elapsed_strike_var.set(False)
+                strike_elapsed_check.config(state=state)
+            except tk.TclError:
+                return
+
+        share_exclude_elapsed_var.trace_add("write", update_elapsed_option_state)
+        update_elapsed_option_state()
+
+        tk.Label(
+            dialog,
+            text="참고: 휴식시간 폰트/굵기 설정은 우상단 휴식시간 설정에서 설정하세요.",
+            font=self.percent_font,
+            bg="#eef2ff",
+            fg="#475569",
+            anchor="w",
+            justify="left",
+            wraplength=484,
+        ).place(x=18, y=300, width=484, height=20)
 
         def reset_to_defaults() -> None:
             set_fields(default_start, start=True)
-            set_fields(default_end, start=False)
+            set_fields(self._get_schedule_share_reset_end_datetime(default_start), start=False)
             update_preview()
 
         tk.Button(
@@ -8091,7 +8419,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=confirm,
             cursor="hand2",
-        ).place(x=330, y=306, width=80, height=30)
+        ).place(x=330, y=346, width=80, height=30)
         tk.Button(
             dialog,
             text="취소",
@@ -8105,7 +8433,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=lambda: close_with(None),
             cursor="hand2",
-        ).place(x=422, y=306, width=80, height=30)
+        ).place(x=422, y=346, width=80, height=30)
 
         set_fields(default_start, start=True)
         set_fields(default_end, start=False)
@@ -8130,6 +8458,8 @@ class BossTimerApp:
         return str(definition.get("area") or "").strip()
 
     def _get_schedule_share_event_colors(self, item: dict[str, object]) -> tuple[str, str]:
+        if self._is_schedule_invasion_item(item):
+            return self._get_schedule_invasion_effective_colors()
         boss_name = self._get_schedule_boss_definition_name(item)
         definition = self.schedule_boss_definitions.get(boss_name, {})
         area_name = str(definition.get("area") or RECORD_BOOK_AREAS[0]).strip()
@@ -8154,6 +8484,7 @@ class BossTimerApp:
         use_boss_colors: bool = False,
         use_fixed_boss_colors: bool = False,
         include_break_rows: bool = False,
+        exclude_elapsed: bool = False,
     ) -> tuple[list[dict[str, object]], datetime, datetime]:
         reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
         share_start = start_datetime.replace(microsecond=0)
@@ -8168,6 +8499,8 @@ class BossTimerApp:
             if not isinstance(scheduled_at, datetime):
                 continue
             if scheduled_at < share_start or scheduled_at > share_end:
+                continue
+            if exclude_elapsed and scheduled_at < reference_now:
                 continue
             if not self._is_schedule_event_visible(
                 scheduled_at,
@@ -8195,6 +8528,8 @@ class BossTimerApp:
             )
         for scheduled_at, boss_text, state_text, *_rest, text_color, bg_color in self._get_fixed_boss_schedule_rows_for_share_range(reference_now, share_start, share_end):
             if scheduled_at < share_start or scheduled_at > share_end:
+                continue
+            if exclude_elapsed and scheduled_at < reference_now:
                 continue
             raw_boss_text = re.sub(r"\s*★\s*$", "", str(boss_text or "")).strip()
             rows.append(
@@ -8262,6 +8597,7 @@ class BossTimerApp:
                 use_boss_colors=bool(selected_range.get("use_boss_colors")),
                 use_fixed_boss_colors=bool(selected_range.get("use_fixed_boss_colors")),
                 include_break_rows=bool(selected_range.get("include_break_rows")),
+                exclude_elapsed=bool(selected_range.get("exclude_elapsed", False)),
             )
             if not rows:
                 self.schedule_status_var.set("공유할 예정 스케쥴이 없습니다.")
@@ -8312,9 +8648,10 @@ class BossTimerApp:
                     "  $defaultFontSize = [Math]::Max(8, [int]$payload.default_font_size)\n"
                     "  $defaultBodyBold = [bool]$payload.default_bold\n"
                     "  $strikeElapsed = [bool]$payload.strike_elapsed\n"
-                    "  $tableHeaderHeight = [Math]::Max(28, $defaultFontSize + 14)\n"
-                    "  $dateHeaderHeight = [Math]::Max(30, $defaultFontSize + 16)\n"
-                    "  $eventRowHeight = [Math]::Max(28, $defaultFontSize + 18)\n"
+                    "  $headerFontSize = [Math]::Max(10, $defaultFontSize + 2)\n"
+                    "  $tableHeaderHeight = [Math]::Max(34, $headerFontSize + 20)\n"
+                    "  $dateHeaderHeight = [Math]::Max(34, $defaultFontSize + 18)\n"
+                    "  $eventRowHeight = [Math]::Max(36, $defaultFontSize + 24)\n"
                     "  $tableHeight = 0\n"
                     "  if ($rows.Count -eq 0) { $tableHeight = $eventRowHeight } else { foreach ($row in $rows) { if ([string]$row.kind -eq 'date_header') { $tableHeight += $dateHeaderHeight } else { $rowScale = if ([string]$row.kind -eq 'break') { [double]$row.row_scale } else { 1.0 }; if ($rowScale -le 0) { $rowScale = 1.0 }; $rowHeight = [Math]::Max($eventRowHeight, [int][Math]::Round($eventRowHeight * $rowScale)); $tableHeight += $rowHeight } } }\n"
                     "  $height = $headerHeight + $tableHeaderHeight + $tableHeight + 18\n"
@@ -8326,14 +8663,15 @@ class BossTimerApp:
                     "  $g.Clear([System.Drawing.Color]::FromArgb(248,250,252))\n"
                     "  $titleFont = New-Object System.Drawing.Font('Malgun Gothic', 14, [System.Drawing.FontStyle]::Bold)\n"
                     "  $subFont = New-Object System.Drawing.Font('Malgun Gothic', 8)\n"
-                    "  $headFont = New-Object System.Drawing.Font('Malgun Gothic', 9, [System.Drawing.FontStyle]::Bold)\n"
+                    "  $headerFontStyle = if ($defaultBodyBold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }\n"
+                    "  $headFont = New-Object System.Drawing.Font('Malgun Gothic', $headerFontSize, $headerFontStyle)\n"
                     "  $bodyFontStyle = if ($defaultBodyBold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }\n"
                     "  $bodyFont = New-Object System.Drawing.Font('Malgun Gothic', $defaultFontSize, $bodyFontStyle)\n"
                     "  $bodyStrikeStyle = $bodyFontStyle\n"
                     "  if ($strikeElapsed) { $bodyStrikeStyle = $bodyFontStyle -bor [System.Drawing.FontStyle]::Strikeout }\n"
                     "  $bodyStrikeFont = New-Object System.Drawing.Font('Malgun Gothic', $defaultFontSize, $bodyStrikeStyle)\n"
                     "  $starFont = New-Object System.Drawing.Font('Malgun Gothic', 10, [System.Drawing.FontStyle]::Bold)\n"
-                    "  $dateFont = New-Object System.Drawing.Font('Malgun Gothic', 9, [System.Drawing.FontStyle]::Bold)\n"
+                    "  $dateFont = New-Object System.Drawing.Font('Malgun Gothic', [Math]::Max(9, $defaultFontSize), [System.Drawing.FontStyle]::Bold)\n"
                     "  $centerFormat = New-Object System.Drawing.StringFormat\n"
                     "  $centerFormat.Alignment = [System.Drawing.StringAlignment]::Center\n"
                     "  $centerFormat.LineAlignment = [System.Drawing.StringAlignment]::Center\n"
@@ -8358,9 +8696,10 @@ class BossTimerApp:
                     "  $starX = 144\n"
                     "  $bossX = 164\n"
                     "  $stateX = 404\n"
-                    "  $g.DrawString('예정시각', $headFont, $textBrush, $timeX, $headerHeight + 6)\n"
-                    "  $g.DrawString('보스명', $headFont, $textBrush, $bossX, $headerHeight + 6)\n"
-                    "  $g.DrawString('상태', $headFont, $textBrush, $stateX, $headerHeight + 6)\n"
+                    "  $headerTextY = $headerHeight + [Math]::Max(6, [int][Math]::Floor(($tableHeaderHeight - $headFont.GetHeight($g)) / 2))\n"
+                    "  $g.DrawString('예정시각', $headFont, $textBrush, $timeX, $headerTextY)\n"
+                    "  $g.DrawString('보스명', $headFont, $textBrush, $bossX, $headerTextY)\n"
+                    "  $g.DrawString('상태', $headFont, $textBrush, $stateX, $headerTextY)\n"
                     "  $rowY = $headerHeight + $tableHeaderHeight\n"
                     "  if ($rows.Count -eq 0) {\n"
                     "    $g.FillRectangle($eventBrush, 0, $rowY, $width, $eventRowHeight)\n"
@@ -15067,9 +15406,24 @@ class BossTimerApp:
             pass
         return tag_name
 
-    def _get_schedule_event_effective_colors(self, boss_name: str) -> tuple[str, str]:
+    def _get_schedule_invasion_effective_colors(self) -> tuple[str, str]:
+        return (
+            self._normalize_hex_color(getattr(self, "schedule_invasion_last_text_color", DEFAULT_SCHEDULE_INVASION_TEXT_COLOR), DEFAULT_SCHEDULE_INVASION_TEXT_COLOR),
+            self._normalize_hex_color(getattr(self, "schedule_invasion_last_bg_color", DEFAULT_SCHEDULE_INVASION_BG_COLOR), DEFAULT_SCHEDULE_INVASION_BG_COLOR),
+        )
+
+    def _get_schedule_event_effective_colors(self, item_or_name: dict[str, object] | str) -> tuple[str, str]:
         if not bool(self.schedule_color_data_enabled_var.get()):
             return DEFAULT_SCHEDULE_TEXT_COLOR, DEFAULT_SCHEDULE_BG_COLOR
+        if isinstance(item_or_name, dict):
+            is_invasion = self._is_schedule_invasion_item(item_or_name)
+            boss_name = self._get_schedule_boss_definition_name(item_or_name)
+        else:
+            raw_name = str(item_or_name or "").strip()
+            is_invasion = self._normalize_schedule_boss_lookup_key(raw_name).startswith("침공")
+            boss_name = raw_name
+        if is_invasion:
+            return self._get_schedule_invasion_effective_colors()
         canonical_boss_name = self._get_canonical_boss_name(boss_name)
         item = self.schedule_boss_definitions.get(canonical_boss_name, {})
         area_name = str(item.get("area") or RECORD_BOOK_AREAS[0])
@@ -15084,8 +15438,8 @@ class BossTimerApp:
             self._normalize_hex_color(bg_color, DEFAULT_SCHEDULE_BG_COLOR),
         )
 
-    def _get_schedule_event_color_tag(self, boss_name: str) -> str:
-        text_color, bg_color = self._get_schedule_event_effective_colors(boss_name)
+    def _get_schedule_event_color_tag(self, item_or_name: dict[str, object] | str) -> str:
+        text_color, bg_color = self._get_schedule_event_effective_colors(item_or_name)
         normalized_text = text_color.replace("#", "")
         normalized_bg = bg_color.replace("#", "")
         tag_name = f"schedule_event_color_{normalized_text}_{normalized_bg}"
@@ -18498,6 +18852,12 @@ class BossTimerApp:
         for item in parsed_items:
             if str(item.get("state")) != "scheduled" or str(item.get("mode") or "") != "clock":
                 continue
+            if self._is_schedule_invasion_item(item):
+                # Invasion entries that are already in the past should stay as
+                # plain elapsed schedule rows. Treating them as auto-cut rows
+                # immediately exposes cancel state, which is misleading during
+                # invasion batch input.
+                continue
             if bool(item.get("cut_applied")):
                 continue
             if int(item.get("day_offset") or 0) != 0:
@@ -19284,7 +19644,7 @@ class BossTimerApp:
                                 ),
                             )
                     elif row_kind == "event":
-                        row_tags = (self._get_schedule_event_color_tag(str(row_item.get("boss_name") or boss_text)),)
+                        row_tags = (self._get_schedule_event_color_tag(row_item),)
                     else:
                         row_tags = ()
                     row_values = (
@@ -20410,6 +20770,7 @@ class BossTimerApp:
         self._apply_color_preview_button_style(self.schedule_boss_bg_color_button, boss_bg_color, "배경색")
         self._apply_color_preview_button_style(self.schedule_area_text_color_button, area_text_color, "글자색")
         self._apply_color_preview_button_style(self.schedule_area_bg_color_button, area_bg_color, "배경색")
+        self._refresh_schedule_invasion_color_button_styles()
         if (
             refresh_tree_preview
             and not self.schedule_boss_form_syncing
@@ -20418,6 +20779,29 @@ class BossTimerApp:
             and self.schedule_boss_tree is not None
         ):
             self._populate_schedule_boss_definition_tree()
+
+    def _refresh_schedule_invasion_color_button_styles(self) -> None:
+        self._apply_color_preview_button_style(self.schedule_invasion_text_color_button, self.schedule_invasion_text_color_var.get(), "침공 글자색")
+        self._apply_color_preview_button_style(self.schedule_invasion_bg_color_button, self.schedule_invasion_bg_color_var.get(), "침공 배경색")
+
+    def _choose_schedule_invasion_color(self, variable: tk.StringVar, title: str, default: str) -> None:
+        parent = self.schedule_boss_config_window if self.schedule_boss_config_window is not None and self.schedule_boss_config_window.winfo_exists() else self.root
+        initial_color = self._normalize_hex_color(variable.get(), default)
+        try:
+            _rgb, selected = colorchooser.askcolor(color=initial_color, title=title, parent=parent)
+        except tk.TclError:
+            return
+        if not selected:
+            return
+        normalized = self._normalize_hex_color(selected, default)
+        variable.set(normalized)
+        if variable is self.schedule_invasion_text_color_var:
+            self.schedule_invasion_last_text_color = normalized
+        elif variable is self.schedule_invasion_bg_color_var:
+            self.schedule_invasion_last_bg_color = normalized
+        self._refresh_schedule_invasion_color_button_styles()
+        self._save_settings()
+        self._refresh_schedule_view()
 
     def _set_schedule_boss_apply_button_active(self, is_active: bool) -> None:
         self.schedule_boss_form_dirty = is_active
@@ -22660,14 +23044,21 @@ class BossTimerApp:
             for record in normalized_records
             if record.get("actual_cut_seconds") is not None
         ]
-        if exclude_extremes and len(cut_values) > 8:
-            minimum_cut = min(cut_values)
-            maximum_cut = max(cut_values)
-            if minimum_cut != maximum_cut:
+        if exclude_extremes and len(cut_values) >= 3:
+            ranked_indices = [
+                (index, float(record.get("actual_cut_seconds")))
+                for index, record in enumerate(normalized_records)
+                if record.get("actual_cut_seconds") is not None
+            ]
+            ranked_indices.sort(key=lambda item: (item[1], item[0]))
+            minimum_index = ranked_indices[0][0]
+            maximum_index = ranked_indices[-1][0]
+            if minimum_index != maximum_index:
+                excluded_indices = {minimum_index, maximum_index}
                 included_records = [
                     record
-                    for record in normalized_records
-                    if record.get("actual_cut_seconds") not in {minimum_cut, maximum_cut}
+                    for index, record in enumerate(normalized_records)
+                    if index not in excluded_indices
                 ]
         display_records = list(included_records)
         if limit is not None and limit > 0:
@@ -22839,6 +23230,7 @@ class BossTimerApp:
         schedule_share_font_size_value = min(24, max(8, int(getattr(self, "schedule_share_font_size_default", 9) or 9)))
         schedule_share_bold_value = bool(getattr(self, "schedule_share_bold_default", False))
         schedule_share_elapsed_strike_value = bool(getattr(self, "schedule_share_elapsed_strike_default", False))
+        schedule_share_exclude_elapsed_value = bool(getattr(self, "schedule_share_exclude_elapsed_default", False))
         schedule_break_rows_enabled_value = bool(getattr(self, "schedule_break_rows_enabled_default", True))
         if hasattr(self, "schedule_break_rows_enabled_var") and self.schedule_break_rows_enabled_var is not None:
             schedule_break_rows_enabled_value = bool(self.schedule_break_rows_enabled_var.get())
@@ -22958,9 +23350,12 @@ class BossTimerApp:
             "schedule_share_use_fixed_boss_colors": str(schedule_share_use_fixed_boss_colors_value),
             "schedule_share_include_break_rows": str(schedule_share_include_break_rows_value),
             "schedule_share_duration_minutes": str(schedule_share_duration_minutes_value),
+            "schedule_share_start_time": str(getattr(self, "schedule_share_start_time_default", "00:00") or "00:00").strip(),
+            "schedule_share_end_datetime": str(getattr(self, "schedule_share_end_datetime_default", "") or "").strip(),
             "schedule_share_font_size": str(schedule_share_font_size_value),
             "schedule_share_bold": str(schedule_share_bold_value),
             "schedule_share_elapsed_strike": str(schedule_share_elapsed_strike_value),
+            "schedule_share_exclude_elapsed": str(schedule_share_exclude_elapsed_value),
             "schedule_break_rows_enabled": str(schedule_break_rows_enabled_value),
             "schedule_break_apply_all_text": str(schedule_break_apply_all_text_value),
             "schedule_break_apply_all_display_mode": str(schedule_break_apply_all_display_mode_value),
@@ -22981,6 +23376,10 @@ class BossTimerApp:
             "schedule_boss_metric_bulk_apply_user_duration": str(schedule_boss_metric_bulk_apply_user_duration_value),
             "schedule_boss_metric_bulk_apply_score": str(schedule_boss_metric_bulk_apply_score_value),
             "schedule_boss_metric_bulk_apply_war_score": str(schedule_boss_metric_bulk_apply_war_score_value),
+            "schedule_time_sync_last_success_at": str(getattr(self, "schedule_time_sync_last_success_at", "") or ""),
+            "schedule_time_sync_last_attempt_at": str(getattr(self, "schedule_time_sync_last_attempt_at", "") or ""),
+            "schedule_time_sync_last_status": str(getattr(self, "schedule_time_sync_last_status", "") or ""),
+            "schedule_time_sync_last_error": str(getattr(self, "schedule_time_sync_last_error", "") or ""),
             "schedule_invasion_weekday": schedule_invasion_weekday_value,
             "schedule_input_ocr_addon_fast_input": str(schedule_input_ocr_addon_fast_input_value),
             "schedule_input_ocr_sort_by_time": str(schedule_input_ocr_sort_by_time_value),
@@ -22992,6 +23391,8 @@ class BossTimerApp:
             "log_stats_boss_enabled_json": json.dumps(log_stats_enabled_map_value, ensure_ascii=False, separators=(",", ":")),
             "fixed_boss_last_text_color": fixed_boss_text_color_value,
             "fixed_boss_last_bg_color": fixed_boss_bg_color_value,
+            "schedule_invasion_last_text_color": self._normalize_hex_color(getattr(self, "schedule_invasion_last_text_color", DEFAULT_SCHEDULE_INVASION_TEXT_COLOR), DEFAULT_SCHEDULE_INVASION_TEXT_COLOR),
+            "schedule_invasion_last_bg_color": self._normalize_hex_color(getattr(self, "schedule_invasion_last_bg_color", DEFAULT_SCHEDULE_INVASION_BG_COLOR), DEFAULT_SCHEDULE_INVASION_BG_COLOR),
             "schedule_break_last_text_color": self._normalize_hex_color(getattr(self, "schedule_break_last_text_color", DEFAULT_SCHEDULE_BREAK_TEXT_COLOR), DEFAULT_SCHEDULE_BREAK_TEXT_COLOR),
             "schedule_break_last_bg_color": self._normalize_hex_color(getattr(self, "schedule_break_last_bg_color", DEFAULT_SCHEDULE_BREAK_BG_COLOR), DEFAULT_SCHEDULE_BREAK_BG_COLOR),
             "main_window_x": str(self.main_window_x),
@@ -26780,6 +27181,15 @@ class BossTimerApp:
         top_frame = tk.Frame(self.schedule_window, bg="#dbeafe")
         top_frame.place(x=0, y=0, width=SCHEDULE_WINDOW_WIDTH, height=118)
         tk.Label(top_frame, text="보스 스케쥴", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=18, y=14)
+        self.schedule_time_sync_info_label = tk.Label(
+            top_frame,
+            textvariable=self.schedule_time_sync_status_var,
+            font=self.percent_font,
+            bg="#dbeafe",
+            fg="#475569",
+            anchor="w",
+        )
+        self.schedule_time_sync_info_label.place(x=136, y=15, width=658, height=16)
         self.schedule_alarm_master_button = tk.Button(
             top_frame,
             text="알람 OFF",
@@ -28206,6 +28616,60 @@ class BossTimerApp:
             anchor="nw",
             wraplength=404,
         ).place(x=16, y=360, width=408, height=40)
+        tk.Frame(right_frame, bg="#cbd5e1").place(x=16, y=408, width=408, height=1)
+        tk.Label(
+            right_frame,
+            text="침공 보스 색 설정",
+            font=self.label_font,
+            bg="#eff6ff",
+            fg="#7f1d1d",
+            anchor="w",
+        ).place(x=16, y=420, width=180, height=20)
+        tk.Label(
+            right_frame,
+            text="침공 보스는 개별/지역 색보다 이 설정을 우선 적용합니다.",
+            font=self.percent_font,
+            bg="#eff6ff",
+            fg="#64748b",
+            anchor="w",
+        ).place(x=16, y=442, width=312, height=16)
+        self.schedule_invasion_text_color_button = tk.Button(
+            right_frame,
+            text="침공 글자색",
+            font=self.percent_font,
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=lambda: self._choose_schedule_invasion_color(self.schedule_invasion_text_color_var, "침공 보스 글자색 선택", DEFAULT_SCHEDULE_INVASION_TEXT_COLOR),
+            cursor="hand2",
+        )
+        self.schedule_invasion_text_color_button.place(x=16, y=466, width=96, height=28)
+        self.schedule_invasion_bg_color_button = tk.Button(
+            right_frame,
+            text="침공 배경색",
+            font=self.percent_font,
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=lambda: self._choose_schedule_invasion_color(self.schedule_invasion_bg_color_var, "침공 보스 배경색 선택", DEFAULT_SCHEDULE_INVASION_BG_COLOR),
+            cursor="hand2",
+        )
+        self.schedule_invasion_bg_color_button.place(x=120, y=466, width=96, height=28)
+        if self.schedule_invasion_text_color_var is not None:
+            self.schedule_invasion_text_color_var.set(
+                self._normalize_hex_color(
+                    getattr(self, "schedule_invasion_last_text_color", DEFAULT_SCHEDULE_INVASION_TEXT_COLOR),
+                    DEFAULT_SCHEDULE_INVASION_TEXT_COLOR,
+                )
+            )
+        if self.schedule_invasion_bg_color_var is not None:
+            self.schedule_invasion_bg_color_var.set(
+                self._normalize_hex_color(
+                    getattr(self, "schedule_invasion_last_bg_color", DEFAULT_SCHEDULE_INVASION_BG_COLOR),
+                    DEFAULT_SCHEDULE_INVASION_BG_COLOR,
+                )
+            )
+        self._refresh_schedule_invasion_color_button_styles()
         self.schedule_color_data_apply_check = tk.Checkbutton(
             right_frame,
             text="보스 색 적용",
@@ -28219,7 +28683,7 @@ class BossTimerApp:
             anchor="e",
             cursor="hand2",
         )
-        self.schedule_color_data_apply_check.place(x=280, y=258, width=144, height=24)
+        self.schedule_color_data_apply_check.place(x=280, y=466, width=144, height=24)
 
     def _ensure_schedule_alarm_window(self) -> None:
         if self.schedule_alarm_window is not None and self.schedule_alarm_window.winfo_exists():
@@ -34988,6 +35452,12 @@ class BossTimerApp:
             except tk.TclError:
                 pass
             self.main_clock_after_id = None
+        if self.schedule_time_sync_after_id is not None:
+            try:
+                self.root.after_cancel(self.schedule_time_sync_after_id)
+            except tk.TclError:
+                pass
+            self.schedule_time_sync_after_id = None
         self._stop_pause_blink()
         self._stop_expected_blink()
         self._stop_record_label_blink()

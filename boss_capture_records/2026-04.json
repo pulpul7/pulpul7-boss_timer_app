@@ -75,5 +75,30 @@
     "4층": true,
     "10층": true
   },
-  "records": {}
+  "records": {
+    "2026-04-18": {
+      "티르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "ally_main_extra": false,
+        "ally_invasion_extra": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "enemy_main_extra": false,
+        "enemy_invasion_extra": false,
+        "memo": ""
+      },
+      "미미르": {
+        "ally_main": true,
+        "ally_invasion": false,
+        "ally_main_extra": false,
+        "ally_invasion_extra": false,
+        "enemy_main": false,
+        "enemy_invasion": false,
+        "enemy_main_extra": false,
+        "enemy_invasion_extra": false,
+        "memo": ""
+      }
+    }
+  }
 }
