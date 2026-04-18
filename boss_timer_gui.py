@@ -227,6 +227,67 @@ DEFAULT_SETTINGS_SEED_FILENAME = "default_settings.ini"
 DEFAULT_SCHEDULE_STATE_SEED_FILENAME = "default_schedule_state.json"
 DEFAULT_SCHEDULE_ALARM_SETTINGS_SEED_FILENAME = "default_schedule_alarm_settings.json"
 DEFAULT_RECORD_BOOK_SEED_FILENAME = "default_boss_capture_records.json"
+DEFAULT_SETTINGS_SEED_KEYS = (
+    "background_path",
+    "font_family",
+    "background_alignment",
+    "show_alert_overlay",
+    "show_alert_percent",
+    "show_hodulgap_banner",
+    "show_elapsed_brush",
+    "elapsed_brush_color",
+    "analysis_count",
+    "record_book_edit_mode",
+    "record_book_use_invasion",
+    "record_book_apply_schedule",
+    "record_book_recent_count",
+    "record_book_recent_days",
+    "record_book_retention",
+    "log_stats_exclude_extremes",
+    "log_stats_include_unconfirmed",
+    "schedule_color_data_enabled",
+    "fixed_boss_color_data_enabled",
+    "schedule_ocr_learning_enabled",
+    "schedule_share_use_boss_colors",
+    "schedule_share_use_fixed_boss_colors",
+    "schedule_share_include_break_rows",
+    "schedule_share_duration_minutes",
+    "schedule_share_start_time",
+    "schedule_share_end_datetime",
+    "schedule_share_font_size",
+    "schedule_share_bold",
+    "schedule_share_elapsed_strike",
+    "schedule_share_exclude_elapsed",
+    "schedule_break_rows_enabled",
+    "schedule_break_apply_all_text",
+    "schedule_break_apply_all_display_mode",
+    "schedule_break_apply_all_row_scale",
+    "schedule_break_apply_all_font_size",
+    "schedule_break_apply_all_bold",
+    "schedule_break_apply_all_enabled",
+    "schedule_break_apply_all_text_color",
+    "schedule_break_apply_all_bg_color",
+    "schedule_boss_metric_duration_enabled",
+    "schedule_boss_metric_schedule_duration_enabled",
+    "schedule_boss_metric_bulk_area",
+    "schedule_boss_metric_bulk_source_mode",
+    "schedule_boss_metric_bulk_user_duration",
+    "schedule_boss_metric_bulk_score",
+    "schedule_boss_metric_bulk_war_score",
+    "schedule_boss_metric_bulk_apply_source",
+    "schedule_boss_metric_bulk_apply_user_duration",
+    "schedule_boss_metric_bulk_apply_score",
+    "schedule_boss_metric_bulk_apply_war_score",
+    "schedule_invasion_weekday",
+    "schedule_input_ocr_addon_fast_input",
+    "schedule_input_ocr_sort_by_time",
+    "fixed_boss_last_text_color",
+    "fixed_boss_last_bg_color",
+    "schedule_invasion_last_text_color",
+    "schedule_invasion_last_bg_color",
+    "schedule_break_last_text_color",
+    "schedule_break_last_bg_color",
+)
 RECORD_BOOK_DEFAULT_RECENT_COUNT = 20
 RECORD_BOOK_DEFAULT_RECENT_DAYS = 30
 RECORD_BOOK_RETENTION_OPTIONS = ("30일", "60일", "90일", "100일", "1년", "영구")
@@ -23405,6 +23466,20 @@ class BossTimerApp:
         }
         with open(CONFIG_PATH, "w", encoding="utf-8") as file:
             config.write(file)
+        self._save_default_settings_seed(config["settings"])
+
+    def _save_default_settings_seed(self, runtime_settings: configparser.SectionProxy | dict[str, str]) -> None:
+        seed_config = configparser.ConfigParser()
+        seed_config["settings"] = {}
+        for key in DEFAULT_SETTINGS_SEED_KEYS:
+            if key in runtime_settings:
+                seed_config["settings"][key] = str(runtime_settings[key])
+        seed_path = os.path.join(INIT_DIR, DEFAULT_SETTINGS_SEED_FILENAME)
+        try:
+            with open(seed_path, "w", encoding="utf-8") as file:
+                seed_config.write(file)
+        except OSError:
+            return
 
     def _build_ui(self) -> None:
         self.root.resizable(False, False)
