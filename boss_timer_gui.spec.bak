@@ -43,17 +43,13 @@ def read_git_text(args: list[str]) -> str:
 
 
 def write_build_metadata() -> Path:
-    latest_tag = read_git_text(["tag", "--sort=-creatordate"])
     last_updated = read_git_text(["log", "-1", "--format=%cs"])
     detail_version = read_git_text(["describe", "--tags", "--always", "--dirty"])
-    resolved_version = latest_tag.splitlines()[0].strip() if latest_tag else ""
-    if not resolved_version:
-        resolved_version = BUILD_VERSION
     metadata = {
-        "author": "나츠",
-        "version": resolved_version,
+        "author": "?�츠",
+        "version": BUILD_VERSION,
         "last_updated": last_updated or BUILD_LAST_UPDATED,
-        "build_detail_version": detail_version or resolved_version,
+        "build_detail_version": detail_version or BUILD_VERSION,
         "build_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     metadata_path = project_root / "build_metadata.json"
@@ -66,13 +62,13 @@ build_metadata_path = write_build_metadata()
 datas = [
     (str(build_metadata_path), "."),
     ("assets\\기본배경.png", "assets"),
-    ("assets\\벽지.png", "assets"),
-    ("assets\\장원영.png", "assets"),
+    ("assets\\벽�?.png", "assets"),
+    ("assets\\?�원??png", "assets"),
 ]
 datas += collect_tree(Path("init"), "init")
 datas += collect_tree(Path("icons"), "icons")
-datas += collect_tree(tcl_root / "tcl8.6", "_tcl_data")
-datas += collect_tree(tcl_root / "tk8.6", "_tk_data")
+datas += collect_tree(tcl_root / "tcl8.6", "tcl8.6")
+datas += collect_tree(tcl_root / "tk8.6", "tk8.6")
 
 binaries = []
 for dll_name in ("tcl86t.dll", "tk86t.dll"):
@@ -87,7 +83,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=["tkinter", "_tkinter"],
-    hookspath=["pyinstaller_hooks"],
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=["pyi_rth_tkinter_fix.py"],
     excludes=[],

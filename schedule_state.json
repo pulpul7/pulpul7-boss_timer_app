@@ -11159,13 +11159,13 @@
       "source_text": "17:34:00 10층",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T17:34:00"
+        "value": "2026-04-18T17:33:50"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-18T17:34:00"
       },
-      "cycle_offset_direction": 0,
+      "cycle_offset_direction": -1,
       "respawn_seconds": 129600,
       "created_at": {
         "__type__": "datetime",
@@ -11220,13 +11220,13 @@
       "source_text": "19:33:00 수르트",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T19:33:00"
+        "value": "2026-04-18T19:32:30"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-18T19:33:00"
       },
-      "cycle_offset_direction": 0,
+      "cycle_offset_direction": -1,
       "respawn_seconds": 259200,
       "created_at": {
         "__type__": "datetime",
@@ -11281,13 +11281,13 @@
       "source_text": "19:41:00 7층",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T19:41:00"
+        "value": "2026-04-18T19:40:59"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-18T19:41:00"
       },
-      "cycle_offset_direction": 0,
+      "cycle_offset_direction": -1,
       "respawn_seconds": 86400,
       "created_at": {
         "__type__": "datetime",
@@ -12476,13 +12476,13 @@
       "source_text": "19:41:00 7층",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-19T19:41:01"
+        "value": "2026-04-19T19:41:00"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-19T19:41:00"
       },
-      "cycle_offset_direction": 1,
+      "cycle_offset_direction": 0,
       "respawn_seconds": 86400,
       "created_at": {
         "__type__": "datetime",
@@ -13218,13 +13218,13 @@
       "source_text": "17:34:00 10층",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-20T05:34:10"
+        "value": "2026-04-20T05:34:00"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-20T05:34:00"
       },
-      "cycle_offset_direction": 1,
+      "cycle_offset_direction": 0,
       "respawn_seconds": 129600,
       "created_at": {
         "__type__": "datetime",
@@ -15403,13 +15403,13 @@
       "source_text": "19:33:00 수르트",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-21T19:33:30"
+        "value": "2026-04-21T19:33:00"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-21T19:33:00"
       },
-      "cycle_offset_direction": 1,
+      "cycle_offset_direction": 0,
       "respawn_seconds": 259200,
       "created_at": {
         "__type__": "datetime",

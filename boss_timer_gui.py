@@ -809,6 +809,7 @@ class BossTimerApp:
         self.schedule_time_sync_last_attempt_at = ""
         self.schedule_time_sync_last_status = ""
         self.schedule_time_sync_last_error = ""
+        self.schedule_time_sync_last_auto_result = ""
         self.schedule_boss_metric_bulk_area_default = RECORD_BOOK_AREAS[0]
         self.schedule_boss_metric_bulk_source_mode_default = "user_first"
         self.schedule_boss_metric_bulk_user_duration_default = ""
@@ -3844,21 +3845,59 @@ class BossTimerApp:
                 text = "Windows 마지막 시간 동기화: 기록 없음"
             else:
                 text = "Windows 마지막 시간 동기화: 확인 필요"
+            auto_result = str(getattr(self, "schedule_time_sync_last_auto_result", "") or "").strip().lower()
+            if auto_result == "success":
+                text = f"{text} (자동 성공)"
+            elif auto_result == "failed":
+                text = f"{text} (자동 실패)"
         if hasattr(self, "schedule_time_sync_status_var") and self.schedule_time_sync_status_var is not None:
             try:
                 self.schedule_time_sync_status_var.set(text)
             except tk.TclError:
                 pass
 
+    def _clear_schedule_time_sync_after(self) -> None:
+        if self.schedule_time_sync_after_id is not None and self.root is not None and self.root.winfo_exists():
+            try:
+                self.root.after_cancel(self.schedule_time_sync_after_id)
+            except tk.TclError:
+                pass
+        self.schedule_time_sync_after_id = None
+
+    def _queue_schedule_time_sync_check(self, delay_ms: int, *, reason: str) -> None:
+        self._clear_schedule_time_sync_after()
+        if not self._callbacks_available():
+            return
+        delay_ms = max(1000, int(delay_ms))
+        try:
+            self.schedule_time_sync_after_id = self.root.after(
+                delay_ms,
+                lambda: self._schedule_time_sync_periodic_check(reason=reason),
+            )
+        except tk.TclError:
+            self.schedule_time_sync_after_id = None
+
+    def _get_schedule_time_sync_due_delay_ms(self, now_value: datetime | None = None) -> int:
+        now_value = now_value or datetime.now()
+        success_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_success_at", ""))
+        if not isinstance(success_at, datetime):
+            return 0
+        due_at = success_at + timedelta(seconds=SCHEDULE_TIME_SYNC_INTERVAL_SECONDS)
+        return max(0, int((due_at - now_value).total_seconds() * 1000))
+
     def _should_auto_sync_schedule_time(self, now_value: datetime | None = None) -> bool:
         now_value = now_value or datetime.now()
         success_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_success_at", ""))
         if not isinstance(success_at, datetime):
             return True
-        attempt_at = self._parse_schedule_time_sync_datetime(getattr(self, "schedule_time_sync_last_attempt_at", ""))
-        if not isinstance(attempt_at, datetime):
-            return True
-        return (now_value - attempt_at).total_seconds() >= SCHEDULE_TIME_SYNC_INTERVAL_SECONDS
+        return (now_value - success_at).total_seconds() >= SCHEDULE_TIME_SYNC_INTERVAL_SECONDS
+
+    def _extract_schedule_time_sync_success_text_from_message(self, message: str) -> str:
+        for part in str(message or "").split("|"):
+            key, _, value = part.strip().partition("=")
+            if key == "success":
+                return value.strip()
+        return ""
 
     def _extract_w32tm_status_field(self, output_text: str, *prefixes: str) -> str:
         lines = [str(line or "").strip() for line in str(output_text or "").splitlines()]
@@ -3886,18 +3925,7 @@ class BossTimerApp:
                     return candidate
         return ""
 
-    def _run_windows_time_sync_command(self) -> tuple[bool, str]:
-        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        try:
-            completed = subprocess.run(
-                ["w32tm", "/query", "/status", "/verbose"],
-                capture_output=True,
-                text=False,
-                creationflags=creation_flags,
-                check=False,
-            )
-        except OSError as exc:
-            return False, str(exc)
+    def _decode_windows_time_command_output(self, completed: subprocess.CompletedProcess) -> str:
         output_chunks: list[str] = []
         for raw_part in (completed.stdout, completed.stderr):
             if not raw_part:
@@ -3918,7 +3946,21 @@ class BossTimerApp:
             if decoded_part is None:
                 decoded_part = raw_part.decode("utf-8", errors="replace")
             output_chunks.append(decoded_part)
-        output = "\n".join(part for part in output_chunks if part).strip()
+        return "\n".join(part for part in output_chunks if part).strip()
+
+    def _run_windows_time_status_query_command(self) -> tuple[bool, str]:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            completed = subprocess.run(
+                ["w32tm", "/query", "/status", "/verbose"],
+                capture_output=True,
+                text=False,
+                creationflags=creation_flags,
+                check=False,
+            )
+        except OSError as exc:
+            return False, str(exc)
+        output = self._decode_windows_time_command_output(completed)
         if completed.returncode != 0:
             return False, output or "Windows 시간 상태 조회에 실패했습니다."
         last_success = self._extract_w32tm_last_success_time_text(output)
@@ -3933,6 +3975,23 @@ class BossTimerApp:
             status_parts.append(f"error={last_error}")
         return True, " | ".join(status_parts)
 
+    def _run_windows_time_resync_command(self) -> tuple[bool, str]:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            completed = subprocess.run(
+                ["w32tm", "/resync", "/force"],
+                capture_output=True,
+                text=False,
+                creationflags=creation_flags,
+                check=False,
+            )
+        except OSError as exc:
+            return False, str(exc)
+        output = self._decode_windows_time_command_output(completed)
+        if completed.returncode != 0:
+            return False, output or "Windows 시간 동기화에 실패했습니다."
+        return True, output or "Windows 시간 동기화 성공"
+
     def _finalize_schedule_time_sync_result(
         self,
         *,
@@ -3940,21 +3999,21 @@ class BossTimerApp:
         attempted_at_text: str,
         message: str,
         reason: str,
+        auto_result: str | None = None,
     ) -> None:
         self.schedule_time_sync_in_progress = False
         self.schedule_time_sync_last_attempt_at = attempted_at_text
         self.schedule_time_sync_last_status = "query_ok" if success else "query_failed"
         self.schedule_time_sync_last_error = "" if success else str(message or "").strip()
+        if auto_result is not None:
+            self.schedule_time_sync_last_auto_result = str(auto_result or "").strip().lower()
         if success:
-            success_text = ""
-            for part in str(message or "").split("|"):
-                key, _, value = part.strip().partition("=")
-                if key == "success":
-                    success_text = value.strip()
-                    break
+            success_text = self._extract_schedule_time_sync_success_text_from_message(message)
             parsed_success = self._parse_schedule_time_sync_datetime(success_text)
             if isinstance(parsed_success, datetime):
                 self.schedule_time_sync_last_success_at = parsed_success.strftime("%Y-%m-%d %H:%M:%S")
+                if auto_result is None and not self._should_auto_sync_schedule_time(parsed_success):
+                    self.schedule_time_sync_last_auto_result = ""
         else:
             self.schedule_time_sync_last_success_at = str(getattr(self, "schedule_time_sync_last_success_at", "") or "")
         self._refresh_schedule_time_sync_status_text()
@@ -3962,6 +4021,23 @@ class BossTimerApp:
             self._save_settings()
         except Exception:
             pass
+        self._plan_schedule_time_sync_next_check()
+
+    def _plan_schedule_time_sync_next_check(self) -> None:
+        self._clear_schedule_time_sync_after()
+        if not self._callbacks_available():
+            return
+        if not bool(getattr(self, "is_admin_process", False)):
+            self._queue_schedule_time_sync_check(SCHEDULE_TIME_SYNC_PERIODIC_CHECK_MS, reason="poll")
+            return
+        now_value = datetime.now()
+        if self._should_auto_sync_schedule_time(now_value):
+            if str(getattr(self, "schedule_time_sync_last_auto_result", "") or "").strip().lower() == "failed":
+                self._queue_schedule_time_sync_check(SCHEDULE_TIME_SYNC_PERIODIC_CHECK_MS, reason="poll")
+            else:
+                self._queue_schedule_time_sync_check(1000, reason="due")
+            return
+        self._queue_schedule_time_sync_check(self._get_schedule_time_sync_due_delay_ms(now_value), reason="due")
 
     def _perform_schedule_time_sync(self, *, reason: str = "auto") -> None:
         if self.schedule_time_sync_in_progress:
@@ -3969,16 +4045,36 @@ class BossTimerApp:
         self.schedule_time_sync_in_progress = True
         self._refresh_schedule_time_sync_status_text()
         attempted_at_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        is_admin_process = bool(getattr(self, "is_admin_process", False))
 
         def worker() -> None:
-            success, message = self._run_windows_time_sync_command()
+            first_query_success, first_query_message = self._run_windows_time_status_query_command()
+            final_success = first_query_success
+            final_message = first_query_message
+            auto_result = None
+            query_success_at_text = self._extract_schedule_time_sync_success_text_from_message(first_query_message)
+            parsed_query_success_at = self._parse_schedule_time_sync_datetime(query_success_at_text)
+            auto_sync_needed = reason == "startup" and is_admin_process and (
+                not isinstance(parsed_query_success_at, datetime)
+                or (datetime.now() - parsed_query_success_at).total_seconds() >= SCHEDULE_TIME_SYNC_INTERVAL_SECONDS
+            )
+            if auto_sync_needed:
+                sync_success, _sync_message = self._run_windows_time_resync_command()
+                auto_result = "success" if sync_success else "failed"
+                if sync_success:
+                    time.sleep(1.0)
+                followup_query_success, followup_query_message = self._run_windows_time_status_query_command()
+                if followup_query_success or not first_query_success:
+                    final_success = followup_query_success
+                    final_message = followup_query_message
 
             def finish() -> None:
                 self._finalize_schedule_time_sync_result(
-                    success=success,
+                    success=final_success,
                     attempted_at_text=attempted_at_text,
-                    message=message,
+                    message=final_message,
                     reason=reason,
+                    auto_result=auto_result,
                 )
 
             try:
@@ -3988,25 +4084,11 @@ class BossTimerApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _schedule_time_sync_periodic_check(self, *, initial: bool = False) -> None:
-        if self.schedule_time_sync_after_id is not None and self.root is not None and self.root.winfo_exists():
-            try:
-                self.root.after_cancel(self.schedule_time_sync_after_id)
-            except tk.TclError:
-                pass
-            self.schedule_time_sync_after_id = None
+    def _schedule_time_sync_periodic_check(self, *, initial: bool = False, reason: str | None = None) -> None:
+        self.schedule_time_sync_after_id = None
         if not self._callbacks_available():
             return
-        # Windows 시간 동기화 상태 조회는 실제 시간 변경이 아니라 status query라서,
-        # 앱 시작 시점과 실행 중 주기적으로 다시 읽어와야 표시가 최신으로 유지된다.
-        self._perform_schedule_time_sync(reason="startup" if initial else "poll")
-        try:
-            self.schedule_time_sync_after_id = self.root.after(
-                SCHEDULE_TIME_SYNC_PERIODIC_CHECK_MS,
-                self._schedule_time_sync_periodic_check,
-            )
-        except tk.TclError:
-            self.schedule_time_sync_after_id = None
+        self._perform_schedule_time_sync(reason=reason or ("startup" if initial else "poll"))
 
     def _get_schedule_maintenance_weekday_index(self) -> int:
         weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
@@ -35673,8 +35755,6 @@ class BossTimerApp:
 
 def main() -> None:
     configure_windows_dpi()
-    if not ensure_admin_elevation():
-        return
     root = tk.Tk()
     configure_tk_scaling(root)
     app = BossTimerApp(root)
