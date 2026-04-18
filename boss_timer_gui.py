@@ -9951,15 +9951,21 @@ class BossTimerApp:
             return False
 
     def _get_preferred_odin_window_handle(self) -> int:
-        found_handle = int(self._find_odin_window_handle() or 0)
-        if found_handle and self._is_valid_window_handle(found_handle):
-            return found_handle
+        foreground = int(self._get_foreground_window_handle() or 0)
+        foreground_root = int(self._get_root_window_handle(foreground) or 0)
+        if foreground_root and self._is_valid_window_handle(foreground_root):
+            foreground_title = self._get_window_text(foreground_root)
+            if self._is_schedule_input_ocr_addon_target_title(foreground_title):
+                return foreground_root
         for candidate in (
-            int(self.schedule_input_ocr_addon_last_odin_hwnd or 0),
             int(self.schedule_input_ocr_addon_active_hwnd or 0),
+            int(self.schedule_input_ocr_addon_last_odin_hwnd or 0),
         ):
             if candidate and self._is_valid_window_handle(candidate):
                 return candidate
+        found_handle = int(self._find_odin_window_handle() or 0)
+        if found_handle and self._is_valid_window_handle(found_handle):
+            return found_handle
         return 0
 
     def _find_odin_window_handle(self) -> int:
@@ -10280,6 +10286,73 @@ class BossTimerApp:
             return False
         return isinstance(payload, dict) and bool(payload.get("ok"))
 
+    def _normalize_captured_png_size(self, image_path: str, target_width: int, target_height: int) -> bool:
+        safe_path = str(image_path or "").strip()
+        if not safe_path or target_width <= 0 or target_height <= 0 or not os.path.exists(safe_path):
+            return False
+        actual_size = get_png_image_size(safe_path)
+        if actual_size == (int(target_width), int(target_height)):
+            return True
+        temp_path = os.path.join(
+            os.path.dirname(safe_path),
+            f"{Path(safe_path).stem}_normalized_{uuid.uuid4().hex}.png",
+        )
+        script = (
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
+            "$ErrorActionPreference = 'Stop'\n"
+            "Add-Type -AssemblyName System.Drawing -ErrorAction Stop\n"
+            f"$sourcePath = '{self._quote_powershell_literal(safe_path)}'\n"
+            f"$tempPath = '{self._quote_powershell_literal(temp_path)}'\n"
+            f"$targetWidth = [int]{int(target_width)}\n"
+            f"$targetHeight = [int]{int(target_height)}\n"
+            "$sourceBitmap = [System.Drawing.Bitmap]::FromFile($sourcePath)\n"
+            "$targetBitmap = New-Object System.Drawing.Bitmap($targetWidth, $targetHeight)\n"
+            "$graphics = [System.Drawing.Graphics]::FromImage($targetBitmap)\n"
+            "try {\n"
+            "  $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic\n"
+            "  $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality\n"
+            "  $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality\n"
+            "  $graphics.DrawImage($sourceBitmap, 0, 0, $targetWidth, $targetHeight)\n"
+            "  $targetBitmap.Save($tempPath, [System.Drawing.Imaging.ImageFormat]::Png)\n"
+            "  [PSCustomObject]@{ ok = $true; path = $tempPath } | ConvertTo-Json -Compress\n"
+            "} catch {\n"
+            "  [PSCustomObject]@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress\n"
+            "} finally {\n"
+            "  $graphics.Dispose()\n"
+            "  $targetBitmap.Dispose()\n"
+            "  $sourceBitmap.Dispose()\n"
+            "}\n"
+        )
+        ok, output = self._run_schedule_ocr_powershell(script, sta=True)
+        if not ok or not output:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            return False
+        try:
+            payload = json.loads(output)
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict) or not bool(payload.get("ok")) or not os.path.exists(temp_path):
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            return False
+        try:
+            os.replace(temp_path, safe_path)
+        except OSError:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
+            return False
+        return get_png_image_size(safe_path) == (int(target_width), int(target_height))
+
     def _create_schedule_input_ocr_item_from_path(
         self,
         image_path: str,
@@ -10416,10 +10489,30 @@ class BossTimerApp:
                 except OSError:
                     pass
             return None
+        expected_width = int(rect["width"] or 0)
+        expected_height = int(rect["height"] or 0)
+        actual_size = get_png_image_size(target_path)
+        if actual_size is not None and actual_size != (expected_width, expected_height):
+            self._append_debug_log(
+                f"capture_size_mismatch hwnd={int(hwnd):#x} expected={expected_width}x{expected_height} "
+                f"actual={int(actual_size[0])}x{int(actual_size[1])}"
+            )
+            if self._normalize_captured_png_size(target_path, expected_width, expected_height):
+                self._append_debug_log(
+                    f"capture_size_normalized hwnd={int(hwnd):#x} size={expected_width}x{expected_height}"
+                )
+            else:
+                normalized_size = get_png_image_size(target_path)
+                if normalized_size is not None:
+                    expected_width = int(normalized_size[0])
+                    expected_height = int(normalized_size[1])
+                    self._append_debug_log(
+                        f"capture_size_normalize_failed hwnd={int(hwnd):#x} fallback={expected_width}x{expected_height}"
+                    )
         return {
             "path": target_path,
-            "width": int(rect["width"]),
-            "height": int(rect["height"]),
+            "width": int(expected_width),
+            "height": int(expected_height),
             "hwnd": int(hwnd),
             "title": self._get_window_text(hwnd),
         }

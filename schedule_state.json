@@ -11093,13 +11093,13 @@
       "source_text": "15:53:00 메기르",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T15:53:00"
+        "value": "2026-04-18T15:52:59"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-18T15:53:00"
       },
-      "cycle_offset_direction": 0,
+      "cycle_offset_direction": -1,
       "respawn_seconds": 129600,
       "created_at": {
         "__type__": "datetime",
@@ -11126,13 +11126,13 @@
       "source_text": "16:12:00 최하층굴베",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T16:12:00"
+        "value": "2026-04-18T16:11:20"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-18T16:12:00"
       },
-      "cycle_offset_direction": 0,
+      "cycle_offset_direction": -1,
       "respawn_seconds": 129600,
       "created_at": {
         "__type__": "datetime",
@@ -13152,13 +13152,13 @@
       "source_text": "15:53:00 메기르",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-20T03:53:01"
+        "value": "2026-04-20T03:53:00"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-20T03:53:00"
       },
-      "cycle_offset_direction": 1,
+      "cycle_offset_direction": 0,
       "respawn_seconds": 129600,
       "created_at": {
         "__type__": "datetime",
@@ -13185,13 +13185,13 @@
       "source_text": "16:12:00 최하층굴베",
       "scheduled_at": {
         "__type__": "datetime",
-        "value": "2026-04-20T04:12:40"
+        "value": "2026-04-20T04:12:00"
       },
       "cycle_anchor_at": {
         "__type__": "datetime",
         "value": "2026-04-20T04:12:00"
       },
-      "cycle_offset_direction": 1,
+      "cycle_offset_direction": 0,
       "respawn_seconds": 129600,
       "created_at": {
         "__type__": "datetime",
@@ -16080,415 +16080,67 @@
   "schedule_control_events": [],
   "schedule_input_ocr_saved_items": [
     {
-      "id": "f7b3e9de035b454687bc402f79bc4e89",
-      "path": "C:\\MyCode\\BossTimer\\schedule_ocr_cache\\clipboard_63b021b4bfa34126ba98840a69058be5.png",
-      "width": 1197,
-      "height": 509,
+      "id": "b8af41488854485ab3643b30232fdcce",
+      "path": "C:\\MyCode\\BossTimer\\schedule_ocr_cache\\odin_74c4391c28a847e8ac16c72a777d52b8.png",
+      "width": 958,
+      "height": 508,
       "thumbnail": null,
-      "area_guess": "니다벨리르",
-      "warning_count": 8,
-      "source": "",
+      "area_guess": "",
+      "warning_count": 0,
+      "source": "odin_fast",
       "captured_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T15:13:44.617515"
+        "value": "2026-04-18T16:44:43.296883"
       },
-      "content_hash": "0c8d40471934d3edcf6d17ec87fed385d56e653b5559e6ee16d75784097b09fc"
-    }
-  ],
-  "schedule_input_ocr_saved_results": [
+      "content_hash": "5a6548580677b7fe73fd58fedf4c224939c976fbecbd4cc83c66ad74bd150b14"
+    },
     {
-      "item_id": "f7b3e9de035b454687bc402f79bc4e89",
-      "path": "C:\\MyCode\\BossTimer\\schedule_ocr_cache\\clipboard_63b021b4bfa34126ba98840a69058be5.png",
-      "area": "니다벨리르",
-      "base_datetime": {
+      "id": "4626bc8001a4480491bf895719a59b50",
+      "path": "C:\\MyCode\\BossTimer\\schedule_ocr_cache\\odin_d4d528f62f3e4a40b0ca9507b82c8920.png",
+      "width": 1598,
+      "height": 868,
+      "thumbnail": null,
+      "area_guess": "",
+      "warning_count": 0,
+      "source": "odin_fast",
+      "captured_at": {
         "__type__": "datetime",
-        "value": "2026-04-18T14:36:20"
+        "value": "2026-04-18T16:44:48.615104"
       },
-      "slot_results": [
-        {
-          "raw_text": "07시간24분남음",
-          "observed_text": "7시간24분",
-          "clean_text": "7시간 24분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 26640,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "라이노르",
-          "display_name": "라이노르",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T22:00:00"
-          },
-          "rendered_text": "22:00:00 라이노르",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "07시간24분남음",
-              "observed_text": "7시간24분",
-              "clean_text": "7시간 24분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 26640,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "라이노르",
-              "display_name": "라이노르",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T22:00:00"
-              },
-              "rendered_text": "22:00:00 라이노르"
-            }
-          ],
-          "slot_index": 1
-        },
-        {
-          "raw_text": "07시간34분남음",
-          "observed_text": "7시간34분",
-          "clean_text": "7시간 34분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 27240,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "헤르모드",
-          "display_name": "헤르모드",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T22:10:00"
-          },
-          "rendered_text": "22:10:00 헤르모드",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "07시간34분남음",
-              "observed_text": "7시간34분",
-              "clean_text": "7시간 34분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 27240,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "헤르모드",
-              "display_name": "헤르모드",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T22:10:00"
-              },
-              "rendered_text": "22:10:00 헤르모드"
-            }
-          ],
-          "slot_index": 2
-        },
-        {
-          "raw_text": "07시간55분남음",
-          "observed_text": "7시간55분",
-          "clean_text": "7시간 55분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 28500,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "브륀힐드",
-          "display_name": "브륀힐드",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T22:31:00"
-          },
-          "rendered_text": "22:31:00 브륀힐드",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "07시간55분남음",
-              "observed_text": "7시간55분",
-              "clean_text": "7시간 55분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 28500,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "브륀힐드",
-              "display_name": "브륀힐드",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T22:31:00"
-              },
-              "rendered_text": "22:31:00 브륀힐드"
-            }
-          ],
-          "slot_index": 3
-        },
-        {
-          "raw_text": "08시간2분남음",
-          "observed_text": "8시간2분",
-          "clean_text": "8시간 2분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 28920,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "수드리",
-          "display_name": "수드리",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T22:38:00"
-          },
-          "rendered_text": "22:38:00 수드리",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "08시간2분남음",
-              "observed_text": "8시간2분",
-              "clean_text": "8시간 2분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 28920,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "수드리",
-              "display_name": "수드리",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T22:38:00"
-              },
-              "rendered_text": "22:38:00 수드리"
-            }
-          ],
-          "slot_index": 4
-        },
-        {
-          "raw_text": "09시간2분남음",
-          "observed_text": "9시간2분",
-          "clean_text": "9시간 2분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 32520,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "비요른",
-          "display_name": "비요른",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T23:38:00"
-          },
-          "rendered_text": "23:38:00 비요른",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "09시간2분남음",
-              "observed_text": "9시간2분",
-              "clean_text": "9시간 2분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 32520,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "비요른",
-              "display_name": "비요른",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T23:38:00"
-              },
-              "rendered_text": "23:38:00 비요른"
-            }
-          ],
-          "slot_index": 5
-        },
-        {
-          "raw_text": "0 9시간 51 분 남음",
-          "observed_text": "9시간 51 분",
-          "clean_text": "9시간 51분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 35460,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "스칼라니르",
-          "display_name": "스칼라니르",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-19T00:27:00"
-          },
-          "rendered_text": "00:27:00 스칼라니르",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "0 9시간 51 분 남음",
-              "observed_text": "9시간 51 분",
-              "clean_text": "9시간 51분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 35460,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "스칼라니르",
-              "display_name": "스칼라니르",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-19T00:27:00"
-              },
-              "rendered_text": "00:27:00 스칼라니르"
-            }
-          ],
-          "slot_index": 6
-        },
-        {
-          "raw_text": "09시간4분남음",
-          "observed_text": "9시간4분",
-          "clean_text": "9시간 4분",
-          "state": "TIMED",
-          "precision": "minute",
-          "remaining_seconds": 32640,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "라타토스크",
-          "display_name": "라타토스크",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T23:40:00"
-          },
-          "rendered_text": "23:40:00 라타토스크",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "09시간4분남음",
-              "observed_text": "9시간4분",
-              "clean_text": "9시간 4분",
-              "state": "TIMED",
-              "precision": "minute",
-              "remaining_seconds": 32640,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "라타토스크",
-              "display_name": "라타토스크",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T23:40:00"
-              },
-              "rendered_text": "23:40:00 라타토스크"
-            }
-          ],
-          "slot_index": 7
-        },
-        {
-          "raw_text": "019t=12초남음",
-          "observed_text": "019t=12초",
-          "clean_text": "19분 12초",
-          "state": "TIMED",
-          "precision": "second",
-          "remaining_seconds": 1152,
-          "warning": "MULTI_TIMER_IN_SLOT",
-          "scale": 1.0,
-          "boss_name": "토르",
-          "display_name": "토르",
-          "target_datetime": {
-            "__type__": "datetime",
-            "value": "2026-04-18T14:55:32"
-          },
-          "rendered_text": "14:55:32 토르",
-          "_candidate_warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "_candidate_severity": "warn",
-          "_candidate_warning_count": 1,
-          "severity": "warn",
-          "warnings": [
-            "MULTI_TIMER_IN_SLOT"
-          ],
-          "scale_candidates": [
-            {
-              "raw_text": "019t=12초남음",
-              "observed_text": "019t=12초",
-              "clean_text": "19분 12초",
-              "state": "TIMED",
-              "precision": "second",
-              "remaining_seconds": 1152,
-              "warning": "MULTI_TIMER_IN_SLOT",
-              "scale": 1.0,
-              "boss_name": "토르",
-              "display_name": "토르",
-              "target_datetime": {
-                "__type__": "datetime",
-                "value": "2026-04-18T14:55:32"
-              },
-              "rendered_text": "14:55:32 토르"
-            }
-          ],
-          "slot_index": 8
-        }
-      ],
-      "warnings": [
-        "라이노르: MULTI_TIMER_IN_SLOT",
-        "헤르모드: MULTI_TIMER_IN_SLOT",
-        "브륀힐드: MULTI_TIMER_IN_SLOT",
-        "수드리: MULTI_TIMER_IN_SLOT",
-        "비요른: MULTI_TIMER_IN_SLOT",
-        "스칼라니르: MULTI_TIMER_IN_SLOT",
-        "라타토스크: MULTI_TIMER_IN_SLOT",
-        "토르: MULTI_TIMER_IN_SLOT"
-      ],
-      "scale_logs": [
-        "ocr window=0,0,1197,509 area=니다벨리르 best=니다벨리르 reason=slot_boss_order highlight=484 top=6 def=337 def_terms=4 def_boss=4 slot_exact=8 slot_boss=8 slot_match=4 exact_boss=8 boss=10 grid=8 empty=0 base=14:36:20"
-      ]
+      "content_hash": "3bb00fe142db891900180170a20067f57e01fe0abca19f0dd25fec9f3ab7f7cc"
+    },
+    {
+      "id": "af55d8730b4a49968c562f559612e849",
+      "path": "C:\\MyCode\\BossTimer\\schedule_ocr_cache\\odin_a9ef390fbf4e49b6bcb7003132bf429c.png",
+      "width": 1598,
+      "height": 868,
+      "thumbnail": null,
+      "area_guess": "",
+      "warning_count": 0,
+      "source": "odin_fast",
+      "captured_at": {
+        "__type__": "datetime",
+        "value": "2026-04-18T16:44:59.218890"
+      },
+      "content_hash": "0ecc38356ad96ef146e3e75e73e25b216041dfd707caffc7d58ee0f59f2d655a"
+    },
+    {
+      "id": "6616683fcbe74b0fbaf5a672617bcdc1",
+      "path": "C:\\MyCode\\BossTimer\\schedule_ocr_cache\\odin_d0e79371f8574ffd8726f02ad0067a2e.png",
+      "width": 958,
+      "height": 508,
+      "thumbnail": null,
+      "area_guess": "",
+      "warning_count": 0,
+      "source": "odin_fast",
+      "captured_at": {
+        "__type__": "datetime",
+        "value": "2026-04-18T16:45:11.056642"
+      },
+      "content_hash": "dd4aaecf516208978d0ae8a0a463b4f0052883d5be32c6c491d1d4cd5e1f38de"
     }
   ],
+  "schedule_input_ocr_saved_results": [],
   "schedule_input_ocr_saved_invasion_mode": false,
   "schedule_last_import_meta": {
     "start_datetime": {
