@@ -13188,6 +13188,35 @@ class BossTimerApp:
                 return True
         return False
 
+    def _score_schedule_ocr_slot_candidate_geometry(
+        self,
+        rect: dict[str, int],
+        candidate: dict[str, object],
+    ) -> int:
+        timer_left = int(rect.get("timer_left", rect["left"]))
+        timer_right = int(rect.get("timer_right", rect["right"]))
+        candidate_left = int(candidate.get("left") or 0)
+        candidate_width = max(1, int(candidate.get("width") or 0))
+        candidate_right = candidate_left + candidate_width
+        timer_width = max(1, timer_right - timer_left)
+        overlap_width = max(0, min(candidate_right, timer_right) - max(candidate_left, timer_left))
+        inside_ratio = overlap_width / candidate_width
+        overflow_width = max(0, timer_left - candidate_left) + max(0, candidate_right - timer_right)
+        overflow_ratio = overflow_width / candidate_width
+        candidate_center_x = candidate_left + (candidate_width / 2)
+        timer_center_x = timer_left + (timer_width / 2)
+        center_distance_ratio = abs(candidate_center_x - timer_center_x) / timer_width
+        span_ratio = candidate_width / timer_width
+        score = 0
+        score += int(round(inside_ratio * 28))
+        score -= int(round(overflow_ratio * 36))
+        score -= int(round(center_distance_ratio * 26))
+        if span_ratio > 1.04:
+            score -= int(round((span_ratio - 1.04) * 32))
+        if not (timer_left <= candidate_center_x <= timer_right):
+            score -= 14
+        return score
+
     def _collect_schedule_ocr_slot_text_candidates(
         self,
         lines: list[dict[str, object]],
@@ -14057,6 +14086,7 @@ class BossTimerApp:
             raw_text = str(candidate.get("raw_text") or "")
             observed_text = clean_text
             composition_log = str(candidate.get("composition_log") or "").strip()
+            geometry_score = self._score_schedule_ocr_slot_candidate_geometry(rect, candidate)
             normalized_duration_text = ""
             duration_parts: list[tuple[str, str]] = []
             learned_correction = self._get_schedule_ocr_learned_correction(boss_name, observed_text)
@@ -14097,9 +14127,10 @@ class BossTimerApp:
                         "precision": "active",
                         "remaining_seconds": None,
                         "warning": ", ".join(part for part in (slot_warning, learned_warning, repair_warning) if part),
-                        "score": 100,
+                        "score": 100 + geometry_score,
                         "composition_log": composition_log,
                         "parse_debug": " / ".join(part for part in ("presence_detected", duration_debug) if part),
+                        "_geometry_score": geometry_score,
                         "_duration_parts": [],
                         "_duration_key": "",
                         "_duration_units": (),
@@ -14118,9 +14149,10 @@ class BossTimerApp:
                             "precision": "",
                             "remaining_seconds": None,
                             "warning": ", ".join(part for part in (slot_warning, learned_warning, repair_warning, "RESPAWN_EXCEEDED") if part),
-                            "score": -40,
+                            "score": -40 + geometry_score,
                             "composition_log": composition_log,
                             "parse_debug": f"invalid_day_value_for_respawn='{clean_text}'",
+                            "_geometry_score": geometry_score,
                         }
                     )
                     continue
@@ -14134,9 +14166,10 @@ class BossTimerApp:
                         "precision": "day",
                         "remaining_seconds": 86400,
                         "warning": ", ".join(part for part in (slot_warning, learned_warning, "DAY_PARSE_FALLBACK") if part),
-                        "score": 40,
+                        "score": 40 + geometry_score,
                         "composition_log": composition_log,
                         "parse_debug": f"day_guard='{clean_text}' -> 1일 이상",
+                        "_geometry_score": geometry_score,
                         "_duration_parts": [],
                         "_duration_key": "",
                         "_duration_units": (),
@@ -14186,9 +14219,10 @@ class BossTimerApp:
                         "precision": "",
                         "remaining_seconds": None,
                         "warning": parse_warning or "TIME_PARSE_FAILED",
-                        "score": 0,
+                        "score": geometry_score,
                         "composition_log": composition_log,
                         "parse_debug": parse_debug or f"parse_failed='{clean_text}'",
+                        "_geometry_score": geometry_score,
                     }
                 )
                 continue
@@ -14204,7 +14238,7 @@ class BossTimerApp:
                         "precision": "",
                         "remaining_seconds": None,
                         "warning": ", ".join(part for part in (slot_warning, learned_warning, repair_warning, "RESPAWN_EXCEEDED") if part),
-                        "score": -20,
+                        "score": -20 + geometry_score,
                         "composition_log": composition_log,
                         "parse_debug": " / ".join(
                             part
@@ -14214,11 +14248,12 @@ class BossTimerApp:
                             )
                             if part
                         ),
+                        "_geometry_score": geometry_score,
                     }
                 )
                 continue
             state = "NO_TIME" if clean_text == "1일 이상" else "TIMED"
-            score = 90
+            score = 90 + geometry_score
             if precision == "second":
                 score += 12
             elif precision == "minute":
@@ -14248,6 +14283,7 @@ class BossTimerApp:
                     "score": score,
                     "composition_log": composition_log,
                     "parse_debug": parse_debug,
+                    "_geometry_score": geometry_score,
                     "_duration_parts": duration_parts,
                     "_duration_key": "".join(f"{number}{unit}" for number, unit in duration_parts),
                     "_duration_units": tuple(unit for _, unit in duration_parts),
@@ -14316,7 +14352,16 @@ class BossTimerApp:
                     if part
                 )
                 break
-        interpreted_candidates.sort(key=lambda item: (int(item.get("score") or 0), item["top"], item["left"], item["width"]), reverse=True)
+        interpreted_candidates.sort(
+            key=lambda item: (
+                int(item.get("score") or 0),
+                int(item.get("_geometry_score") or 0),
+                item["top"],
+                item["left"],
+                item["width"],
+            ),
+            reverse=True,
+        )
         best = interpreted_candidates[0]
         return {
             "raw_text": best.get("raw_text") or "",
