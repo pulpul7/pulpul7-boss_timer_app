@@ -7,6 +7,7 @@ import locale
 import math
 import os
 import queue
+import random
 import re
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ import time
 import traceback
 import tkinter as tk
 import uuid
+import wave
 import winsound
 from ctypes import wintypes
 from datetime import datetime, timedelta
@@ -172,6 +174,9 @@ RECORD_TIME_POS = (176, 212)
 LOG_MAX_ENTRIES = 50
 LOG_ENTRY_SEPARATOR = "\n\n" + ("=" * 37) + "\n\n"
 LOG_ARCHIVE_DIRNAME = "archive_logs"
+SCHEDULE_ARCHIVE_DIRNAME = "schedule_archives"
+SCHEDULE_SHARED_EXPORT_DIRNAME = "shared_schedules"
+SCHEDULE_SHARED_ARCHIVE_DIRNAME = "shared_schedule_archives"
 SEASON_PRESTART_ARCHIVE_DIRNAME = "season_prestart_logs"
 LOG_VALIDATION_TOLERANCE_SECONDS = 1.0
 SCHEDULE_TREE_QUICK_CUT_RETENTION_SECONDS = 60 * 60
@@ -201,6 +206,22 @@ SCHEDULE_INPUT_OCR_ADDON_HEIGHT = 96
 SCHEDULE_INPUT_OCR_ADDON_POLL_INTERVAL_MS = 50
 SCHEDULE_INPUT_CLIPBOARD_POLL_INTERVAL_MS = 300
 SCHEDULE_INPUT_OCR_ADDON_CAPTURE_DEBOUNCE_SECONDS = 0.25
+SCHEDULE_INPUT_OCR_ADDON_CAPTURE_HIDE_DELAY_SECONDS = 0.10
+SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS = 0.00
+SCHEDULE_ALARM_COUNTDOWN_COMPLETION_ADVANCE_MS = 100
+SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS = 360
+SCHEDULE_TREE_SELECTION_PULSE_INTERVAL_MS = 420
+SCHEDULE_TREE_SELECTION_PULSE_COLORS = (
+    "#22c55e",  # 녹색
+    "#3b82f6",  # 파랑
+    "#ef4444",  # 빨강
+    "#f59e0b",  # 주황
+    "#a855f7",  # 보라
+)
+SCHEDULE_TREE_SELECTION_BORDER_THICKNESS = 2
+SCHEDULE_TREE_SELECTION_ARROW_GAP = 12
+SCHEDULE_TREE_SELECTION_BORDER_RIGHT_INSET = 4
+SCHEDULE_TREE_SCROLLBAR_WIDTH = 24
 SCHEDULE_INPUT_OCR_ADDON_HOTKEY_F2 = 0x71
 SCHEDULE_INPUT_OCR_ADDON_HOTKEY_F3 = 0x72
 SCHEDULE_INPUT_OCR_ADDON_MOUSE_RIGHT_BUTTON = 0x02
@@ -220,6 +241,8 @@ SCHEDULE_ALARM_WINDOW_HEIGHT = 660
 SCHEDULE_GENERATION_DAYS = 7
 SCHEDULE_STATE_FILENAME = "schedule_state.json"
 SCHEDULE_DELETE_HISTORY_FILENAME = "schedule_delete_history.json"
+SCHEDULE_RESTORE_HISTORY_RETENTION_DAYS = 14
+SCHEDULE_RESTORE_HISTORY_MAX_ENTRIES = 200
 SCHEDULE_ALARM_SETTINGS_FILENAME = "schedule_alarm_settings.json"
 SCHEDULE_BREAK_RULES_FILENAME = "schedule_break_rules.json"
 SCHEDULE_BOSS_METRICS_FILENAME = "schedule_boss_metrics.json"
@@ -280,6 +303,7 @@ DEFAULT_SETTINGS_SEED_KEYS = (
     "schedule_boss_metric_bulk_apply_war_score",
     "schedule_invasion_weekday",
     "schedule_input_ocr_addon_fast_input",
+    "schedule_input_ocr_addon_restore_delay_seconds",
     "schedule_input_ocr_sort_by_time",
     "fixed_boss_last_text_color",
     "fixed_boss_last_bg_color",
@@ -488,9 +512,13 @@ SCHEDULE_ALARM_SETTINGS_PATH = os.path.join(get_app_root(), SCHEDULE_ALARM_SETTI
 SCHEDULE_OCR_CORRECTIONS_PATH = os.path.join(get_app_root(), SCHEDULE_OCR_CORRECTIONS_FILENAME)
 SCHEDULE_BREAK_RULES_PATH = os.path.join(INIT_DIR, SCHEDULE_BREAK_RULES_FILENAME)
 SCHEDULE_BOSS_METRICS_PATH = os.path.join(INIT_DIR, SCHEDULE_BOSS_METRICS_FILENAME)
+SCHEDULE_ALARM_COUNTDOWN_VOICE_DIR = os.path.join(get_app_root(), "voice")
+SCHEDULE_ALARM_VOICE_AUDIO_EXTENSIONS = (".wav", ".mp3", ".m4a", ".aac", ".mp4")
 SCHEDULE_ALARM_FEMALE_VOICE_NAME = "Microsoft Heami Desktop - Korean"
 SCHEDULE_ALARM_SIGNAL_FREQUENCIES = (1760, 2093)
 SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS = 60
+SCHEDULE_ALARM_COUNTDOWN_AUDIO_ALIAS = "boss_timer_countdown_audio"
+SCHEDULE_ALARM_BOSS_AUDIO_ALIAS = "boss_timer_boss_audio"
 
 
 def get_record_book_boss_catalog() -> list[dict[str, str | bool]]:
@@ -836,6 +864,7 @@ class BossTimerApp:
         self.schedule_invasion_last_bg_color = DEFAULT_SCHEDULE_INVASION_BG_COLOR
         self.initial_elapsed_seconds = 0.0
         self.schedule_input_ocr_addon_fast_input_enabled = True
+        self.schedule_input_ocr_addon_restore_delay_seconds = SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS
         self.schedule_input_ocr_addon_fast_input_var = tk.BooleanVar(value=self.schedule_input_ocr_addon_fast_input_enabled)
         self.schedule_ocr_learning_enabled_var = tk.BooleanVar(value=self.schedule_ocr_learning_enabled_default)
         self.main_window_x = 100
@@ -844,10 +873,14 @@ class BossTimerApp:
         self.settings_window_y = 140
         self._seed_init_directory_from_resources()
         self._seed_runtime_default_files_from_resource_init()
+        if self._reset_outdated_runtime_config_files_for_upgrade():
+            self._seed_init_directory_from_resources()
+            self._seed_runtime_default_files_from_resource_init()
         self._load_settings()
         self.schedule_break_entries: list[dict[str, object]] = self._load_schedule_break_rules()
         self._load_season_history()
         self._prune_missing_archive_history_entries()
+        self._repair_runtime_season_state()
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{self.main_window_x}+{self.main_window_y}")
 
         self.font_family_var = tk.StringVar(value=self.current_font_family)
@@ -977,9 +1010,13 @@ class BossTimerApp:
         self.schedule_boss_metrics = self._load_schedule_boss_metrics()
         self.schedule_boss_metric_average_cache_key: tuple[str, bool, bool] | None = None
         self.schedule_boss_metric_average_seconds_map: dict[str, int] = {}
+        self.schedule_alarm_voice_subdir_cache: dict[str, dict[str, object]] = {}
+        self.schedule_alarm_voice_duration_cache: dict[str, dict[str, object]] = {}
         schedule_alarm_payload = self._load_schedule_alarm_settings()
         self.schedule_alarm_master_enabled_default = bool(schedule_alarm_payload.get("master_enabled", False))
         self.schedule_alarm_countdown_enabled_default = bool(schedule_alarm_payload.get("countdown_enabled", False))
+        self.schedule_alarm_countdown_ai_voice_enabled_default = bool(schedule_alarm_payload.get("countdown_ai_voice_enabled", False))
+        self.schedule_alarm_boss_ai_voice_enabled_default = bool(schedule_alarm_payload.get("boss_ai_voice_enabled", False))
         self.schedule_alarm_countdown_start_default = int(schedule_alarm_payload.get("countdown_start_seconds", 10) or 10)
         self.schedule_fixed_boss_alarm_enabled_default = bool(schedule_alarm_payload.get("fixed_boss_enabled", False))
         self.schedule_alarm_voice_name = str(schedule_alarm_payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
@@ -1120,12 +1157,12 @@ class BossTimerApp:
         self.schedule_base_day_var = tk.StringVar(value=schedule_base_default.strftime("%d일"))
         self.schedule_base_hour_var = tk.StringVar(value=schedule_base_default.strftime("%H시"))
         self.schedule_base_minute_var = tk.StringVar(value=schedule_base_default.strftime("%M분"))
-        self.schedule_view_year_var = tk.StringVar(value=schedule_now.strftime("%Y년"))
+        self.schedule_view_year_var = tk.StringVar(value=self._format_schedule_view_year_text(schedule_now))
         self.schedule_view_month_var = tk.StringVar(value=schedule_now.strftime("%m월"))
         self.schedule_view_day_var = tk.StringVar(value=schedule_now.strftime("%d일"))
         self.schedule_view_weekday_var = tk.StringVar(value=f"({self._get_weekday_label(schedule_now)})")
         self.schedule_invasion_weekday_var = tk.StringVar(value=self.schedule_invasion_weekday_default)
-        self.schedule_maintenance_weekday_var = tk.StringVar(value="수")
+        self.schedule_maintenance_weekday_var = tk.StringVar(value="수요일")
         self.schedule_maintenance_hour_var = tk.StringVar(value="08시")
         self.schedule_maintenance_minute_var = tk.StringVar(value="00분")
         self.schedule_base_label_var = tk.StringVar(value="")
@@ -1188,6 +1225,8 @@ class BossTimerApp:
         self.schedule_following_boss_seconds_var = tk.StringVar(value=":--")
         self.schedule_alarm_master_var = tk.BooleanVar(value=self.schedule_alarm_master_enabled_default)
         self.schedule_alarm_countdown_enabled_var = tk.BooleanVar(value=self.schedule_alarm_countdown_enabled_default)
+        self.schedule_alarm_countdown_ai_voice_var = tk.BooleanVar(value=self.schedule_alarm_countdown_ai_voice_enabled_default)
+        self.schedule_alarm_boss_ai_voice_var = tk.BooleanVar(value=self.schedule_alarm_boss_ai_voice_enabled_default)
         self.schedule_alarm_countdown_start_var = tk.StringVar(value=str(self.schedule_alarm_countdown_start_default))
         self.schedule_fixed_boss_alarm_enabled_var = tk.BooleanVar(value=self.schedule_fixed_boss_alarm_enabled_default)
         self.schedule_alarm_common_minute_var = tk.StringVar(value="0")
@@ -1317,6 +1356,7 @@ class BossTimerApp:
         self.fixed_boss_day_buttons: dict[str, tk.Widget] = {}
         self.fixed_boss_repeat_buttons: dict[str, tk.Widget] = {}
         self.fixed_boss_list_use_vars: list[tk.BooleanVar] = []
+        self.fixed_boss_selected_index: int | None = None
         self.log_history_canvas = None
         self.log_history_rows_frame = None
         self.log_history_canvas_window = None
@@ -1346,6 +1386,7 @@ class BossTimerApp:
         self.schedule_tree_pending_restore_identities: list[tuple[str, str, str, str]] = []
         self.schedule_tree_drag_anchor = None
         self.schedule_tree_next_refresh_at: datetime | None = None
+        self.schedule_last_live_reference_datetime: datetime | None = None
         self.schedule_last_refreshed_view_key: tuple[int, int, int] | None = None
         self.schedule_last_refreshed_maintenance_key: tuple[str, str, str] | None = None
         self.schedule_tree_overlay_widgets: list[tk.Widget] = []
@@ -1360,6 +1401,9 @@ class BossTimerApp:
         self.schedule_tree_overlay_retry_job = None
         self.schedule_tree_overlay_signature: tuple | None = None
         self.schedule_tree_elapsed_overlay_signature: tuple | None = None
+        self.schedule_tree_selection_overlay_signature: tuple | None = None
+        self.schedule_tree_selection_pulse_index = 0
+        self.schedule_tree_selection_pulse_job = None
         self.schedule_tree_click_debounce_until = 0.0
         self.schedule_active_quick_cut_history: list[dict[str, object]] = []
         self.schedule_active_overlay_cooldowns: dict[tuple[str, str, str, str], float] = {}
@@ -1395,11 +1439,24 @@ class BossTimerApp:
         self.schedule_alarm_tts_stop_event = threading.Event()
         self.schedule_alarm_tts_process: subprocess.Popen | None = None
         self.schedule_alarm_tts_process_voice_name = ""
+        self.schedule_alarm_countdown_audio_request_id = 0
+        self.schedule_alarm_countdown_audio_thread: threading.Thread | None = None
+        self.schedule_alarm_countdown_audio_process: subprocess.Popen | None = None
+        self.schedule_alarm_countdown_audio_host_process: subprocess.Popen | None = None
+        self.schedule_alarm_countdown_audio_lock = threading.Lock()
+        self.schedule_alarm_boss_audio_request_id = 0
+        self.schedule_alarm_boss_audio_thread: threading.Thread | None = None
+        self.schedule_alarm_boss_audio_process: subprocess.Popen | None = None
+        self.schedule_alarm_boss_audio_lock = threading.Lock()
         self.schedule_ocr_powershell_host_process: subprocess.Popen | None = None
         self.schedule_ocr_powershell_host_sta_process: subprocess.Popen | None = None
         self.schedule_ocr_powershell_host_lock = threading.Lock()
         self.schedule_alarm_tts_thread = threading.Thread(target=self._schedule_alarm_tts_worker_loop, daemon=True)
         self.schedule_alarm_tts_thread.start()
+        if self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_countdown_ai_voice_enabled_default:
+            self._ensure_schedule_alarm_countdown_audio_host_process()
+        if self.schedule_alarm_boss_ai_voice_enabled_default:
+            self._ensure_schedule_alarm_boss_audio_host_process()
         self.fixed_boss_time_var.trace_add("write", self._on_fixed_boss_form_changed)
         self.fixed_boss_repeat_mode_var.trace_add("write", self._on_fixed_boss_form_changed)
         self.fixed_boss_text_color_var.trace_add("write", self._on_fixed_boss_form_changed)
@@ -1475,6 +1532,8 @@ class BossTimerApp:
         self.schedule_input_ocr_addon_hotkey_registered = False
         self.schedule_input_ocr_addon_hotkey_pending_f2 = False
         self.schedule_input_ocr_addon_last_capture_at = 0.0
+        self.schedule_input_ocr_addon_restore_after_capture = False
+        self.schedule_input_ocr_addon_restore_block_until = 0.0
         self.schedule_input_clipboard_poll_after_id = None
         self.schedule_input_last_clipboard_sequence = 0
         self.schedule_input_ocr_addon_session_id = 0
@@ -1488,6 +1547,8 @@ class BossTimerApp:
         self.schedule_input_ocr_addon_resize_menu = None
         self.schedule_input_ocr_addon_transfer_button = None
         self.schedule_input_ocr_addon_close_button = None
+        self.schedule_input_ocr_addon_settings_button = None
+        self.schedule_input_ocr_addon_settings_window = None
         self.schedule_input_ocr_addon_fast_check = None
         self.schedule_input_ocr_addon_count_label = None
         self.schedule_input_ocr_addon_status_label = None
@@ -1509,6 +1570,7 @@ class BossTimerApp:
         self.fixed_boss_list_text = None
         self.fixed_boss_rows_frame = None
         self.fixed_boss_canvas = None
+        self.fixed_boss_append_button = None
         self.fixed_boss_add_button = None
         self.schedule_boss_tree_syncing = False
         self.schedule_events: list[dict[str, object]] = []
@@ -1552,6 +1614,9 @@ class BossTimerApp:
         self._refresh_schedule_time_sync_status_text()
 
         self._build_ui()
+        self._ensure_startup_season_configuration()
+        if self._has_ready_season() or int(self._get_schedule_runtime_item_counts().get("total", 0) or 0) > 0:
+            self._sync_current_schedule_shared_export()
         self._schedule_main_clock_tick()
         self._schedule_alarm_tick()
         self._schedule_time_sync_periodic_check(initial=True)
@@ -1591,6 +1656,101 @@ class BossTimerApp:
             return assets_dir
         return get_app_root()
 
+    def _normalize_schedule_input_ocr_addon_restore_delay_seconds(
+        self,
+        value: object,
+        fallback: float | None = None,
+    ) -> float:
+        fallback_value = (
+            SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS
+            if fallback is None
+            else float(fallback)
+        )
+        numeric = coerce_seconds_number(value)
+        if numeric is None:
+            numeric = fallback_value
+        return round(min(1.0, max(0.0, float(numeric))), 2)
+
+    def _get_schedule_input_ocr_addon_restore_delay_ms(self) -> int:
+        return max(
+            0,
+            int(
+                round(
+                    self._normalize_schedule_input_ocr_addon_restore_delay_seconds(
+                        getattr(self, "schedule_input_ocr_addon_restore_delay_seconds", SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS),
+                    )
+                    * 1000.0
+                )
+            ),
+        )
+
+    def _parse_runtime_version_sort_key(self, version_text: str) -> tuple[int, int, int, int] | None:
+        normalized = str(version_text or "").strip().lower()
+        if not normalized:
+            return None
+        number_parts = [int(part) for part in re.findall(r"\d+", normalized)[:3]]
+        while len(number_parts) < 3:
+            number_parts.append(0)
+        if "alpha" in normalized:
+            phase_rank = 0
+        elif "beta" in normalized:
+            phase_rank = 1
+        elif re.search(r"(?<![a-z])rc(?![a-z])", normalized):
+            phase_rank = 2
+        else:
+            phase_rank = 3
+        return (number_parts[0], number_parts[1], number_parts[2], phase_rank)
+
+    def _is_runtime_version_lower(self, current_version: str, saved_version: str) -> bool:
+        current_key = self._parse_runtime_version_sort_key(current_version)
+        saved_key = self._parse_runtime_version_sort_key(saved_version)
+        if current_key is not None and saved_key is not None:
+            return saved_key < current_key
+        saved_normalized = str(saved_version or "").strip()
+        current_normalized = str(current_version or "").strip()
+        if not current_normalized:
+            return False
+        if not saved_normalized:
+            return True
+        return saved_normalized != current_normalized
+
+    def _load_runtime_settings_version(self) -> str:
+        if not os.path.exists(CONFIG_PATH):
+            return ""
+        config = configparser.ConfigParser()
+        try:
+            config.read(CONFIG_PATH, encoding="utf-8")
+        except (OSError, configparser.Error):
+            return ""
+        if "settings" not in config:
+            return ""
+        return str(config["settings"].get("version", "") or "").strip()
+
+    def _get_upgrade_reset_runtime_paths(self) -> tuple[str, ...]:
+        return (
+            CONFIG_PATH,
+            SCHEDULE_ALARM_SETTINGS_PATH,
+            RECORD_BOOK_AVG_CACHE_PATH,
+            os.path.join(INIT_DIR, DEFAULT_SETTINGS_SEED_FILENAME),
+            os.path.join(INIT_DIR, DEFAULT_SCHEDULE_ALARM_SETTINGS_SEED_FILENAME),
+        )
+
+    def _reset_outdated_runtime_config_files_for_upgrade(self) -> bool:
+        saved_version = self._load_runtime_settings_version()
+        current_version = str(APP_VERSION or "").strip()
+        if not self._is_runtime_version_lower(current_version, saved_version):
+            return False
+        removed_any = False
+        for path in self._get_upgrade_reset_runtime_paths():
+            try:
+                if not os.path.exists(path) or os.path.isdir(path):
+                    continue
+                os.remove(path)
+                removed_any = True
+            except OSError:
+                continue
+        return removed_any
+
     def _load_settings(self) -> None:
         config = configparser.ConfigParser()
         if not os.path.exists(CONFIG_PATH):
@@ -1622,6 +1782,10 @@ class BossTimerApp:
         saved_fixed_boss_color_data_enabled = settings.getboolean("fixed_boss_color_data_enabled", fallback=saved_schedule_color_data_enabled)
         saved_schedule_invasion_weekday = settings.get("schedule_invasion_weekday", self.schedule_invasion_weekday_default).strip()
         saved_schedule_input_ocr_addon_fast_input = settings.getboolean("schedule_input_ocr_addon_fast_input", fallback=True)
+        saved_schedule_input_ocr_addon_restore_delay_seconds = settings.get(
+            "schedule_input_ocr_addon_restore_delay_seconds",
+            f"{self.schedule_input_ocr_addon_restore_delay_seconds:.2f}",
+        ).strip()
         saved_schedule_share_use_boss_colors = settings.getboolean("schedule_share_use_boss_colors", fallback=self.schedule_share_use_boss_colors_default)
         saved_schedule_share_use_fixed_boss_colors = settings.getboolean("schedule_share_use_fixed_boss_colors", fallback=self.schedule_share_use_fixed_boss_colors_default)
         saved_schedule_share_include_break_rows = settings.getboolean("schedule_share_include_break_rows", fallback=self.schedule_share_include_break_rows_default)
@@ -1714,6 +1878,10 @@ class BossTimerApp:
             except tk.TclError:
                 pass
         self.schedule_input_ocr_addon_fast_input_enabled = saved_schedule_input_ocr_addon_fast_input
+        self.schedule_input_ocr_addon_restore_delay_seconds = self._normalize_schedule_input_ocr_addon_restore_delay_seconds(
+            saved_schedule_input_ocr_addon_restore_delay_seconds,
+            fallback=self.schedule_input_ocr_addon_restore_delay_seconds,
+        )
         self.schedule_share_use_boss_colors_default = saved_schedule_share_use_boss_colors
         self.schedule_share_use_fixed_boss_colors_default = saved_schedule_share_use_fixed_boss_colors
         self.schedule_share_include_break_rows_default = saved_schedule_share_include_break_rows
@@ -1915,6 +2083,8 @@ class BossTimerApp:
             "master_enabled": True,
             "common_offsets": default_offsets,
             "countdown_enabled": False,
+            "countdown_ai_voice_enabled": False,
+            "boss_ai_voice_enabled": False,
             "countdown_start_seconds": 15,
             "fixed_boss_enabled": True,
             "voice_name": SCHEDULE_ALARM_FEMALE_VOICE_NAME,
@@ -1970,6 +2140,8 @@ class BossTimerApp:
         payload["master_enabled"] = bool(loaded.get("master_enabled", payload["master_enabled"]))
         payload["common_offsets"] = self._normalize_schedule_alarm_offsets(loaded.get("common_offsets", payload["common_offsets"]))
         payload["countdown_enabled"] = bool(loaded.get("countdown_enabled", payload["countdown_enabled"]))
+        payload["countdown_ai_voice_enabled"] = bool(loaded.get("countdown_ai_voice_enabled", payload["countdown_ai_voice_enabled"]))
+        payload["boss_ai_voice_enabled"] = bool(loaded.get("boss_ai_voice_enabled", payload["boss_ai_voice_enabled"]))
         payload["countdown_start_seconds"] = min(60, max(1, self._parse_int(str(loaded.get("countdown_start_seconds") or "10"), 10)))
         payload["fixed_boss_enabled"] = bool(loaded.get("fixed_boss_enabled", payload["fixed_boss_enabled"]))
         payload["voice_name"] = str(loaded.get("voice_name") or payload["voice_name"]).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
@@ -1978,9 +2150,12 @@ class BossTimerApp:
 
     def _save_schedule_alarm_settings(self) -> None:
         payload = {
+            "version": APP_VERSION,
             "master_enabled": bool(self.schedule_alarm_master_var.get()) if hasattr(self, "schedule_alarm_master_var") else bool(self.schedule_alarm_master_enabled_default),
             "common_offsets": self._normalize_schedule_alarm_offsets(getattr(self, "schedule_alarm_common_offsets", [])),
             "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_var.get()) if hasattr(self, "schedule_alarm_countdown_enabled_var") else False,
+            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_var.get()) if hasattr(self, "schedule_alarm_countdown_ai_voice_var") else False,
+            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_var.get()) if hasattr(self, "schedule_alarm_boss_ai_voice_var") else False,
             "countdown_start_seconds": min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get() if hasattr(self, "schedule_alarm_countdown_start_var") else "10", 10))),
             "fixed_boss_enabled": bool(self.schedule_fixed_boss_alarm_enabled_var.get()) if hasattr(self, "schedule_fixed_boss_alarm_enabled_var") else False,
             "voice_name": str(getattr(self, "schedule_alarm_voice_name", "") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME,
@@ -1994,6 +2169,16 @@ class BossTimerApp:
             payload["boss_overrides"][canonical_name] = normalized_entry
         try:
             with open(SCHEDULE_ALARM_SETTINGS_PATH, "w", encoding="utf-8") as file:
+                json.dump(payload, file, ensure_ascii=False, indent=2)
+        except OSError:
+            return
+        self._save_default_schedule_alarm_settings_seed(payload)
+
+    def _save_default_schedule_alarm_settings_seed(self, payload: dict[str, object]) -> None:
+        self._ensure_init_dir()
+        seed_path = os.path.join(INIT_DIR, DEFAULT_SCHEDULE_ALARM_SETTINGS_SEED_FILENAME)
+        try:
+            with open(seed_path, "w", encoding="utf-8") as file:
                 json.dump(payload, file, ensure_ascii=False, indent=2)
         except OSError:
             return
@@ -2063,6 +2248,18 @@ class BossTimerApp:
     def _has_active_season(self) -> bool:
         return bool(re.fullmatch(r"\d+", str(self.current_season_no or "").strip()))
 
+    def _normalize_season_started_at_text(self, value: object) -> str:
+        started_at_text = str(value or "").strip()
+        if not started_at_text:
+            return ""
+        try:
+            return datetime.strptime(started_at_text, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return ""
+
+    def _has_ready_season(self) -> bool:
+        return self._has_active_season() and bool(self._normalize_season_started_at_text(self.current_season_started_at))
+
     def _load_season_history(self) -> None:
         self.season_history_map = {}
         if not os.path.exists(SEASON_HISTORY_PATH):
@@ -2093,11 +2290,15 @@ class BossTimerApp:
             started_at = str(entry.get("started_at") or "").strip()
             ended_at = str(entry.get("ended_at") or "").strip()
             archive_label = str(entry.get("archive_label") or "").strip()
+            server_name = str(entry.get("server_name") or "").strip()
+            guild_name = str(entry.get("guild_name") or "").strip()
             normalized[season_no] = {
                 "season_no": season_no,
                 "started_at": started_at,
                 "ended_at": ended_at,
                 "archive_label": archive_label,
+                "server_name": server_name,
+                "guild_name": guild_name,
             }
         self.season_history_map = normalized
 
@@ -2119,6 +2320,85 @@ class BossTimerApp:
             self._save_season_history()
         return removed
 
+    def _repair_runtime_season_state(self) -> bool:
+        changed_settings = False
+        changed_history = False
+        normalized_history: dict[str, dict[str, str]] = {}
+        current_season_text = re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip())
+        current_started_text = self._normalize_season_started_at_text(self.current_season_started_at)
+        current_entry_started_text = ""
+        open_season_candidates: list[tuple[int, str, dict[str, str]]] = []
+
+        for raw_season_no, raw_entry in dict(self.season_history_map or {}).items():
+            if not isinstance(raw_entry, dict):
+                changed_history = True
+                continue
+            season_text = re.sub(r"[^0-9]", "", str(raw_entry.get("season_no") or raw_season_no or "").strip())
+            if not season_text:
+                changed_history = True
+                continue
+            started_at_text = self._normalize_season_started_at_text(raw_entry.get("started_at"))
+            ended_at_text = self._normalize_season_started_at_text(raw_entry.get("ended_at"))
+            archive_label = str(raw_entry.get("archive_label") or "").strip() or f"{int(season_text)}차 시즌"
+            server_name = str(raw_entry.get("server_name") or "").strip()
+            guild_name = str(raw_entry.get("guild_name") or "").strip()
+            normalized_entry = {
+                "season_no": season_text,
+                "started_at": started_at_text,
+                "ended_at": ended_at_text,
+                "archive_label": archive_label,
+                "server_name": server_name,
+                "guild_name": guild_name,
+            }
+            if normalized_entry != raw_entry:
+                changed_history = True
+            normalized_history[season_text] = normalized_entry
+            if season_text == current_season_text:
+                current_entry_started_text = started_at_text
+            if started_at_text and not ended_at_text:
+                open_season_candidates.append((int(season_text), started_at_text, normalized_entry))
+
+        if self.season_history_map != normalized_history:
+            self.season_history_map = normalized_history
+
+        if current_season_text and not current_started_text and current_entry_started_text:
+            current_started_text = current_entry_started_text
+            changed_settings = True
+
+        if not current_season_text and open_season_candidates:
+            open_season_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            _, restored_started_text, restored_entry = open_season_candidates[0]
+            current_season_text = str(restored_entry.get("season_no") or "").strip()
+            current_started_text = restored_started_text
+            changed_settings = True
+
+        if current_season_text and current_started_text:
+            current_entry = dict(self.season_history_map.get(current_season_text) or {})
+            normalized_current_entry = {
+                "season_no": current_season_text,
+                "started_at": current_started_text,
+                "ended_at": "",
+                "archive_label": str(current_entry.get("archive_label") or "").strip() or f"{int(current_season_text)}차 시즌",
+                "server_name": str(current_entry.get("server_name") or "").strip(),
+                "guild_name": str(current_entry.get("guild_name") or "").strip(),
+            }
+            if normalized_current_entry != current_entry:
+                self.season_history_map[current_season_text] = normalized_current_entry
+                changed_history = True
+
+        if str(self.current_season_no or "").strip() != current_season_text:
+            self.current_season_no = current_season_text
+            changed_settings = True
+        if str(self.current_season_started_at or "").strip() != current_started_text:
+            self.current_season_started_at = current_started_text
+            changed_settings = True
+
+        if changed_history:
+            self._save_season_history()
+        if changed_settings:
+            self._save_settings()
+        return self._has_ready_season()
+
     def _save_season_history(self) -> None:
         entries = [
             {
@@ -2126,6 +2406,8 @@ class BossTimerApp:
                 "started_at": str(entry.get("started_at") or "").strip(),
                 "ended_at": str(entry.get("ended_at") or "").strip(),
                 "archive_label": str(entry.get("archive_label") or "").strip(),
+                "server_name": str(entry.get("server_name") or "").strip(),
+                "guild_name": str(entry.get("guild_name") or "").strip(),
             }
             for season_no, entry in sorted(
                 self.season_history_map.items(),
@@ -2165,12 +2447,35 @@ class BossTimerApp:
             if current_started_text:
                 current_entry["started_at"] = current_started_text
             current_entry["ended_at"] = ""
+            current_entry["server_name"] = str(current_entry.get("server_name") or "").strip()
+            current_entry["guild_name"] = str(current_entry.get("guild_name") or "").strip()
             self.season_history_map[current_text] = current_entry
             changed = True
         if changed:
             self._save_season_history()
 
+    def _sanitize_season_metadata_text(self, value: object) -> str:
+        sanitized = re.sub(r'[<>:"/\\\\|?*]+', " ", str(value or "").strip())
+        sanitized = re.sub(r"\s+", " ", sanitized).strip()
+        return sanitized
+
+    def _build_archive_season_default_label(
+        self,
+        season_no: str | int | None,
+        *,
+        server_name: object = "",
+        guild_name: object = "",
+    ) -> str:
+        season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
+        if not season_text:
+            return "미분류 시즌"
+        server_text = self._sanitize_season_metadata_text(server_name)
+        guild_text = self._sanitize_season_metadata_text(guild_name)
+        parts = [part for part in (server_text, guild_text, f"{int(season_text)}차 시즌") if part]
+        return " ".join(parts)
+
     def _get_next_season_number_text(self) -> str:
+        self._repair_runtime_season_state()
         if self._has_active_season():
             try:
                 return str(int(self.current_season_no) + 1)
@@ -2192,17 +2497,22 @@ class BossTimerApp:
         dialog.title("새 시즌 시작")
         dialog.resizable(False, False)
         dialog.configure(bg="#eff6ff")
-        self._center_window_over_parent(dialog, host, 430, 312)
+        self._center_window_over_parent(dialog, host, 430, 388)
         result = {"confirmed": False}
         season_var = tk.StringVar(value=self._get_next_season_number_text())
         status_var = tk.StringVar(value="n차 숫자만 입력하세요.")
         current_season_label = self._get_archive_season_label(self.current_season_no) if self._has_active_season() else "-"
+        current_season_entry = dict(self.season_history_map.get(str(self.current_season_no or "").strip()) or {})
+        default_server_name = self._sanitize_season_metadata_text(current_season_entry.get("server_name"))
+        default_guild_name = self._sanitize_season_metadata_text(current_season_entry.get("guild_name"))
         now = datetime.now()
         start_year_var = tk.StringVar(value=now.strftime("%Y년"))
         start_month_var = tk.StringVar(value=now.strftime("%m월"))
         start_day_var = tk.StringVar(value=now.strftime("%d일"))
         start_hour_var = tk.StringVar(value=now.strftime("%H시"))
         start_minute_var = tk.StringVar(value=now.strftime("%M분"))
+        server_name_var = tk.StringVar(value=default_server_name)
+        guild_name_var = tk.StringVar(value=default_guild_name)
 
         tk.Label(dialog, text="새 시즌 시작", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=430, height=40)
         tk.Label(dialog, text="n차 입력", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=58, width=78, height=24)
@@ -2225,22 +2535,45 @@ class BossTimerApp:
             fg="#1e3a8a",
             anchor="w",
         ).place(x=196, y=60, width=212, height=20)
-        tk.Label(dialog, text="시작 시간", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=96, width=78, height=24)
+        tk.Label(dialog, text="서버 정보", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=96, width=78, height=24)
+        server_entry = tk.Entry(
+            dialog,
+            textvariable=server_name_var,
+            font=(self.current_font_family, 10, "bold"),
+            bg="#ffffff",
+            fg="#0f172a",
+            relief="solid",
+            bd=1,
+        )
+        server_entry.place(x=94, y=94, width=314, height=28)
+        tk.Label(dialog, text="길드 이름", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=132, width=78, height=24)
+        guild_entry = tk.Entry(
+            dialog,
+            textvariable=guild_name_var,
+            font=(self.current_font_family, 10, "bold"),
+            bg="#ffffff",
+            fg="#0f172a",
+            relief="solid",
+            bd=1,
+        )
+        guild_entry.place(x=94, y=130, width=314, height=28)
+        tk.Label(dialog, text="시작 시간", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=170, width=78, height=24)
         start_year_values = [f"{year}년" for year in range(now.year - 2, now.year + 3)]
         start_month_values = [f"{month:02d}월" for month in range(1, 13)]
         start_day_values = [f"{day:02d}일" for day in range(1, 32)]
         start_hour_values = [f"{hour:02d}시" for hour in range(0, 24)]
         start_minute_values = [f"{minute:02d}분" for minute in range(0, 60)]
-        ttk.Combobox(dialog, textvariable=start_year_var, values=start_year_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=94, y=92, width=84, height=28)
-        ttk.Combobox(dialog, textvariable=start_month_var, values=start_month_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=186, y=92, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_day_var, values=start_day_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=252, y=92, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_hour_var, values=start_hour_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=318, y=92, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_minute_var, values=start_minute_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=384, y=92, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_year_var, values=start_year_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=94, y=166, width=84, height=28)
+        ttk.Combobox(dialog, textvariable=start_month_var, values=start_month_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=186, y=166, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_day_var, values=start_day_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=252, y=166, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_hour_var, values=start_hour_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=318, y=166, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_minute_var, values=start_minute_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=384, y=166, width=58, height=28)
         tk.Label(
             dialog,
             text=(
                 "- 서버이전 기준으로 차수를 정하는걸 추천드립니다.\n"
                 "- 서버이전 차수 정보는 오딘카페 -> 공지사항에서 확인할 수 있습니다.\n"
+                "- 서버 정보 또는 길드 이름 중 하나는 꼭 입력하세요.\n"
                 "- 현재 시즌 차수를 입력 할 시 현재시즌 시작일이 변경 됩니다.\n"
                 "- 사용자 임의 차수를 입력하셔도 무방합니다."
             ),
@@ -2249,8 +2582,8 @@ class BossTimerApp:
             fg="#475569",
             justify="left",
             anchor="nw",
-        ).place(x=22, y=136, width=386, height=90)
-        tk.Label(dialog, textvariable=status_var, font=(self.current_font_family, 9, "bold"), bg="#eff6ff", fg="#b45309", anchor="w").place(x=22, y=234, width=386, height=18)
+        ).place(x=22, y=210, width=386, height=100)
+        tk.Label(dialog, textvariable=status_var, font=(self.current_font_family, 9, "bold"), bg="#eff6ff", fg="#b45309", anchor="w").place(x=22, y=320, width=386, height=18)
 
         def close_with(value: bool) -> None:
             result["confirmed"] = value
@@ -2268,6 +2601,11 @@ class BossTimerApp:
                 status_var.set("숫자만 입력할 수 있습니다.")
                 return
             season_text = str(int(season_text))
+            server_name_text = self._sanitize_season_metadata_text(server_name_var.get())
+            guild_name_text = self._sanitize_season_metadata_text(guild_name_var.get())
+            if not server_name_text and not guild_name_text:
+                status_var.set("서버 정보 또는 길드 이름 중 하나는 입력하세요.")
+                return
             try:
                 start_datetime = datetime(
                     int(re.sub(r"[^0-9]", "", start_year_var.get()) or "0"),
@@ -2302,6 +2640,15 @@ class BossTimerApp:
                 self.current_season_no,
                 self.current_season_started_at,
             )
+            current_entry = dict(self.season_history_map.get(self.current_season_no) or {})
+            current_entry["season_no"] = self.current_season_no
+            current_entry["started_at"] = self.current_season_started_at
+            current_entry["ended_at"] = ""
+            current_entry["server_name"] = server_name_text
+            current_entry["guild_name"] = guild_name_text
+            current_entry["archive_label"] = str(current_entry.get("archive_label") or "").strip()
+            self.season_history_map[self.current_season_no] = current_entry
+            self._save_season_history()
             if hasattr(self, "log_history_folder_path_var") and self.log_history_folder_path_var is not None:
                 self.log_history_folder_path_var.set(self._get_logs_dir())
             self._update_archive_keep_seasons_description()
@@ -2314,8 +2661,8 @@ class BossTimerApp:
                 season_var.set(cleaned)
 
         season_var.trace_add("write", on_write)
-        tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2").place(x=234, y=270, width=80, height=28)
-        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=lambda: close_with(False), cursor="hand2").place(x=326, y=270, width=82, height=28)
+        tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2").place(x=234, y=346, width=80, height=28)
+        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=lambda: close_with(False), cursor="hand2").place(x=326, y=346, width=82, height=28)
         dialog.bind("<Return>", lambda _event: confirm())
         dialog.grab_set()
         entry.focus_set()
@@ -2324,9 +2671,21 @@ class BossTimerApp:
         return bool(result["confirmed"])
 
     def _ensure_season_ready(self, parent: tk.Widget | None = None) -> bool:
-        if self._has_active_season():
+        self._repair_runtime_season_state()
+        if self._has_ready_season():
             return True
-        return self._show_season_setup_dialog(parent=parent)
+        if not self._show_season_setup_dialog(parent=parent):
+            return False
+        self._repair_runtime_season_state()
+        return self._has_ready_season()
+
+    def _ensure_startup_season_configuration(self) -> None:
+        self._repair_runtime_season_state()
+        if not self._has_ready_season():
+            self._show_season_setup_dialog(parent=self.root)
+            self._repair_runtime_season_state()
+        self._ensure_startup_schedule_archive_seed()
+        self._update_archive_keep_seasons_description()
 
     def _bind_record_subtab_hover(self, button: tk.Button, mode: str, hover_bg: str, hover_fg: str) -> None:
         def on_enter(_event=None) -> None:
@@ -2398,6 +2757,265 @@ class BossTimerApp:
         os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
+    def _get_schedule_shared_export_dir(self) -> str:
+        export_dir = os.path.join(get_app_root(), SCHEDULE_SHARED_EXPORT_DIRNAME)
+        os.makedirs(export_dir, exist_ok=True)
+        return export_dir
+
+    def _build_schedule_share_prefix(self, server_name: object = "", guild_name: object = "") -> str:
+        server_text = self._sanitize_season_metadata_text(server_name)
+        guild_text = self._sanitize_season_metadata_text(guild_name)
+        prefix_source = server_text or guild_text or "default"
+        safe_prefix = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", prefix_source).strip("._-")
+        return safe_prefix or "default"
+
+    def _get_current_season_share_prefix(self) -> str:
+        current_entry = dict(self.season_history_map.get(str(self.current_season_no or "").strip()) or {})
+        return self._build_schedule_share_prefix(
+            current_entry.get("server_name"),
+            current_entry.get("guild_name"),
+        )
+
+    def _get_schedule_shared_export_file_name(self, share_prefix: str | None = None) -> str:
+        return self._get_schedule_shared_backup_file_name(share_prefix)
+
+    def _get_schedule_shared_export_path(self, share_prefix: str | None = None) -> str:
+        return self._get_schedule_shared_backup_path(share_prefix)
+
+    def _get_schedule_shared_backup_file_name(self, share_prefix: str | None = None) -> str:
+        resolved_prefix = str(share_prefix or "").strip() or self._get_current_season_share_prefix()
+        return f"{resolved_prefix}_backup_schedule_state.json"
+
+    def _get_schedule_shared_backup_path(self, share_prefix: str | None = None) -> str:
+        file_name = self._get_schedule_shared_backup_file_name(share_prefix)
+        return os.path.join(self._get_schedule_shared_export_dir(), file_name)
+
+    def _get_schedule_shared_manual_default_file_name(self, share_prefix: str | None = None) -> str:
+        resolved_prefix = str(share_prefix or "").strip() or self._get_current_season_share_prefix()
+        timestamp = self._get_schedule_reference_datetime().strftime("%m%d_%H%M%S")
+        return f"{resolved_prefix}_{timestamp}_schedule_state.json"
+
+    def _get_schedule_shared_archive_fallback_dir(self) -> str:
+        archive_dir = os.path.join(self._get_schedule_shared_export_dir(), SCHEDULE_SHARED_ARCHIVE_DIRNAME)
+        os.makedirs(archive_dir, exist_ok=True)
+        return archive_dir
+
+    def _get_schedule_shared_archive_dir(self, season_no: str | int | None = None) -> str:
+        season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
+        if season_text:
+            archive_dir = os.path.join(self._get_archive_season_dir(season_text), SCHEDULE_SHARED_ARCHIVE_DIRNAME)
+        else:
+            archive_dir = self._get_schedule_shared_archive_fallback_dir()
+        os.makedirs(archive_dir, exist_ok=True)
+        return archive_dir
+
+    def _get_schedule_shared_export_context(
+        self,
+        season_no: str | int | None = None,
+        season_started_at: str | None = None,
+    ) -> dict[str, str]:
+        season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
+        if season_text:
+            season_entry = dict(self.season_history_map.get(season_text) or {})
+        else:
+            season_text = re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip())
+            season_entry = dict(self.season_history_map.get(season_text) or {})
+        server_name = self._sanitize_season_metadata_text(season_entry.get("server_name"))
+        guild_name = self._sanitize_season_metadata_text(season_entry.get("guild_name"))
+        if season_text:
+            season_label = self._get_archive_season_label(season_text)
+        else:
+            season_label = "미분류 시즌"
+        started_at_text = str(
+            season_started_at
+            or season_entry.get("started_at")
+            or (self.current_season_started_at if season_text == re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip()) else "")
+            or ""
+        ).strip()
+        share_prefix = self._build_schedule_share_prefix(server_name, guild_name)
+        return {
+            "season_no": season_text,
+            "season_started_at": started_at_text,
+            "season_label": season_label,
+            "server_name": server_name,
+            "guild_name": guild_name,
+            "share_prefix": share_prefix,
+        }
+
+    def _create_schedule_shared_export_payload(
+        self,
+        season_no: str | int | None = None,
+        season_started_at: str | None = None,
+    ) -> dict[str, object]:
+        context = self._get_schedule_shared_export_context(
+            season_no=season_no,
+            season_started_at=season_started_at,
+        )
+        return {
+            "version": 1,
+            "exported_at": self._get_schedule_reference_datetime().replace(microsecond=0),
+            "season_no": context["season_no"],
+            "season_started_at": context["season_started_at"],
+            "season_label": context["season_label"],
+            "server_name": context["server_name"],
+            "guild_name": context["guild_name"],
+            "share_prefix": context["share_prefix"],
+            "base_datetime": self._get_schedule_base_datetime(),
+            "view_date": self._get_schedule_view_datetime(),
+            "maintenance_weekday": self.schedule_maintenance_weekday_var.get(),
+            "maintenance_hour": self.schedule_maintenance_hour_var.get(),
+            "maintenance_minute": self.schedule_maintenance_minute_var.get(),
+            "schedule_events": self.schedule_events,
+            "schedule_active_entries": self.schedule_active_entries,
+            "schedule_control_events": self.schedule_control_events,
+        }
+
+    def _write_schedule_shared_export_payload(self, payload: dict[str, object], target_path: str) -> bool:
+        try:
+            with open(target_path, "w", encoding="utf-8") as file:
+                json.dump(self._serialize_schedule_state_value(payload), file, ensure_ascii=False, indent=2)
+        except OSError:
+            return False
+        return True
+
+    def _schedule_shared_payload_has_data(self, payload: dict[str, object] | None) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        event_count = len(payload.get("schedule_events", [])) if isinstance(payload.get("schedule_events"), list) else 0
+        active_count = len(payload.get("schedule_active_entries", [])) if isinstance(payload.get("schedule_active_entries"), list) else 0
+        control_count = len(payload.get("schedule_control_events", [])) if isinstance(payload.get("schedule_control_events"), list) else 0
+        return bool(event_count + active_count + control_count)
+
+    def _backup_current_schedule_shared_export(
+        self,
+        season_no: str | int | None = None,
+        season_started_at: str | None = None,
+    ) -> str | None:
+        payload = self._create_schedule_shared_export_payload(
+            season_no=season_no,
+            season_started_at=season_started_at,
+        )
+        if not self._schedule_shared_payload_has_data(payload):
+            return None
+        share_prefix = str(payload.get("share_prefix") or "").strip() or self._get_current_season_share_prefix()
+        backup_path = self._get_schedule_shared_backup_path(share_prefix)
+        if not self._write_schedule_shared_export_payload(payload, backup_path):
+            return None
+        return backup_path
+
+    def _sync_current_schedule_shared_export(self) -> str | None:
+        return self._backup_current_schedule_shared_export()
+
+    def _build_schedule_shared_archive_stem(
+        self,
+        season_label: str,
+        server_name: str,
+        guild_name: str,
+    ) -> str:
+        parts: list[str] = []
+        for raw_value in (season_label, server_name, guild_name, "스케쥴(저장용)"):
+            normalized = str(raw_value or "").strip()
+            if not normalized:
+                continue
+            safe_value = re.sub(r'[\\/:*?"<>|]+', "_", normalized)
+            safe_value = re.sub(r"\s+", "_", safe_value).strip("._-")
+            if safe_value and safe_value not in parts:
+                parts.append(safe_value)
+        return "_".join(parts) or "스케쥴(저장용)"
+
+    def _archive_current_schedule_shared_export(
+        self,
+        season_no: str | int | None = None,
+        season_started_at: str | None = None,
+        *,
+        archive_reason: str,
+        archived_at: datetime | None = None,
+    ) -> str | None:
+        payload = self._create_schedule_shared_export_payload(
+            season_no=season_no,
+            season_started_at=season_started_at,
+        )
+        if not self._schedule_shared_payload_has_data(payload):
+            return None
+        archive_datetime = (archived_at if isinstance(archived_at, datetime) else self._get_schedule_reference_datetime()).replace(microsecond=0)
+        season_text = str(payload.get("season_no") or "").strip()
+        archive_dir = self._get_schedule_shared_archive_dir(season_text)
+        reason_text = re.sub(r"[^a-z0-9_]+", "_", str(archive_reason or "archive").strip().lower()) or "archive"
+        archive_stem = self._build_schedule_shared_archive_stem(
+            str(payload.get("season_label") or "").strip(),
+            str(payload.get("server_name") or "").strip(),
+            str(payload.get("guild_name") or "").strip(),
+        )
+        archive_path = os.path.join(
+            archive_dir,
+            f"{archive_stem}_{archive_datetime.strftime('%Y%m%d_%H%M%S')}_{reason_text}.json",
+        )
+        archive_payload = dict(payload)
+        archive_payload["archived_at"] = archive_datetime
+        archive_payload["archive_reason"] = reason_text
+        archive_payload["archive_kind"] = "stored_schedule"
+        archive_payload["source_shared_file"] = self._get_schedule_shared_export_file_name(str(payload.get("share_prefix") or "").strip())
+        if not self._write_schedule_shared_export_payload(archive_payload, archive_path):
+            return None
+        return archive_path
+
+    def _load_schedule_shared_payload_from_path(self, path: str) -> dict[str, object] | None:
+        resolved_path = str(path or "").strip()
+        if not resolved_path or not os.path.exists(resolved_path):
+            return None
+        try:
+            with open(resolved_path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return None
+        restored = self._deserialize_schedule_state_value(payload)
+        return dict(restored) if isinstance(restored, dict) else None
+
+    def _create_schedule_full_snapshot_from_shared_payload(
+        self,
+        payload: dict[str, object] | None,
+        *,
+        source_path: str = "",
+    ) -> dict[str, object]:
+        if not isinstance(payload, dict):
+            return {}
+        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        base_datetime = payload.get("base_datetime")
+        view_date = payload.get("view_date")
+        if not isinstance(base_datetime, datetime):
+            base_datetime = self._get_schedule_base_datetime()
+        if not isinstance(view_date, datetime):
+            view_date = self._get_schedule_view_datetime()
+        season_no_text = str(payload.get("season_no") or "").strip()
+        season_label_text = str(payload.get("season_label") or "").strip()
+        server_name_text = str(payload.get("server_name") or "").strip()
+        guild_name_text = str(payload.get("guild_name") or "").strip()
+        source_name = os.path.basename(source_path) if source_path else ""
+        return {
+            "base_datetime": base_datetime,
+            "view_date": view_date,
+            "maintenance_weekday": str(payload.get("maintenance_weekday") or self.schedule_maintenance_weekday_var.get()).strip(),
+            "maintenance_hour": str(payload.get("maintenance_hour") or self.schedule_maintenance_hour_var.get()).strip(),
+            "maintenance_minute": str(payload.get("maintenance_minute") or self.schedule_maintenance_minute_var.get()).strip(),
+            "schedule_input_past_enabled": bool(payload.get("schedule_input_past_enabled", self.schedule_input_past_enabled)),
+            "schedule_delete_active_cutoff_datetime": None,
+            "schedule_events": [dict(item) for item in payload.get("schedule_events", []) if isinstance(item, dict)],
+            "schedule_active_entries": [dict(item) for item in payload.get("schedule_active_entries", []) if isinstance(item, dict)],
+            "schedule_control_events": [dict(item) for item in payload.get("schedule_control_events", []) if isinstance(item, dict)],
+            "schedule_last_import_meta": {
+                "imported_at": reference_now,
+                "source_type": "stored_schedule",
+                "source_path": str(source_path or "").strip(),
+                "source_name": source_name,
+                "season_no": season_no_text,
+                "season_label": season_label_text,
+                "server_name": server_name_text,
+                "guild_name": guild_name_text,
+            },
+            "schedule_tree_quick_cut_history": [],
+            "schedule_active_quick_cut_history": [],
+        }
+
     def _get_archive_season_label(self, season_no: str | int | None) -> str:
         season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
         if not season_text:
@@ -2406,24 +3024,68 @@ class BossTimerApp:
         archive_label = str(season_entry.get("archive_label") or "").strip()
         if archive_label:
             return archive_label
-        return f"{int(season_text)}차 시즌"
+        return self._build_archive_season_default_label(
+            season_text,
+            server_name=season_entry.get("server_name"),
+            guild_name=season_entry.get("guild_name"),
+        )
 
     def _get_archive_entry_season_no_from_label(self, season_label: str | None) -> str:
         normalized_label = str(season_label or "").strip()
         if not normalized_label:
             return ""
-        season_match = re.search(r"(\d+)\s*차\s*시즌", normalized_label)
+        for season_no, season_entry in self.season_history_map.items():
+            if normalized_label == self._get_archive_season_label(season_no):
+                return str(season_no or "").strip()
+        season_match = re.search(r"(\d+)\s*(?:차)?\s*시즌", normalized_label)
         if season_match:
             return str(int(season_match.group(1)))
-        for season_no, season_entry in self.season_history_map.items():
-            if normalized_label == str(season_entry.get("archive_label") or "").strip():
-                return str(season_no or "").strip()
         return ""
 
     def _get_archive_season_dir(self, season_no: str | int | None) -> str:
         season_dir = os.path.join(self._get_log_archive_dir(), self._get_archive_season_label(season_no))
         os.makedirs(season_dir, exist_ok=True)
         return season_dir
+
+    def _get_schedule_archive_dir(self, season_no: str | int | None) -> str:
+        archive_dir = os.path.join(self._get_archive_season_dir(season_no), SCHEDULE_ARCHIVE_DIRNAME)
+        os.makedirs(archive_dir, exist_ok=True)
+        return archive_dir
+
+    def _get_schedule_archive_snapshot_paths(self, season_no: str | int | None) -> list[str]:
+        season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
+        if not season_text:
+            return []
+        archive_dir = self._get_schedule_archive_dir(season_text)
+        try:
+            file_names = os.listdir(archive_dir)
+        except OSError:
+            return []
+        snapshot_paths: list[str] = []
+        for file_name in sorted(file_names):
+            normalized_name = str(file_name or "").strip()
+            if not normalized_name.lower().startswith("schedule_"):
+                continue
+            if not normalized_name.lower().endswith(".json"):
+                continue
+            snapshot_paths.append(os.path.join(archive_dir, normalized_name))
+        return snapshot_paths
+
+    def _ensure_startup_schedule_archive_seed(self) -> str | None:
+        if not self._has_ready_season():
+            return None
+        season_text = re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip())
+        if not season_text:
+            return None
+        existing_snapshots = self._get_schedule_archive_snapshot_paths(season_text)
+        if existing_snapshots:
+            return existing_snapshots[0]
+        archive_path, _archive_counts = self._archive_current_schedule_for_season(
+            season_text,
+            self.current_season_started_at,
+            archive_reason="startup_seed",
+        )
+        return archive_path
 
     def _get_log_month_key(self, recorded_at: str | None = None) -> str:
         try:
@@ -3538,15 +4200,11 @@ class BossTimerApp:
 
         view_date_value = restored.get("view_date")
         if isinstance(view_date_value, datetime):
-            self.schedule_view_year_var.set(view_date_value.strftime("%Y년"))
-            self.schedule_view_month_var.set(view_date_value.strftime("%m월"))
-            self.schedule_view_day_var.set(view_date_value.strftime("%d일"))
-            self.schedule_view_weekday_var.set(f"({self._get_weekday_label(view_date_value)})")
-            self._refresh_schedule_view_weekday_style(view_date_value)
+            self._set_schedule_view_datetime_fields(view_date_value)
 
         maintenance_weekday = str(restored.get("maintenance_weekday") or "").strip()
-        if maintenance_weekday in {"월", "화", "수", "목", "금", "토", "일"}:
-            self.schedule_maintenance_weekday_var.set(maintenance_weekday)
+        if maintenance_weekday:
+            self.schedule_maintenance_weekday_var.set(self._format_schedule_weekday_display_text(maintenance_weekday, fallback="수"))
         maintenance_hour = str(restored.get("maintenance_hour") or "").strip()
         maintenance_hour_digits = re.sub(r"[^0-9]", "", maintenance_hour)
         if maintenance_hour_digits:
@@ -3605,6 +4263,7 @@ class BossTimerApp:
 
     def _normalize_schedule_state_item(self, item: dict[str, object]) -> dict[str, object]:
         normalized = dict(item)
+        normalized["precision"] = self._infer_schedule_state_precision(normalized)
         if str(normalized.get("state") or "") == "control" or str(normalized.get("control_type") or ""):
             return normalized
         source_name = str(
@@ -3618,11 +4277,21 @@ class BossTimerApp:
         boss_info = self._normalize_schedule_input_boss_name(source_name)
         normalized.update(boss_info)
         normalized["respawn_seconds"] = self._get_schedule_respawn_seconds_for_state_item(normalized)
+        scheduled_at = normalized.get("scheduled_at")
+        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
         cut_at = self._get_schedule_event_cut_datetime(normalized)
+        if (
+            isinstance(cut_at, datetime)
+            and isinstance(scheduled_at, datetime)
+            and scheduled_at.replace(microsecond=0) > reference_now
+        ):
+            cut_at = None
         if isinstance(cut_at, datetime):
             normalized["cut_at"] = cut_at
         else:
             normalized.pop("cut_at", None)
+        if isinstance(scheduled_at, datetime) and scheduled_at.replace(microsecond=0) > reference_now:
+            normalized.pop("cut_applied", None)
         normalized.pop("last_cut_time_text", None)
         normalized.pop("last_cut_datetime", None)
         return normalized
@@ -3800,6 +4469,7 @@ class BossTimerApp:
                 json.dump(self._serialize_schedule_state_value(payload), file, ensure_ascii=False, indent=2)
         except OSError:
             return
+        self._sync_current_schedule_shared_export()
 
     def _get_weekday_label(self, date_value: datetime) -> str:
         return ("월", "화", "수", "목", "금", "토", "일")[date_value.weekday()]
@@ -4102,13 +4772,37 @@ class BossTimerApp:
 
     def _get_schedule_maintenance_weekday_index(self) -> int:
         weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
-        weekday_text = str(self.schedule_maintenance_weekday_var.get() or "").strip()
+        weekday_text = self._normalize_schedule_weekday_text(self.schedule_maintenance_weekday_var.get(), fallback="수")
         return weekday_map.get(weekday_text, 2)
 
     def _get_schedule_invasion_weekday_index(self) -> int:
         weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
         weekday_text = str(self.schedule_invasion_weekday_var.get() or "").strip()
         return weekday_map.get(weekday_text, 2)
+
+    def _normalize_schedule_weekday_text(self, raw_value: object, *, fallback: str = "수") -> str:
+        normalized = str(raw_value or "").strip()
+        weekday_aliases = {
+            "월": "월",
+            "월요일": "월",
+            "화": "화",
+            "화요일": "화",
+            "수": "수",
+            "수요일": "수",
+            "목": "목",
+            "목요일": "목",
+            "금": "금",
+            "금요일": "금",
+            "토": "토",
+            "토요일": "토",
+            "일": "일",
+            "일요일": "일",
+        }
+        return weekday_aliases.get(normalized, fallback)
+
+    def _format_schedule_weekday_display_text(self, raw_value: object, *, fallback: str = "수") -> str:
+        short_text = self._normalize_schedule_weekday_text(raw_value, fallback=fallback)
+        return f"{short_text}요일"
 
     def _is_schedule_invasion_datetime_visible(self, scheduled_at: datetime | None) -> bool:
         return isinstance(scheduled_at, datetime) and scheduled_at.weekday() == self._get_schedule_invasion_weekday_index()
@@ -4141,23 +4835,27 @@ class BossTimerApp:
     def _get_schedule_view_datetime(self) -> datetime | None:
         try:
             year = int(re.sub(r"[^0-9]", "", (self.schedule_view_year_var.get() or "").strip()))
+            if 0 <= year < 100:
+                year += 2000
             month = int(re.sub(r"[^0-9]", "", (self.schedule_view_month_var.get() or "").strip()))
             day = int(re.sub(r"[^0-9]", "", (self.schedule_view_day_var.get() or "").strip()))
             return datetime(year, month, day)
         except ValueError:
             return None
 
+    def _format_schedule_view_year_text(self, date_value: datetime | None = None) -> str:
+        resolved = date_value if isinstance(date_value, datetime) and date_value.year >= 1900 else self._get_schedule_reference_datetime()
+        return f"{resolved.year % 100:02d}년"
+
     def _set_schedule_view_datetime_fields(self, date_value: datetime) -> None:
-        self.schedule_view_year_var.set(date_value.strftime("%Y년"))
-        self.schedule_view_month_var.set(date_value.strftime("%m월"))
-        self.schedule_view_day_var.set(date_value.strftime("%d일"))
-        self.schedule_view_weekday_var.set(f"({self._get_weekday_label(date_value)})")
-        self._refresh_schedule_view_weekday_style(date_value)
+        resolved_date = date_value if isinstance(date_value, datetime) and date_value.year >= 1900 else self._get_schedule_reference_datetime()
+        self.schedule_view_year_var.set(self._format_schedule_view_year_text(resolved_date))
+        self.schedule_view_month_var.set(resolved_date.strftime("%m월"))
+        self.schedule_view_day_var.set(resolved_date.strftime("%d일"))
+        self.schedule_view_weekday_var.set(f"({self._get_weekday_label(resolved_date)})")
+        self._refresh_schedule_view_weekday_style(resolved_date)
 
     def _get_schedule_maintenance_cutoff_datetime(self, reference_datetime: datetime) -> datetime | None:
-        weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
-        weekday_text = str(self.schedule_maintenance_weekday_var.get() or "").strip()
-        target_weekday = weekday_map.get(weekday_text, 2)
         try:
             hour = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_hour_var.get() or "").strip()))
             minute = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_minute_var.get() or "").strip()))
@@ -4179,9 +4877,6 @@ class BossTimerApp:
         return target_datetime
 
     def _get_schedule_previous_maintenance_datetime(self, reference_datetime: datetime) -> datetime | None:
-        weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
-        weekday_text = str(self.schedule_maintenance_weekday_var.get() or "").strip()
-        target_weekday = weekday_map.get(weekday_text, 2)
         try:
             hour = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_hour_var.get() or "").strip()))
             minute = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_minute_var.get() or "").strip()))
@@ -4388,9 +5083,60 @@ class BossTimerApp:
         return True
 
     def _get_schedule_reference_datetime_for_precision(self, reference_datetime: datetime, precision: str) -> datetime:
-        if precision == "second":
+        if self._normalize_schedule_precision_value(precision, fallback="minute") == "second":
             return reference_datetime.replace(microsecond=0)
         return reference_datetime.replace(second=0, microsecond=0)
+
+    def _normalize_schedule_precision_value(self, precision: object, fallback: str = "minute") -> str:
+        normalized = str(precision or "").strip().lower()
+        if normalized in {"active", "day", "hour", "minute", "second"}:
+            return normalized
+        return fallback
+
+    def _infer_schedule_state_precision(self, item: dict[str, object] | None) -> str:
+        if not isinstance(item, dict):
+            return "minute"
+        explicit_precision = self._normalize_schedule_precision_value(item.get("precision"), fallback="")
+        if explicit_precision:
+            return explicit_precision
+        source_text = str(item.get("source_text") or "").strip()
+        if source_text:
+            parsed_source = self._parse_schedule_input_line(source_text)
+            if isinstance(parsed_source, dict):
+                parsed_precision = self._normalize_schedule_precision_value(parsed_source.get("precision"), fallback="")
+                if parsed_precision:
+                    return parsed_precision
+        if str(item.get("state") or "").strip() == "active":
+            return "active"
+        remaining_seconds = item.get("remaining_seconds")
+        if isinstance(remaining_seconds, int):
+            total_seconds = max(0, int(remaining_seconds))
+            if total_seconds and total_seconds % 86400 == 0:
+                return "day"
+            if total_seconds and total_seconds % 3600 == 0:
+                return "hour"
+            if total_seconds % 60 == 0:
+                return "minute"
+            return "second"
+        clock_seconds = item.get("clock_seconds")
+        if isinstance(clock_seconds, (int, float)):
+            return "second" if int(clock_seconds) else "minute"
+        scheduled_at = item.get("scheduled_at")
+        if isinstance(scheduled_at, datetime):
+            return "second" if int(scheduled_at.second) else "minute"
+        return "minute"
+
+    def _is_schedule_second_precision(self, item_or_precision: dict[str, object] | object) -> bool:
+        if isinstance(item_or_precision, dict):
+            return self._infer_schedule_state_precision(item_or_precision) == "second"
+        return self._normalize_schedule_precision_value(item_or_precision, fallback="minute") == "second"
+
+    def _format_schedule_clock_text_for_input(self, scheduled_at: datetime | None, precision: object) -> str:
+        if not isinstance(scheduled_at, datetime):
+            return ""
+        if self._is_schedule_second_precision(precision):
+            return scheduled_at.strftime("%H:%M:%S")
+        return scheduled_at.strftime("%H:%M")
 
     def _set_schedule_base_datetime_fields(self, date_value: datetime) -> None:
         self.schedule_base_year_var.set(date_value.strftime("%Y년"))
@@ -4550,6 +5296,14 @@ class BossTimerApp:
             available_dates.add(next_maintenance.date())
         return sorted(available_dates)
 
+    def _get_fixed_boss_effective_colors(self, text_color: str, bg_color: str) -> tuple[str, str]:
+        if not bool(self.fixed_boss_color_data_enabled_var.get()):
+            return DEFAULT_SCHEDULE_TEXT_COLOR, DEFAULT_SCHEDULE_BG_COLOR
+        return (
+            self._normalize_hex_color(text_color, DEFAULT_FIXED_BOSS_TEXT_COLOR),
+            self._normalize_hex_color(bg_color, DEFAULT_FIXED_BOSS_BG_COLOR),
+        )
+
     def _get_fixed_boss_schedule_rows(self) -> list[tuple[datetime, str, str, str, str, str, str, str]]:
         if not self.fixed_boss_entries:
             return []
@@ -4561,24 +5315,17 @@ class BossTimerApp:
         window_end = window_start + timedelta(days=2)
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
-        reference_today = self._get_schedule_reference_datetime().date()
-        reference_week_start = reference_today - timedelta(days=reference_today.weekday())
         rows: list[tuple[datetime, str, str, str, str, str]] = []
         current_date = window_start.date()
         end_date = (window_end - timedelta(seconds=1)).date()
         while current_date <= end_date:
             weekday_text = weekday_labels[current_date.weekday()]
-            candidate_week_start = current_date - timedelta(days=current_date.weekday())
-            week_offset = (candidate_week_start - reference_week_start).days // 7
             for item in self.fixed_boss_entries:
                 if not bool(item.get("enabled", True)):
                     continue
                 if weekday_text not in item.get("days", []):
                     continue
-                repeat_mode = str(item.get("repeat_mode") or "weekly")
-                if repeat_mode == "biweekly_current" and week_offset % 2 != 0:
-                    continue
-                if repeat_mode == "biweekly_next" and week_offset % 2 != 1:
+                if not self._is_fixed_boss_entry_active_on_date(item, current_date, fallback_reference_datetime=reference_now):
                     continue
                 time_text = self._normalize_fixed_boss_time_text(str(item.get("time_text") or "00:00:00"))
                 try:
@@ -4599,6 +5346,10 @@ class BossTimerApp:
                     continue
                 if not self._is_schedule_event_visible(scheduled_at, None, reference_now, cutoff_datetime):
                     continue
+                text_color, bg_color = self._get_fixed_boss_effective_colors(
+                    str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR),
+                    str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR),
+                )
                 rows.append(
                     (
                         scheduled_at,
@@ -4607,8 +5358,8 @@ class BossTimerApp:
                         "ON" if bool(self.schedule_fixed_boss_alarm_enabled_var.get()) else "OFF",
                         "-",
                         "고정보스",
-                        self._normalize_hex_color(str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR),
-                        self._normalize_hex_color(str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR),
+                        text_color,
+                        bg_color,
                     )
                 )
             current_date += timedelta(days=1)
@@ -4621,23 +5372,17 @@ class BossTimerApp:
         window_start = reference_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
         window_end = window_start + timedelta(days=max(1, int(days)))
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
-        reference_week_start = reference_datetime.date() - timedelta(days=reference_datetime.weekday())
         rows: list[tuple[datetime, str, str, str, str, str, str, str]] = []
         current_date = window_start.date()
         end_date = (window_end - timedelta(seconds=1)).date()
         while current_date <= end_date:
             weekday_text = weekday_labels[current_date.weekday()]
-            candidate_week_start = current_date - timedelta(days=current_date.weekday())
-            week_offset = (candidate_week_start - reference_week_start).days // 7
             for item in self.fixed_boss_entries:
                 if not bool(item.get("enabled", True)):
                     continue
                 if weekday_text not in item.get("days", []):
                     continue
-                repeat_mode = str(item.get("repeat_mode") or "weekly")
-                if repeat_mode == "biweekly_current" and week_offset % 2 != 0:
-                    continue
-                if repeat_mode == "biweekly_next" and week_offset % 2 != 1:
+                if not self._is_fixed_boss_entry_active_on_date(item, current_date, fallback_reference_datetime=reference_datetime):
                     continue
                 time_text = self._normalize_fixed_boss_time_text(str(item.get("time_text") or "00:00:00"))
                 try:
@@ -4649,6 +5394,10 @@ class BossTimerApp:
                 scheduled_at = datetime(current_date.year, current_date.month, current_date.day, hour, minute, second)
                 if scheduled_at < window_start or scheduled_at >= window_end:
                     continue
+                text_color, bg_color = self._get_fixed_boss_effective_colors(
+                    str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR),
+                    str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR),
+                )
                 rows.append(
                     (
                         scheduled_at,
@@ -4657,8 +5406,8 @@ class BossTimerApp:
                         "ON" if bool(self.schedule_fixed_boss_alarm_enabled_var.get()) else "OFF",
                         "-",
                         "고정보스",
-                        self._normalize_hex_color(str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR),
-                        self._normalize_hex_color(str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR),
+                        text_color,
+                        bg_color,
                     )
                 )
             current_date += timedelta(days=1)
@@ -4677,24 +5426,17 @@ class BossTimerApp:
         window_end = end_datetime.replace(microsecond=0) + timedelta(seconds=1)
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
-        reference_today = reference_datetime.date()
-        reference_week_start = reference_today - timedelta(days=reference_today.weekday())
         rows: list[tuple[datetime, str, str, str, str, str, str, str]] = []
         current_date = window_start.date()
         end_date = (window_end - timedelta(seconds=1)).date()
         while current_date <= end_date:
             weekday_text = weekday_labels[current_date.weekday()]
-            candidate_week_start = current_date - timedelta(days=current_date.weekday())
-            week_offset = (candidate_week_start - reference_week_start).days // 7
             for item in self.fixed_boss_entries:
                 if not bool(item.get("enabled", True)):
                     continue
                 if weekday_text not in item.get("days", []):
                     continue
-                repeat_mode = str(item.get("repeat_mode") or "weekly")
-                if repeat_mode == "biweekly_current" and week_offset % 2 != 0:
-                    continue
-                if repeat_mode == "biweekly_next" and week_offset % 2 != 1:
+                if not self._is_fixed_boss_entry_active_on_date(item, current_date, fallback_reference_datetime=reference_datetime):
                     continue
                 time_text = self._normalize_fixed_boss_time_text(str(item.get("time_text") or "00:00:00"))
                 try:
@@ -4708,6 +5450,10 @@ class BossTimerApp:
                     continue
                 if not self._is_schedule_event_visible(scheduled_at, None, reference_datetime, cutoff_datetime):
                     continue
+                text_color, bg_color = self._get_fixed_boss_effective_colors(
+                    str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR),
+                    str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR),
+                )
                 rows.append(
                     (
                         scheduled_at,
@@ -4716,8 +5462,8 @@ class BossTimerApp:
                         "ON" if bool(self.schedule_fixed_boss_alarm_enabled_var.get()) else "OFF",
                         "-",
                         "고정보스",
-                        self._normalize_hex_color(str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR),
-                        self._normalize_hex_color(str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR),
+                        text_color,
+                        bg_color,
                     )
                 )
             current_date += timedelta(days=1)
@@ -5304,17 +6050,13 @@ class BossTimerApp:
             seed_anchor_at = row_anchor_map.get(seed_index)
             if not isinstance(seed_anchor_at, datetime):
                 continue
+            seed_position = sorted_indices.index(seed_index)
             needs_repair = False
-            for idx in sorted_indices:
+            for position, idx in enumerate(sorted_indices):
                 row_anchor_at = row_anchor_map.get(idx)
                 if not isinstance(row_anchor_at, datetime):
                     continue
-                if row_anchor_at < seed_anchor_at:
-                    expected_direction = -1
-                elif row_anchor_at > seed_anchor_at:
-                    expected_direction = 1
-                else:
-                    expected_direction = 0
+                expected_direction = position - seed_position
                 current_item = self.schedule_events[idx]
                 stored_direction = current_item.get("cycle_offset_direction")
                 stored_anchor = current_item.get("cycle_anchor_at")
@@ -5327,16 +6069,11 @@ class BossTimerApp:
                     break
             if not needs_repair:
                 continue
-            for idx in sorted_indices:
+            for position, idx in enumerate(sorted_indices):
                 row_anchor_at = row_anchor_map.get(idx)
                 if not isinstance(row_anchor_at, datetime):
                     continue
-                if row_anchor_at < seed_anchor_at:
-                    direction = -1
-                elif row_anchor_at > seed_anchor_at:
-                    direction = 1
-                else:
-                    direction = 0
+                direction = position - seed_position
                 inferred_cycle_meta[idx] = (row_anchor_at, direction)
         for item_index, item in enumerate(self.schedule_events):
             if not isinstance(item, dict) or str(item.get("state") or "") != "scheduled":
@@ -5363,12 +6100,9 @@ class BossTimerApp:
             metric_duration_seconds = self._get_schedule_boss_metric_effective_duration_seconds(new_item)
             if apply_enabled and isinstance(metric_duration_seconds, int) and metric_duration_seconds > 0:
                 anchor_at = stored_anchor.replace(microsecond=0) if isinstance(stored_anchor, datetime) else scheduled_at.replace(microsecond=0)
-                if stored_direction < 0:
-                    adjusted_scheduled_at = (anchor_at - timedelta(seconds=metric_duration_seconds)).replace(microsecond=0)
-                elif stored_direction > 0:
-                    adjusted_scheduled_at = (anchor_at + timedelta(seconds=metric_duration_seconds)).replace(microsecond=0)
-                else:
-                    adjusted_scheduled_at = anchor_at
+                adjusted_scheduled_at = (
+                    anchor_at + timedelta(seconds=(metric_duration_seconds * stored_direction))
+                ).replace(microsecond=0)
                 if scheduled_at.replace(microsecond=0) != adjusted_scheduled_at or not isinstance(stored_anchor, datetime):
                     changed = True
                 new_item["cycle_anchor_at"] = anchor_at
@@ -5589,6 +6323,7 @@ class BossTimerApp:
                 {
                     "kind": "break",
                     "scheduled_at": break_item["scheduled_at"],
+                    "effective_end_at": break_item["end_at"],
                     "time_text": break_item["scheduled_at"].strftime("%H:%M:%S"),
                     "boss_text": str(break_item["label_text"]) + (f" {excluded_note_suffix}" if excluded_note_suffix else ""),
                     "state_text": "경과" if is_elapsed else "휴식",
@@ -5698,6 +6433,213 @@ class BossTimerApp:
         self.schedule_active_entries = self._normalize_schedule_active_items(current_active_entries + backup_active_entries)
         return True
 
+    def _sanitize_schedule_restore_snapshot(self, snapshot: dict[str, object] | None) -> dict[str, object]:
+        if not isinstance(snapshot, dict):
+            return {}
+        previous_meta = snapshot.get("previous_meta")
+        if not isinstance(previous_meta, dict):
+            previous_meta = snapshot.get("schedule_last_import_meta")
+        normalized_events = self._normalize_schedule_event_items(
+            [
+                {
+                    str(key): value
+                    for key, value in dict(item).items()
+                    if str(key) not in {"backup", "last_cut_time_text", "last_cut_datetime"}
+                }
+                for item in snapshot.get("schedule_events", [])
+                if isinstance(item, dict)
+            ]
+        )
+        normalized_active_entries = self._normalize_schedule_active_items(
+            [
+                {
+                    str(key): value
+                    for key, value in dict(item).items()
+                    if str(key) not in {"backup", "last_cut_time_text", "last_cut_datetime"}
+                }
+                for item in snapshot.get("schedule_active_entries", [])
+                if isinstance(item, dict)
+            ]
+        )
+        normalized_control_events = [
+            {
+                str(key): value
+                for key, value in dict(item).items()
+                if str(key) not in {"backup"}
+            }
+            for item in snapshot.get("schedule_control_events", [])
+            if isinstance(item, dict)
+        ]
+        return {
+            "schedule_events": normalized_events,
+            "schedule_active_entries": normalized_active_entries,
+            "schedule_control_events": normalized_control_events,
+            "previous_meta": dict(previous_meta) if isinstance(previous_meta, dict) else None,
+        }
+
+    def _create_schedule_restore_snapshot(self) -> dict[str, object]:
+        return self._sanitize_schedule_restore_snapshot(self._create_schedule_state_snapshot())
+
+    def _filter_schedule_restore_snapshot_to_cycle(
+        self,
+        snapshot: dict[str, object] | None,
+        reference_datetime: datetime | None = None,
+    ) -> dict[str, object]:
+        sanitized_snapshot = self._sanitize_schedule_restore_snapshot(snapshot)
+        if not sanitized_snapshot:
+            return {}
+        resolved_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
+        window_start = self._get_schedule_default_server_open_datetime(resolved_reference)
+        window_end = self._get_schedule_maintenance_cutoff_datetime(resolved_reference)
+        if not isinstance(window_end, datetime) or window_end <= window_start:
+            window_end = window_start + timedelta(days=7)
+
+        def _in_window(item: dict[str, object]) -> bool:
+            if not isinstance(item, dict):
+                return False
+            scheduled_at = item.get("scheduled_at")
+            if isinstance(scheduled_at, datetime):
+                return window_start <= scheduled_at.replace(microsecond=0) < window_end
+            created_at = item.get("created_at")
+            if isinstance(created_at, datetime):
+                return window_start <= created_at.replace(microsecond=0) < window_end
+            return False
+
+        previous_meta = sanitized_snapshot.get("previous_meta")
+        previous_meta = dict(previous_meta) if isinstance(previous_meta, dict) else None
+        if isinstance(previous_meta, dict):
+            imported_at = previous_meta.get("imported_at")
+            if isinstance(imported_at, datetime):
+                imported_value = imported_at.replace(microsecond=0)
+                if not (window_start <= imported_value < window_end):
+                    previous_meta = None
+            else:
+                previous_meta = None
+        return self._sanitize_schedule_restore_snapshot(
+            {
+                "schedule_events": [dict(item) for item in sanitized_snapshot.get("schedule_events", []) if _in_window(item)],
+                "schedule_active_entries": [dict(item) for item in sanitized_snapshot.get("schedule_active_entries", []) if _in_window(item)],
+                "schedule_control_events": [dict(item) for item in sanitized_snapshot.get("schedule_control_events", []) if _in_window(item)],
+                "previous_meta": previous_meta,
+            }
+        )
+
+    def _create_schedule_restore_cycle_snapshot(self, reference_datetime: datetime | None = None) -> dict[str, object]:
+        return self._filter_schedule_restore_snapshot_to_cycle(
+            self._create_schedule_state_snapshot(),
+            reference_datetime=reference_datetime,
+        )
+
+    def _get_schedule_restore_snapshot_counts(self, snapshot: dict[str, object] | None) -> dict[str, int]:
+        sanitized = self._sanitize_schedule_restore_snapshot(snapshot)
+        event_count = len(sanitized.get("schedule_events", []))
+        active_count = len(sanitized.get("schedule_active_entries", []))
+        control_count = len(sanitized.get("schedule_control_events", []))
+        total = event_count + active_count + control_count
+        return {
+            "events": event_count,
+            "active": active_count,
+            "controls": control_count,
+            "quick_cut": 0,
+            "total": total,
+        }
+
+    def _schedule_restore_snapshot_has_data(self, snapshot: dict[str, object] | None) -> bool:
+        counts = self._get_schedule_restore_snapshot_counts(snapshot)
+        return bool(int(counts.get("total", 0) or 0) > 0)
+
+    def _get_schedule_restore_snapshot_signature(self, snapshot: dict[str, object] | None) -> str:
+        sanitized = self._sanitize_schedule_restore_snapshot(snapshot)
+        if not sanitized:
+            return ""
+        try:
+            serialized = self._serialize_schedule_state_value(sanitized)
+            raw_text = json.dumps(serialized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return ""
+        return hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
+
+    def _get_schedule_runtime_item_counts(self) -> dict[str, int]:
+        event_count = len(self.schedule_events)
+        active_count = len(self.schedule_active_entries)
+        control_count = len(self.schedule_control_events)
+        return {
+            "events": event_count,
+            "active": active_count,
+            "controls": control_count,
+            "total": event_count + active_count + control_count,
+        }
+
+    def _archive_current_schedule_for_season(
+        self,
+        season_no: str | int | None,
+        season_started_at: str | None,
+        *,
+        archive_reason: str,
+        archived_at: datetime | None = None,
+    ) -> tuple[str | None, dict[str, int]]:
+        snapshot = self._create_schedule_restore_snapshot()
+        counts = self._get_schedule_restore_snapshot_counts(snapshot)
+        if not self._schedule_restore_snapshot_has_data(snapshot):
+            return None, counts
+        archive_datetime = (archived_at if isinstance(archived_at, datetime) else self._get_schedule_reference_datetime()).replace(microsecond=0)
+        archive_dir = self._get_schedule_archive_dir(season_no)
+        season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
+        reason_text = re.sub(r"[^a-z0-9_]+", "_", str(archive_reason or "archive").strip().lower()) or "archive"
+        file_name = f"schedule_{archive_datetime.strftime('%Y%m%d_%H%M%S')}_{reason_text}.json"
+        archive_path = os.path.join(archive_dir, file_name)
+        payload = {
+            "version": 1,
+            "archived_at": archive_datetime,
+            "archive_reason": reason_text,
+            "season_no": season_text,
+            "season_label": self._get_archive_season_label(season_text),
+            "season_started_at": str(season_started_at or "").strip(),
+            "server_name": str((self.season_history_map.get(season_text) or {}).get("server_name") or "").strip(),
+            "guild_name": str((self.season_history_map.get(season_text) or {}).get("guild_name") or "").strip(),
+            "base_datetime": self._get_schedule_base_datetime(),
+            "view_date": self._get_schedule_view_datetime(),
+            "maintenance_weekday": self.schedule_maintenance_weekday_var.get(),
+            "maintenance_hour": self.schedule_maintenance_hour_var.get(),
+            "maintenance_minute": self.schedule_maintenance_minute_var.get(),
+            "schedule_snapshot": snapshot,
+            "counts": counts,
+        }
+        try:
+            with open(archive_path, "w", encoding="utf-8") as file:
+                json.dump(self._serialize_schedule_state_value(payload), file, ensure_ascii=False, indent=2)
+        except OSError:
+            return None, counts
+        return archive_path, counts
+
+    def _reset_schedule_for_new_season(self, reference_datetime: datetime | None = None) -> None:
+        resolved_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
+        self.schedule_events = []
+        self.schedule_active_entries = []
+        self.schedule_control_events = []
+        self.schedule_last_import_meta = None
+        self.schedule_delete_history = []
+        self.schedule_delete_active_cutoff_datetime = None
+        self.schedule_delete_default_cutoff_datetime = self._get_schedule_default_server_open_datetime(resolved_reference)
+        self.schedule_tree_quick_cut_history = []
+        self.schedule_active_quick_cut_history = []
+        self.schedule_alarm_fired_keys = {}
+        self.schedule_last_edit_backup = None
+        self.schedule_last_import_backup = None
+        self.schedule_input_undo_edit_context = False
+        self.schedule_input_ocr_items = []
+        self.schedule_input_ocr_saved_items = []
+        self.schedule_input_ocr_saved_results = []
+        self.schedule_input_ocr_saved_invasion_mode = None
+        self.schedule_input_ocr_addon_stack_items = []
+        self._clear_schedule_input_ocr_results(clear_rendered_text=True)
+        self._set_schedule_base_datetime_fields(self._get_schedule_default_server_open_datetime(resolved_reference))
+        self._set_schedule_view_datetime_fields(resolved_reference)
+        self._reset_schedule_delete_runtime_state()
+        self._save_schedule_state()
+        self._save_schedule_delete_history()
+        self._refresh_schedule_view()
+
     def _create_schedule_full_state_snapshot(self) -> dict[str, object]:
         return {
             "base_datetime": self._get_schedule_base_datetime(),
@@ -5727,11 +6669,7 @@ class BossTimerApp:
             self.schedule_base_minute_var.set(base_datetime_value.strftime("%M분"))
         view_date_value = snapshot.get("view_date")
         if isinstance(view_date_value, datetime):
-            self.schedule_view_year_var.set(view_date_value.strftime("%Y년"))
-            self.schedule_view_month_var.set(view_date_value.strftime("%m월"))
-            self.schedule_view_day_var.set(view_date_value.strftime("%d일"))
-            self.schedule_view_weekday_var.set(f"({self._get_weekday_label(view_date_value)})")
-            self._refresh_schedule_view_weekday_style(view_date_value)
+            self._set_schedule_view_datetime_fields(view_date_value)
         maintenance_weekday = str(snapshot.get("maintenance_weekday") or "").strip()
         if maintenance_weekday in {"월", "화", "수", "목", "금", "토", "일"}:
             self.schedule_maintenance_weekday_var.set(maintenance_weekday)
@@ -5809,41 +6747,143 @@ class BossTimerApp:
         except ValueError:
             return None
 
+    def _get_schedule_restore_history_entry_type(self, entry: dict[str, object] | None) -> str:
+        if not isinstance(entry, dict):
+            return "delete"
+        entry_type = str(entry.get("entry_type") or "delete").strip().lower()
+        return entry_type if entry_type in {"delete", "load"} else "delete"
+
+    def _get_schedule_restore_history_label(self, entry: dict[str, object] | None) -> str:
+        return "불러오기 전" if self._get_schedule_restore_history_entry_type(entry) == "load" else "삭제"
+
+    def _get_schedule_restore_history_retention_cutoff(self, reference_datetime: datetime | None = None) -> datetime:
+        reference_value = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
+        return reference_value.replace(microsecond=0) - timedelta(days=SCHEDULE_RESTORE_HISTORY_RETENTION_DAYS)
+
+    def _get_schedule_restore_history_entry_signature(self, entry: dict[str, object] | None) -> str:
+        if not isinstance(entry, dict):
+            return ""
+        stored_signature = str(entry.get("snapshot_signature") or "").strip()
+        if stored_signature:
+            return stored_signature
+        return self._get_schedule_restore_snapshot_signature(entry.get("snapshot"))
+
     def _normalize_schedule_delete_history_entry(self, entry: object) -> dict[str, object] | None:
         if not isinstance(entry, dict):
             return None
         normalized = dict(entry)
-        cutoff_datetime = normalized.get("cutoff_datetime")
         deleted_at = normalized.get("deleted_at")
-        snapshot = normalized.get("snapshot")
-        if not isinstance(cutoff_datetime, datetime) or not isinstance(deleted_at, datetime) or not isinstance(snapshot, dict):
+        if not isinstance(deleted_at, datetime):
+            deleted_at = normalized.get("saved_at")
+        snapshot = self._sanitize_schedule_restore_snapshot(normalized.get("snapshot"))
+        if not isinstance(deleted_at, datetime) or not snapshot:
             return None
-        normalized["cutoff_datetime"] = cutoff_datetime.replace(microsecond=0)
         normalized["deleted_at"] = deleted_at.replace(microsecond=0)
+        normalized["entry_type"] = self._get_schedule_restore_history_entry_type(normalized)
+        if normalized["entry_type"] == "load":
+            snapshot = self._filter_schedule_restore_snapshot_to_cycle(snapshot, reference_datetime=normalized["deleted_at"])
+            if not snapshot:
+                return None
         normalized["snapshot"] = snapshot
+        cutoff_datetime = normalized.get("cutoff_datetime")
+        if isinstance(cutoff_datetime, datetime):
+            normalized["cutoff_datetime"] = cutoff_datetime.replace(microsecond=0)
+        else:
+            normalized["cutoff_datetime"] = None
+        normalized["snapshot_signature"] = self._get_schedule_restore_snapshot_signature(snapshot)
         deleted_count = normalized.get("deleted_count")
-        try:
-            normalized["deleted_count"] = max(0, int(deleted_count))
-        except (TypeError, ValueError):
-            normalized["deleted_count"] = 0
+        snapshot_counts = self._get_schedule_restore_snapshot_counts(snapshot)
         summary = normalized.get("summary")
         if isinstance(summary, dict):
             normalized["summary"] = {
                 "events": max(0, int(summary.get("events", 0) or 0)),
                 "active": max(0, int(summary.get("active", 0) or 0)),
                 "controls": max(0, int(summary.get("controls", 0) or 0)),
-                "quick_cut": max(0, int(summary.get("quick_cut", 0) or 0)),
+                "quick_cut": 0,
                 "total": max(0, int(summary.get("total", 0) or 0)),
             }
         else:
-            normalized["summary"] = {
-                "events": 0,
-                "active": 0,
-                "controls": 0,
-                "quick_cut": 0,
-                "total": normalized["deleted_count"],
-            }
+            normalized["summary"] = dict(snapshot_counts)
+        if int(normalized["summary"].get("total", 0) or 0) <= 0:
+            normalized["summary"] = dict(snapshot_counts)
+        try:
+            normalized["deleted_count"] = max(0, int(deleted_count))
+        except (TypeError, ValueError):
+            normalized["deleted_count"] = int(normalized["summary"].get("total", 0) or 0)
+        if normalized["deleted_count"] <= 0:
+            normalized["deleted_count"] = int(normalized["summary"].get("total", 0) or 0)
         return normalized
+
+    def _prune_schedule_delete_history_entries(
+        self,
+        entries: list[dict[str, object]] | None = None,
+        *,
+        reference_datetime: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        source_entries = entries if isinstance(entries, list) else self.schedule_delete_history
+        cutoff_datetime = self._get_schedule_restore_history_retention_cutoff(reference_datetime)
+        normalized_entries: list[dict[str, object]] = []
+        seen_keys: set[tuple[str, str, str]] = set()
+        for entry in source_entries:
+            normalized = self._normalize_schedule_delete_history_entry(entry)
+            if not isinstance(normalized, dict):
+                continue
+            deleted_at = normalized.get("deleted_at")
+            if not isinstance(deleted_at, datetime) or deleted_at < cutoff_datetime:
+                continue
+            if not self._schedule_restore_snapshot_has_data(normalized.get("snapshot")):
+                continue
+            entry_type = self._get_schedule_restore_history_entry_type(normalized)
+            signature = self._get_schedule_restore_history_entry_signature(normalized)
+            cutoff_value = normalized.get("cutoff_datetime")
+            cutoff_key = cutoff_value.isoformat() if isinstance(cutoff_value, datetime) and entry_type == "delete" else ""
+            dedupe_key = (entry_type, signature, cutoff_key)
+            if signature and dedupe_key in seen_keys:
+                continue
+            if signature:
+                seen_keys.add(dedupe_key)
+            normalized_entries.append(normalized)
+        normalized_entries.sort(key=lambda item: item.get("deleted_at") or datetime.min, reverse=True)
+        return normalized_entries[:SCHEDULE_RESTORE_HISTORY_MAX_ENTRIES]
+
+    def _append_schedule_delete_history_entry(
+        self,
+        *,
+        snapshot: dict[str, object] | None,
+        entry_type: str = "delete",
+        cutoff_datetime: datetime | None = None,
+        deleted_at: datetime | None = None,
+        summary: dict[str, int] | None = None,
+    ) -> bool:
+        sanitized_snapshot = self._sanitize_schedule_restore_snapshot(snapshot)
+        if not self._schedule_restore_snapshot_has_data(sanitized_snapshot):
+            return False
+        entry_datetime = (deleted_at if isinstance(deleted_at, datetime) else self._get_schedule_reference_datetime()).replace(microsecond=0)
+        normalized_entry_type = entry_type if entry_type in {"delete", "load"} else "delete"
+        entry_summary = dict(summary) if isinstance(summary, dict) else self._get_schedule_restore_snapshot_counts(sanitized_snapshot)
+        entry_summary = {
+            "events": max(0, int(entry_summary.get("events", 0) or 0)),
+            "active": max(0, int(entry_summary.get("active", 0) or 0)),
+            "controls": max(0, int(entry_summary.get("controls", 0) or 0)),
+            "quick_cut": 0,
+            "total": max(0, int(entry_summary.get("total", 0) or 0)),
+        }
+        if entry_summary["total"] <= 0:
+            entry_summary = self._get_schedule_restore_snapshot_counts(sanitized_snapshot)
+        new_entry = {
+            "entry_type": normalized_entry_type,
+            "deleted_at": entry_datetime,
+            "cutoff_datetime": cutoff_datetime.replace(microsecond=0) if isinstance(cutoff_datetime, datetime) else None,
+            "deleted_count": int(entry_summary.get("total", 0) or 0),
+            "summary": entry_summary,
+            "snapshot": sanitized_snapshot,
+            "snapshot_signature": self._get_schedule_restore_snapshot_signature(sanitized_snapshot),
+        }
+        self.schedule_delete_history = self._prune_schedule_delete_history_entries(
+            [new_entry, *self.schedule_delete_history],
+            reference_datetime=entry_datetime,
+        )
+        return True
 
     def _load_schedule_delete_history(self) -> None:
         self.schedule_delete_history = []
@@ -5858,29 +6898,26 @@ class BossTimerApp:
         restored = self._deserialize_schedule_state_value(payload)
         if not isinstance(restored, dict):
             return
+        payload_version = int(restored.get("version") or 1) if str(restored.get("version") or "").strip() else 1
         default_cutoff = restored.get("default_cutoff_datetime")
         if isinstance(default_cutoff, datetime):
             self.schedule_delete_default_cutoff_datetime = default_cutoff.replace(microsecond=0)
         entries = restored.get("entries")
+        should_resave = payload_version < 2
         if isinstance(entries, list):
-            normalized_entries = [
-                item
-                for item in (
-                    self._normalize_schedule_delete_history_entry(entry)
-                    for entry in entries
-                )
-                if isinstance(item, dict)
-            ]
-            normalized_entries.sort(key=lambda entry: entry.get("deleted_at") or datetime.min, reverse=True)
-            self.schedule_delete_history = normalized_entries[:5]
+            self.schedule_delete_history = self._prune_schedule_delete_history_entries(entries)
+            should_resave = should_resave or (len(self.schedule_delete_history) != len(entries))
         self._clear_stale_schedule_delete_cutoff_if_needed()
+        if should_resave:
+            self._save_schedule_delete_history()
 
     def _save_schedule_delete_history(self) -> None:
+        self.schedule_delete_history = self._prune_schedule_delete_history_entries()
         payload = {
-            "version": 1,
+            "version": 2,
             "default_cutoff_datetime": self._get_schedule_delete_default_cutoff_datetime(),
             "active_cutoff_datetime": self.schedule_delete_active_cutoff_datetime.replace(microsecond=0) if isinstance(self.schedule_delete_active_cutoff_datetime, datetime) else None,
-            "entries": self.schedule_delete_history[:5],
+            "entries": self.schedule_delete_history,
         }
         try:
             with open(SCHEDULE_DELETE_HISTORY_PATH, "w", encoding="utf-8") as file:
@@ -5894,6 +6931,8 @@ class BossTimerApp:
             return False
         latest_deleted_at: datetime | None = None
         for entry in self.schedule_delete_history:
+            if self._get_schedule_restore_history_entry_type(entry) != "delete":
+                continue
             deleted_at = entry.get("deleted_at")
             if isinstance(deleted_at, datetime):
                 latest_deleted_at = deleted_at
@@ -5992,6 +7031,11 @@ class BossTimerApp:
                 continue
             cut_datetime = self._resolve_schedule_seed_datetime(item, reference_datetime)
             if not isinstance(cut_datetime, datetime):
+                continue
+            if cut_datetime > reference_datetime:
+                # Schedule-input cut commands are only valid for already-past
+                # timestamps. Future rows may still be regenerated as normal
+                # schedule chain entries, but they must never receive cut state.
                 continue
             preserve_scheduled_at = item.get("edit_cut_preserve_scheduled_at")
             if isinstance(preserve_scheduled_at, datetime):
@@ -6630,7 +7674,7 @@ class BossTimerApp:
         compact = re.sub(r"\s+", "", (text or "").strip())
         if not compact:
             return ""
-        compact = compact.replace("시", "시간")
+        compact = re.sub(r"(\d+)시(?!간)", r"\1시간", compact)
         if re.fullmatch(r"\d+일\d+$", compact):
             match = re.fullmatch(r"(\d+)일(\d+)$", compact)
             if match:
@@ -6698,7 +7742,11 @@ class BossTimerApp:
             self.schedule_status_var.set("추가할 보스 입력을 확인할 수 없습니다.")
             return
         normalized_text = "\n".join(normalized_lines)
-        parsed_items, ignored_count = self._parse_schedule_input_lines(normalized_text)
+        reference_datetime = self._get_schedule_reference_datetime()
+        parsed_items, ignored_count = self._parse_schedule_input_lines(
+            normalized_text,
+            reference_datetime=reference_datetime,
+        )
         parsed_items = [
             item for item in parsed_items
             if str(item.get("state") or "") in {"active", "scheduled"} and str(item.get("control_type") or "") == ""
@@ -6706,7 +7754,6 @@ class BossTimerApp:
         if not parsed_items:
             self.schedule_status_var.set("추가할 보스 입력을 파싱하지 못했습니다.")
             return
-        reference_datetime = self._get_schedule_reference_datetime()
         self._apply_schedule_parsed_batch(
             normalized_text,
             parsed_items,
@@ -6802,6 +7849,69 @@ class BossTimerApp:
             return
         self._add_schedule_active_entries_by_text(raw_text)
 
+    def _build_schedule_cut_action_item(
+        self,
+        item: dict[str, object],
+        cut_token: str | None,
+    ) -> dict[str, object] | None:
+        if not isinstance(item, dict):
+            return None
+        fallback_name = (
+            str(item.get("boss_name") or "").strip()
+            or str(item.get("display_name") or "").strip()
+            or str(item.get("raw_name") or "").strip()
+        )
+        if not fallback_name:
+            return None
+        normalized = self._normalize_schedule_input_boss_name(fallback_name)
+        is_invasion = self._is_schedule_invasion_item(item)
+        boss_name = str(item.get("boss_name") or normalized.get("boss_name") or "").strip()
+        raw_key = str(item.get("raw_key") or normalized.get("raw_key") or "").strip()
+        if not boss_name or not raw_key:
+            return None
+        display_name = self._get_schedule_boss_display_name(
+            {
+                "boss_name": boss_name,
+                "raw_key": raw_key,
+                "raw_name": str(item.get("raw_name") or fallback_name),
+                "display_name": str(item.get("display_name") or ""),
+                "is_invasion": is_invasion,
+            },
+            prefer_alias=True,
+        ) or str(normalized.get("display_name") or boss_name)
+        parsed_item: dict[str, object] = {
+            "raw_name": str(item.get("raw_name") or fallback_name),
+            "boss_name": boss_name,
+            "display_name": display_name,
+            "is_invasion": is_invasion,
+            "raw_key": raw_key,
+            "state": "scheduled",
+            "cut_applied": True,
+            "source_text": self._get_schedule_cut_input_text(item, cut_token),
+        }
+        digits = "".join(character for character in str(cut_token or "") if character.isdigit())
+        if len(digits) in {4, 6}:
+            seconds = int(digits[4:6]) if len(digits) == 6 else 0
+            parsed_item.update(
+                {
+                    "mode": "clock",
+                    "day_offset": 0,
+                    "day_offset_explicit": False,
+                    "clock_hours": int(digits[:2]),
+                    "clock_minutes": int(digits[2:4]),
+                    "clock_seconds": seconds,
+                    "precision": "second" if len(digits) == 6 else "minute",
+                }
+            )
+        else:
+            parsed_item.update(
+                {
+                    "mode": "cut_now",
+                    "precision": "second",
+                }
+            )
+        return parsed_item
+
     def _apply_schedule_cut_action(
         self,
         item: dict[str, object],
@@ -6816,10 +7926,12 @@ class BossTimerApp:
     ) -> bool:
         reference_datetime = self._get_schedule_reference_datetime()
         raw_text = self._get_schedule_cut_input_text(item, cut_token)
-        parsed_items, ignored_count = self._parse_schedule_input_lines(raw_text)
-        if not parsed_items:
+        parsed_item = self._build_schedule_cut_action_item(item, cut_token)
+        if not isinstance(parsed_item, dict):
             self.schedule_status_var.set(f"{source_label}에 사용할 스케쥴 데이터를 만들지 못했습니다.")
             return False
+        parsed_items = [parsed_item]
+        ignored_count = 0
         if isinstance(cut_preserve_scheduled_at, datetime):
             preserve_scheduled_at = cut_preserve_scheduled_at.replace(microsecond=0)
             target_raw_key = str(item.get("raw_key") or "").strip()
@@ -6973,8 +8085,8 @@ class BossTimerApp:
         ):
             return
 
-        name_x = 136
-        time_gap = 0
+        name_x = -4
+        time_gap = 6
         next_seconds_gap = 0
 
         def measure_width(widget: tk.Widget, text: str, padding: int = 6) -> int:
@@ -6989,9 +8101,9 @@ class BossTimerApp:
         next_seconds_width = measure_width(next_seconds_label, next_seconds_text, 5)
         next_main_x = name_x + next_name_width + time_gap
         next_seconds_x = next_main_x + next_main_width + next_seconds_gap
-        next_name_label.place_configure(x=name_x, width=next_name_width)
-        next_main_label.place_configure(x=next_main_x, width=next_main_width)
-        next_seconds_label.place_configure(x=next_seconds_x, width=next_seconds_width)
+        next_name_label.place_configure(x=name_x, y=22, width=next_name_width, height=28)
+        next_main_label.place_configure(x=next_main_x, y=22, width=next_main_width, height=28)
+        next_seconds_label.place_configure(x=next_seconds_x, y=30, width=next_seconds_width, height=14)
 
         following_name_text = self.schedule_following_boss_var.get()
         following_main_text = self.schedule_following_boss_remaining_var.get()
@@ -7460,7 +8572,7 @@ class BossTimerApp:
             if self.schedule_active_rows_scrollbar is not None and self.schedule_active_rows_scrollbar.winfo_exists():
                 if content_height > viewport_height:
                     self.schedule_active_rows_scrollbar.place(
-                        x=590,
+                        x=578,
                         y=10,
                         width=12,
                         height=viewport_height,
@@ -7474,40 +8586,64 @@ class BossTimerApp:
     def _layout_schedule_active_panel(self, row_count: int = 0) -> None:
         if self.schedule_active_frame is None or not self.schedule_active_frame.winfo_exists():
             return
-        panel_width = 612
-        option_width = 328
-        option_height = 62
+        has_active_rows = row_count > 0
+        panel_width = 600
+        option_width = 332
+        current_width = 170
+        option_height = 70 if has_active_rows else 58
         display_row_count = self._get_schedule_active_panel_display_row_count(row_count)
-        panel_height = 36 if display_row_count <= 0 else min(150, 20 + (display_row_count * 26) + ((display_row_count - 1) * 2))
+        panel_height = 24 if display_row_count <= 0 else min(150, 20 + (display_row_count * 26) + ((display_row_count - 1) * 2))
         viewport_height = max(24, panel_height - 20)
         self.schedule_active_panel_content_height = max(24, display_row_count * 26 + max(0, display_row_count - 1) * 2)
-        active_y = 138
-        option_x = 646
-        option_y = active_y + max(0, panel_height - option_height)
-        active_bottom = active_y + panel_height
+        base_panel_y = 142
+        option_y = base_panel_y
+        if has_active_rows:
+            active_y = base_panel_y
+        else:
+            active_y = option_y
+        current_x = 18
+        active_x = 560
+        option_x = 206
+        current_y = option_y
         option_bottom = option_y + option_height
-        list_y = max(active_bottom, option_bottom) + 12
+        list_y = option_bottom + (3 if has_active_rows else 1)
+        if not has_active_rows:
+            active_y = list_y - panel_height - 2
+        active_bottom = active_y + panel_height
         try:
-            self.schedule_active_frame.place_configure(x=18, y=active_y, width=panel_width, height=panel_height)
+            if getattr(self, "schedule_current_time_frame", None) is not None and self.schedule_current_time_frame.winfo_exists():
+                self.schedule_current_time_frame.place_configure(x=current_x, y=current_y, width=current_width, height=option_height)
+            self.schedule_active_frame.place_configure(x=active_x, y=active_y, width=panel_width, height=panel_height)
             if self.schedule_option_frame is not None and self.schedule_option_frame.winfo_exists():
                 self.schedule_option_frame.place_configure(x=option_x, y=option_y, width=option_width, height=option_height)
             if self.schedule_active_rows_canvas is not None and self.schedule_active_rows_canvas.winfo_exists():
-                self.schedule_active_rows_canvas.place_configure(x=10, y=10, width=576, height=viewport_height)
+                self.schedule_active_rows_canvas.place_configure(x=10, y=10, width=564, height=viewport_height)
             if self.schedule_active_rows_scrollbar is not None and self.schedule_active_rows_scrollbar.winfo_exists():
-                self.schedule_active_rows_scrollbar.place(x=590, y=10, width=12, height=viewport_height)
+                self.schedule_active_rows_scrollbar.place(x=578, y=10, width=12, height=viewport_height)
             self._update_schedule_active_rows_scrollregion()
             if self.schedule_list_frame is not None and self.schedule_list_frame.winfo_exists():
+                list_x = 14
+                list_width = SCHEDULE_WINDOW_WIDTH - 28
                 list_height = max(420, SCHEDULE_WINDOW_HEIGHT - list_y - 18)
-                self.schedule_list_frame.place_configure(x=18, y=list_y, width=SCHEDULE_WINDOW_WIDTH - 36, height=list_height)
-                tree_y = 88
+                self.schedule_list_frame.place_configure(x=list_x, y=list_y, width=list_width, height=list_height)
+                tree_y = 72
                 footer_y = list_height - 26
                 tree_height = max(220, footer_y - tree_y - 8)
+                scrollbar_width = int(SCHEDULE_TREE_SCROLLBAR_WIDTH)
+                tree_x = 10
+                scrollbar_x = list_width - scrollbar_width - 4
+                tree_width = max(240, scrollbar_x - tree_x - 2)
                 if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
-                    self.schedule_tree.place_configure(x=14, y=tree_y, width=SCHEDULE_WINDOW_WIDTH - 82, height=tree_height)
+                    self.schedule_tree.place_configure(x=tree_x, y=tree_y, width=tree_width, height=tree_height)
                 if self.schedule_tree_scrollbar is not None and self.schedule_tree_scrollbar.winfo_exists():
-                    self.schedule_tree_scrollbar.place_configure(x=SCHEDULE_WINDOW_WIDTH - 82, y=tree_y, width=18, height=tree_height)
+                    self.schedule_tree_scrollbar.place_configure(
+                        x=scrollbar_x,
+                        y=tree_y,
+                        width=scrollbar_width,
+                        height=tree_height,
+                    )
                 if self.schedule_tree_footer_label is not None and self.schedule_tree_footer_label.winfo_exists():
-                    self.schedule_tree_footer_label.place_configure(x=14, y=footer_y, width=760, height=18)
+                    self.schedule_tree_footer_label.place_configure(x=10, y=footer_y, width=min(820, list_width - 120), height=18)
         except tk.TclError:
             return
 
@@ -7944,10 +9080,58 @@ class BossTimerApp:
         except tk.TclError:
             return
 
+    def _select_schedule_tree_next_event(self) -> None:
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
+            return
+        try:
+            item_ids = list(self.schedule_tree.get_children(""))
+        except tk.TclError:
+            return
+        if not item_ids:
+            return
+        target_item_id = ""
+        fallback_elapsed_item_id = ""
+        try:
+            for index, item_id in enumerate(item_ids):
+                tags = set(self.schedule_tree.item(item_id, "tags"))
+                if "date_header" in tags:
+                    continue
+                item_meta = self.schedule_tree_item_meta.get(item_id, {})
+                if str(item_meta.get("kind") or "") == "break":
+                    continue
+                values = self.schedule_tree.item(item_id, "values")
+                state_text = str(values[2]) if len(values) >= 3 else ""
+                boss_text = str(values[1]) if len(values) >= 2 else ""
+                if boss_text == "정기점검":
+                    continue
+                if state_text == "경과":
+                    fallback_elapsed_item_id = item_id
+                    continue
+                target_item_id = item_id
+                if index > 0:
+                    previous_item_id = item_ids[index - 1]
+                    previous_tags = set(self.schedule_tree.item(previous_item_id, "tags"))
+                    if "date_header" in previous_tags and fallback_elapsed_item_id:
+                        target_item_id = fallback_elapsed_item_id
+                break
+        except tk.TclError:
+            return
+        if not target_item_id:
+            target_item_id = fallback_elapsed_item_id
+        if not target_item_id:
+            return
+        self._select_schedule_tree_item(target_item_id)
+
     def _refresh_schedule_view_live(self) -> None:
         if self.schedule_tree is None:
             self._refresh_schedule_view()
             return
+        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        started_targets = self._get_schedule_started_event_targets(
+            self.schedule_last_live_reference_datetime,
+            reference_now,
+        )
+        self.schedule_last_live_reference_datetime = reference_now
         try:
             yview = self.schedule_tree.yview()
             selected_targets: list[tuple[tuple[str, str, str, str], tuple[str, str, str] | None]] = []
@@ -7963,6 +9147,9 @@ class BossTimerApp:
         if self.schedule_tree is None:
             return
         try:
+            if self._should_auto_focus_schedule_today_for_started_targets(started_targets):
+                self._run_schedule_today_view_actions(save_state=True)
+                return
             if selected_targets:
                 selected_identities = {
                     identity
@@ -8109,7 +9296,7 @@ class BossTimerApp:
             try:
                 self.schedule_tree_add_button.config(
                     text="추가",
-                    command=self._open_schedule_input_window_for_add,
+                    command=self._open_schedule_input_window_normal,
                     state="normal",
                     bg="#2563eb",
                     fg="#ffffff",
@@ -8636,19 +9823,15 @@ class BossTimerApp:
     def _schedule_share_item_has_star(self, item: dict[str, object] | None) -> bool:
         return self._schedule_boss_has_star(item)
 
-    def _collect_schedule_share_rows(
+    def _collect_schedule_share_base_rows(
         self,
-        start_datetime: datetime,
-        end_datetime: datetime,
+        window_start: datetime,
+        window_end: datetime,
         *,
+        reference_now: datetime,
         use_boss_colors: bool = False,
         use_fixed_boss_colors: bool = False,
-        include_break_rows: bool = False,
-        exclude_elapsed: bool = False,
-    ) -> tuple[list[dict[str, object]], datetime, datetime]:
-        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
-        share_start = start_datetime.replace(microsecond=0)
-        share_end = end_datetime.replace(microsecond=0)
+    ) -> list[dict[str, object]]:
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         rows: list[dict[str, object]] = []
         for item in self.schedule_events:
@@ -8658,9 +9841,7 @@ class BossTimerApp:
             created_at = item.get("created_at")
             if not isinstance(scheduled_at, datetime):
                 continue
-            if scheduled_at < share_start or scheduled_at > share_end:
-                continue
-            if exclude_elapsed and scheduled_at < reference_now:
+            if scheduled_at < window_start or scheduled_at > window_end:
                 continue
             if not self._is_schedule_event_visible(
                 scheduled_at,
@@ -8686,10 +9867,8 @@ class BossTimerApp:
                     "bg_color": self._get_schedule_share_event_colors(item)[1] if use_boss_colors else "",
                 }
             )
-        for scheduled_at, boss_text, state_text, *_rest, text_color, bg_color in self._get_fixed_boss_schedule_rows_for_share_range(reference_now, share_start, share_end):
-            if scheduled_at < share_start or scheduled_at > share_end:
-                continue
-            if exclude_elapsed and scheduled_at < reference_now:
+        for scheduled_at, boss_text, state_text, *_rest, text_color, bg_color in self._get_fixed_boss_schedule_rows_for_share_range(reference_now, window_start, window_end):
+            if scheduled_at < window_start or scheduled_at > window_end:
                 continue
             raw_boss_text = re.sub(r"\s*★\s*$", "", str(boss_text or "")).strip()
             rows.append(
@@ -8708,9 +9887,108 @@ class BossTimerApp:
                     "bg_color": self._normalize_hex_color(str(bg_color or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR) if use_fixed_boss_colors else "",
                 }
             )
+        return rows
+
+    def _get_schedule_share_maintenance_rows(
+        self,
+        share_start: datetime,
+        share_end: datetime,
+        *,
+        reference_now: datetime,
+        exclude_elapsed: bool = False,
+    ) -> list[dict[str, object]]:
+        maintenance_rows: list[dict[str, object]] = []
+        candidate_rows = (
+            (self._get_schedule_previous_maintenance_datetime(reference_now), "지난 정기점검"),
+            (self._get_schedule_maintenance_cutoff_datetime(reference_now), "정기점검"),
+        )
+        seen_times: set[datetime] = set()
+        for scheduled_at, state_text in candidate_rows:
+            if not isinstance(scheduled_at, datetime):
+                continue
+            normalized_time = scheduled_at.replace(microsecond=0)
+            if normalized_time in seen_times:
+                continue
+            if normalized_time < share_start or normalized_time > share_end:
+                continue
+            if exclude_elapsed and normalized_time < reference_now:
+                continue
+            seen_times.add(normalized_time)
+            maintenance_rows.append(
+                {
+                    "kind": "maintenance",
+                    "scheduled_at": normalized_time,
+                    "effective_end_at": normalized_time,
+                    "time_text": normalized_time.strftime("%H:%M:%S"),
+                    "boss_text": "정기점검",
+                    "state_text": state_text,
+                    "is_elapsed": bool(normalized_time < reference_now),
+                    "is_invasion": False,
+                    "is_fixed": False,
+                    "has_star": False,
+                    "text_color": "#991b1b",
+                    "bg_color": "#fee2e2",
+                }
+            )
+        return maintenance_rows
+
+    def _collect_schedule_share_rows(
+        self,
+        start_datetime: datetime,
+        end_datetime: datetime,
+        *,
+        use_boss_colors: bool = False,
+        use_fixed_boss_colors: bool = False,
+        include_break_rows: bool = False,
+        exclude_elapsed: bool = False,
+    ) -> tuple[list[dict[str, object]], datetime, datetime]:
+        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        share_start = start_datetime.replace(microsecond=0)
+        share_end = end_datetime.replace(microsecond=0)
+        effective_share_end = share_end
+        rows: list[dict[str, object]] = []
+        base_rows = self._collect_schedule_share_base_rows(
+            share_start,
+            share_end,
+            reference_now=reference_now,
+            use_boss_colors=use_boss_colors,
+            use_fixed_boss_colors=use_fixed_boss_colors,
+        )
+        for entry in base_rows:
+            scheduled_at = entry.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if exclude_elapsed and scheduled_at < reference_now:
+                continue
+            rows.append(dict(entry))
         if include_break_rows:
             try:
-                rows = self._insert_schedule_break_rows_into_share_rows(rows)
+                probe_rows = self._collect_schedule_share_base_rows(
+                    share_start - timedelta(days=2),
+                    share_end + timedelta(days=2),
+                    reference_now=reference_now,
+                    use_boss_colors=use_boss_colors,
+                    use_fixed_boss_colors=use_fixed_boss_colors,
+                )
+                break_probe_rows = self._insert_schedule_break_rows_into_share_rows(probe_rows)
+                for entry in break_probe_rows:
+                    if str(entry.get("kind") or "") != "break":
+                        continue
+                    scheduled_at = entry.get("scheduled_at")
+                    break_end_at = entry.get("effective_end_at")
+                    if not isinstance(scheduled_at, datetime) or not isinstance(break_end_at, datetime):
+                        continue
+                    include_row = share_start <= scheduled_at <= share_end
+                    if include_row and exclude_elapsed and break_end_at <= reference_now:
+                        include_row = False
+                    if exclude_elapsed and scheduled_at <= reference_now < break_end_at:
+                        include_row = True
+                    if scheduled_at <= share_end < break_end_at:
+                        include_row = True
+                        if break_end_at > effective_share_end:
+                            effective_share_end = break_end_at
+                    if include_row:
+                        rows.append(dict(entry))
             except Exception:
                 try:
                     log_path = os.path.join(get_app_root(), "boss_timer_runtime_error.log")
@@ -8720,6 +9998,33 @@ class BossTimerApp:
                         error_file.write(traceback.format_exc())
                 except OSError:
                     pass
+        for maintenance_row in self._get_schedule_share_maintenance_rows(
+            share_start,
+            effective_share_end,
+            reference_now=reference_now,
+            exclude_elapsed=exclude_elapsed,
+        ):
+            rows.append(maintenance_row)
+            scheduled_at = maintenance_row.get("scheduled_at")
+            if isinstance(scheduled_at, datetime) and scheduled_at > effective_share_end:
+                effective_share_end = scheduled_at
+        deduped_rows: list[dict[str, object]] = []
+        seen_signatures: set[tuple[str, datetime, str, str]] = set()
+        for entry in rows:
+            scheduled_at = entry.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            signature = (
+                str(entry.get("kind") or ""),
+                scheduled_at,
+                str(entry.get("boss_text") or ""),
+                str(entry.get("state_text") or ""),
+            )
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            deduped_rows.append(entry)
+        rows = deduped_rows
         rows.sort(key=self._get_schedule_share_row_sort_key)
         grouped_rows: list[dict[str, object]] = []
         today_date = reference_now.date()
@@ -8740,7 +10045,7 @@ class BossTimerApp:
                 )
                 current_date = row_date
             grouped_rows.append(entry)
-        return grouped_rows, share_start, share_end
+        return grouped_rows, share_start, effective_share_end
 
     def _copy_schedule_share_image_to_clipboard(self) -> None:
         try:
@@ -9009,9 +10314,13 @@ class BossTimerApp:
                 "18:17:00 그로아\n"
                 "그로아 출현 중\n"
                 "그로아 1시간 20분\n"
-                "1817 그로아 컷\n\n"
+                "1817 그로아 컷\n"
+                "그로아 컷\n\n"
                 "※ 추가 규칙\n"
                 "입력한 보스만 현재 시각 이후 스케쥴에 반영합니다.\n"
+                "그로아 컷  -> 현재시간 기준 시드 등록\n"
+                "1817 그로아 컷  -> 해당 시각 기준 과거 시드 등록\n"
+                "※ 실제 컷 상태/취소는 컷 버튼, 컷시간 버튼을 사용\n"
                 "서버오픈 기준 전체 생성은 일반 스케쥴 입력을 사용하세요."
             )
         return (
@@ -9020,11 +10329,12 @@ class BossTimerApp:
             "18:17 그로아\n"
             "181700 그로아\n"
             "18:17:00 그로아\n"
-            "1817 그로아 컷  (이하 컷적용도 위와 같음)\n"
+            "1817 그로아 컷\n"
             "출현중 or 출현 중\n\n"
             "※ 생성 규칙\n"
-            "그로아 컷  -> 현재시간 기준 컷 적용\n"
-            "1815 그로아 컷  -> 해당 시각 컷 적용\n\n"
+            "그로아 컷  -> 현재시간 기준 시드 등록\n"
+            "1815 그로아 컷  -> 해당 시각 기준 과거 시드 등록\n"
+            "※ 실제 컷 상태/취소는 컷 버튼, 컷시간 버튼을 사용\n\n"
             "※ OCR 입력 방법\n"
             "1. 오딘 노른 시간표 스샷을 클립보드에 복사\n"
             "   - 중요: 좌측 상단 현재 시간이 꼭 포함되어야 함\n"
@@ -9345,8 +10655,9 @@ class BossTimerApp:
                 pass
         self._update_schedule_input_apply_state()
 
-    def _clear_schedule_input_ocr_results(self) -> None:
-        self._clear_schedule_input_ocr_rendered_text_if_unedited()
+    def _clear_schedule_input_ocr_results(self, *, clear_rendered_text: bool = False) -> None:
+        if clear_rendered_text:
+            self._clear_schedule_input_ocr_rendered_text_if_unedited()
         self.schedule_input_ocr_results = []
         self.schedule_input_ocr_log_lines = []
         self.schedule_input_ocr_last_render_text = ""
@@ -9534,7 +10845,7 @@ class BossTimerApp:
                     pass
         self.schedule_input_ocr_items = []
         self._clear_schedule_input_ocr_recent_hashes()
-        self._clear_schedule_input_ocr_results()
+        self._clear_schedule_input_ocr_results(clear_rendered_text=True)
         if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists():
             self._refresh_schedule_input_ocr_addon_stack_widgets()
         self._save_schedule_state()
@@ -9546,7 +10857,7 @@ class BossTimerApp:
             self.schedule_input_ocr_saved_invasion_mode = bool(self.schedule_input_invasion_var.get())
         self.schedule_input_ocr_items = []
         self._clear_schedule_input_ocr_recent_hashes()
-        self._clear_schedule_input_ocr_results()
+        self._clear_schedule_input_ocr_results(clear_rendered_text=True)
         self._refresh_schedule_input_ocr_queue_widgets()
         if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists():
             self._refresh_schedule_input_ocr_addon_stack_widgets()
@@ -10629,8 +11940,19 @@ class BossTimerApp:
             return
         self.schedule_input_ocr_addon_active_hwnd = hwnd
         self.schedule_input_ocr_addon_last_odin_hwnd = hwnd
-        if not self.schedule_input_ocr_addon_open:
-            self._open_schedule_input_ocr_addon()
+        restore_after_capture = False
+        addon_window = self.schedule_input_ocr_addon_window
+        if self.schedule_input_ocr_addon_open and addon_window is not None and addon_window.winfo_exists():
+            try:
+                restore_after_capture = str(addon_window.state()) != "withdrawn"
+            except tk.TclError:
+                restore_after_capture = True
+            if restore_after_capture:
+                try:
+                    addon_window.withdraw()
+                except tk.TclError:
+                    restore_after_capture = False
+        self.schedule_input_ocr_addon_restore_after_capture = restore_after_capture
         self.schedule_input_ocr_addon_busy = True
         self._update_schedule_input_ocr_addon_controls()
         session_id = int(self.schedule_input_ocr_addon_session_id or 0)
@@ -10642,6 +11964,7 @@ class BossTimerApp:
                 if self.root is not None and self.root.winfo_exists():
                     self.root.after(0, lambda: self._finish_schedule_input_ocr_addon_capture("오딘 창을 찾지 못했습니다."))
                 return
+            time.sleep(SCHEDULE_INPUT_OCR_ADDON_CAPTURE_HIDE_DELAY_SECONDS)
             capture = self._capture_active_odin_window_image(target_hwnd)
             if capture is None:
                 if self.root is not None and self.root.winfo_exists():
@@ -10708,6 +12031,28 @@ class BossTimerApp:
                 self.schedule_input_ocr_addon_status_var.set(status_text)
             except tk.TclError:
                 pass
+        if self.schedule_input_ocr_addon_restore_after_capture:
+            self.schedule_input_ocr_addon_restore_after_capture = False
+            restore_delay_ms = self._get_schedule_input_ocr_addon_restore_delay_ms()
+            self.schedule_input_ocr_addon_restore_block_until = time.monotonic() + (float(restore_delay_ms) / 1000.0)
+            def restore_window() -> None:
+                window = self.schedule_input_ocr_addon_window
+                if not self.schedule_input_ocr_addon_open or window is None or not window.winfo_exists():
+                    return
+                try:
+                    window.deiconify()
+                    window.lift()
+                except tk.TclError:
+                    return
+                self._position_schedule_input_ocr_addon_window()
+                self.schedule_input_ocr_addon_restore_block_until = 0.0
+            if self.root is not None and self.root.winfo_exists():
+                try:
+                    self.root.after(restore_delay_ms, restore_window)
+                except tk.TclError:
+                    restore_window()
+            else:
+                restore_window()
         self._update_schedule_input_ocr_addon_controls()
 
     def _resize_schedule_input_ocr_addon_odin_window(self, client_width: int = 1600, client_height: int = 900) -> None:
@@ -11039,18 +12384,19 @@ class BossTimerApp:
         resize_menu_open = self._is_schedule_input_ocr_addon_resize_menu_open()
         rbutton_down = self._is_schedule_input_ocr_addon_hotkey_pressed(SCHEDULE_INPUT_OCR_ADDON_MOUSE_RIGHT_BUTTON)
         f2_down = self._is_schedule_input_ocr_addon_hotkey_pressed(SCHEDULE_INPUT_OCR_ADDON_HOTKEY_F2)
+        restore_blocked = float(getattr(self, "schedule_input_ocr_addon_restore_block_until", 0.0) or 0.0) > time.monotonic()
         if is_odin_active:
             self.schedule_input_ocr_addon_last_odin_hwnd = foreground_root_hwnd
             self.schedule_input_ocr_addon_active_hwnd = foreground_root_hwnd
             self._position_schedule_input_ocr_addon_window()
-            if window.state() == "withdrawn":
+            if window.state() == "withdrawn" and not restore_blocked and not self.schedule_input_ocr_addon_busy and not self.schedule_input_ocr_addon_restore_after_capture:
                 try:
                     window.deiconify()
                 except tk.TclError:
                     pass
         else:
             try:
-                if window.state() == "withdrawn":
+                if window.state() == "withdrawn" and not restore_blocked and not self.schedule_input_ocr_addon_busy and not self.schedule_input_ocr_addon_restore_after_capture:
                     window.deiconify()
             except tk.TclError:
                 pass
@@ -11094,19 +12440,115 @@ class BossTimerApp:
             top = int(rect.get("top") or 0)
             right = int(rect.get("right") or 0)
             screen_width = max(1, int(window.winfo_screenwidth() or 1920))
-            right_side_x = right + 12
-            left_side_x = left - SCHEDULE_INPUT_OCR_ADDON_WIDTH - 12
-            if right_side_x + SCHEDULE_INPUT_OCR_ADDON_WIDTH <= screen_width - 10:
-                x = right_side_x
-            elif left_side_x >= 10:
-                x = left_side_x
-            else:
-                x = max(10, screen_width - SCHEDULE_INPUT_OCR_ADDON_WIDTH - 10)
-            y = max(10, top)
+            screen_height = max(1, int(window.winfo_screenheight() or 1080))
+            client_width = max(1, right - left)
+            center_x = left + ((client_width - SCHEDULE_INPUT_OCR_ADDON_WIDTH) // 2)
+            x = min(max(10, center_x), max(10, screen_width - SCHEDULE_INPUT_OCR_ADDON_WIDTH - 10))
+            y = min(max(10, top + 10), max(10, screen_height - SCHEDULE_INPUT_OCR_ADDON_HEIGHT - 10))
         try:
             window.geometry(f"{SCHEDULE_INPUT_OCR_ADDON_WIDTH}x{SCHEDULE_INPUT_OCR_ADDON_HEIGHT}+{x}+{y}")
         except tk.TclError:
             return
+
+    def _open_schedule_input_ocr_addon_restore_delay_dialog(self) -> None:
+        host = self.schedule_input_ocr_addon_window if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists() else self.root
+        if host is None:
+            return
+        existing_dialog = self.schedule_input_ocr_addon_settings_window
+        if existing_dialog is not None and existing_dialog.winfo_exists():
+            try:
+                existing_dialog.deiconify()
+                existing_dialog.lift()
+                existing_dialog.focus_force()
+            except tk.TclError:
+                pass
+            return
+        dialog = tk.Toplevel(host)
+        self.schedule_input_ocr_addon_settings_window = dialog
+        dialog.title("후딜레이 설정")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#eff6ff")
+        dialog.transient(host)
+        self._center_window_over_parent(dialog, host, 248, 128)
+
+        delay_var = tk.StringVar(value=f"{self._normalize_schedule_input_ocr_addon_restore_delay_seconds(self.schedule_input_ocr_addon_restore_delay_seconds):.2f}")
+
+        def close_dialog() -> None:
+            try:
+                dialog.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
+            self.schedule_input_ocr_addon_settings_window = None
+
+        def apply_value(raw_value: object) -> None:
+            normalized_value = self._normalize_schedule_input_ocr_addon_restore_delay_seconds(
+                raw_value,
+                fallback=self.schedule_input_ocr_addon_restore_delay_seconds,
+            )
+            self.schedule_input_ocr_addon_restore_delay_seconds = normalized_value
+            delay_var.set(f"{normalized_value:.2f}")
+            self._save_settings()
+
+        def confirm() -> None:
+            apply_value(delay_var.get())
+            close_dialog()
+
+        def reset_to_default() -> None:
+            apply_value(SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS)
+
+        tk.Label(dialog, text="후딜레이 (초)", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=16, y=14, width=120, height=22)
+        entry = tk.Entry(
+            dialog,
+            textvariable=delay_var,
+            font=(self.current_font_family, 11, "bold"),
+            bg="#ffffff",
+            fg="#0f172a",
+            relief="solid",
+            bd=1,
+            justify="center",
+        )
+        entry.place(x=16, y=42, width=92, height=28)
+        tk.Label(dialog, text="0.00 ~ 1.00", font=self.percent_font, bg="#eff6ff", fg="#475569", anchor="w").place(x=118, y=45, width=104, height=20)
+        tk.Button(
+            dialog,
+            text="기본값",
+            font=self.button_font,
+            bg="#e2e8f0",
+            fg="#334155",
+            activebackground="#cbd5e1",
+            activeforeground="#334155",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=reset_to_default,
+            cursor="hand2",
+        ).place(x=16, y=84, width=82, height=28)
+        tk.Button(
+            dialog,
+            text="확인",
+            font=self.button_font,
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=confirm,
+            cursor="hand2",
+        ).place(x=150, y=84, width=82, height=28)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+        dialog.bind("<Return>", lambda _event: confirm())
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            pass
+        entry.focus_set()
+        entry.selection_range(0, tk.END)
 
     def _ensure_schedule_input_ocr_addon_window(self) -> None:
         if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists():
@@ -11141,6 +12583,21 @@ class BossTimerApp:
             command=lambda: self._request_schedule_input_ocr_capture_from_odin(),
             cursor="hand2",
         )
+        self.schedule_input_ocr_addon_settings_button = tk.Button(
+            window,
+            text="⚙",
+            font=(self.current_font_family, 9, "bold"),
+            bg="#e0f2fe",
+            fg="#0f172a",
+            activebackground="#bae6fd",
+            activeforeground="#0f172a",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._open_schedule_input_ocr_addon_restore_delay_dialog,
+            cursor="hand2",
+        )
+        self.schedule_input_ocr_addon_settings_button.place(x=88, y=8, width=16, height=16)
         self.schedule_input_ocr_addon_capture_button.place(x=8, y=32, width=96, height=20)
         self.schedule_input_ocr_addon_count_label = tk.Label(
             window,
@@ -11186,6 +12643,7 @@ class BossTimerApp:
             pass
         self._bind_hover_button(self.schedule_input_ocr_addon_capture_button, "#0f766e", "#115e59", "#ffffff", "#ffffff")
         self._bind_hover_button(self.schedule_input_ocr_addon_close_button, "#e2e8f0", "#cbd5e1", "#334155", "#334155")
+        self._bind_hover_button(self.schedule_input_ocr_addon_settings_button, "#e0f2fe", "#bae6fd", "#0f172a", "#0f172a")
         self._refresh_schedule_input_ocr_addon_stack_widgets()
         self._position_schedule_input_ocr_addon_window()
         self._schedule_input_ocr_addon_tick()
@@ -11214,6 +12672,13 @@ class BossTimerApp:
             except tk.TclError:
                 pass
         self.schedule_input_ocr_addon_poll_after_id = None
+        settings_window = self.schedule_input_ocr_addon_settings_window
+        self.schedule_input_ocr_addon_settings_window = None
+        if settings_window is not None and settings_window.winfo_exists():
+            try:
+                settings_window.destroy()
+            except tk.TclError:
+                pass
         self._cancel_schedule_input_ocr_addon_resize_verify()
         self.schedule_input_ocr_addon_open = False
         self.schedule_input_ocr_addon_busy = False
@@ -11221,6 +12686,8 @@ class BossTimerApp:
         self.schedule_input_ocr_addon_f3_down = False
         self.schedule_input_ocr_addon_rbutton_down = False
         self.schedule_input_ocr_addon_last_capture_at = 0.0
+        self.schedule_input_ocr_addon_restore_after_capture = False
+        self.schedule_input_ocr_addon_restore_block_until = 0.0
         self.schedule_input_ocr_addon_session_id += 1
         self.schedule_input_ocr_addon_active_hwnd = 0
         self.schedule_input_ocr_addon_last_odin_hwnd = 0
@@ -11248,6 +12715,7 @@ class BossTimerApp:
         self.schedule_input_ocr_addon_resize_menu = None
         self.schedule_input_ocr_addon_transfer_button = None
         self.schedule_input_ocr_addon_close_button = None
+        self.schedule_input_ocr_addon_settings_button = None
         self.schedule_input_ocr_addon_count_label = None
         self.schedule_input_ocr_addon_status_label = None
         self.schedule_input_ocr_addon_title_label = None
@@ -12491,6 +13959,9 @@ class BossTimerApp:
     def _build_schedule_ocr_area_score_aggregate(self, area_infos: list[dict[str, object]]) -> dict[str, dict[str, int]]:
         aggregate: dict[str, dict[str, int]] = {
             area: {
+                "definition": 0,
+                "definition_terms": 0,
+                "definition_boss": 0,
                 "slot_match": 0,
                 "slot_exact": 0,
                 "slot_boss": 0,
@@ -12507,6 +13978,9 @@ class BossTimerApp:
             if not isinstance(area_info, dict):
                 continue
             for area in RECORD_BOOK_AREAS:
+                aggregate[area]["definition"] += int(area_info.get("definition_overlap_scores", {}).get(area, 0))
+                aggregate[area]["definition_terms"] += len(area_info.get("definition_overlap_terms", {}).get(area, []))
+                aggregate[area]["definition_boss"] += int(area_info.get("definition_overlap_boss_hits", {}).get(area, 0))
                 aggregate[area]["slot_match"] += int(area_info.get("slot_match_counts", {}).get(area, 0))
                 aggregate[area]["slot_exact"] += int(area_info.get("slot_exact_scores", {}).get(area, 0))
                 aggregate[area]["slot_boss"] += int(area_info.get("slot_boss_scores", {}).get(area, 0))
@@ -12525,6 +13999,9 @@ class BossTimerApp:
         ranked = sorted(
             RECORD_BOOK_AREAS,
             key=lambda area: (
+                aggregate[area]["definition"],
+                aggregate[area]["definition_boss"],
+                aggregate[area]["definition_terms"],
                 aggregate[area]["slot_match"],
                 aggregate[area]["slot_exact"],
                 aggregate[area]["slot_boss"],
@@ -12545,7 +14022,9 @@ class BossTimerApp:
         next_best = aggregate.get(next_area, {}) if next_area else {}
         best_slot_count = len(RECORD_BOOK_BOSS_ORDER.get(best_area, []))
         best_signal = (
-            int(best.get("slot_match", 0))
+            int(best.get("definition", 0))
+            + int(best.get("definition_boss", 0))
+            + int(best.get("slot_match", 0))
             + int(best.get("slot_exact", 0))
             + int(best.get("slot_boss", 0))
             + int(best.get("exact_boss", 0))
@@ -12557,6 +14036,12 @@ class BossTimerApp:
         if int(best.get("grid", 0)) < max(1, best_slot_count // 2):
             return ""
         if not next_area:
+            return best_area
+        if int(best.get("definition", 0)) > int(next_best.get("definition", 0)):
+            return best_area
+        if int(best.get("definition_boss", 0)) > int(next_best.get("definition_boss", 0)):
+            return best_area
+        if int(best.get("definition_terms", 0)) > int(next_best.get("definition_terms", 0)):
             return best_area
         if int(best.get("slot_match", 0)) > int(next_best.get("slot_match", 0)):
             return best_area
@@ -12868,6 +14353,8 @@ class BossTimerApp:
         image_ratio = image_width / max(1, image_height)
         if schedule_signal_items and abs(image_ratio - (16 / 9)) > 0.28:
             board_crop_mode = not bool(title_item or current_label_item or current_time_item)
+            if image_ratio >= 2.20 or image_ratio <= 1.40:
+                board_crop_mode = True
             return {
                 "left": 0,
                 "top": 0,
@@ -13106,8 +14593,8 @@ class BossTimerApp:
         slot_bottom = max(slot_top + 1, int(rect.get("bottom") or slot_top + 1))
         slot_width = max(1, slot_right - slot_left)
         slot_height = max(1, slot_bottom - slot_top)
-        left_margin = max(14, int(round(slot_width * 0.18)))
-        right_margin = max(18, int(round(slot_width * 0.18)))
+        left_margin = max(18, int(round(slot_width * 0.28)))
+        right_margin = max(18, int(round(slot_width * 0.20)))
         vertical_margin = max(6, int(round(slot_height * 0.05)))
         crop_top = max(
             slot_top,
@@ -13121,6 +14608,35 @@ class BossTimerApp:
             "top": max(0, crop_top),
             "right": min(image_width, slot_right + right_margin),
             "bottom": min(image_height, slot_bottom + vertical_margin),
+        }
+
+    def _get_schedule_ocr_slot_timer_focus_crop_rect(
+        self,
+        rect: dict[str, int],
+        image_width: int,
+        image_height: int,
+    ) -> dict[str, int]:
+        slot_left = int(rect.get("left") or 0)
+        slot_top = int(rect.get("top") or 0)
+        slot_right = max(slot_left + 1, int(rect.get("right") or slot_left + 1))
+        slot_bottom = max(slot_top + 1, int(rect.get("bottom") or slot_top + 1))
+        slot_width = max(1, slot_right - slot_left)
+        slot_height = max(1, slot_bottom - slot_top)
+        timer_left = int(rect.get("timer_left", slot_left))
+        timer_right = max(timer_left + 1, int(rect.get("timer_right", slot_right)))
+        timer_top = int(rect.get("timer_top", slot_top))
+        timer_bottom = max(timer_top + 1, int(rect.get("timer_bottom", slot_bottom)))
+        extra_left = max(36, int(round(slot_width * 0.42)))
+        extra_right = max(18, int(round(slot_width * 0.10)))
+        extra_top = max(8, int(round(slot_height * 0.05)))
+        extra_bottom = max(10, int(round(slot_height * 0.06)))
+        focused_top = max(slot_top, timer_top - extra_top)
+        focused_bottom = min(slot_bottom, timer_bottom + extra_bottom)
+        return {
+            "left": max(0, timer_left - extra_left),
+            "top": max(0, focused_top),
+            "right": min(image_width, timer_right + extra_right),
+            "bottom": min(image_height, focused_bottom),
         }
 
     def _line_center_in_schedule_ocr_slot(self, line: dict[str, object], rect: dict[str, int]) -> bool:
@@ -13339,6 +14855,75 @@ class BossTimerApp:
                 grouped_rows.append(current_group)
             return grouped_rows
 
+        def _is_promising_merged_duration_candidate(text: str) -> bool:
+            normalized_text = self._normalize_schedule_ocr_text(text)
+            if not normalized_text:
+                return False
+            normalized_duration_text, duration_parts, _trimmed = self._normalize_schedule_duration_structure(
+                self._normalize_schedule_ocr_duration_prefix(normalized_text)[0] or normalized_text
+            )
+            if len(duration_parts) >= 2:
+                return True
+            return (
+                bool(re.search(r"\d", normalized_duration_text))
+                and "시간" in normalized_duration_text
+                and ("분" in normalized_duration_text or "초" in normalized_duration_text)
+            )
+
+        def add_adjacent_group_merge_candidates(
+            grouped_row_items: list[list[dict[str, int | str]]],
+            *,
+            source_name: str,
+            compact_source_name: str,
+            composition_prefix: str,
+        ) -> None:
+            if len(grouped_row_items) < 2:
+                return
+            max_group_span = min(3, len(grouped_row_items))
+            for start_index in range(len(grouped_row_items) - 1):
+                for group_span in range(2, max_group_span + 1):
+                    end_index = start_index + group_span
+                    if end_index > len(grouped_row_items):
+                        break
+                    merged_items: list[dict[str, int | str]] = []
+                    for grouped_items in grouped_row_items[start_index:end_index]:
+                        merged_items.extend(grouped_items)
+                    row_texts = [
+                        str(item["raw_text"] or "").strip()
+                        for item in merged_items
+                        if str(item["raw_text"] or "").strip()
+                    ]
+                    if len(row_texts) < 2:
+                        continue
+                    joined_text = " ".join(row_texts)
+                    compact_text = "".join(row_texts)
+                    if not (
+                        _is_promising_merged_duration_candidate(joined_text)
+                        or _is_promising_merged_duration_candidate(compact_text)
+                    ):
+                        continue
+                    row_top = min(int(item["top"]) for item in merged_items)
+                    row_left = min(int(item["left"]) for item in merged_items)
+                    row_right = max(int(item["left"]) + int(item["width"]) for item in merged_items)
+                    segment_log = " | ".join(row_texts)
+                    add_candidate(
+                        joined_text,
+                        row_top,
+                        row_left,
+                        row_right - row_left,
+                        source_name,
+                        f"{composition_prefix}={segment_log} -> merged_spaced='{joined_text}'",
+                    )
+                    if compact_text != joined_text and not should_skip_compact_candidate(row_texts):
+                        add_candidate(
+                            compact_text,
+                            row_top,
+                            row_left,
+                            row_right - row_left,
+                            compact_source_name,
+                            f"{composition_prefix}={segment_log} -> merged_compact='{compact_text}'",
+                        )
+
         for line in lines:
             if not self._line_center_in_schedule_ocr_slot(line, rect):
                 continue
@@ -13394,7 +14979,8 @@ class BossTimerApp:
                     int(row_items[0].get("width") or 0),
                 ):
                     row_items.pop(0)
-                for grouped_items in split_row_item_groups(row_items):
+                grouped_row_items = split_row_item_groups(row_items)
+                for grouped_items in grouped_row_items:
                     row_texts = [str(item["raw_text"] or "").strip() for item in grouped_items if str(item["raw_text"] or "").strip()]
                     if not row_texts:
                         continue
@@ -13431,6 +15017,12 @@ class BossTimerApp:
                             "words_compact",
                             f"segments={segment_log} -> compact='{compact_text}'",
                         )
+                add_adjacent_group_merge_candidates(
+                    grouped_row_items,
+                    source_name="words_group_merge",
+                    compact_source_name="words_group_merge_compact",
+                    composition_prefix="segments",
+                )
         for line in lines:
             if not self._line_center_in_schedule_ocr_card(line, rect):
                 continue
@@ -13486,7 +15078,8 @@ class BossTimerApp:
                     int(row_items[0].get("width") or 0),
                 ):
                     row_items.pop(0)
-                for grouped_items in split_row_item_groups(row_items):
+                grouped_row_items = split_row_item_groups(row_items)
+                for grouped_items in grouped_row_items:
                     row_texts = [str(item["raw_text"] or "").strip() for item in grouped_items if str(item["raw_text"] or "").strip()]
                     if not row_texts:
                         continue
@@ -13523,6 +15116,12 @@ class BossTimerApp:
                             "card_words_compact",
                             f"card_segments={segment_log} -> compact='{compact_text}'",
                         )
+                add_adjacent_group_merge_candidates(
+                    grouped_row_items,
+                    source_name="card_words_group_merge",
+                    compact_source_name="card_words_group_merge_compact",
+                    composition_prefix="card_segments",
+                )
         return candidates
 
     def _parse_schedule_ocr_numeric_fallback_detail(self, text: str, boss_name: str = "") -> dict[str, object] | None:
@@ -14264,10 +15863,18 @@ class BossTimerApp:
                 score += 6
             elif candidate.get("source") == "words_compact":
                 score += 10
+            elif candidate.get("source") == "words_group_merge":
+                score += 14
+            elif candidate.get("source") == "words_group_merge_compact":
+                score += 16
             elif candidate.get("source") == "words_split_digits":
                 score += 12
             elif candidate.get("source") == "card_words_split_digits":
                 score += 8
+            elif candidate.get("source") == "card_words_group_merge":
+                score += 12
+            elif candidate.get("source") == "card_words_group_merge_compact":
+                score += 14
             elif candidate.get("source") == "line":
                 score -= 12
             interpreted_candidates.append(
@@ -14289,6 +15896,123 @@ class BossTimerApp:
                     "_duration_units": tuple(unit for _, unit in duration_parts),
                 }
             )
+        timed_pair_merge_seen: set[tuple[str, int, int]] = set()
+        existing_timed_merge_keys: set[tuple[str, int, int]] = set()
+        for existing in interpreted_candidates:
+            if str(existing.get("state") or "") != "TIMED":
+                continue
+            existing_timed_merge_keys.add(
+                (
+                    str(existing.get("clean_text") or ""),
+                    int(existing.get("top") or 0),
+                    int(existing.get("left") or 0),
+                )
+            )
+        timed_candidates_for_merge = [
+            candidate
+            for candidate in interpreted_candidates
+            if str(candidate.get("state") or "") == "TIMED"
+            and isinstance(candidate.get("_duration_parts"), list)
+            and candidate.get("_duration_parts")
+        ]
+        for left_candidate in timed_candidates_for_merge:
+            left_parts = left_candidate.get("_duration_parts")
+            if not isinstance(left_parts, list) or not left_parts:
+                continue
+            left_left = int(left_candidate.get("left") or 0)
+            left_top = int(left_candidate.get("top") or 0)
+            left_width = max(1, int(left_candidate.get("width") or 0))
+            left_right = left_left + left_width
+            for right_candidate in timed_candidates_for_merge:
+                if right_candidate is left_candidate:
+                    continue
+                right_parts = right_candidate.get("_duration_parts")
+                if not isinstance(right_parts, list) or not right_parts:
+                    continue
+                right_left = int(right_candidate.get("left") or 0)
+                right_top = int(right_candidate.get("top") or 0)
+                right_width = max(1, int(right_candidate.get("width") or 0))
+                if right_left <= left_left:
+                    continue
+                if abs(right_top - left_top) > 22:
+                    continue
+                gap_between = right_left - left_right
+                max_gap_between = max(26, int(round((left_width + right_width) * 0.45)))
+                if gap_between < 0 or gap_between > max_gap_between:
+                    continue
+                combined_parts = left_parts + right_parts
+                if not self._is_schedule_allowed_duration_units(combined_parts):
+                    continue
+                combined_text = " ".join(f"{number}{unit}" for number, unit in combined_parts).strip()
+                if not combined_text:
+                    continue
+                combined_key = (combined_text, min(left_top, right_top), left_left)
+                if combined_key in existing_timed_merge_keys or combined_key in timed_pair_merge_seen:
+                    continue
+                parsed_value = self._parse_schedule_remaining_value(combined_text)
+                if parsed_value is None:
+                    continue
+                remaining_seconds, precision = parsed_value
+                if respawn_seconds > 0 and int(remaining_seconds) > respawn_seconds:
+                    continue
+                merged_left = min(left_left, right_left)
+                merged_top = min(left_top, right_top)
+                merged_right = max(left_right, right_left + right_width)
+                merged_width = max(1, merged_right - merged_left)
+                geometry_score = self._score_schedule_ocr_slot_candidate_geometry(
+                    rect,
+                    {
+                        "left": merged_left,
+                        "top": merged_top,
+                        "width": merged_width,
+                    },
+                )
+                merge_warning = ", ".join(
+                    part
+                    for part in (
+                        str(left_candidate.get("warning") or "").strip(),
+                        str(right_candidate.get("warning") or "").strip(),
+                    )
+                    if part
+                )
+                score = 90 + geometry_score
+                if precision == "second":
+                    score += 12
+                elif precision == "minute":
+                    score += 6
+                elif precision == "hour":
+                    score -= 4
+                score += 18
+                interpreted_candidates.append(
+                    {
+                        "raw_text": combined_text,
+                        "observed_text": combined_text,
+                        "clean_text": combined_text,
+                        "top": merged_top,
+                        "left": merged_left,
+                        "width": merged_width,
+                        "source": "timed_pair_merge",
+                        "state": "TIMED",
+                        "precision": precision,
+                        "remaining_seconds": int(remaining_seconds),
+                        "warning": merge_warning,
+                        "score": score,
+                        "composition_log": " / ".join(
+                            part
+                            for part in (
+                                f"pair_merge_left='{str(left_candidate.get('clean_text') or '')}'",
+                                f"pair_merge_right='{str(right_candidate.get('clean_text') or '')}'",
+                            )
+                            if part
+                        ),
+                        "parse_debug": f"timed_pair_merge='{combined_text}'",
+                        "_geometry_score": geometry_score,
+                        "_duration_parts": combined_parts,
+                        "_duration_key": "".join(f"{number}{unit}" for number, unit in combined_parts),
+                        "_duration_units": tuple(unit for _, unit in combined_parts),
+                    }
+                )
+                timed_pair_merge_seen.add(combined_key)
         for candidate in interpreted_candidates:
             if str(candidate.get("state") or "") != "TIMED":
                 continue
@@ -14385,6 +16109,7 @@ class BossTimerApp:
         remaining_seconds = candidate.get("remaining_seconds")
         rendered_text = ""
         target_datetime = None
+        render_fallback_issue = False
         if state == "TIMED" and isinstance(remaining_seconds, int):
             duration_text = self._format_schedule_ocr_review_value(remaining_seconds, precision)
             if isinstance(base_datetime, datetime):
@@ -14393,23 +16118,32 @@ class BossTimerApp:
                 if remaining_seconds >= 86400:
                     rendered_text = f"{display_name} {duration_text}".strip()
                 else:
-                    rendered_time = target_datetime.strftime("%H:%M:%S") if precision == "second" else target_datetime.strftime("%H:%M:00")
+                    rendered_time = self._format_schedule_clock_text_for_input(target_datetime, precision)
                     rendered_text = f"{rendered_time} {display_name}"
             else:
                 rendered_text = f"{display_name} {duration_text}".strip()
+                if int(remaining_seconds) < 86400:
+                    render_fallback_issue = True
         elif state == "ACTIVE":
             rendered_text = f"{display_name} 출현 중"
         elif state == "NO_TIME":
             duration_text = str(candidate.get("clean_text") or candidate.get("raw_text") or "").strip() or "1일 이상"
             rendered_text = f"{display_name} {duration_text}".strip()
+            parsed_duration = self._parse_schedule_remaining_value(duration_text)
+            if isinstance(parsed_duration, int) and 0 <= parsed_duration < 86400:
+                render_fallback_issue = True
         else:
             unresolved_text = self._get_schedule_ocr_unresolved_fragment_text(candidate)
             rendered_text = f"{display_name} {unresolved_text}".strip()
+            parsed_duration = self._parse_schedule_remaining_value(unresolved_text)
+            if isinstance(parsed_duration, int) and 0 <= parsed_duration < 86400:
+                render_fallback_issue = True
         return {
             **candidate,
             "boss_name": boss_name,
             "display_name": display_name,
             "target_datetime": target_datetime,
+            "render_fallback_issue": render_fallback_issue,
             "rendered_text": rendered_text.strip(),
         }
 
@@ -14476,10 +16210,100 @@ class BossTimerApp:
             if remaining_seconds >= respawn_seconds:
                 issues.append(f"젠시간 초과 오류 ({remaining_seconds}s >= {respawn_seconds}s)")
                 severity = "error"
+            if respawn_seconds >= 86400 and duration_parts:
+                suspicious_minute_threshold = min(21600, max(1800, int(respawn_seconds * 0.08)))
+                suspicious_second_threshold = min(1800, max(120, int(respawn_seconds * 0.03)))
+                if (
+                    len(duration_parts) == 1
+                    and duration_parts[0][1] == "분"
+                    and remaining_seconds <= suspicious_minute_threshold
+                ):
+                    issues.append("장주기 보스 분단위 단편 의심")
+                    severity = "error"
+                if (
+                    len(duration_parts) == 1
+                    and duration_parts[0][1] == "초"
+                    and remaining_seconds <= suspicious_second_threshold
+                ):
+                    issues.append("장주기 보스 초단위 단편 의심")
+                    severity = "error"
         if state == "NO_TIME" and normalized_text == "1일 이상" and respawn_seconds > 0 and respawn_seconds < 86400:
             issues.append("이 보스는 1일 이상 값이 나올 수 없습니다.")
             severity = "error"
         return issues, severity
+
+    def _should_retry_schedule_ocr_slot_with_fallback(
+        self,
+        boss_name: str,
+        candidate: dict[str, object],
+    ) -> bool:
+        state = str(candidate.get("state") or "")
+        warning_text = str(candidate.get("warning") or "").strip()
+        if state == "UNKNOWN" and warning_text == "TIMER_NOT_FOUND":
+            return True
+        respawn_seconds = self._get_schedule_respawn_seconds_for_boss(boss_name)
+        if respawn_seconds < 86400:
+            return False
+        remaining_seconds = candidate.get("remaining_seconds")
+        if not isinstance(remaining_seconds, int):
+            return False
+        normalized_text = self._normalize_schedule_ocr_text(str(candidate.get("clean_text") or ""))
+        _normalized_duration_text, duration_parts, _trimmed = self._normalize_schedule_duration_structure(normalized_text)
+        if not duration_parts:
+            return False
+        warning_has_multi_timer = "MULTI_TIMER_IN_SLOT" in warning_text
+        only_minutes = len(duration_parts) == 1 and duration_parts[0][1] == "분"
+        only_hours = len(duration_parts) == 1 and duration_parts[0][1] == "시간"
+        only_seconds = len(duration_parts) == 1 and duration_parts[0][1] == "초"
+        if only_minutes:
+            suspicious_minute_threshold = min(21600, max(1800, int(respawn_seconds * 0.08)))
+            if warning_has_multi_timer or int(remaining_seconds) <= suspicious_minute_threshold:
+                return True
+        if only_seconds:
+            suspicious_second_threshold = min(1800, max(120, int(respawn_seconds * 0.03)))
+            if warning_has_multi_timer or int(remaining_seconds) <= suspicious_second_threshold:
+                return True
+        if only_hours and warning_has_multi_timer:
+            suspicious_hour_threshold = min(28800, max(7200, int(respawn_seconds * 0.15)))
+            if int(remaining_seconds) <= suspicious_hour_threshold:
+                return True
+        return False
+
+    def _should_prefer_schedule_ocr_fallback_candidate(
+        self,
+        boss_name: str,
+        primary_candidate: dict[str, object],
+        fallback_candidate: dict[str, object],
+    ) -> bool:
+        fallback_state = str(fallback_candidate.get("state") or "")
+        if fallback_state == "UNKNOWN" and str(fallback_candidate.get("warning") or "").strip() == "TIMER_NOT_FOUND":
+            return False
+        primary_state = str(primary_candidate.get("state") or "")
+        if primary_state == "UNKNOWN":
+            return True
+        primary_text = self._normalize_schedule_ocr_text(str(primary_candidate.get("clean_text") or ""))
+        fallback_text = self._normalize_schedule_ocr_text(str(fallback_candidate.get("clean_text") or ""))
+        _primary_normalized, primary_parts, _primary_trimmed = self._normalize_schedule_duration_structure(primary_text)
+        _fallback_normalized, fallback_parts, _fallback_trimmed = self._normalize_schedule_duration_structure(fallback_text)
+        if len(fallback_parts) > len(primary_parts):
+            return True
+        primary_remaining = primary_candidate.get("remaining_seconds")
+        fallback_remaining = fallback_candidate.get("remaining_seconds")
+        if (
+            isinstance(primary_remaining, int)
+            and isinstance(fallback_remaining, int)
+            and fallback_remaining > primary_remaining
+        ):
+            if len(fallback_parts) >= len(primary_parts):
+                return True
+            if self._get_schedule_respawn_seconds_for_boss(boss_name) >= 86400 and len(primary_parts) <= 1:
+                return True
+        primary_warning = str(primary_candidate.get("warning") or "").strip()
+        fallback_warning = str(fallback_candidate.get("warning") or "").strip()
+        if "MULTI_TIMER_IN_SLOT" in primary_warning and "MULTI_TIMER_IN_SLOT" not in fallback_warning:
+            if len(fallback_parts) >= len(primary_parts):
+                return True
+        return False
 
     def _select_schedule_ocr_consensus_entry(
         self,
@@ -14531,7 +16355,15 @@ class BossTimerApp:
             candidate_severity = "error"
         elif validation_warnings and candidate_severity == "normal":
             candidate_severity = "warn"
+        if bool(chosen.get("render_fallback_issue")):
+            fallback_warning = "절대시각 계산 실패(원문 유지)"
+            if fallback_warning not in candidate_warnings:
+                candidate_warnings.append(fallback_warning)
+            candidate_severity = "error"
         rendered_text = str(chosen.get("rendered_text") or "").strip()
+        if "장주기 보스 분단위 단편 의심" in candidate_warnings:
+            rendered_text = ""
+            chosen["rendered_text"] = ""
         if rendered_text and self._parse_schedule_input_line(rendered_text) is None:
             if "기존 스케쥴 파서 재검증 실패" not in candidate_warnings:
                 candidate_warnings.append("기존 스케쥴 파서 재검증 실패")
@@ -14627,23 +16459,35 @@ class BossTimerApp:
                 if rect is None:
                     continue
                 candidate = self._extract_schedule_ocr_slot_candidate(lines, words, rect, boss_name)
-                if (
-                    candidate.get("state") == "UNKNOWN"
-                    and str(candidate.get("warning") or "") == "TIMER_NOT_FOUND"
-                ):
-                    crop_rect = self._get_schedule_ocr_slot_fallback_crop_rect(rect, width, height)
-                    fallback_result = self._run_schedule_windows_ocr(image_path, 2.0, crop_rect=crop_rect)
-                    fallback_lines = fallback_result.get("lines") if isinstance(fallback_result.get("lines"), list) else []
-                    fallback_words = fallback_result.get("words") if isinstance(fallback_result.get("words"), list) else []
-                    if fallback_lines or fallback_words:
+                if self._should_retry_schedule_ocr_slot_with_fallback(boss_name, candidate):
+                    warning_text = str(candidate.get("warning") or "").strip()
+                    suspicious_fragment_retry = (
+                        "MULTI_TIMER_IN_SLOT" in warning_text
+                        and isinstance(candidate.get("remaining_seconds"), int)
+                        and self._get_schedule_respawn_seconds_for_boss(boss_name) >= 86400
+                    )
+                    crop_rect = (
+                        self._get_schedule_ocr_slot_timer_focus_crop_rect(rect, width, height)
+                        if suspicious_fragment_retry
+                        else self._get_schedule_ocr_slot_fallback_crop_rect(rect, width, height)
+                    )
+                    fallback_scales = (2.0, 3.0) if suspicious_fragment_retry else (2.0,)
+                    best_candidate = candidate
+                    for fallback_scale in fallback_scales:
+                        fallback_result = self._run_schedule_windows_ocr(image_path, fallback_scale, crop_rect=crop_rect)
+                        fallback_lines = fallback_result.get("lines") if isinstance(fallback_result.get("lines"), list) else []
+                        fallback_words = fallback_result.get("words") if isinstance(fallback_result.get("words"), list) else []
+                        if not fallback_lines and not fallback_words:
+                            continue
                         fallback_candidate = self._extract_schedule_ocr_slot_candidate(
-                            lines + fallback_lines,
-                            words + fallback_words,
+                            fallback_lines,
+                            fallback_words,
                             rect,
                             boss_name,
                         )
-                        if fallback_candidate.get("state") != "UNKNOWN" or str(fallback_candidate.get("warning") or "") != "TIMER_NOT_FOUND":
-                            candidate = fallback_candidate
+                        if self._should_prefer_schedule_ocr_fallback_candidate(boss_name, best_candidate, fallback_candidate):
+                            best_candidate = fallback_candidate
+                    candidate = best_candidate
                 candidate["scale"] = float(scale_result.get("scale") or 0.0)
                 consensus = self._select_schedule_ocr_consensus_entry(boss_name, [candidate], base_datetime)
                 consensus["slot_index"] = slot_index
@@ -14688,7 +16532,7 @@ class BossTimerApp:
                     cutoff_datetime = base_datetime.replace(hour=23, minute=59, second=59, microsecond=0)
                     if target_datetime > cutoff_datetime:
                         continue
-                    rendered_text = f"{target_datetime.strftime('%H:%M:%S')} 침공 {display_name}"
+                    rendered_text = f"{self._format_schedule_clock_text_for_input(target_datetime, slot_result)} 침공 {display_name}"
                 if rendered_text:
                     render_entries.append(
                         {
@@ -14769,7 +16613,7 @@ class BossTimerApp:
             remaining_text = self._format_schedule_ocr_review_value(remaining_seconds, precision)
             target_text = "-"
             if isinstance(target_datetime, datetime):
-                target_text = target_datetime.strftime("%H:%M:%S") if precision == "second" else target_datetime.strftime("%H:%M:00")
+                target_text = self._format_schedule_clock_text_for_input(target_datetime, precision)
             return f"현재={base_text} / 남은시간={remaining_text} / 계산={target_text}"
         if state == "ACTIVE":
             return f"현재={base_text} / 남은시간=출현 중 / 계산=-"
@@ -15072,6 +16916,13 @@ class BossTimerApp:
                 pass
             self.schedule_input_status_var.set("수동 수정된 텍스트가 있어 시간순 정렬을 적용하지 않았습니다.")
             return
+        current_text = self._get_schedule_input_raw_text().strip()
+        rendered_preview_text, _preview_line_severities, _preview_logs = self._build_schedule_input_ocr_render_payload(
+            invasion_mode=bool(self.schedule_input_invasion_var.get())
+        )
+        if current_text and not rendered_preview_text.strip():
+            self.schedule_input_status_var.set("정렬 가능한 OCR 항목이 없어 기존 텍스트를 유지했습니다.")
+            return
         self._render_schedule_input_ocr_text()
 
     def _schedule_input_ocr_worker_loop(self, job_id: int, items_snapshot: list[dict[str, object]]) -> None:
@@ -15166,6 +17017,19 @@ class BossTimerApp:
             except tk.TclError:
                 self.schedule_input_ocr_worker_after_id = None
 
+    def _has_low_resolution_schedule_input_ocr_items(self) -> bool:
+        for item in self.schedule_input_ocr_items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                width = int(item.get("width") or 0)
+                height = int(item.get("height") or 0)
+            except (TypeError, ValueError):
+                continue
+            if width > 0 and height > 0 and (width < 1600 or height < 900):
+                return True
+        return False
+
     def _run_schedule_input_ocr_conversion(self) -> None:
         if self._is_schedule_input_compact_mode():
             mode_label = "수정" if self.schedule_input_edit_mode else "추가"
@@ -15177,6 +17041,16 @@ class BossTimerApp:
         if not self.schedule_input_ocr_items:
             self.schedule_input_status_var.set("Ctrl+V 또는 F2 캡처로 스샷 이미지를 먼저 추가하세요.")
             return
+        if self._has_low_resolution_schedule_input_ocr_items():
+            warning_parent = self.schedule_input_window if self._widget_available(self.schedule_input_window) else self.root
+            warning_title = "OCR 해상도 경고"
+            warning_message = "게임 해상도가 1600x900 미만이면 OCR변환 정확도가 떨어집니다."
+            try:
+                messagebox.showwarning(warning_title, warning_message, parent=warning_parent)
+            except tk.TclError:
+                messagebox.showwarning(warning_title, warning_message)
+        # Keep the last rendered OCR text visible until the new conversion
+        # finishes so the input box does not flash or appear to clear itself.
         self._clear_schedule_input_ocr_results()
         self.schedule_input_status_var.set("OCR 변환과 검증을 진행 중입니다.")
         if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
@@ -15440,12 +17314,53 @@ class BossTimerApp:
                 pass
         return True
 
+    def _get_schedule_input_clipboard_text(self) -> str:
+        owner = self.root if self.root is not None and self.root.winfo_exists() else None
+        if owner is None:
+            return ""
+        try:
+            clipboard_text = owner.clipboard_get()
+        except tk.TclError:
+            return ""
+        return str(clipboard_text or "")
+
+    def _paste_text_into_schedule_input_widget(self, clipboard_text: str) -> bool:
+        if self.schedule_input_text is None or not self.schedule_input_text.winfo_exists():
+            return False
+        text_value = str(clipboard_text or "")
+        if not text_value:
+            return False
+        self._clear_schedule_input_placeholder()
+        try:
+            selection_ranges = self.schedule_input_text.tag_ranges("sel")
+            if len(selection_ranges) >= 2:
+                self.schedule_input_text.delete("sel.first", "sel.last")
+            self.schedule_input_text.insert("insert", text_value)
+            self.schedule_input_text.see("insert")
+            self.schedule_input_text.focus_set()
+        except tk.TclError:
+            return False
+        if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
+            try:
+                self.schedule_input_window.after(0, self._update_schedule_input_apply_state)
+            except tk.TclError:
+                pass
+        return True
+
     def _handle_schedule_input_paste(self, _event=None) -> str | None:
+        clipboard_text = self._get_schedule_input_clipboard_text()
+        if clipboard_text:
+            if self._paste_text_into_schedule_input_widget(clipboard_text):
+                return "break"
         if self._append_schedule_input_ocr_clipboard_item(auto_detected=False):
             return "break"
         return None
 
     def _handle_schedule_input_context_paste(self) -> None:
+        clipboard_text = self._get_schedule_input_clipboard_text()
+        if clipboard_text:
+            self._paste_text_into_schedule_input_widget(clipboard_text)
+            return
         if self._append_schedule_input_ocr_clipboard_item(auto_detected=False):
             return
         if self.schedule_input_text is not None and self.schedule_input_text.winfo_exists():
@@ -15686,11 +17601,9 @@ class BossTimerApp:
         self._sync_schedule_input_ocr_queue_scrollregion()
 
     def _get_schedule_fixed_color_tag(self, text_color: str, bg_color: str) -> str:
-        if not bool(self.fixed_boss_color_data_enabled_var.get()):
-            text_color = DEFAULT_FIXED_BOSS_TEXT_COLOR
-            bg_color = DEFAULT_FIXED_BOSS_BG_COLOR
-        normalized_text = self._normalize_hex_color(text_color, DEFAULT_FIXED_BOSS_TEXT_COLOR).replace("#", "")
-        normalized_bg = self._normalize_hex_color(bg_color, DEFAULT_FIXED_BOSS_BG_COLOR).replace("#", "")
+        text_color, bg_color = self._get_fixed_boss_effective_colors(text_color, bg_color)
+        normalized_text = self._normalize_hex_color(text_color, DEFAULT_SCHEDULE_TEXT_COLOR).replace("#", "")
+        normalized_bg = self._normalize_hex_color(bg_color, DEFAULT_SCHEDULE_BG_COLOR).replace("#", "")
         tag_name = f"fixed_color_{normalized_text}_{normalized_bg}"
         try:
             if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
@@ -15853,6 +17766,10 @@ class BossTimerApp:
         self._update_schedule_alarm_master_button()
         if hasattr(self, "schedule_alarm_status_var") and self.schedule_alarm_status_var is not None:
             self.schedule_alarm_status_var.set("전체 알람을 켰습니다." if self.schedule_alarm_master_enabled_default else "전체 알람을 껐습니다.")
+        if not self.schedule_alarm_master_enabled_default:
+            self._drop_pending_schedule_alarm_queue_items(category="countdown")
+            self._stop_schedule_alarm_countdown_audio(close_host=True)
+            self._stop_schedule_alarm_boss_audio(close_host=True)
         self._save_schedule_alarm_settings()
         if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
             self._refresh_schedule_tree_scope()
@@ -15867,6 +17784,1243 @@ class BossTimerApp:
                 except RuntimeError:
                     pass
             time.sleep(0.03)
+
+    def _build_schedule_alarm_media_player_command(self, clip_path: str, duration_ms: int) -> list[str]:
+        safe_duration = max(200, int(duration_ms))
+        script = (
+            "Add-Type -AssemblyName PresentationCore\n"
+            f"$clipPath = {json.dumps(clip_path, ensure_ascii=False)}\n"
+            f"$durationMs = {safe_duration}\n"
+            "$player = New-Object System.Windows.Media.MediaPlayer\n"
+            "$player.Volume = 1.0\n"
+            "$player.Open([Uri]::new($clipPath))\n"
+            "Start-Sleep -Milliseconds 30\n"
+            "$player.Play()\n"
+            "for ($i = 0; $i -lt 40 -and -not $player.NaturalDuration.HasTimeSpan; $i++) {\n"
+            "  Start-Sleep -Milliseconds 50\n"
+            "}\n"
+            "$playDurationMs = $durationMs\n"
+            "if ($player.NaturalDuration.HasTimeSpan) {\n"
+            "  $playDurationMs = [Math]::Max($durationMs, [int][Math]::Ceiling($player.NaturalDuration.TimeSpan.TotalMilliseconds) + 180)\n"
+            "}\n"
+            "Start-Sleep -Milliseconds $playDurationMs\n"
+            "$player.Stop()\n"
+            "$player.Close()\n"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        return ["powershell", "-NoProfile", "-Sta", "-EncodedCommand", encoded]
+
+    def _build_schedule_alarm_media_player_focus_command(
+        self,
+        clip_path: str,
+        *,
+        start_volume: float = 1.0,
+        end_volume: float = 1.0,
+        start_balance: float = 1.0,
+        end_balance: float = 0.0,
+    ) -> list[str]:
+        safe_start_volume = max(0.0, min(1.0, float(start_volume)))
+        safe_end_volume = max(0.0, min(1.0, float(end_volume)))
+        safe_start_balance = max(-1.0, min(1.0, float(start_balance)))
+        safe_end_balance = max(-1.0, min(1.0, float(end_balance)))
+        script = (
+            "Add-Type -AssemblyName PresentationCore\n"
+            f"$clipPath = {json.dumps(clip_path, ensure_ascii=False)}\n"
+            f"$startVolume = {safe_start_volume:.4f}\n"
+            f"$endVolume = {safe_end_volume:.4f}\n"
+            f"$startBalance = {safe_start_balance:.4f}\n"
+            f"$endBalance = {safe_end_balance:.4f}\n"
+            "$player = New-Object System.Windows.Media.MediaPlayer\n"
+            "$player.Volume = [double]$endVolume\n"
+            "$player.Balance = [double]$startBalance\n"
+            "$player.Open([Uri]::new($clipPath))\n"
+            "Start-Sleep -Milliseconds 20\n"
+            "$player.Play()\n"
+            "$playDurationMs = 1400\n"
+            "for ($attempt = 0; $attempt -lt 80; $attempt++) {\n"
+            "  try {\n"
+            "    if ($player.NaturalDuration.HasTimeSpan) {\n"
+            "      $playDurationMs = [Math]::Max(300, [int][Math]::Ceiling($player.NaturalDuration.TimeSpan.TotalMilliseconds) + 100)\n"
+            "      break\n"
+            "    }\n"
+            "  } catch {}\n"
+            "  Start-Sleep -Milliseconds 10\n"
+            "}\n"
+            "$fadeDurationMs = [Math]::Min(420, [Math]::Max(140, [int]($playDurationMs * 0.45)))\n"
+            "$fadeSteps = 7\n"
+            "$fadeStepMs = [Math]::Max(20, [int][Math]::Ceiling($fadeDurationMs / $fadeSteps))\n"
+            "for ($step = 0; $step -lt $fadeSteps; $step++) {\n"
+            "  $ratio = (($step + 1.0) / $fadeSteps)\n"
+            "  try {\n"
+            "    $player.Balance = $startBalance + (($endBalance - $startBalance) * $ratio)\n"
+            "  } catch {}\n"
+            "  Start-Sleep -Milliseconds $fadeStepMs\n"
+            "}\n"
+            "$remainingMs = [Math]::Max(0, $playDurationMs - ($fadeStepMs * $fadeSteps))\n"
+            "if ($remainingMs -gt 0) { Start-Sleep -Milliseconds $remainingMs }\n"
+            "$player.Stop()\n"
+            "$player.Close()\n"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        return ["powershell", "-NoProfile", "-Sta", "-EncodedCommand", encoded]
+
+    def _build_schedule_alarm_media_player_sequence_command(
+        self,
+        clip_paths: list[str],
+        *,
+        volume: float = 1.0,
+        balance: float = 0.0,
+    ) -> list[str]:
+        safe_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        try:
+            playback_volume = max(0.0, min(1.0, float(volume)))
+        except (TypeError, ValueError):
+            playback_volume = 1.0
+        try:
+            playback_balance = max(-1.0, min(1.0, float(balance)))
+        except (TypeError, ValueError):
+            playback_balance = 0.0
+        clip_array = "@(" + ", ".join(json.dumps(path, ensure_ascii=False) for path in safe_clip_paths) + ")"
+        script = (
+            "Add-Type -AssemblyName PresentationCore\n"
+            f"$clipPaths = {clip_array}\n"
+            f"$playbackVolume = {playback_volume:.4f}\n"
+            f"$playbackBalance = {playback_balance:.4f}\n"
+            "$transitionTrimMs = 70\n"
+            "for ($clipIndex = 0; $clipIndex -lt $clipPaths.Count; $clipIndex++) {\n"
+            "  $clipPath = [string]$clipPaths[$clipIndex]\n"
+            "  if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
+            "  try {\n"
+            "    $player = New-Object System.Windows.Media.MediaPlayer\n"
+            "    $player.Volume = [double]$playbackVolume\n"
+            "    $player.Balance = [double]$playbackBalance\n"
+            "    $player.Open([Uri]::new($clipPath))\n"
+            "    Start-Sleep -Milliseconds 15\n"
+            "    $player.Play()\n"
+            "    $playDurationMs = 1400\n"
+            "    for ($attempt = 0; $attempt -lt 80; $attempt++) {\n"
+            "      try {\n"
+            "        if ($player.NaturalDuration.HasTimeSpan) {\n"
+            "          $playDurationMs = [Math]::Max(250, [int][Math]::Ceiling($player.NaturalDuration.TimeSpan.TotalMilliseconds) + 120)\n"
+            "          break\n"
+            "        }\n"
+            "      } catch {}\n"
+            "      Start-Sleep -Milliseconds 10\n"
+            "    }\n"
+            "    if ($clipIndex -lt ($clipPaths.Count - 1) -and $player.NaturalDuration.HasTimeSpan) {\n"
+            "      $naturalMs = [int][Math]::Ceiling($player.NaturalDuration.TimeSpan.TotalMilliseconds)\n"
+            "      if ($naturalMs -gt 900) {\n"
+            "        $trimmedForTransitionMs = [Math]::Max(180, $naturalMs - $transitionTrimMs)\n"
+            "        if ($trimmedForTransitionMs -lt $playDurationMs) {\n"
+            "          $playDurationMs = $trimmedForTransitionMs\n"
+            "        }\n"
+            "      }\n"
+            "    }\n"
+            "    Start-Sleep -Milliseconds $playDurationMs\n"
+            "    $player.Stop()\n"
+            "    $player.Close()\n"
+            "  } catch {}\n"
+            "}\n"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        return ["powershell", "-NoProfile", "-Sta", "-EncodedCommand", encoded]
+
+    def _start_schedule_alarm_audio_process(self, clip_path: str, duration_ms: int) -> subprocess.Popen | None:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            return subprocess.Popen(
+                self._build_schedule_alarm_media_player_command(clip_path, duration_ms),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        except OSError:
+            return None
+
+    def _start_schedule_alarm_audio_focus_process(self, clip_path: str) -> subprocess.Popen | None:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            return subprocess.Popen(
+                self._build_schedule_alarm_media_player_focus_command(clip_path),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        except OSError:
+            return None
+
+    def _start_schedule_alarm_audio_sequence_process(
+        self,
+        clip_paths: list[str],
+        *,
+        volume: float = 1.0,
+        balance: float = 0.0,
+    ) -> subprocess.Popen | None:
+        safe_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        if not safe_clip_paths:
+            return None
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            return subprocess.Popen(
+                self._build_schedule_alarm_media_player_sequence_command(
+                    safe_clip_paths,
+                    volume=volume,
+                    balance=balance,
+                ),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        except OSError:
+            return None
+
+    def _terminate_schedule_alarm_audio_process(self, process: subprocess.Popen | None) -> None:
+        if process is None or process.poll() is not None:
+            return
+        try:
+            process.terminate()
+            process.wait(timeout=0.2)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+    def _get_schedule_alarm_countdown_audio_host_preload_paths(self) -> list[str]:
+        preload_paths: list[str] = []
+        completion_clip_paths = self._get_schedule_alarm_countdown_completion_audio_paths()
+        for clip_path in completion_clip_paths:
+            cleaned = str(clip_path).strip()
+            if cleaned and cleaned not in preload_paths:
+                preload_paths.append(cleaned)
+        return preload_paths
+
+    def _build_schedule_alarm_countdown_audio_host_command(self, preload_paths: list[str]) -> list[str]:
+        preload_array = "@(" + ", ".join(json.dumps(path, ensure_ascii=False) for path in preload_paths) + ")"
+        script = (
+            "[Console]::InputEncoding = [System.Text.Encoding]::UTF8\n"
+            "Add-Type -AssemblyName PresentationCore\n"
+            f"$preloadPaths = {preload_array}\n"
+            "$players = @{}\n"
+            "$activePlayer = $null\n"
+            "foreach ($preloadPath in $preloadPaths) {\n"
+            "  if ([string]::IsNullOrWhiteSpace($preloadPath)) { continue }\n"
+            "  try {\n"
+            "    $preloadPlayer = New-Object System.Windows.Media.MediaPlayer\n"
+            "    $preloadPlayer.Volume = 1.0\n"
+            "    $preloadPlayer.Open([Uri]::new($preloadPath))\n"
+            "    $players[$preloadPath] = $preloadPlayer\n"
+            "  } catch {}\n"
+            "}\n"
+            "Start-Sleep -Milliseconds 120\n"
+            "while (($line = [Console]::In.ReadLine()) -ne $null) {\n"
+            "  if ($line -eq '__EXIT__') { break }\n"
+            "  if ($line -eq '__STOP__') {\n"
+            "    try {\n"
+            "      if ($activePlayer -ne $null) {\n"
+            "        $activePlayer.Stop()\n"
+            "        $activePlayer.Position = [TimeSpan]::Zero\n"
+            "      }\n"
+            "    } catch {}\n"
+            "    $activePlayer = $null\n"
+            "    continue\n"
+            "  }\n"
+            "  if ([string]::IsNullOrWhiteSpace($line)) { continue }\n"
+            "  $parts = $line.Split('|', 2)\n"
+            "  if ($parts.Length -lt 2 -or $parts[0] -ne '__PLAY__') { continue }\n"
+            "  try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "  if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
+            "  try {\n"
+            "    if ($players.ContainsKey($clipPath)) {\n"
+            "      $player = $players[$clipPath]\n"
+            "    } else {\n"
+            "      $player = New-Object System.Windows.Media.MediaPlayer\n"
+            "      $player.Volume = 1.0\n"
+            "      $player.Open([Uri]::new($clipPath))\n"
+            "      $players[$clipPath] = $player\n"
+            "      Start-Sleep -Milliseconds 30\n"
+            "    }\n"
+            "    if ($activePlayer -ne $null -and -not [object]::ReferenceEquals($activePlayer, $player)) {\n"
+            "      $activePlayer.Stop()\n"
+            "      $activePlayer.Position = [TimeSpan]::Zero\n"
+            "    }\n"
+            "    $player.Stop()\n"
+            "    $player.Position = [TimeSpan]::Zero\n"
+            "    $player.Play()\n"
+            "    $activePlayer = $player\n"
+            "  } catch {\n"
+            "    try {\n"
+            "      if ($players.ContainsKey($clipPath)) {\n"
+            "        $players[$clipPath].Close()\n"
+            "        $players.Remove($clipPath)\n"
+            "      }\n"
+            "    } catch {}\n"
+            "    $activePlayer = $null\n"
+            "  }\n"
+            "}\n"
+            "if ($activePlayer -ne $null) {\n"
+            "  try {\n"
+            "    $activePlayer.Stop()\n"
+            "    $activePlayer.Position = [TimeSpan]::Zero\n"
+            "  } catch {}\n"
+            "}\n"
+            "foreach ($player in $players.Values) {\n"
+            "  try {\n"
+            "    $player.Stop()\n"
+            "    $player.Close()\n"
+            "  } catch {}\n"
+            "}\n"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        return ["powershell", "-NoProfile", "-Sta", "-EncodedCommand", encoded]
+
+    def _ensure_schedule_alarm_countdown_audio_host_process(self) -> subprocess.Popen | None:
+        existing = self.schedule_alarm_countdown_audio_host_process
+        if existing is not None and existing.poll() is None and existing.stdin is not None:
+            return existing
+        if existing is not None:
+            self._terminate_schedule_alarm_audio_process(existing)
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            process = subprocess.Popen(
+                self._build_schedule_alarm_countdown_audio_host_command(
+                    self._get_schedule_alarm_countdown_audio_host_preload_paths()
+                ),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                creationflags=creationflags,
+            )
+        except OSError:
+            self.schedule_alarm_countdown_audio_host_process = None
+            return None
+        self.schedule_alarm_countdown_audio_host_process = process
+        return process
+
+    def _send_schedule_alarm_countdown_audio_host_command(self, command: str) -> bool:
+        process = self._ensure_schedule_alarm_countdown_audio_host_process()
+        if process is None or process.stdin is None:
+            return False
+        try:
+            process.stdin.write(f"{command}\n")
+            process.stdin.flush()
+        except OSError:
+            self.schedule_alarm_countdown_audio_host_process = None
+            return False
+        return True
+
+    def _stop_schedule_alarm_countdown_audio(self, *, close_host: bool = False) -> int:
+        with self.schedule_alarm_countdown_audio_lock:
+            self.schedule_alarm_countdown_audio_request_id += 1
+            request_id = self.schedule_alarm_countdown_audio_request_id
+            process = self.schedule_alarm_countdown_audio_process
+            self.schedule_alarm_countdown_audio_process = None
+            host_process = self.schedule_alarm_countdown_audio_host_process if close_host else None
+            if close_host:
+                self.schedule_alarm_countdown_audio_host_process = None
+        self._terminate_schedule_alarm_audio_process(process)
+        if close_host:
+            if host_process is not None:
+                try:
+                    if host_process.stdin is not None:
+                        host_process.stdin.write("__EXIT__\n")
+                        host_process.stdin.flush()
+                except OSError:
+                    pass
+                self._terminate_schedule_alarm_audio_process(host_process)
+        else:
+            self._send_schedule_alarm_countdown_audio_host_command("__STOP__")
+        return request_id
+
+    def _get_schedule_alarm_voice_root_dirs(self) -> list[str]:
+        seen: set[str] = set()
+        roots: list[str] = []
+        for candidate in (SCHEDULE_ALARM_COUNTDOWN_VOICE_DIR, os.path.join(get_resource_root(), "voice")):
+            try:
+                normalized = os.path.normcase(os.path.abspath(candidate))
+            except OSError:
+                continue
+            if normalized in seen or not os.path.isdir(candidate):
+                continue
+            seen.add(normalized)
+            roots.append(candidate)
+        return roots
+
+    def _resolve_schedule_alarm_voice_dir(self, subdir: str | None = None) -> str | None:
+        for root_dir in self._get_schedule_alarm_voice_root_dirs():
+            candidate = os.path.join(root_dir, subdir) if subdir else root_dir
+            if os.path.isdir(candidate):
+                return candidate
+        return None
+
+    def _resolve_schedule_alarm_countdown_voice_dir(self) -> str | None:
+        return self._resolve_schedule_alarm_voice_dir()
+
+    def _normalize_schedule_alarm_voice_stem(self, text: object | None) -> str:
+        normalized = os.path.splitext(str(text or "").strip())[0].strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized
+
+    def _invalidate_schedule_alarm_voice_caches(self) -> None:
+        self.schedule_alarm_voice_subdir_cache = {}
+        self.schedule_alarm_voice_duration_cache = {}
+
+    def _build_schedule_alarm_voice_subdir_cache(self, subdir: str) -> dict[str, object]:
+        voice_dir = self._resolve_schedule_alarm_voice_dir(subdir)
+        empty_cache = {
+            "voice_dir": voice_dir,
+            "entries": [],
+            "files": [],
+            "best_by_stem": {},
+            "prefix_matches": {},
+        }
+        if not voice_dir:
+            return empty_cache
+        try:
+            filenames = os.listdir(voice_dir)
+        except OSError:
+            return empty_cache
+        extension_rank = {ext: index for index, ext in enumerate(SCHEDULE_ALARM_VOICE_AUDIO_EXTENSIONS)}
+        entries: list[tuple[str, str, int, str]] = []
+        for filename in sorted(filenames, key=lambda value: value.casefold()):
+            clip_path = os.path.join(voice_dir, filename)
+            if not os.path.isfile(clip_path):
+                continue
+            _stem, ext = os.path.splitext(filename)
+            ext_lower = ext.lower()
+            if ext_lower not in extension_rank:
+                continue
+            stem = self._normalize_schedule_alarm_voice_stem(filename)
+            entries.append((clip_path, stem, extension_rank[ext_lower], os.path.basename(clip_path).casefold()))
+        best_by_stem: dict[str, str] = {}
+        for clip_path, stem, _ext_rank, _basename_key in sorted(entries, key=lambda row: (row[1].casefold(), row[2], row[3])):
+            stem_key = stem.casefold()
+            if stem_key not in best_by_stem:
+                best_by_stem[stem_key] = clip_path
+        return {
+            "voice_dir": voice_dir,
+            "entries": entries,
+            "files": [clip_path for clip_path, _stem, _ext_rank, _basename_key in entries],
+            "best_by_stem": best_by_stem,
+            "prefix_matches": {},
+        }
+
+    def _get_schedule_alarm_voice_subdir_cache(self, subdir: str) -> dict[str, object]:
+        cache_key = str(subdir or "").strip().casefold()
+        cached = self.schedule_alarm_voice_subdir_cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+        built_cache = self._build_schedule_alarm_voice_subdir_cache(subdir)
+        self.schedule_alarm_voice_subdir_cache[cache_key] = built_cache
+        return built_cache
+
+    def _get_schedule_alarm_voice_files(self, subdir: str) -> list[str]:
+        cache = self._get_schedule_alarm_voice_subdir_cache(subdir)
+        return list(cache.get("files", []))
+
+    def _get_schedule_alarm_voice_file_by_stem(self, subdir: str, stem: object | None) -> str | None:
+        target_stem = self._normalize_schedule_alarm_voice_stem(stem)
+        if not target_stem:
+            return None
+        for attempt in range(2):
+            cache = self._get_schedule_alarm_voice_subdir_cache(subdir)
+            best_by_stem = cache.get("best_by_stem", {})
+            if not isinstance(best_by_stem, dict):
+                return None
+            clip_path = best_by_stem.get(target_stem.casefold())
+            if not clip_path:
+                return None
+            if os.path.isfile(clip_path):
+                return clip_path
+            cache_key = str(subdir or "").strip().casefold()
+            self.schedule_alarm_voice_subdir_cache.pop(cache_key, None)
+            self.schedule_alarm_voice_duration_cache.pop(os.path.normcase(os.path.abspath(clip_path)), None)
+            if attempt > 0:
+                break
+        return None
+
+    def _get_schedule_alarm_voice_files_by_stem_prefix(self, subdir: str, stem_prefix: object | None) -> list[str]:
+        target_prefix = self._normalize_schedule_alarm_voice_stem(stem_prefix)
+        if not target_prefix:
+            return []
+        for attempt in range(2):
+            cache = self._get_schedule_alarm_voice_subdir_cache(subdir)
+            prefix_matches = cache.get("prefix_matches", {})
+            if not isinstance(prefix_matches, dict):
+                prefix_matches = {}
+                cache["prefix_matches"] = prefix_matches
+            prefix_key = target_prefix.casefold()
+            cached_matches = prefix_matches.get(prefix_key)
+            if isinstance(cached_matches, list):
+                valid_cached_matches = [clip_path for clip_path in cached_matches if os.path.isfile(clip_path)]
+                if len(valid_cached_matches) == len(cached_matches):
+                    return list(valid_cached_matches)
+                prefix_matches.pop(prefix_key, None)
+                cache_key = str(subdir or "").strip().casefold()
+                self.schedule_alarm_voice_subdir_cache.pop(cache_key, None)
+                if attempt > 0:
+                    return list(valid_cached_matches)
+                continue
+            pattern = re.compile(rf"^{re.escape(target_prefix)}(?:\d+)?$", re.IGNORECASE)
+            entries = cache.get("entries", [])
+            if not isinstance(entries, list):
+                return []
+            matches = [
+                clip_path
+                for clip_path, stem, _ext_rank, _basename_key in entries
+                if pattern.match(stem) and os.path.isfile(clip_path)
+            ]
+            prefix_matches[prefix_key] = list(matches)
+            return matches
+        return []
+
+    def _get_schedule_alarm_voice_duration_ms(self, clip_path: object | None) -> int | None:
+        normalized_path = str(clip_path or "").strip()
+        if not normalized_path:
+            return None
+        try:
+            absolute_path = os.path.normcase(os.path.abspath(normalized_path))
+            stat_result = os.stat(normalized_path)
+        except OSError:
+            return None
+        signature = (int(getattr(stat_result, "st_mtime_ns", 0) or 0), int(getattr(stat_result, "st_size", 0) or 0))
+        cached = self.schedule_alarm_voice_duration_cache.get(absolute_path)
+        if isinstance(cached, dict) and cached.get("signature") == signature:
+            cached_duration = cached.get("duration_ms")
+            return int(cached_duration) if isinstance(cached_duration, int) else None
+        duration_ms: int | None = None
+        try:
+            if os.path.splitext(normalized_path)[1].lower() == ".wav":
+                with wave.open(normalized_path, "rb") as wave_file:
+                    frame_rate = int(wave_file.getframerate() or 0)
+                    frame_count = int(wave_file.getnframes() or 0)
+                    if frame_rate > 0 and frame_count >= 0:
+                        duration_ms = max(1, int(math.ceil((frame_count * 1000.0) / frame_rate)))
+        except (OSError, EOFError, wave.Error):
+            duration_ms = None
+        self.schedule_alarm_voice_duration_cache[absolute_path] = {
+            "signature": signature,
+            "duration_ms": duration_ms,
+        }
+        return duration_ms
+
+    def _build_schedule_alarm_countdown_audio_numbers(self, remaining_seconds: int) -> list[int]:
+        seconds = max(0, int(remaining_seconds))
+        if seconds <= 0:
+            return [0]
+        if seconds <= 15:
+            return [seconds]
+        if seconds >= 100:
+            return []
+        tens, ones = divmod(seconds, 10)
+        numbers: list[int] = []
+        if tens > 1:
+            numbers.append(tens)
+        numbers.append(10)
+        if ones > 0:
+            numbers.append(ones)
+        return numbers
+
+    def _get_schedule_alarm_countdown_completion_audio_paths(self) -> list[str]:
+        for subdir in ("info", "sec"):
+            spawn_clip_path = self._get_schedule_alarm_voice_file_by_stem(subdir, "젠")
+            if spawn_clip_path:
+                return [spawn_clip_path]
+        return []
+
+    def _get_schedule_alarm_countdown_audio_paths(self, remaining_seconds: int) -> list[str]:
+        seconds = max(0, int(remaining_seconds))
+        if seconds <= 0:
+            return []
+        direct_path = self._get_schedule_alarm_voice_file_by_stem("sec", str(seconds))
+        if direct_path:
+            return [direct_path]
+        return []
+
+    def _play_schedule_alarm_countdown_audio_clip(
+        self,
+        clip_path: str,
+        *,
+        request_id: int,
+        expires_at: datetime | None,
+        use_host: bool = False,
+    ) -> bool:
+        if use_host:
+            valid_clip_path = str(clip_path).strip()
+            if not valid_clip_path:
+                return False
+            process = self._ensure_schedule_alarm_countdown_audio_host_process()
+            if process is None or process.stdin is None:
+                return False
+            payload = base64.b64encode(valid_clip_path.encode("utf-8")).decode("ascii")
+            try:
+                process.stdin.write(f"__PLAY__|{payload}\n")
+                process.stdin.flush()
+            except OSError:
+                self.schedule_alarm_countdown_audio_host_process = None
+                return False
+            return True
+        process = self._start_schedule_alarm_audio_process(clip_path, duration_ms=1100)
+        if process is None:
+            return False
+        try:
+            with self.schedule_alarm_countdown_audio_lock:
+                if request_id != self.schedule_alarm_countdown_audio_request_id:
+                    self._terminate_schedule_alarm_audio_process(process)
+                    return False
+                self.schedule_alarm_countdown_audio_process = process
+            while True:
+                with self.schedule_alarm_countdown_audio_lock:
+                    if request_id != self.schedule_alarm_countdown_audio_request_id:
+                        self._terminate_schedule_alarm_audio_process(process)
+                        return False
+                if isinstance(expires_at, datetime) and datetime.now() > expires_at:
+                    self._terminate_schedule_alarm_audio_process(process)
+                    return False
+                if process.poll() is not None:
+                    break
+                time.sleep(0.01)
+        finally:
+            with self.schedule_alarm_countdown_audio_lock:
+                if self.schedule_alarm_countdown_audio_process is process:
+                    self.schedule_alarm_countdown_audio_process = None
+        return True
+
+    def _play_schedule_alarm_countdown_audio_sequence(
+        self,
+        clip_paths: list[str],
+        *,
+        request_id: int,
+        expires_at: datetime | None,
+        prefer_host: bool = True,
+    ) -> None:
+        try:
+            use_host = bool(prefer_host) and len(clip_paths) == 1
+            for clip_path in clip_paths:
+                with self.schedule_alarm_countdown_audio_lock:
+                    if request_id != self.schedule_alarm_countdown_audio_request_id:
+                        return
+                if isinstance(expires_at, datetime) and datetime.now() > expires_at:
+                    return
+                if not self._play_schedule_alarm_countdown_audio_clip(
+                    clip_path,
+                    request_id=request_id,
+                    expires_at=expires_at,
+                    use_host=use_host,
+                ):
+                    return
+                if use_host:
+                    return
+                time.sleep(0.01)
+        finally:
+            with self.schedule_alarm_countdown_audio_lock:
+                if self.schedule_alarm_countdown_audio_request_id == request_id:
+                    self.schedule_alarm_countdown_audio_thread = None
+
+    def _start_schedule_alarm_countdown_audio(self, remaining_seconds: int, *, expires_at: datetime | None = None) -> bool:
+        clip_paths = self._get_schedule_alarm_countdown_audio_paths(remaining_seconds)
+        if not clip_paths:
+            return False
+        request_id = self._stop_schedule_alarm_countdown_audio()
+        prefer_host = int(remaining_seconds) > 0
+        worker = threading.Thread(
+            target=self._play_schedule_alarm_countdown_audio_sequence,
+            args=(clip_paths,),
+            kwargs={"request_id": request_id, "expires_at": expires_at, "prefer_host": prefer_host},
+            daemon=True,
+        )
+        with self.schedule_alarm_countdown_audio_lock:
+            self.schedule_alarm_countdown_audio_thread = worker
+        worker.start()
+        return True
+
+    def _play_schedule_alarm_countdown_completion(
+        self,
+        *,
+        prefer_audio: bool,
+        anchor_datetime: datetime | None = None,
+    ) -> bool:
+        completion_clip_paths = self._get_schedule_alarm_countdown_completion_audio_paths() if bool(prefer_audio) else []
+        self._drop_pending_schedule_alarm_queue_items(category="countdown")
+        request_id = self._stop_schedule_alarm_countdown_audio(close_host=False)
+        played_audio = False
+        if bool(prefer_audio):
+            if completion_clip_paths:
+                if len(completion_clip_paths) == 1:
+                    played_audio = self._play_schedule_alarm_countdown_audio_clip(
+                        completion_clip_paths[0],
+                        request_id=request_id,
+                        expires_at=None,
+                        use_host=True,
+                    )
+                if not played_audio:
+                    if len(completion_clip_paths) == 1:
+                        duration_ms = self._get_schedule_alarm_clip_sequence_duration_ms(
+                            completion_clip_paths,
+                            fallback_ms=900,
+                        )
+                        process = self._start_schedule_alarm_audio_process(
+                            completion_clip_paths[0],
+                            duration_ms=max(200, int(duration_ms)),
+                        )
+                    else:
+                        process = self._start_schedule_alarm_audio_sequence_process(completion_clip_paths)
+                    if process is not None:
+                        played_audio = True
+        if not played_audio:
+            self._queue_schedule_alarm_speech(
+                "젠",
+                beep=False,
+                category="countdown",
+                rate=3,
+                purge=True,
+                async_mode=True,
+            )
+        return True
+
+    def _stop_schedule_alarm_boss_audio(self, *, close_host: bool = False) -> int:
+        with self.schedule_alarm_boss_audio_lock:
+            self.schedule_alarm_boss_audio_request_id += 1
+            request_id = self.schedule_alarm_boss_audio_request_id
+            process = self.schedule_alarm_boss_audio_process
+            if close_host:
+                self.schedule_alarm_boss_audio_process = None
+        if process is None or process.poll() is not None:
+            return request_id
+        if process.stdin is None:
+            if close_host:
+                self._terminate_schedule_alarm_audio_process(process)
+            else:
+                with self.schedule_alarm_boss_audio_lock:
+                    if self.schedule_alarm_boss_audio_process is process:
+                        self.schedule_alarm_boss_audio_process = None
+                self._terminate_schedule_alarm_audio_process(process)
+            return request_id
+        if close_host:
+            try:
+                if process.stdin is not None:
+                    process.stdin.write("__EXIT__\n")
+                    process.stdin.flush()
+            except OSError:
+                pass
+            self._terminate_schedule_alarm_audio_process(process)
+            return request_id
+        try:
+            process.stdin.write("__STOP__\n")
+            process.stdin.flush()
+        except OSError:
+            with self.schedule_alarm_boss_audio_lock:
+                if self.schedule_alarm_boss_audio_process is process:
+                    self.schedule_alarm_boss_audio_process = None
+            self._terminate_schedule_alarm_audio_process(process)
+        return request_id
+
+    def _get_schedule_alarm_boss_audio_available_paths(self, remaining_seconds: int) -> list[str]:
+        remaining_seconds = max(0, int(remaining_seconds))
+        if remaining_seconds <= 0 or remaining_seconds % 60 != 0:
+            return []
+        remaining_minutes = remaining_seconds // 60
+        if not 1 <= remaining_minutes <= 10:
+            return []
+        return self._get_schedule_alarm_voice_files_by_stem_prefix("min", f"{remaining_minutes}min")
+
+    def _get_schedule_alarm_info_audio_path(self, token: object | None) -> str | None:
+        return self._get_schedule_alarm_voice_file_by_stem("info", token)
+
+    def _is_schedule_alarm_audio_invasion(
+        self,
+        item: dict[str, object] | None = None,
+        boss_name: object | None = None,
+    ) -> bool:
+        if isinstance(item, dict):
+            if bool(item.get("is_invasion")):
+                return True
+            raw_name = str(item.get("raw_name") or item.get("display_name") or item.get("boss_name") or "").strip()
+            if self._normalize_schedule_boss_lookup_key(raw_name).startswith("침공"):
+                return True
+        base_name = str(boss_name or "").strip()
+        return bool(base_name) and self._normalize_schedule_boss_lookup_key(base_name).startswith("침공")
+
+    def _get_schedule_alarm_boss_voice_name_candidates(
+        self,
+        *,
+        item: dict[str, object] | None = None,
+        boss_name: object | None = None,
+    ) -> list[str]:
+        seen: set[str] = set()
+        candidates: list[str] = []
+
+        def add_candidate(value: object | None) -> None:
+            cleaned = re.sub(r"^침공\s*", "", str(value or "").strip()).strip()
+            cleaned = self._normalize_schedule_alarm_voice_stem(cleaned)
+            if not cleaned or cleaned in seen:
+                return
+            seen.add(cleaned)
+            candidates.append(cleaned)
+
+        if isinstance(item, dict):
+            add_candidate(self._get_schedule_boss_display_name(item, prefer_alias=True))
+            add_candidate(self._get_schedule_boss_display_name(item, prefer_alias=False))
+            for key in ("boss_name", "display_name", "raw_name"):
+                add_candidate(item.get(key))
+        add_candidate(boss_name)
+
+        for base_name in list(candidates):
+            canonical_name = self._get_canonical_boss_name(base_name) or base_name
+            add_candidate(canonical_name)
+            add_candidate(self._get_display_boss_name(canonical_name) or canonical_name)
+        return candidates
+
+    def _get_schedule_alarm_boss_voice_path(
+        self,
+        *,
+        item: dict[str, object] | None = None,
+        boss_name: object | None = None,
+    ) -> str | None:
+        for candidate_name in self._get_schedule_alarm_boss_voice_name_candidates(item=item, boss_name=boss_name):
+            clip_path = self._get_schedule_alarm_voice_file_by_stem("boss", candidate_name)
+            if clip_path:
+                return clip_path
+        return None
+
+    def _get_schedule_alarm_boss_audio_paths(
+        self,
+        remaining_seconds: int,
+        *,
+        item: dict[str, object] | None = None,
+        boss_name: object | None = None,
+    ) -> list[str]:
+        minute_clip_candidates = self._get_schedule_alarm_boss_audio_available_paths(remaining_seconds)
+        if not minute_clip_candidates:
+            return []
+        clip_paths: list[str] = []
+        boss_clip_path = self._get_schedule_alarm_boss_voice_path(item=item, boss_name=boss_name)
+        if boss_clip_path:
+            if self._is_schedule_alarm_audio_invasion(item=item, boss_name=boss_name):
+                invasion_clip_path = self._get_schedule_alarm_info_audio_path("침공")
+                if invasion_clip_path:
+                    clip_paths.append(invasion_clip_path)
+            clip_paths.append(boss_clip_path)
+        clip_paths.append(random.choice(minute_clip_candidates))
+        return clip_paths
+
+    def _get_schedule_alarm_boss_audio_lead_seconds(
+        self,
+        remaining_seconds: int,
+        *,
+        item: dict[str, object] | None = None,
+        boss_name: object | None = None,
+    ) -> int:
+        clip_paths = self._get_schedule_alarm_boss_audio_paths(
+            remaining_seconds,
+            item=item,
+            boss_name=boss_name,
+        )
+        return self._get_schedule_alarm_sequence_lead_seconds(clip_paths)
+
+    def _build_schedule_alarm_boss_audio_host_command(self, preload_paths: list[str]) -> list[str]:
+        preload_array = "@(" + ", ".join(json.dumps(path, ensure_ascii=False) for path in preload_paths) + ")"
+        script = (
+            "[Console]::InputEncoding = [System.Text.Encoding]::UTF8\n"
+            "Add-Type -AssemblyName PresentationCore\n"
+            f"$preloadPaths = {preload_array}\n"
+            "$script:players = @{}\n"
+            "$script:activePlayer = $null\n"
+            "function Stop-Player($player) {\n"
+            "  if ($null -eq $player) { return }\n"
+            "  try {\n"
+            "    $player.Stop()\n"
+            "    $player.Position = [TimeSpan]::Zero\n"
+            "  } catch {}\n"
+            "}\n"
+            "function Remove-Player([string]$clipPath) {\n"
+            "  try {\n"
+            "    if ($script:players.ContainsKey($clipPath)) {\n"
+            "      $script:players[$clipPath].Close()\n"
+            "      $script:players.Remove($clipPath)\n"
+            "    }\n"
+            "  } catch {}\n"
+            "}\n"
+            "function Resolve-Player([string]$clipPath) {\n"
+            "  if ($script:players.ContainsKey($clipPath)) {\n"
+            "    return $script:players[$clipPath]\n"
+            "  }\n"
+            "  $player = New-Object System.Windows.Media.MediaPlayer\n"
+            "  $player.Volume = 1.0\n"
+            "  $player.Open([Uri]::new($clipPath))\n"
+            "  $script:players[$clipPath] = $player\n"
+            "  Start-Sleep -Milliseconds 10\n"
+            "  return $player\n"
+            "}\n"
+            "function Play-Clip([string]$clipPath, [bool]$waitForFinish, [int]$maxDurationMs, [int]$transitionTrimMs) {\n"
+            "  if ([string]::IsNullOrWhiteSpace($clipPath)) { return $false }\n"
+            "  try {\n"
+            "    $player = Resolve-Player $clipPath\n"
+            "    if ($script:activePlayer -ne $null -and -not [object]::ReferenceEquals($script:activePlayer, $player)) {\n"
+            "      Stop-Player $script:activePlayer\n"
+            "    }\n"
+            "    Stop-Player $player\n"
+            "    try { $player.Volume = 1.0 } catch {}\n"
+            "    $player.Play()\n"
+            "    $script:activePlayer = $player\n"
+            "    if (-not $waitForFinish) {\n"
+            "      return $true\n"
+            "    }\n"
+            "    $playDurationMs = 1200\n"
+            "    $naturalDurationMs = 0\n"
+            "    for ($attempt = 0; $attempt -lt 80; $attempt++) {\n"
+            "      try {\n"
+            "        if ($player.NaturalDuration.HasTimeSpan) {\n"
+            "          $naturalDurationMs = [int][Math]::Ceiling($player.NaturalDuration.TimeSpan.TotalMilliseconds)\n"
+            "          $playDurationMs = [Math]::Max(180, $naturalDurationMs + 40)\n"
+            "          break\n"
+            "        }\n"
+            "      } catch {}\n"
+            "      Start-Sleep -Milliseconds 20\n"
+            "    }\n"
+            "    $wasTrimmed = $false\n"
+            "    if ($transitionTrimMs -gt 0 -and $naturalDurationMs -gt 900) {\n"
+            "      $trimmedForTransitionMs = [Math]::Max(180, $naturalDurationMs - $transitionTrimMs)\n"
+            "      if ($trimmedForTransitionMs -lt $playDurationMs) {\n"
+            "        $playDurationMs = $trimmedForTransitionMs\n"
+            "        $wasTrimmed = $true\n"
+            "      }\n"
+            "    }\n"
+            "    if ($maxDurationMs -gt 0) {\n"
+            "      $trimmedDurationMs = [Math]::Max(140, [Math]::Min($playDurationMs, $maxDurationMs))\n"
+            "      $wasTrimmed = $trimmedDurationMs -lt $playDurationMs\n"
+            "      $playDurationMs = $trimmedDurationMs\n"
+            "    }\n"
+            "    $fadeDurationMs = [Math]::Min(80, [Math]::Max(25, [int]($playDurationMs * 0.12)))\n"
+            "    $holdDurationMs = [Math]::Max(0, $playDurationMs - $fadeDurationMs)\n"
+            "    if ($holdDurationMs -gt 0) {\n"
+            "      Start-Sleep -Milliseconds $holdDurationMs\n"
+            "    }\n"
+            "    $fadeSteps = 6\n"
+            "    $fadeStepMs = [Math]::Max(8, [int][Math]::Ceiling($fadeDurationMs / $fadeSteps))\n"
+            "    for ($fadeIndex = 0; $fadeIndex -lt $fadeSteps; $fadeIndex++) {\n"
+            "      try { $player.Volume = [Math]::Max(0.0, 1.0 - (($fadeIndex + 1.0) / $fadeSteps)) } catch {}\n"
+            "      Start-Sleep -Milliseconds $fadeStepMs\n"
+            "    }\n"
+            "    if (-not $wasTrimmed) {\n"
+            "      try { $player.Volume = 1.0 } catch {}\n"
+            "    }\n"
+            "    if ([object]::ReferenceEquals($script:activePlayer, $player)) {\n"
+            "      $script:activePlayer = $null\n"
+            "    }\n"
+            "    return $true\n"
+            "  } catch {\n"
+            "    Remove-Player $clipPath\n"
+            "    $script:activePlayer = $null\n"
+            "    return $false\n"
+            "  }\n"
+            "}\n"
+            "foreach ($preloadPath in $preloadPaths) {\n"
+            "  if ([string]::IsNullOrWhiteSpace($preloadPath)) { continue }\n"
+            "  try {\n"
+            "    [void](Resolve-Player $preloadPath)\n"
+            "  } catch {}\n"
+            "}\n"
+            "Start-Sleep -Milliseconds 120\n"
+            "while (($line = [Console]::In.ReadLine()) -ne $null) {\n"
+            "  if ($line -eq '__EXIT__') { break }\n"
+            "  if ($line -eq '__STOP__') {\n"
+            "    Stop-Player $script:activePlayer\n"
+            "    $script:activePlayer = $null\n"
+            "    continue\n"
+            "  }\n"
+            "  if ([string]::IsNullOrWhiteSpace($line)) { continue }\n"
+            "  $parts = $line.Split('|', 2)\n"
+            "  if ($parts.Length -lt 2) { continue }\n"
+            "  if ($parts[0] -eq '__PLAY__') {\n"
+            "    try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "    [void](Play-Clip $clipPath $true 0 0)\n"
+            "    continue\n"
+            "  }\n"
+            "  if ($parts[0] -eq '__PRIME__') {\n"
+            "    try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "    if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
+            "    try {\n"
+            "      $player = Resolve-Player $clipPath\n"
+            "      $originalVolume = 1.0\n"
+            "      try { $originalVolume = [double]$player.Volume } catch {}\n"
+            "      Stop-Player $player\n"
+            "      try { $player.Volume = 0.02 } catch {}\n"
+            "      $player.Play()\n"
+            "      $primeDurationMs = 500\n"
+            "      for ($attempt = 0; $attempt -lt 80; $attempt++) {\n"
+            "        try {\n"
+            "          if ($player.NaturalDuration.HasTimeSpan) {\n"
+            "            $primeDurationMs = [Math]::Max(180, [int][Math]::Ceiling($player.NaturalDuration.TimeSpan.TotalMilliseconds) + 120)\n"
+            "            break\n"
+            "          }\n"
+            "        } catch {}\n"
+            "        Start-Sleep -Milliseconds 20\n"
+            "      }\n"
+            "      Start-Sleep -Milliseconds $primeDurationMs\n"
+            "      Stop-Player $player\n"
+            "      try { $player.Volume = $originalVolume } catch {}\n"
+            "      if ([object]::ReferenceEquals($script:activePlayer, $player)) {\n"
+            "        $script:activePlayer = $null\n"
+            "      }\n"
+            "    } catch {\n"
+            "      Remove-Player $clipPath\n"
+            "      $script:activePlayer = $null\n"
+            "    }\n"
+            "    continue\n"
+            "  }\n"
+            "  if ($parts[0] -eq '__PLAYLIMIT__') {\n"
+            "    try { $jsonText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "    if ([string]::IsNullOrWhiteSpace($jsonText)) { continue }\n"
+            "    try { $payload = ConvertFrom-Json -InputObject $jsonText } catch { continue }\n"
+            "    $clipPath = [string]$payload.path\n"
+            "    try { $maxDurationMs = [int]$payload.max_duration_ms } catch { $maxDurationMs = 0 }\n"
+            "    [void](Play-Clip $clipPath $true $maxDurationMs 0)\n"
+            "    continue\n"
+            "  }\n"
+            "  if ($parts[0] -eq '__PLAYSEQ__') {\n"
+            "    try { $jsonText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "    if ([string]::IsNullOrWhiteSpace($jsonText)) { continue }\n"
+            "    try { $clipPaths = @(ConvertFrom-Json -InputObject $jsonText) } catch { continue }\n"
+            "    $transitionTrimMs = 180\n"
+            "    for ($clipIndex = 0; $clipIndex -lt $clipPaths.Count; $clipIndex++) {\n"
+            "      $clipPath = [string]$clipPaths[$clipIndex]\n"
+            "      $currentTrimMs = 0\n"
+            "      if ($clipIndex -lt ($clipPaths.Count - 1)) {\n"
+            "        $currentTrimMs = $transitionTrimMs\n"
+            "      }\n"
+            "      [void](Play-Clip $clipPath $true 0 $currentTrimMs)\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+            "if ($script:activePlayer -ne $null) {\n"
+            "  try {\n"
+            "    Stop-Player $script:activePlayer\n"
+            "  } catch {}\n"
+            "}\n"
+            "foreach ($player in $script:players.Values) {\n"
+            "  try {\n"
+            "    $player.Stop()\n"
+            "    $player.Close()\n"
+            "  } catch {}\n"
+            "}\n"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        return ["powershell", "-NoProfile", "-Sta", "-EncodedCommand", encoded]
+
+    def _ensure_schedule_alarm_boss_audio_host_process(self) -> subprocess.Popen | None:
+        existing = self.schedule_alarm_boss_audio_process
+        if existing is not None and existing.poll() is None and existing.stdin is not None:
+            return existing
+        if existing is not None:
+            self._terminate_schedule_alarm_audio_process(existing)
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        preload_paths: list[str] = []
+        for subdir in ("boss", "min", "info", "sec"):
+            for clip_path in self._get_schedule_alarm_voice_files(subdir):
+                if clip_path not in preload_paths:
+                    preload_paths.append(clip_path)
+        try:
+            process = subprocess.Popen(
+                self._build_schedule_alarm_boss_audio_host_command(preload_paths),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                creationflags=creationflags,
+            )
+        except OSError:
+            self.schedule_alarm_boss_audio_process = None
+            return None
+        self.schedule_alarm_boss_audio_process = process
+        self._prime_schedule_alarm_boss_audio_host(process)
+        return process
+
+    def _get_schedule_alarm_audio_prime_clip_path(self) -> str | None:
+        countdown_start = 60
+        if hasattr(self, "schedule_alarm_countdown_start_var") and self.schedule_alarm_countdown_start_var is not None:
+            countdown_start = min(60, max(0, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
+        numeric_candidates: list[tuple[int, str]] = []
+        for clip_path in self._get_schedule_alarm_voice_files("sec"):
+            stem = self._normalize_schedule_alarm_voice_stem(os.path.basename(clip_path))
+            if not stem.isdigit():
+                continue
+            numeric_candidates.append((int(stem), clip_path))
+        numeric_candidates.sort(key=lambda item: item[0], reverse=True)
+        for number, clip_path in numeric_candidates:
+            if 1 <= number <= countdown_start:
+                return clip_path
+        for number, clip_path in numeric_candidates:
+            if number == 0:
+                return clip_path
+        for subdir in ("sec", "min", "info"):
+            files = self._get_schedule_alarm_voice_files(subdir)
+            if files:
+                return files[0]
+        return None
+
+    def _prime_schedule_alarm_boss_audio_host(self, process: subprocess.Popen | None = None) -> bool:
+        target_process = process or self.schedule_alarm_boss_audio_process
+        if target_process is None or target_process.stdin is None:
+            return False
+        clip_path = self._get_schedule_alarm_audio_prime_clip_path()
+        if not clip_path:
+            return False
+        payload = base64.b64encode(str(clip_path).encode("utf-8")).decode("ascii")
+        try:
+            target_process.stdin.write(f"__PRIME__|{payload}\n")
+            target_process.stdin.flush()
+        except OSError:
+            if process is None:
+                self.schedule_alarm_boss_audio_process = None
+            return False
+        return True
+
+    def _play_schedule_alarm_boss_audio_file(
+        self,
+        clip_path: str,
+        *,
+        request_id: int,
+        expires_at: datetime | None,
+        max_duration_ms: int | None = None,
+    ) -> bool:
+        valid_clip_path = str(clip_path).strip()
+        if not valid_clip_path:
+            return False
+        process = self._ensure_schedule_alarm_boss_audio_host_process()
+        if process is None or process.stdin is None:
+            return False
+        if isinstance(max_duration_ms, int) and max_duration_ms > 0:
+            command_name = "__PLAYLIMIT__"
+            payload_text = json.dumps(
+                {
+                    "path": valid_clip_path,
+                    "max_duration_ms": max(140, int(max_duration_ms)),
+                },
+                ensure_ascii=False,
+            )
+        else:
+            command_name = "__PLAY__"
+            payload_text = valid_clip_path
+        payload = base64.b64encode(payload_text.encode("utf-8")).decode("ascii")
+        try:
+            process.stdin.write(f"{command_name}|{payload}\n")
+            process.stdin.flush()
+        except OSError:
+            self.schedule_alarm_boss_audio_process = None
+            return False
+        return True
+
+    def _play_schedule_alarm_boss_audio_paths(
+        self,
+        clip_paths: list[str],
+        *,
+        request_id: int,
+        expires_at: datetime | None,
+    ) -> bool:
+        valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        if not valid_clip_paths:
+            return False
+        _ = request_id, expires_at
+        self._stop_schedule_alarm_boss_audio(close_host=False)
+        process = self._ensure_schedule_alarm_boss_audio_host_process()
+        if process is not None and process.stdin is not None:
+            payload_text = json.dumps(valid_clip_paths, ensure_ascii=False)
+            payload = base64.b64encode(payload_text.encode("utf-8")).decode("ascii")
+            try:
+                process.stdin.write(f"__PLAYSEQ__|{payload}\n")
+                process.stdin.flush()
+                return True
+            except OSError:
+                self.schedule_alarm_boss_audio_process = None
+        self._stop_schedule_alarm_boss_audio(close_host=True)
+        process = self._start_schedule_alarm_audio_sequence_process(valid_clip_paths)
+        if process is None:
+            return False
+        with self.schedule_alarm_boss_audio_lock:
+            self.schedule_alarm_boss_audio_process = process
+        return True
+
+    def _start_schedule_alarm_boss_audio(
+        self,
+        remaining_seconds: int,
+        *,
+        item: dict[str, object] | None = None,
+        boss_name: str | None = None,
+        expires_at: datetime | None = None,
+    ) -> bool:
+        clip_paths = self._get_schedule_alarm_boss_audio_paths(
+            remaining_seconds,
+            item=item,
+            boss_name=boss_name,
+        )
+        if not clip_paths:
+            return False
+        return self._play_schedule_alarm_boss_audio_paths(
+            clip_paths,
+            request_id=self.schedule_alarm_boss_audio_request_id,
+            expires_at=expires_at,
+        )
+
+    def _reload_schedule_alarm_audio_hosts(self, *, preload: bool = True) -> None:
+        self._invalidate_schedule_alarm_voice_caches()
+        self._stop_schedule_alarm_countdown_audio(close_host=True)
+        self._stop_schedule_alarm_boss_audio(close_host=True)
+        if preload:
+            if self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_countdown_ai_voice_enabled_default:
+                self._ensure_schedule_alarm_countdown_audio_host_process()
+            self._ensure_schedule_alarm_boss_audio_host_process()
+
+    def _get_schedule_alarm_countdown_test_audio_paths(self) -> list[str]:
+        preferred_numbers = (3, 2, 1)
+        selected_paths: list[str] = []
+        seen_paths: set[str] = set()
+        for number in preferred_numbers:
+            clip_path = self._get_schedule_alarm_voice_file_by_stem("sec", str(number))
+            if not clip_path or clip_path in seen_paths:
+                continue
+            seen_paths.add(clip_path)
+            selected_paths.append(clip_path)
+        if selected_paths:
+            return selected_paths
+        numeric_candidates: list[tuple[int, str]] = []
+        for clip_path in self._get_schedule_alarm_voice_files("sec"):
+            stem = self._normalize_schedule_alarm_voice_stem(os.path.basename(clip_path))
+            if not stem.isdigit():
+                continue
+            numeric_candidates.append((int(stem), clip_path))
+        numeric_candidates.sort(key=lambda item: item[0], reverse=True)
+        for _number, clip_path in numeric_candidates:
+            if clip_path in seen_paths:
+                continue
+            seen_paths.add(clip_path)
+            selected_paths.append(clip_path)
+            if len(selected_paths) >= 3:
+                break
+        return selected_paths
+
+    def _reload_and_test_schedule_alarm_countdown_audio(self) -> None:
+        clip_paths = self._get_schedule_alarm_countdown_test_audio_paths()
+        self._reload_schedule_alarm_audio_hosts(preload=False)
+        if not clip_paths:
+            if hasattr(self, "schedule_alarm_status_var") and self.schedule_alarm_status_var is not None:
+                self.schedule_alarm_status_var.set("초읽기 테스트용 음성을 찾지 못했습니다. voice/sec 폴더를 확인해주세요.")
+            return
+        self._ensure_schedule_alarm_boss_audio_host_process()
+        played = self._play_schedule_alarm_boss_audio_paths(
+            clip_paths,
+            request_id=self.schedule_alarm_boss_audio_request_id,
+            expires_at=None,
+        )
+        if hasattr(self, "schedule_alarm_status_var") and self.schedule_alarm_status_var is not None:
+            if played:
+                sample_text = ", ".join(self._normalize_schedule_alarm_voice_stem(os.path.basename(path)) for path in clip_paths)
+                self.schedule_alarm_status_var.set(f"초읽기 음성을 다시 불러와서 {sample_text} 테스트를 재생합니다.")
+            else:
+                self.schedule_alarm_status_var.set("초읽기 음성 재로드는 했지만 테스트 재생을 시작하지 못했습니다.")
 
     def _build_schedule_alarm_tts_command(self, text: str) -> list[str]:
         voice_name = str(self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
@@ -15945,14 +19099,18 @@ class BossTimerApp:
         self.schedule_alarm_tts_process_voice_name = voice_name
         return process
 
-    def _speak_schedule_alarm_text(self, text: str, *, rate: int = 0, purge: bool = False) -> None:
+    def _speak_schedule_alarm_text(self, text: str, *, rate: int = 0, purge: bool = False, async_mode: bool = False) -> None:
         speech_text = str(text or "").strip()
         if not speech_text:
             return
         process = self._ensure_schedule_alarm_tts_process()
         if process is None or process.stdin is None:
             return
-        flags = 2 if purge else 0
+        flags = 0
+        if async_mode:
+            flags |= 1
+        if purge:
+            flags |= 2
         payload_text = base64.b64encode(speech_text.encode("utf-8")).decode("ascii")
         payload = f"__SPEAK__|{max(-10, min(10, int(rate)))}|{flags}|{payload_text}\n"
         try:
@@ -15997,6 +19155,7 @@ class BossTimerApp:
                     text,
                     rate=int(payload.get("rate", 0)) if isinstance(payload, dict) else 0,
                     purge=bool(payload.get("purge", False)) if isinstance(payload, dict) else False,
+                    async_mode=bool(payload.get("async_mode", False)) if isinstance(payload, dict) else False,
                 )
             finally:
                 self.schedule_alarm_tts_queue.task_done()
@@ -16004,6 +19163,8 @@ class BossTimerApp:
     def _shutdown_schedule_alarm_tts_worker(self) -> None:
         if self.schedule_alarm_tts_stop_event.is_set():
             return
+        self._stop_schedule_alarm_countdown_audio(close_host=True)
+        self._stop_schedule_alarm_boss_audio(close_host=True)
         self.schedule_alarm_tts_stop_event.set()
         try:
             self.schedule_alarm_tts_queue.put_nowait(None)
@@ -16022,6 +19183,14 @@ class BossTimerApp:
                 pass
         self.schedule_alarm_tts_process = None
         self.schedule_alarm_tts_process_voice_name = ""
+        countdown_audio_thread = self.schedule_alarm_countdown_audio_thread
+        if countdown_audio_thread is not None and countdown_audio_thread.is_alive():
+            countdown_audio_thread.join(timeout=0.3)
+        self.schedule_alarm_countdown_audio_thread = None
+        boss_audio_thread = self.schedule_alarm_boss_audio_thread
+        if boss_audio_thread is not None and boss_audio_thread.is_alive():
+            boss_audio_thread.join(timeout=0.3)
+        self.schedule_alarm_boss_audio_thread = None
         if self.schedule_alarm_tts_thread.is_alive():
             self.schedule_alarm_tts_thread.join(timeout=0.8)
 
@@ -16033,6 +19202,7 @@ class BossTimerApp:
         category: str = "general",
         rate: int = 0,
         purge: bool = False,
+        async_mode: bool = False,
         expires_at: datetime | None = None,
     ) -> None:
         if self.schedule_alarm_tts_stop_event.is_set():
@@ -16050,6 +19220,7 @@ class BossTimerApp:
                 "category": normalized_category,
                 "rate": int(rate),
                 "purge": bool(purge),
+                "async_mode": bool(async_mode),
                 "expires_at": expires_at if isinstance(expires_at, datetime) else None,
             }
         )
@@ -16068,6 +19239,19 @@ class BossTimerApp:
         if not parts:
             parts.append("1초")
         return " ".join(parts)
+
+    def _format_schedule_alarm_countdown_speech(self, remaining_seconds: int) -> str:
+        seconds = int(remaining_seconds)
+        if seconds <= 0:
+            return "젠"
+        units = ("", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구")
+        if seconds < 10:
+            return units[seconds]
+        if seconds < 100:
+            tens, ones = divmod(seconds, 10)
+            prefix = units[tens] if tens > 1 else ""
+            return f"{prefix}십{units[ones]}"
+        return str(seconds)
 
     def _build_schedule_alarm_due_key(self, category: str, identity: str, anchor_datetime: datetime, seconds: int) -> str:
         return f"{category}:{identity}:{anchor_datetime.isoformat()}:{int(seconds)}"
@@ -16109,15 +19293,435 @@ class BossTimerApp:
         candidates.sort(key=lambda row: (row[0], row[1]))
         return candidates[0]
 
+    def _get_schedule_alarm_event_identity(self, item: dict[str, object] | None) -> str:
+        if not isinstance(item, dict):
+            return ""
+        raw_key = str(item.get("raw_key") or self._get_schedule_panel_dedupe_key(item) or item.get("boss_name") or "").strip()
+        scheduled_at = item.get("scheduled_at")
+        scheduled_key = scheduled_at.replace(microsecond=0).isoformat() if isinstance(scheduled_at, datetime) else ""
+        return f"{raw_key}|{scheduled_key}"
+
+    def _build_schedule_alarm_event_group_identity(self, items: list[dict[str, object]]) -> str:
+        identities = [self._get_schedule_alarm_event_identity(item) for item in items if self._get_schedule_alarm_event_identity(item)]
+        return "||".join(identities)
+
+    def _build_schedule_alarm_event_clusters(
+        self,
+        items: list[dict[str, object]],
+        *,
+        max_gap_seconds: int,
+    ) -> list[list[dict[str, object]]]:
+        sorted_items = [
+            item
+            for item in sorted(
+                (entry for entry in items if isinstance(entry, dict)),
+                key=lambda entry: (
+                    entry.get("scheduled_at") or datetime.max,
+                    self._get_schedule_boss_display_name(entry, prefer_alias=True),
+                ),
+            )
+            if isinstance(item.get("scheduled_at"), datetime)
+        ]
+        if len(sorted_items) < 2:
+            return []
+        clusters: list[list[dict[str, object]]] = []
+        current_cluster: list[dict[str, object]] = []
+        previous_scheduled_at: datetime | None = None
+        gap_limit = max(1, int(max_gap_seconds))
+        for item in sorted_items:
+            scheduled_at = item.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if not current_cluster:
+                current_cluster = [item]
+                previous_scheduled_at = scheduled_at
+                continue
+            previous_value = previous_scheduled_at if isinstance(previous_scheduled_at, datetime) else scheduled_at
+            gap_seconds = int((scheduled_at - previous_value).total_seconds())
+            if gap_seconds <= gap_limit:
+                current_cluster.append(item)
+            else:
+                if len(current_cluster) >= 2:
+                    clusters.append(list(current_cluster))
+                current_cluster = [item]
+            previous_scheduled_at = scheduled_at
+        if len(current_cluster) >= 2:
+            clusters.append(list(current_cluster))
+        return clusters
+
+    def _build_schedule_alarm_cluster_membership(
+        self,
+        items: list[dict[str, object]],
+        *,
+        max_gap_seconds: int,
+    ) -> tuple[list[list[dict[str, object]]], dict[str, list[dict[str, object]]]]:
+        groups = self._build_schedule_alarm_event_clusters(items, max_gap_seconds=max_gap_seconds)
+        membership: dict[str, list[dict[str, object]]] = {}
+        for group in groups:
+            for item in group:
+                identity = self._get_schedule_alarm_event_identity(item)
+                if identity:
+                    membership[identity] = group
+        return groups, membership
+
+    def _get_schedule_alarm_random_voice_path_by_prefix(self, subdir: str, stem_prefix: object | None) -> str | None:
+        candidates = self._get_schedule_alarm_voice_files_by_stem_prefix(subdir, stem_prefix)
+        if not candidates:
+            return None
+        return random.choice(candidates)
+
+    def _get_schedule_alarm_offset_audio_path(
+        self,
+        total_seconds: int,
+        *,
+        preferred_info_token: str | None = None,
+    ) -> str | None:
+        if preferred_info_token:
+            info_clip = self._get_schedule_alarm_info_audio_path(preferred_info_token)
+            if info_clip:
+                return info_clip
+            info_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", preferred_info_token)
+            if info_clip:
+                return info_clip
+        candidates = self._get_schedule_alarm_boss_audio_available_paths(total_seconds)
+        if not candidates:
+            return None
+        return random.choice(candidates)
+
+    def _build_schedule_alarm_custom_audio_paths(
+        self,
+        *,
+        boss_items: list[dict[str, object]] | None = None,
+        boss_names: list[str] | None = None,
+        info_tokens: list[str] | None = None,
+        minute_seconds: int | None = None,
+        minute_info_token: str | None = None,
+        sec_tokens: list[str] | None = None,
+    ) -> list[str]:
+        clip_paths: list[str] = []
+        for item in boss_items or []:
+            if not isinstance(item, dict):
+                continue
+            if self._is_schedule_alarm_audio_invasion(item=item):
+                invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
+                if invasion_clip:
+                    clip_paths.append(invasion_clip)
+            boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
+            if boss_clip:
+                clip_paths.append(boss_clip)
+        for boss_name in boss_names or []:
+            boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
+            if boss_clip:
+                clip_paths.append(boss_clip)
+        for token in info_tokens or []:
+            info_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", token)
+            if not info_clip:
+                info_clip = self._get_schedule_alarm_info_audio_path(token)
+            if info_clip:
+                clip_paths.append(info_clip)
+        if isinstance(minute_seconds, int) and minute_seconds > 0:
+            minute_clip = self._get_schedule_alarm_offset_audio_path(
+                minute_seconds,
+                preferred_info_token=minute_info_token,
+            )
+            if minute_clip:
+                clip_paths.append(minute_clip)
+        for token in sec_tokens or []:
+            sec_clip = self._get_schedule_alarm_voice_file_by_stem("sec", token)
+            if sec_clip:
+                clip_paths.append(sec_clip)
+        return clip_paths
+
+    def _get_schedule_alarm_sequence_lead_seconds(self, clip_paths: list[str]) -> int:
+        valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        if not valid_clip_paths:
+            return 0
+        lead_duration_ms = 0
+        for clip_path in valid_clip_paths[:-1]:
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
+            if isinstance(clip_duration_ms, int) and clip_duration_ms > 0:
+                transition_trim_ms = 70 if clip_duration_ms > 900 else 0
+                lead_duration_ms += max(180, clip_duration_ms - transition_trim_ms)
+            else:
+                lead_duration_ms += 1000
+        return max(0, int(math.ceil(lead_duration_ms / 1000.0)))
+
+    def _play_or_queue_schedule_alarm_audio_sequence(
+        self,
+        clip_paths: list[str],
+        fallback_text: str,
+        *,
+        beep: bool = True,
+        category: str = "general",
+        rate: int = 1,
+        balance: float = 0.0,
+        force_audio: bool = False,
+    ) -> bool:
+        valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        try:
+            playback_balance = max(-1.0, min(1.0, float(balance)))
+        except (TypeError, ValueError):
+            playback_balance = 0.0
+        if (bool(self.schedule_alarm_boss_ai_voice_var.get()) or bool(force_audio)) and valid_clip_paths:
+            if abs(playback_balance) > 0.001:
+                self._stop_schedule_alarm_boss_audio(close_host=False)
+                process = self._start_schedule_alarm_audio_sequence_process(
+                    valid_clip_paths,
+                    balance=playback_balance,
+                )
+                if process is not None:
+                    with self.schedule_alarm_boss_audio_lock:
+                        self.schedule_alarm_boss_audio_process = process
+                    return True
+            else:
+                if self._play_schedule_alarm_boss_audio_paths(
+                    valid_clip_paths,
+                    request_id=self.schedule_alarm_boss_audio_request_id,
+                    expires_at=None,
+                ):
+                    return True
+        self._queue_schedule_alarm_speech(
+            fallback_text,
+            beep=beep,
+            category=category,
+            rate=rate,
+        )
+        return False
+
+    def _get_schedule_alarm_group_display_names(self, items: list[dict[str, object]]) -> list[str]:
+        names: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            display_name = self._get_schedule_boss_display_name(item, prefer_alias=True)
+            if not display_name or display_name in seen:
+                continue
+            seen.add(display_name)
+            names.append(display_name)
+        return names
+
+    def _get_schedule_alarm_clip_sequence_duration_ms(self, clip_paths: list[str], *, fallback_ms: int = 1200) -> int:
+        valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        if not valid_clip_paths:
+            return max(200, int(fallback_ms))
+        total_duration_ms = 0
+        for clip_path in valid_clip_paths:
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
+            if isinstance(clip_duration_ms, int) and clip_duration_ms > 0:
+                total_duration_ms += max(160, clip_duration_ms + 80)
+            else:
+                total_duration_ms += max(200, int(fallback_ms))
+        return max(200, total_duration_ms)
+
+    def _schedule_next_countdown_boss_followup(
+        self,
+        next_display_name: str,
+        *,
+        delay_ms: int,
+        anchor_datetime: datetime | None = None,
+    ) -> None:
+        display_name = str(next_display_name or "").strip()
+        if not display_name:
+            return
+
+        def _announce() -> None:
+            if not bool(self.schedule_alarm_master_var.get()):
+                return
+            if isinstance(anchor_datetime, datetime):
+                reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+                followup_key = self._build_schedule_alarm_due_key(
+                    "countdown_followup",
+                    display_name,
+                    anchor_datetime,
+                    0,
+                )
+                if not self._should_fire_schedule_alarm_key(followup_key, reference_now):
+                    return
+            boss_clip_path = self._get_schedule_alarm_boss_voice_path(boss_name=display_name)
+            if boss_clip_path:
+                self._stop_schedule_alarm_boss_audio(close_host=False)
+                process = self._start_schedule_alarm_audio_focus_process(boss_clip_path)
+                if process is not None:
+                    with self.schedule_alarm_boss_audio_lock:
+                        self.schedule_alarm_boss_audio_process = process
+                    return
+            self._play_or_queue_schedule_alarm_audio_sequence(
+                [],
+                display_name,
+                beep=False,
+                category="general",
+                rate=1,
+            )
+
+        safe_delay_ms = max(0, int(delay_ms))
+        try:
+            self.root.after(safe_delay_ms, _announce)
+        except Exception:
+            _announce()
+
+    def _get_next_schedule_countdown_followup_name(
+        self,
+        current_scheduled_at: datetime,
+        current_boss_name: str,
+        candidates: list[tuple[datetime, str, int, str]],
+    ) -> str:
+        current_boss_text = str(current_boss_name or "").strip()
+        for scheduled_at, boss_name, _remaining_seconds, display_name in sorted(candidates, key=lambda item: (item[0], item[1])):
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if scheduled_at <= current_scheduled_at:
+                continue
+            if current_boss_text and str(boss_name or "").strip() == current_boss_text and scheduled_at == current_scheduled_at:
+                continue
+            cleaned_name = str(display_name or boss_name or "").strip()
+            if cleaned_name:
+                return cleaned_name
+        return ""
+
+    def _fire_schedule_alarm_countdown_completion(
+        self,
+        *,
+        scheduled_at: datetime,
+        boss_name: str,
+        prefer_audio: bool,
+    ) -> bool:
+        if not isinstance(scheduled_at, datetime):
+            return False
+        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        completion_key = self._build_schedule_alarm_due_key(
+            "countdown_completion",
+            str(boss_name or "").strip(),
+            scheduled_at,
+            0,
+        )
+        if not self._should_fire_schedule_alarm_key(completion_key, reference_now):
+            return False
+        return self._play_schedule_alarm_countdown_completion(
+            prefer_audio=prefer_audio,
+            anchor_datetime=scheduled_at,
+        )
+
+    def _schedule_schedule_alarm_countdown_completion(
+        self,
+        *,
+        scheduled_at: datetime,
+        boss_name: str,
+        prefer_audio: bool,
+    ) -> None:
+        if self.root is None or not self.root.winfo_exists() or not isinstance(scheduled_at, datetime):
+            return
+        reference_now = self._get_schedule_reference_datetime()
+        delay_ms = max(
+            0,
+            int(round((scheduled_at - reference_now).total_seconds() * 1000.0))
+            - int(SCHEDULE_ALARM_COUNTDOWN_COMPLETION_ADVANCE_MS),
+        )
+
+        def _announce() -> None:
+            if not bool(self.schedule_alarm_master_var.get()):
+                return
+            if not bool(self.schedule_alarm_countdown_enabled_var.get()):
+                return
+            self._fire_schedule_alarm_countdown_completion(
+                scheduled_at=scheduled_at,
+                boss_name=boss_name,
+                prefer_audio=prefer_audio,
+            )
+
+        try:
+            self.root.after(delay_ms, _announce)
+        except Exception:
+            _announce()
+
     def _build_schedule_fixed_alarm_message(self, reference_now: datetime, scheduled_at: datetime, boss_name: str) -> str:
         message = f"고정보스 {boss_name}이 끝나기 1분 전입니다."
         next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
         if next_target is not None:
             next_time, next_boss = next_target
             next_remaining = int((next_time - scheduled_at).total_seconds())
-            if next_remaining > 0:
-                message += f" 다음 보스는 {next_boss}, {self._format_schedule_alarm_remaining_speech(next_remaining)} 남았습니다."
+            if next_remaining > int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
+                message += f" 다음보스는 {next_boss} {self._format_schedule_alarm_remaining_speech(next_remaining)} 전입니다."
         return message
+
+    def _build_schedule_fixed_alarm_audio_paths(
+        self,
+        reference_now: datetime,
+        scheduled_at: datetime,
+        boss_name: str,
+    ) -> list[str]:
+        current_clip_paths = self._get_schedule_alarm_boss_audio_paths(
+            SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS,
+            boss_name=boss_name,
+        )
+        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
+        if next_target is None:
+            return current_clip_paths
+        next_time, next_boss = next_target
+        next_remaining = int((next_time - scheduled_at).total_seconds())
+        if next_remaining <= int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
+            return current_clip_paths
+        next_intro_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "다음보스는")
+        if not next_intro_clip:
+            next_intro_clip = self._get_schedule_alarm_info_audio_path("다음보스는")
+        next_boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=next_boss)
+        next_offset_clip = self._get_schedule_alarm_offset_audio_path(next_remaining)
+        if current_clip_paths and next_intro_clip and next_boss_clip and next_offset_clip:
+            return list(current_clip_paths) + [next_intro_clip, next_boss_clip, next_offset_clip]
+        return []
+
+    def _collect_schedule_countdown_alarm_items(
+        self,
+        reference_now: datetime,
+        *,
+        max_remaining_seconds: int,
+    ) -> list[dict[str, object]]:
+        current_second = reference_now.replace(microsecond=0)
+        cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
+        safe_limit = max(0, int(max_remaining_seconds))
+        countdown_items: list[dict[str, object]] = []
+        for item in self.schedule_events:
+            scheduled_at = item.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if not self._is_schedule_second_precision(item):
+                continue
+            if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
+                continue
+            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(scheduled_at):
+                continue
+            boss_name = str(item.get("boss_name") or "").strip()
+            if not boss_name:
+                continue
+            raw_remaining_seconds = int((scheduled_at - current_second).total_seconds())
+            if raw_remaining_seconds < 0:
+                continue
+            remaining_seconds = raw_remaining_seconds
+            if not 0 <= remaining_seconds <= safe_limit:
+                continue
+            countdown_items.append(
+                {
+                    "item": item,
+                    "scheduled_at": scheduled_at,
+                    "boss_name": boss_name,
+                    "display_name": self._get_schedule_boss_display_name(item, prefer_alias=True),
+                    "remaining_seconds": remaining_seconds,
+                }
+            )
+        countdown_items.sort(
+            key=lambda entry: (
+                entry.get("scheduled_at") if isinstance(entry.get("scheduled_at"), datetime) else datetime.max,
+                str(entry.get("boss_name") or ""),
+            )
+        )
+        return countdown_items
+
+    def _has_active_schedule_countdown_window(self, reference_now: datetime) -> bool:
+        countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
+        return bool(
+            self._collect_schedule_countdown_alarm_items(
+                reference_now,
+                max_remaining_seconds=countdown_start,
+            )
+        )
 
     def _process_schedule_alarm_tick(self, reference_now: datetime) -> None:
         if not bool(self.schedule_alarm_master_var.get()):
@@ -16128,11 +19732,32 @@ class BossTimerApp:
         self.schedule_alarm_last_tick_second = current_second
         self._prune_schedule_alarm_fired_keys(current_second)
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
-        countdown_candidates: list[tuple[datetime, str, int]] = []
+        countdown_candidates: list[tuple[datetime, str, int, str]] = []
+        played_ai_boss_offsets: set[int] = set()
+        boss_ai_enabled = bool(self.schedule_alarm_boss_ai_voice_var.get())
+        countdown_enabled = bool(self.schedule_alarm_countdown_enabled_var.get())
+        countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
+        countdown_start_notice_seconds = countdown_start + 5
+        countdown_alarm_items = self._collect_schedule_countdown_alarm_items(
+            current_second,
+            max_remaining_seconds=countdown_start_notice_seconds,
+        ) if countdown_enabled else []
+        rapid_chain_warning_specs = (
+            (610, 600, "10분전"),
+            (310, 300, "5분전"),
+        )
 
+        if (
+            not countdown_enabled
+            and self.schedule_alarm_countdown_audio_host_process is not None
+            and not self._has_active_schedule_countdown_window(current_second)
+        ):
+            self._stop_schedule_alarm_countdown_audio(close_host=True)
+
+        dynamic_alarm_items: list[dict[str, object]] = []
         for item in self.schedule_events:
             scheduled_at = item.get("scheduled_at")
-            if not isinstance(scheduled_at, datetime) or scheduled_at <= current_second:
+            if not isinstance(scheduled_at, datetime) or scheduled_at < current_second:
                 continue
             if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
                 continue
@@ -16143,54 +19768,336 @@ class BossTimerApp:
                 continue
             entry = self._get_schedule_boss_alarm_entry(boss_name)
             offsets = self._normalize_schedule_alarm_offsets(entry.get("offsets", []))
-            if not bool(entry.get("enabled")) or not offsets:
-                continue
-            remaining_seconds = int((scheduled_at - current_second).total_seconds())
-            display_name = self._get_schedule_boss_display_name(item, prefer_alias=True)
-            fired_phrase_this_second = False
-            for offset_seconds in offsets:
-                alert_message = f"{display_name} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다."
-                if remaining_seconds != offset_seconds:
+            dynamic_alarm_items.append(
+                {
+                    "item": item,
+                    "identity": self._get_schedule_alarm_event_identity(item),
+                    "scheduled_at": scheduled_at,
+                    "boss_name": boss_name,
+                    "display_name": self._get_schedule_boss_display_name(item, prefer_alias=True),
+                    "entry": entry,
+                    "offsets": offsets,
+                    "enabled": bool(entry.get("enabled")) and bool(offsets),
+                    "remaining_seconds": int((scheduled_at - current_second).total_seconds()),
+                    "second_precision": self._is_schedule_second_precision(item),
+                }
+            )
+
+        dynamic_alarm_item_map = {
+            str(entry.get("identity") or ""): entry
+            for entry in dynamic_alarm_items
+            if str(entry.get("identity") or "")
+        }
+        enabled_dynamic_items = [entry for entry in dynamic_alarm_items if bool(entry.get("enabled"))]
+        same_time_cluster_membership_by_offset: dict[int, dict[str, list[dict[str, object]]]] = {}
+        for grouped_offset_seconds in (300, 60):
+            grouped_items = [
+                entry.get("item")
+                for entry in enabled_dynamic_items
+                if grouped_offset_seconds in entry.get("offsets", [])
+            ]
+            _groups, membership = self._build_schedule_alarm_cluster_membership(
+                [item for item in grouped_items if isinstance(item, dict)],
+                max_gap_seconds=25,
+            )
+            same_time_cluster_membership_by_offset[grouped_offset_seconds] = membership
+
+        rapid_chain_groups = self._build_schedule_alarm_event_clusters(
+            [entry.get("item") for entry in enabled_dynamic_items if isinstance(entry.get("item"), dict)],
+            max_gap_seconds=60,
+        )
+        for trigger_seconds, spoken_offset_seconds, spoken_offset_token in rapid_chain_warning_specs:
+            for group in rapid_chain_groups:
+                leader_item = group[0] if group else None
+                leader_identity = self._get_schedule_alarm_event_identity(leader_item)
+                leader_info = dynamic_alarm_item_map.get(leader_identity)
+                if not isinstance(leader_info, dict):
                     continue
-                alert_key = self._build_schedule_alarm_due_key("event", boss_name, scheduled_at, offset_seconds)
+                if int(leader_info.get("remaining_seconds") or -1) != int(trigger_seconds):
+                    continue
+                leader_scheduled_at = leader_info.get("scheduled_at")
+                alert_key = self._build_schedule_alarm_due_key(
+                    "rapid_chain",
+                    self._build_schedule_alarm_event_group_identity(group),
+                    leader_scheduled_at if isinstance(leader_scheduled_at, datetime) else current_second,
+                    trigger_seconds,
+                )
                 if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                     continue
-                self._queue_schedule_alarm_speech(
-                    alert_message,
+                clip_paths = self._build_schedule_alarm_custom_audio_paths(
+                    info_tokens=["연속보스감지", "축작업하세요"],
+                    minute_seconds=spoken_offset_seconds,
+                    minute_info_token=spoken_offset_token,
+                )
+                self._play_or_queue_schedule_alarm_audio_sequence(
+                    clip_paths,
+                    f"연속보스 감지 {spoken_offset_token}, 축 작업 하세요.",
                     beep=True,
                     category="general",
                     rate=1,
                 )
+
+        if countdown_enabled:
+            for countdown_entry in countdown_alarm_items:
+                scheduled_at = countdown_entry.get("scheduled_at")
+                if not isinstance(scheduled_at, datetime):
+                    continue
+                remaining_seconds = int(countdown_entry.get("remaining_seconds") or -1)
+                if remaining_seconds != countdown_start_notice_seconds:
+                    continue
+                boss_name = str(countdown_entry.get("boss_name") or "").strip()
+                display_name = str(countdown_entry.get("display_name") or boss_name).strip()
+                item = countdown_entry.get("item")
+                overlap_countdown_active = any(
+                    isinstance(other_entry.get("scheduled_at"), datetime)
+                    and other_entry.get("scheduled_at") < scheduled_at
+                    and 0 <= int(other_entry.get("remaining_seconds") or -1) <= countdown_start
+                    for other_entry in countdown_alarm_items
+                )
+                if overlap_countdown_active:
+                    continue
+                alert_key = self._build_schedule_alarm_due_key(
+                    "countdown_start_notice",
+                    boss_name,
+                    scheduled_at,
+                    countdown_start_notice_seconds,
+                )
+                if self._should_fire_schedule_alarm_key(alert_key, current_second):
+                    clip_paths = self._build_schedule_alarm_custom_audio_paths(
+                        boss_items=[item] if isinstance(item, dict) else None,
+                        info_tokens=["초읽기시작"],
+                    )
+                    self._play_or_queue_schedule_alarm_audio_sequence(
+                        clip_paths,
+                        f"{display_name} 초읽기 시작",
+                        beep=True,
+                        category="general",
+                        rate=1,
+                        balance=0.0,
+                    )
+
+        for alarm_entry in dynamic_alarm_items:
+            item = alarm_entry.get("item")
+            if not isinstance(item, dict):
+                continue
+            if not bool(alarm_entry.get("enabled")):
+                continue
+            scheduled_at = alarm_entry.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            boss_name = str(alarm_entry.get("boss_name") or "").strip()
+            if not boss_name:
+                continue
+            offsets = list(alarm_entry.get("offsets", []))
+            remaining_seconds = int(alarm_entry.get("remaining_seconds") or -1)
+            display_name = str(alarm_entry.get("display_name") or boss_name).strip()
+            identity = str(alarm_entry.get("identity") or "")
+            fired_phrase_this_second = False
+            for offset_seconds in offsets:
+                same_time_group = same_time_cluster_membership_by_offset.get(int(offset_seconds), {}).get(identity)
+                if offset_seconds in {300, 60} and same_time_group:
+                    leader_item = same_time_group[0] if same_time_group else None
+                    leader_identity = self._get_schedule_alarm_event_identity(leader_item)
+                    if identity != leader_identity:
+                        continue
+                    leader_info = dynamic_alarm_item_map.get(leader_identity)
+                    if not isinstance(leader_info, dict):
+                        continue
+                    if offset_seconds == 60:
+                        clip_paths = self._build_schedule_alarm_custom_audio_paths(
+                            boss_items=[leader_item] if isinstance(leader_item, dict) else None,
+                            info_tokens=["연타임보스"],
+                            minute_seconds=offset_seconds,
+                        )
+                        alert_message = f"{display_name} 연타임보스 1분 전입니다."
+                    else:
+                        clip_paths = self._build_schedule_alarm_custom_audio_paths(
+                            boss_items=list(same_time_group),
+                            minute_seconds=offset_seconds,
+                        )
+                        joined_names = " ".join(self._get_schedule_alarm_group_display_names(same_time_group)).strip()
+                        alert_message = f"{joined_names} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.".strip()
+                    target_remaining_seconds = offset_seconds
+                    if boss_ai_enabled:
+                        target_remaining_seconds += self._get_schedule_alarm_sequence_lead_seconds(clip_paths)
+                    if remaining_seconds != target_remaining_seconds:
+                        continue
+                    leader_scheduled_at = leader_info.get("scheduled_at")
+                    alert_key = self._build_schedule_alarm_due_key(
+                        "event_group",
+                        self._build_schedule_alarm_event_group_identity(same_time_group),
+                        leader_scheduled_at if isinstance(leader_scheduled_at, datetime) else scheduled_at,
+                        offset_seconds,
+                    )
+                    if not self._should_fire_schedule_alarm_key(alert_key, current_second):
+                        continue
+                    played_audio = self._play_or_queue_schedule_alarm_audio_sequence(
+                        clip_paths,
+                        alert_message,
+                        beep=True,
+                        category="general",
+                        rate=1,
+                    )
+                    if boss_ai_enabled and played_audio:
+                        played_ai_boss_offsets.add(offset_seconds)
+                    fired_phrase_this_second = True
+                    continue
+                alert_message = f"{display_name} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다."
+                target_remaining_seconds = offset_seconds
+                if boss_ai_enabled:
+                    target_remaining_seconds += self._get_schedule_alarm_boss_audio_lead_seconds(
+                        offset_seconds,
+                        item=item,
+                    )
+                if remaining_seconds != target_remaining_seconds:
+                    continue
+                alert_key = self._build_schedule_alarm_due_key("event", boss_name, scheduled_at, offset_seconds)
+                if not self._should_fire_schedule_alarm_key(alert_key, current_second):
+                    continue
+                if boss_ai_enabled:
+                    if offset_seconds in played_ai_boss_offsets:
+                        fired_phrase_this_second = True
+                        continue
+                    if self._start_schedule_alarm_boss_audio(
+                        offset_seconds,
+                        item=item,
+                    ):
+                        played_ai_boss_offsets.add(offset_seconds)
+                    else:
+                        self._queue_schedule_alarm_speech(
+                            alert_message,
+                            beep=True,
+                            category="general",
+                            rate=1,
+                        )
+                else:
+                    self._queue_schedule_alarm_speech(
+                        alert_message,
+                        beep=True,
+                        category="general",
+                        rate=1,
+                    )
                 fired_phrase_this_second = True
-            if bool(self.schedule_alarm_countdown_enabled_var.get()):
-                countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
-                if 1 <= remaining_seconds <= countdown_start and not fired_phrase_this_second:
-                    countdown_candidates.append((scheduled_at, boss_name, remaining_seconds))
+        if countdown_enabled:
+            countdown_candidates = [
+                (
+                    entry.get("scheduled_at"),
+                    str(entry.get("boss_name") or "").strip(),
+                    int(entry.get("remaining_seconds") or -1),
+                    str(entry.get("display_name") or entry.get("boss_name") or "").strip(),
+                )
+                for entry in countdown_alarm_items
+                if 0 <= int(entry.get("remaining_seconds") or -1) <= countdown_start
+            ]
 
         if countdown_candidates:
             countdown_candidates.sort(key=lambda item: (item[0], item[1]))
-            scheduled_at, boss_name, remaining_seconds = countdown_candidates[0]
+            scheduled_at, boss_name, remaining_seconds, display_name = countdown_candidates[0]
+            next_followup_name = ""
+            if remaining_seconds <= 1:
+                next_followup_name = self._get_next_schedule_countdown_followup_name(
+                    scheduled_at,
+                    boss_name,
+                    countdown_candidates,
+                )
             countdown_key = self._build_schedule_alarm_due_key("countdown", boss_name, scheduled_at, remaining_seconds)
             if self._should_fire_schedule_alarm_key(countdown_key, current_second):
-                self._queue_schedule_alarm_speech(
-                    str(remaining_seconds),
-                    beep=False,
-                    category="countdown",
-                    rate=6,
-                    purge=True,
-                    expires_at=current_second + timedelta(milliseconds=850),
-                )
+                expires_at = current_second + timedelta(milliseconds=950)
+                countdown_ai_enabled = bool(self.schedule_alarm_countdown_ai_voice_var.get())
+                if remaining_seconds in {3, 2, 1} and next_followup_name:
+                    self._schedule_next_countdown_boss_followup(
+                        next_followup_name,
+                        delay_ms=0,
+                        anchor_datetime=scheduled_at,
+                    )
+                if remaining_seconds == 0:
+                    self._fire_schedule_alarm_countdown_completion(
+                        scheduled_at=scheduled_at,
+                        boss_name=boss_name,
+                        prefer_audio=countdown_ai_enabled,
+                    )
+                else:
+                    countdown_clip_paths = self._get_schedule_alarm_countdown_audio_paths(remaining_seconds) if countdown_ai_enabled else []
+                    if countdown_ai_enabled:
+                        if countdown_clip_paths:
+                            if self._start_schedule_alarm_countdown_audio(remaining_seconds):
+                                self._drop_pending_schedule_alarm_queue_items(category="countdown")
+                            else:
+                                self._queue_schedule_alarm_speech(
+                                    self._format_schedule_alarm_countdown_speech(remaining_seconds),
+                                    beep=False,
+                                    category="countdown",
+                                    rate=3,
+                                    purge=True,
+                                    async_mode=True,
+                                    expires_at=expires_at,
+                                )
+                        else:
+                            self._drop_pending_schedule_alarm_queue_items(category="countdown")
+                    else:
+                        self._queue_schedule_alarm_speech(
+                            self._format_schedule_alarm_countdown_speech(remaining_seconds),
+                            beep=False,
+                            category="countdown",
+                            rate=3,
+                            purge=True,
+                            async_mode=True,
+                            expires_at=expires_at,
+                        )
+                    if remaining_seconds == 1:
+                        self._schedule_schedule_alarm_countdown_completion(
+                            scheduled_at=scheduled_at,
+                            boss_name=boss_name,
+                            prefer_audio=countdown_ai_enabled,
+                        )
 
         if bool(self.schedule_fixed_boss_alarm_enabled_var.get()):
             for scheduled_at, boss_name, *_rest in self._get_fixed_boss_schedule_rows_for_alarm(current_second):
                 remaining_seconds = int((scheduled_at - current_second).total_seconds())
-                if remaining_seconds != SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS:
+                fixed_message = self._build_schedule_fixed_alarm_message(current_second, scheduled_at, boss_name)
+                fixed_clip_paths: list[str] = []
+                target_remaining_seconds = SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS
+                if boss_ai_enabled:
+                    fixed_clip_paths = self._build_schedule_fixed_alarm_audio_paths(current_second, scheduled_at, boss_name)
+                    if fixed_clip_paths:
+                        target_remaining_seconds += self._get_schedule_alarm_sequence_lead_seconds(fixed_clip_paths)
+                    else:
+                        target_remaining_seconds += self._get_schedule_alarm_boss_audio_lead_seconds(
+                            SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS,
+                            boss_name=boss_name,
+                        )
+                if remaining_seconds != target_remaining_seconds:
                     continue
-                alert_key = self._build_schedule_alarm_due_key("fixed", boss_name, scheduled_at, remaining_seconds)
+                alert_key = self._build_schedule_alarm_due_key(
+                    "fixed",
+                    boss_name,
+                    scheduled_at,
+                    SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS,
+                )
                 if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                     continue
-                message = self._build_schedule_fixed_alarm_message(current_second, scheduled_at, boss_name)
-                self._queue_schedule_alarm_speech(message, beep=True, category="fixed", rate=1)
+                if boss_ai_enabled:
+                    if SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS in played_ai_boss_offsets:
+                        continue
+                    played_fixed_audio = False
+                    if fixed_clip_paths:
+                        played_fixed_audio = self._play_or_queue_schedule_alarm_audio_sequence(
+                            fixed_clip_paths,
+                            fixed_message,
+                            beep=True,
+                            category="fixed",
+                            rate=1,
+                            force_audio=True,
+                        )
+                    elif self._start_schedule_alarm_boss_audio(
+                        SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS,
+                        boss_name=boss_name,
+                    ):
+                        played_fixed_audio = True
+                    if played_fixed_audio:
+                        played_ai_boss_offsets.add(SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS)
+                        continue
+                self._queue_schedule_alarm_speech(fixed_message, beep=True, category="fixed", rate=1)
 
     def _blend_hex_color(self, base_color: str, target_color: str, ratio: float) -> str:
         normalized_base = self._normalize_hex_color(base_color, "#FFFFFF")
@@ -16214,6 +20121,7 @@ class BossTimerApp:
         self._update_schedule_tree_action_buttons()
         self.schedule_tree_overlay_signature = None
         self.schedule_tree_elapsed_overlay_signature = None
+        self.schedule_tree_selection_overlay_signature = None
         self._schedule_tree_overlay_after_idle()
 
     def _select_schedule_tree_item(self, item_id: str) -> None:
@@ -16229,7 +20137,115 @@ class BossTimerApp:
         self._update_schedule_tree_action_buttons()
         self.schedule_tree_overlay_signature = None
         self.schedule_tree_elapsed_overlay_signature = None
+        self.schedule_tree_selection_overlay_signature = None
         self._schedule_tree_overlay_after_idle()
+
+    def _find_schedule_tree_item_id_by_identity(self, identity: tuple[str, str, str, str] | None) -> str | None:
+        if not isinstance(identity, tuple):
+            return None
+        target_match_key = self._get_schedule_cut_match_key(identity=identity)
+        for item_id, meta in self.schedule_tree_item_meta.items():
+            current_identity = meta.get("identity")
+            if isinstance(current_identity, tuple) and current_identity == identity:
+                return item_id
+            current_match_key = self._get_schedule_cut_match_key(
+                identity=current_identity if isinstance(current_identity, tuple) else None,
+            )
+            if target_match_key is not None and current_match_key == target_match_key:
+                return item_id
+        return None
+
+    def _focus_schedule_event_identity(
+        self,
+        identity: tuple[str, str, str, str] | None,
+        *,
+        scheduled_at: datetime | None = None,
+    ) -> bool:
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists() or not isinstance(identity, tuple):
+            return False
+        target_item_id = self._find_schedule_tree_item_id_by_identity(identity)
+        if target_item_id is None and isinstance(scheduled_at, datetime):
+            self.schedule_tree_pending_restore_identities = [identity]
+            self._set_schedule_view_datetime_fields(scheduled_at.replace(microsecond=0))
+            self._refresh_schedule_tree_scope()
+            self._save_schedule_state()
+            target_item_id = self._find_schedule_tree_item_id_by_identity(identity)
+        if not target_item_id:
+            return False
+        self._select_schedule_tree_item(target_item_id)
+        return True
+
+    def _get_selected_schedule_tree_event_identity(self) -> tuple[str, str, str, str] | None:
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
+            return None
+        try:
+            candidate_ids = list(self.schedule_tree.selection())
+            focused_id = str(self.schedule_tree.focus() or "")
+        except tk.TclError:
+            return None
+        if focused_id and focused_id not in candidate_ids:
+            candidate_ids.insert(0, focused_id)
+        for item_id in candidate_ids:
+            meta = self.schedule_tree_item_meta.get(item_id, {})
+            if str(meta.get("kind") or "") != "event":
+                continue
+            identity = meta.get("identity")
+            if isinstance(identity, tuple):
+                return identity
+        return None
+
+    def _move_schedule_tree_chain_selection(self, direction: int) -> str:
+        if direction not in {-1, 1}:
+            return "break"
+        selected_identity = self._get_selected_schedule_tree_event_identity()
+        current_item = self._get_schedule_event_item_by_identity(selected_identity)
+        if not isinstance(current_item, dict):
+            return "break"
+        raw_key = str(current_item.get("raw_key") or "").strip()
+        if not raw_key:
+            return "break"
+        current_match_key = self._get_schedule_cut_match_key(identity=selected_identity)
+        chain_items = [
+            item
+            for item in self.schedule_events
+            if str(item.get("raw_key") or "").strip() == raw_key and isinstance(item.get("scheduled_at"), datetime)
+        ]
+        if not chain_items:
+            return "break"
+        chain_items.sort(
+            key=lambda item: (
+                item.get("scheduled_at") or datetime.max,
+                item.get("created_at") or datetime.min,
+            )
+        )
+        current_index: int | None = None
+        for index, item in enumerate(chain_items):
+            item_identity = self._get_schedule_item_identity("event", item)
+            item_match_key = self._get_schedule_cut_match_key(identity=item_identity)
+            if item_identity == selected_identity or (current_match_key is not None and item_match_key == current_match_key):
+                current_index = index
+                break
+        if current_index is None:
+            return "break"
+        target_index = current_index + direction
+        if target_index < 0 or target_index >= len(chain_items):
+            return "break"
+        target_item = chain_items[target_index]
+        target_identity = self._get_schedule_item_identity("event", target_item)
+        target_datetime = target_item.get("scheduled_at")
+        if isinstance(target_datetime, datetime):
+            self._focus_schedule_event_identity(target_identity, scheduled_at=target_datetime)
+        return "break"
+
+    def _on_schedule_tree_left_key(self, _event=None) -> str:
+        return self._move_schedule_tree_chain_selection(-1)
+
+    def _on_schedule_tree_right_key(self, _event=None) -> str:
+        return self._move_schedule_tree_chain_selection(1)
+
+    def _on_schedule_tree_delete_key(self, _event=None) -> str:
+        self._delete_selected_schedule_rows()
+        return "break"
 
     def _on_schedule_tree_overlay_press(self, item_id: str, _event=None) -> str:
         if self._is_schedule_tree_click_debounce_active():
@@ -16314,6 +20330,7 @@ class BossTimerApp:
         self.schedule_tree_overlay_widgets = []
         self.schedule_tree_overlay_signature = None
         self.schedule_tree_elapsed_overlay_signature = None
+        self.schedule_tree_selection_overlay_signature = None
 
     def _hide_schedule_tree_overlays(self, *, invalidate_signatures: bool = True) -> None:
         for widget in list(self.schedule_tree_overlay_cache.values()):
@@ -16326,6 +20343,7 @@ class BossTimerApp:
         if invalidate_signatures:
             self.schedule_tree_overlay_signature = None
             self.schedule_tree_elapsed_overlay_signature = None
+            self.schedule_tree_selection_overlay_signature = None
 
     def _hide_schedule_tree_elapsed_overlays(self) -> None:
         for cache_key, widget in list(self.schedule_tree_overlay_cache.items()):
@@ -16376,6 +20394,21 @@ class BossTimerApp:
         label.bind("<Button-1>", lambda event, current_item_id=cache_key[0]: self._on_schedule_tree_overlay_press(current_item_id, event))
         self.schedule_tree_overlay_cache[cache_key] = label
         return label
+
+    def _get_schedule_tree_overlay_frame(self, cache_key: tuple[str, str], parent: tk.Misc) -> tk.Frame | None:
+        frame = self.schedule_tree_overlay_cache.get(cache_key)
+        if frame is not None:
+            try:
+                if frame.winfo_exists() and isinstance(frame, tk.Frame):
+                    return frame
+                frame.destroy()
+            except tk.TclError:
+                pass
+        frame = tk.Frame(parent, bd=0, highlightthickness=0, relief="flat", cursor="hand2")
+        frame.bind("<MouseWheel>", self._on_schedule_tree_mousewheel)
+        frame.bind("<Button-1>", lambda event, current_item_id=cache_key[0]: self._on_schedule_tree_overlay_press(current_item_id, event))
+        self.schedule_tree_overlay_cache[cache_key] = frame
+        return frame
 
     def _get_schedule_tree_elapsed_overlay_specs(self, item_id: str, meta: dict[str, object]) -> tuple[tuple[str, tuple[int, int, int, int], str], ...]:
         if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
@@ -16500,6 +20533,35 @@ class BossTimerApp:
             return ()
         return tuple(entries)
 
+    def _build_schedule_tree_selection_overlay_signature(self) -> tuple:
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
+            return ()
+        entries: list[tuple[object, ...]] = []
+        try:
+            selected_item_ids = [str(item_id) for item_id in self.schedule_tree.selection() if str(item_id)]
+        except tk.TclError:
+            selected_item_ids = []
+        if not selected_item_ids:
+            return ()
+        last_column_id = "#8"
+        try:
+            for item_id in selected_item_ids:
+                first_bbox = self.schedule_tree.bbox(item_id, "#1")
+                last_bbox = self.schedule_tree.bbox(item_id, last_column_id)
+                if not first_bbox or not last_bbox:
+                    continue
+                entries.append(
+                    (
+                        item_id,
+                        tuple(first_bbox),
+                        tuple(last_bbox),
+                        int(self.schedule_tree_selection_pulse_index),
+                    )
+                )
+        except tk.TclError:
+            return ()
+        return tuple(entries)
+
     def _refresh_schedule_tree_overlays(self) -> None:
         self.schedule_tree_overlay_retry_job = None
         if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
@@ -16512,14 +20574,17 @@ class BossTimerApp:
         retry_required = self._has_schedule_tree_pending_overlay_state()
         new_action_signature = self._build_schedule_tree_action_overlay_signature()
         new_elapsed_signature = self._build_schedule_tree_elapsed_overlay_signature()
+        new_selection_signature = self._build_schedule_tree_selection_overlay_signature()
         action_changed = new_action_signature != self.schedule_tree_overlay_signature
         elapsed_changed = new_elapsed_signature != self.schedule_tree_elapsed_overlay_signature
-        if not action_changed and not elapsed_changed:
+        selection_changed = new_selection_signature != self.schedule_tree_selection_overlay_signature
+        if not action_changed and not elapsed_changed and not selection_changed:
             if retry_required:
                 self._schedule_tree_overlay_after_delay(120)
             return
         self.schedule_tree_overlay_signature = new_action_signature
         self.schedule_tree_elapsed_overlay_signature = new_elapsed_signature
+        self.schedule_tree_selection_overlay_signature = new_selection_signature
         overlay_parent = self.schedule_window if self.schedule_window is not None and self.schedule_window.winfo_exists() else self.schedule_tree
         try:
             list_offset_x = self.schedule_list_frame.winfo_x() if self.schedule_list_frame is not None and self.schedule_list_frame.winfo_exists() else 0
@@ -16618,6 +20683,8 @@ class BossTimerApp:
                 for cache_key, widget in list(self.schedule_tree_overlay_cache.items()):
                     if cache_key[1].startswith("elapsed_"):
                         continue
+                    if cache_key[1].startswith("selection_"):
+                        continue
                     if cache_key in used_action_cache_keys:
                         continue
                     try:
@@ -16651,6 +20718,109 @@ class BossTimerApp:
                     if not cache_key[1].startswith("elapsed_"):
                         continue
                     if cache_key in used_elapsed_cache_keys:
+                        continue
+                    try:
+                        widget.place_forget()
+                    except tk.TclError:
+                        pass
+
+            if selection_changed:
+                used_selection_cache_keys: set[tuple[str, str]] = set()
+                pulse_palette = tuple(
+                    color for color in SCHEDULE_TREE_SELECTION_PULSE_COLORS
+                    if str(color).strip()
+                ) or ("#f59e0b",)
+                pulse_color = pulse_palette[int(self.schedule_tree_selection_pulse_index) % len(pulse_palette)]
+                border_thickness = max(1, int(SCHEDULE_TREE_SELECTION_BORDER_THICKNESS))
+                arrow_gap = max(8, int(SCHEDULE_TREE_SELECTION_ARROW_GAP))
+                right_inset = max(0, int(SCHEDULE_TREE_SELECTION_BORDER_RIGHT_INSET))
+                selection_marker_bg = (
+                    str(self.schedule_list_frame.cget("bg"))
+                    if self.schedule_list_frame is not None and self.schedule_list_frame.winfo_exists()
+                    else "#eef2ff"
+                )
+                for item_id in selected_item_ids:
+                    try:
+                        first_bbox = self.schedule_tree.bbox(item_id, "#1")
+                        last_bbox = self.schedule_tree.bbox(item_id, "#8")
+                    except tk.TclError:
+                        continue
+                    if not first_bbox or not last_bbox:
+                        continue
+                    row_x = tree_offset_x + int(first_bbox[0])
+                    row_y = tree_offset_y + int(first_bbox[1])
+                    row_h = max(int(first_bbox[3]), int(last_bbox[3]), 20)
+                    row_w = max(
+                        18,
+                        ((int(last_bbox[0]) + int(last_bbox[2])) - int(first_bbox[0])) - right_inset,
+                        int(self.schedule_tree.winfo_width()) - int(first_bbox[0]) - right_inset,
+                    )
+
+                    top_key = (item_id, "selection_top")
+                    top_frame = self._get_schedule_tree_overlay_frame(top_key, overlay_parent)
+                    if top_frame is not None:
+                        top_frame.configure(bg=pulse_color)
+                        top_frame.place(x=row_x, y=row_y, width=row_w, height=border_thickness)
+                        top_frame.lift()
+                        used_selection_cache_keys.add(top_key)
+
+                    bottom_key = (item_id, "selection_bottom")
+                    bottom_frame = self._get_schedule_tree_overlay_frame(bottom_key, overlay_parent)
+                    if bottom_frame is not None:
+                        bottom_frame.configure(bg=pulse_color)
+                        bottom_frame.place(
+                            x=row_x,
+                            y=row_y + row_h - border_thickness,
+                            width=row_w,
+                            height=border_thickness,
+                        )
+                        bottom_frame.lift()
+                        used_selection_cache_keys.add(bottom_key)
+
+                    left_key = (item_id, "selection_left")
+                    left_frame = self._get_schedule_tree_overlay_frame(left_key, overlay_parent)
+                    if left_frame is not None:
+                        left_frame.configure(bg=pulse_color)
+                        left_frame.place(x=row_x, y=row_y, width=border_thickness, height=row_h)
+                        left_frame.lift()
+                        used_selection_cache_keys.add(left_key)
+
+                    right_key = (item_id, "selection_right")
+                    right_frame = self._get_schedule_tree_overlay_frame(right_key, overlay_parent)
+                    if right_frame is not None:
+                        right_frame.configure(bg=pulse_color)
+                        right_frame.place(
+                            x=row_x + row_w - border_thickness,
+                            y=row_y,
+                            width=border_thickness,
+                            height=row_h,
+                        )
+                        right_frame.lift()
+                        used_selection_cache_keys.add(right_key)
+
+                    arrow_key = (item_id, "selection_arrow")
+                    arrow_label = self._get_schedule_tree_overlay_label(arrow_key, overlay_parent)
+                    if arrow_label is not None:
+                        arrow_label.config(
+                            text="▶",
+                            font=(self.current_font_family, 11, "bold"),
+                            bg=selection_marker_bg,
+                            fg=pulse_color,
+                            anchor="center",
+                        )
+                        arrow_label.place(
+                            x=max(0, row_x - arrow_gap - 10),
+                            y=row_y,
+                            width=12,
+                            height=row_h,
+                        )
+                        arrow_label.lift()
+                        used_selection_cache_keys.add(arrow_key)
+
+                for cache_key, widget in list(self.schedule_tree_overlay_cache.items()):
+                    if not str(cache_key[1]).startswith("selection_"):
+                        continue
+                    if cache_key in used_selection_cache_keys:
                         continue
                     try:
                         widget.place_forget()
@@ -16695,6 +20865,40 @@ class BossTimerApp:
             self.schedule_tree.after_idle(self._refresh_schedule_tree_overlays)
         except tk.TclError:
             return
+
+    def _schedule_schedule_tree_selection_pulse(self, delay_ms: int = SCHEDULE_TREE_SELECTION_PULSE_INTERVAL_MS) -> None:
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
+            return
+        job = self.schedule_tree_selection_pulse_job
+        if job is not None:
+            try:
+                self.schedule_tree.after_cancel(job)
+            except tk.TclError:
+                pass
+        try:
+            self.schedule_tree_selection_pulse_job = self.schedule_tree.after(delay_ms, self._tick_schedule_tree_selection_pulse)
+        except tk.TclError:
+            self.schedule_tree_selection_pulse_job = None
+
+    def _tick_schedule_tree_selection_pulse(self) -> None:
+        self.schedule_tree_selection_pulse_job = None
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
+            return
+        try:
+            has_selection = bool(self.schedule_tree.selection())
+        except tk.TclError:
+            has_selection = False
+        pulse_palette = tuple(
+            color for color in SCHEDULE_TREE_SELECTION_PULSE_COLORS
+            if str(color).strip()
+        ) or ("#f59e0b",)
+        if has_selection:
+            self.schedule_tree_selection_pulse_index = (int(self.schedule_tree_selection_pulse_index) + 1) % len(pulse_palette)
+        else:
+            self.schedule_tree_selection_pulse_index = 0
+        self.schedule_tree_selection_overlay_signature = None
+        self._schedule_tree_overlay_after_idle()
+        self._schedule_schedule_tree_selection_pulse()
 
     def _apply_schedule_tree_quick_cut_visual_state(
         self,
@@ -16925,8 +21129,8 @@ class BossTimerApp:
             "clock_hours": scheduled_at.hour,
             "clock_minutes": scheduled_at.minute,
             "clock_seconds": scheduled_at.second,
-            "precision": "second" if scheduled_at.second else "minute",
-            "source_text": f"{scheduled_at.strftime('%H:%M:%S')} {boss_text}",
+            "precision": self._infer_schedule_state_precision(item),
+            "source_text": f"{self._format_schedule_clock_text_for_input(scheduled_at, item)} {boss_text}",
         }
         applied = self._apply_schedule_parsed_batch(
             parsed_item["source_text"],
@@ -17543,7 +21747,7 @@ class BossTimerApp:
                         scheduled_at = item.get("scheduled_at")
                         display_name = self._get_schedule_boss_display_name(item, prefer_alias=True)
                         if isinstance(scheduled_at, datetime) and display_name:
-                            lines.append(f"{scheduled_at.strftime('%H:%M:%S')} {display_name}")
+                            lines.append(f"{self._format_schedule_clock_text_for_input(scheduled_at, item)} {display_name}")
                     self.schedule_input_text.delete("1.0", "end")
                     if lines:
                         self.schedule_input_text.insert("1.0", "\n".join(lines))
@@ -17721,19 +21925,164 @@ class BossTimerApp:
         previous_started_at = str(self.current_season_started_at or "").strip()
         if not self._show_season_setup_dialog(parent=parent):
             return
+        current_season = str(self.current_season_no or "").strip()
+        current_started_at = str(self.current_season_started_at or "").strip()
+        season_changed = bool(current_season) and previous_season != current_season
+        season_restarted = bool(current_season and previous_season == current_season and previous_started_at != current_started_at)
+        first_activation = bool(current_season and not previous_season)
+        schedule_transition_changed = bool(season_changed or season_restarted or first_activation)
+        schedule_counts_before = self._get_schedule_runtime_item_counts()
+        schedule_archive_path: str | None = None
+        schedule_archive_counts = {"events": 0, "active": 0, "controls": 0, "total": 0}
+        shared_schedule_archive_path: str | None = None
+        schedule_reset_applied = False
+        schedule_archive_failed = False
+        if schedule_transition_changed:
+            archive_target_season = previous_season if previous_season else current_season
+            archive_target_started_at = previous_started_at if previous_started_at else current_started_at
+            archive_reason = "season_change" if season_changed else ("season_restart" if season_restarted else "season_start")
+            if int(schedule_counts_before.get("total", 0) or 0) > 0:
+                self._backup_current_schedule_shared_export(
+                    archive_target_season,
+                    archive_target_started_at,
+                )
+                schedule_archive_path, schedule_archive_counts = self._archive_current_schedule_for_season(
+                    archive_target_season,
+                    archive_target_started_at,
+                    archive_reason=archive_reason,
+                )
+                schedule_archive_failed = schedule_archive_path is None
+                if not schedule_archive_failed:
+                    shared_schedule_archive_path = self._archive_current_schedule_shared_export(
+                        archive_target_season,
+                        archive_target_started_at,
+                        archive_reason=f"{archive_reason}_stored",
+                    )
+            if not schedule_archive_failed:
+                self._reset_schedule_for_new_season()
+                schedule_reset_applied = True
         current_label = self._get_archive_season_label(self.current_season_no)
         if previous_season and previous_season != str(self.current_season_no):
-            self.schedule_status_var.set(f"{current_label} 시작. 이후 기록은 새 시즌으로 저장됩니다.")
+            if schedule_archive_failed:
+                self.schedule_status_var.set(f"{current_label} 시작. 스케쥴 보관 파일 저장에 실패해 현재 스케쥴은 유지했습니다.")
+            elif int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
+                status_text = f"{current_label} 시작. 기존 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건을 시즌 파일로 보관하고 초기화했습니다."
+                if shared_schedule_archive_path:
+                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
+                self.schedule_status_var.set(status_text)
+            elif schedule_reset_applied:
+                status_text = f"{current_label} 시작. 스케쥴을 초기화하고 이후 기록은 새 시즌으로 저장됩니다."
+                if shared_schedule_archive_path:
+                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
+                self.schedule_status_var.set(status_text)
+            else:
+                self.schedule_status_var.set(f"{current_label} 시작. 이후 기록은 새 시즌으로 저장됩니다.")
         elif previous_season and previous_season == str(self.current_season_no) and previous_started_at != str(self.current_season_started_at or "").strip():
             moved_count = self._archive_preseason_records_for_season(self.current_season_no, str(self.current_season_started_at or ""))
-            if moved_count > 0:
+            if schedule_archive_failed:
+                self.schedule_status_var.set(f"{current_label} 재시작. 스케쥴 보관 파일 저장에 실패해 현재 스케쥴은 유지했습니다.")
+            elif moved_count > 0 and int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
+                status_text = f"{current_label} 재시작. 시작일 이전 기록 {moved_count}건을 별도 보관했고 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건도 초기화했습니다."
+                if shared_schedule_archive_path:
+                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
+                self.schedule_status_var.set(status_text)
+            elif moved_count > 0:
                 self.schedule_status_var.set(f"{current_label} 재시작. 시작일 이전 기록 {moved_count}건을 별도 보관했습니다.")
+            elif int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
+                status_text = f"{current_label} 재시작. 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건을 시즌 파일로 보관하고 초기화했습니다."
+                if shared_schedule_archive_path:
+                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
+                self.schedule_status_var.set(status_text)
             else:
-                self.schedule_status_var.set(f"{current_label} 재시작. 시즌 시작점이 변경되었습니다.")
+                self.schedule_status_var.set(f"{current_label} 재시작. 시즌 시작점이 변경되었고 스케쥴을 초기화했습니다." if schedule_reset_applied else f"{current_label} 재시작. 시즌 시작점이 변경되었습니다.")
         else:
-            self.schedule_status_var.set(f"{current_label}이(가) 활성화되었습니다.")
+            if schedule_archive_failed:
+                self.schedule_status_var.set(f"{current_label}이(가) 활성화되었습니다. 스케쥴 보관 파일 저장에 실패해 현재 스케쥴은 유지했습니다.")
+            elif int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
+                status_text = f"{current_label}이(가) 활성화되었습니다. 기존 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건을 시즌 파일로 보관하고 초기화했습니다."
+                if shared_schedule_archive_path:
+                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
+                self.schedule_status_var.set(status_text)
+            else:
+                self.schedule_status_var.set(f"{current_label}이(가) 활성화되었습니다.")
         if self._widget_available(self.log_archive_manage_frame):
             self._refresh_archive_management_view()
+
+    def _save_current_schedule_shared_archive(self) -> None:
+        payload = self._create_schedule_shared_export_payload(
+            self.current_season_no,
+            self.current_season_started_at,
+        )
+        if not self._schedule_shared_payload_has_data(payload):
+            self.schedule_status_var.set("저장할 스케쥴이 없습니다.")
+            return
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        default_share_prefix = str(payload.get("share_prefix") or "").strip() or self._get_current_season_share_prefix()
+        default_file_name = self._get_schedule_shared_manual_default_file_name(default_share_prefix)
+        selected_path = filedialog.asksaveasfilename(
+            parent=parent,
+            title="저장용 스케쥴 저장",
+            initialdir=self._get_schedule_shared_export_dir(),
+            initialfile=default_file_name,
+            defaultextension=".json",
+            filetypes=[("JSON 파일", "*.json"), ("모든 파일", "*.*")],
+        )
+        selected_path = str(selected_path or "").strip()
+        if not selected_path:
+            return
+        if not selected_path.lower().endswith(".json"):
+            selected_path = f"{selected_path}.json"
+        if self._write_schedule_shared_export_payload(payload, selected_path):
+            self.schedule_status_var.set(f"저장용 스케쥴을 저장했습니다: {os.path.basename(selected_path)}")
+        else:
+            self.schedule_status_var.set("저장용 스케쥴 저장에 실패했습니다.")
+
+    def _load_schedule_from_shared_archive(self) -> None:
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        initial_dir = self._get_schedule_shared_export_dir()
+        selected_path = filedialog.askopenfilename(
+            parent=parent,
+            title="저장용 스케쥴 불러오기",
+            initialdir=initial_dir,
+            filetypes=[("JSON 파일", "*.json"), ("모든 파일", "*.*")],
+        )
+        selected_path = str(selected_path or "").strip()
+        if not selected_path:
+            return
+        payload = self._load_schedule_shared_payload_from_path(selected_path)
+        snapshot = self._create_schedule_full_snapshot_from_shared_payload(payload, source_path=selected_path)
+        if not self._schedule_restore_snapshot_has_data(snapshot):
+            self.schedule_status_var.set("불러올 저장용 스케쥴 데이터가 없습니다.")
+            return
+        current_snapshot = self._create_schedule_restore_cycle_snapshot()
+        self._backup_current_schedule_shared_export(
+            self.current_season_no,
+            self.current_season_started_at,
+        )
+        shared_archive_path = self._archive_current_schedule_shared_export(
+            self.current_season_no,
+            self.current_season_started_at,
+            archive_reason="before_shared_load",
+        )
+        backed_up_current = self._append_schedule_delete_history_entry(
+            snapshot=current_snapshot,
+            entry_type="load",
+        )
+        if not self._restore_schedule_full_state_snapshot(snapshot):
+            self.schedule_status_var.set("저장용 스케쥴 불러오기에 실패했습니다.")
+            return
+        self._save_schedule_state()
+        self._save_schedule_delete_history()
+        self._refresh_schedule_view()
+        loaded_name = os.path.basename(selected_path)
+        if backed_up_current and shared_archive_path:
+            self.schedule_status_var.set(f"현재 스케쥴과 저장용 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
+        elif backed_up_current:
+            self.schedule_status_var.set(f"현재 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
+        elif shared_archive_path:
+            self.schedule_status_var.set(f"저장용 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
+        else:
+            self.schedule_status_var.set(f"{loaded_name} 저장용 스케쥴을 불러왔습니다.")
 
     def _show_schedule_input_overwrite_confirm(self, overwritten_count: int, *, is_edit_mode: bool, is_add_mode: bool = False) -> bool:
         parent = self.schedule_input_window if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists() else self.schedule_window
@@ -18151,7 +22500,7 @@ class BossTimerApp:
     def _show_schedule_delete_history_dialog(self, *, parent: tk.Widget | None = None) -> None:
         host = parent if self._widget_available(parent) else (self.schedule_window if self._widget_available(self.schedule_window) else self.root)
         dialog = tk.Toplevel(host)
-        dialog.title("삭제 복구")
+        dialog.title("스케쥴 불러오기")
         dialog.resizable(False, False)
         dialog.configure(bg="#eff6ff")
         dialog.transient(host)
@@ -18159,11 +22508,14 @@ class BossTimerApp:
         width = 620
         height = 320
         self._center_window_over_parent(dialog, host, width, height)
-        tk.Label(dialog, text="삭제 복구", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=width, height=40)
-        tk.Label(dialog, text="최근 삭제 5회", font=self.button_font, bg="#eff6ff", fg="#1e3a8a", anchor="w").place(x=18, y=52, width=140, height=22)
+        tk.Label(dialog, text="스케쥴 불러오기", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=width, height=40)
+        tk.Label(dialog, text="최근 2주 기록", font=self.button_font, bg="#eff6ff", fg="#1e3a8a", anchor="w").place(x=18, y=52, width=140, height=22)
         listbox = tk.Listbox(dialog, font=(self.current_font_family, 10), bg="#ffffff", fg="#0f172a", relief="solid", bd=1, activestyle="none", selectmode="browse")
-        listbox.place(x=18, y=78, width=584, height=158)
-        status_var = tk.StringVar(value="복구할 삭제 기록을 선택하세요.")
+        listbox.place(x=18, y=78, width=560, height=158)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=listbox.yview)
+        scrollbar.place(x=578, y=78, width=24, height=158)
+        listbox.config(yscrollcommand=scrollbar.set)
+        status_var = tk.StringVar(value="불러올 기록을 선택하세요. 현재 스케쥴은 자동 보관 후 교체됩니다.")
         status_label = tk.Label(
             dialog,
             textvariable=status_var,
@@ -18178,45 +22530,71 @@ class BossTimerApp:
         )
         status_label.place(x=18, y=242, width=584, height=36)
 
-        history_entries = list(self.schedule_delete_history[:5])
-        if not history_entries:
-            listbox.insert("end", "복구할 삭제 기록이 없습니다.")
-            listbox.config(state="disabled")
-        else:
-            for index, entry in enumerate(history_entries):
-                deleted_at = entry.get("deleted_at")
-                cutoff_datetime = entry.get("cutoff_datetime")
-                summary = entry.get("summary") if isinstance(entry.get("summary"), dict) else {}
-                deleted_count = int(entry.get("deleted_count") or 0)
-                deleted_text = deleted_at.strftime("%m-%d %H:%M") if isinstance(deleted_at, datetime) else "--"
-                cutoff_text = cutoff_datetime.strftime("%m-%d %H:%M") if isinstance(cutoff_datetime, datetime) else "--"
-                listbox.insert(
-                    "end",
-                    f"{index + 1}. 삭제 {deleted_text} / 기준 {cutoff_text} / {deleted_count}건 (E{int(summary.get('events', 0) or 0)} A{int(summary.get('active', 0) or 0)} C{int(summary.get('controls', 0) or 0)} H{int(summary.get('quick_cut', 0) or 0)})",
-                )
-            listbox.selection_set(0)
+        history_entries: list[dict[str, object]] = []
+        restore_button: tk.Button | None = None
+        delete_button: tk.Button | None = None
+
+        def refresh_history_list(preferred_index: int = 0) -> None:
+            nonlocal history_entries
+            history_entries = list(self.schedule_delete_history)
+            try:
+                listbox.config(state="normal")
+                listbox.delete(0, "end")
+            except tk.TclError:
+                return
+            if not history_entries:
+                listbox.insert("end", "불러올 기록이 없습니다.")
+                listbox.config(state="disabled")
+            else:
+                for index, entry in enumerate(history_entries):
+                    deleted_at = entry.get("deleted_at")
+                    cutoff_datetime = entry.get("cutoff_datetime")
+                    summary = entry.get("summary") if isinstance(entry.get("summary"), dict) else {}
+                    deleted_count = int(entry.get("deleted_count") or 0)
+                    entry_label = self._get_schedule_restore_history_label(entry)
+                    deleted_text = deleted_at.strftime("%m-%d %H:%M") if isinstance(deleted_at, datetime) else "--"
+                    cutoff_text = cutoff_datetime.strftime("%m-%d %H:%M") if isinstance(cutoff_datetime, datetime) else "--"
+                    entry_text = (
+                        f"{index + 1}. {entry_label} {deleted_text} / 기준 {cutoff_text} / {deleted_count}건 "
+                        f"(E{int(summary.get('events', 0) or 0)} A{int(summary.get('active', 0) or 0)} C{int(summary.get('controls', 0) or 0)})"
+                        if isinstance(cutoff_datetime, datetime) and self._get_schedule_restore_history_entry_type(entry) == "delete"
+                        else f"{index + 1}. {entry_label} {deleted_text} / {deleted_count}건 "
+                        f"(E{int(summary.get('events', 0) or 0)} A{int(summary.get('active', 0) or 0)} C{int(summary.get('controls', 0) or 0)})"
+                    )
+                    listbox.insert("end", entry_text)
+                selected_index = min(max(0, preferred_index), len(history_entries) - 1)
+                listbox.selection_clear(0, "end")
+                listbox.selection_set(selected_index)
+                listbox.activate(selected_index)
+                listbox.see(selected_index)
 
         def update_selection(_event=None) -> None:
             if not history_entries:
-                status_var.set("복구할 삭제 기록이 없습니다.")
+                status_var.set("불러올 기록이 없습니다.")
                 return
             try:
                 selected_index = int(listbox.curselection()[0])
             except (IndexError, ValueError, tk.TclError):
-                status_var.set("복구할 삭제 기록을 선택하세요.")
+                status_var.set("불러올 기록을 선택하세요.")
                 return
             if not (0 <= selected_index < len(history_entries)):
-                status_var.set("복구할 삭제 기록을 선택하세요.")
+                status_var.set("불러올 기록을 선택하세요.")
                 return
             entry = history_entries[selected_index]
             deleted_at = entry.get("deleted_at")
             cutoff_datetime = entry.get("cutoff_datetime")
             summary = entry.get("summary") if isinstance(entry.get("summary"), dict) else {}
+            entry_label = self._get_schedule_restore_history_label(entry)
             deleted_text = deleted_at.strftime("%Y-%m-%d %H:%M:%S") if isinstance(deleted_at, datetime) else "-"
             cutoff_text = cutoff_datetime.strftime("%Y-%m-%d %H:%M:%S") if isinstance(cutoff_datetime, datetime) else "-"
-            status_var.set(
-                f"삭제 {deleted_text} / 기준 {cutoff_text} / 스케쥴 {int(summary.get('events', 0) or 0)}건 / 활성 {int(summary.get('active', 0) or 0)}건 / 제어 {int(summary.get('controls', 0) or 0)}건"
-            )
+            if isinstance(cutoff_datetime, datetime) and self._get_schedule_restore_history_entry_type(entry) == "delete":
+                status_var.set(
+                    f"{entry_label} {deleted_text} / 기준 {cutoff_text} / 스케쥴 {int(summary.get('events', 0) or 0)}건 / 활성 {int(summary.get('active', 0) or 0)}건 / 제어 {int(summary.get('controls', 0) or 0)}건"
+                )
+            else:
+                status_var.set(
+                    f"{entry_label} {deleted_text} / 스케쥴 {int(summary.get('events', 0) or 0)}건 / 활성 {int(summary.get('active', 0) or 0)}건 / 제어 {int(summary.get('controls', 0) or 0)}건"
+                )
 
         def close_dialog() -> None:
             try:
@@ -18234,10 +22612,10 @@ class BossTimerApp:
             try:
                 selected_index = int(listbox.curselection()[0])
             except (IndexError, ValueError, tk.TclError):
-                status_var.set("복구할 삭제 기록을 선택하세요.")
+                status_var.set("불러올 기록을 선택하세요.")
                 return
             if not (0 <= selected_index < len(history_entries)):
-                status_var.set("복구할 삭제 기록을 선택하세요.")
+                status_var.set("불러올 기록을 선택하세요.")
                 return
             entry = history_entries[selected_index]
             try:
@@ -18245,11 +22623,72 @@ class BossTimerApp:
             finally:
                 close_dialog()
 
+        def delete_selected() -> None:
+            if not history_entries:
+                status_var.set("삭제할 기록이 없습니다.")
+                return
+            try:
+                selected_index = int(listbox.curselection()[0])
+            except (IndexError, ValueError, tk.TclError):
+                status_var.set("삭제할 기록을 선택하세요.")
+                return
+            if not (0 <= selected_index < len(history_entries)):
+                status_var.set("삭제할 기록을 선택하세요.")
+                return
+            entry = history_entries[selected_index]
+            deleted_at = entry.get("deleted_at")
+            entry_label = self._get_schedule_restore_history_label(entry)
+            deleted_text = deleted_at.strftime("%Y-%m-%d %H:%M:%S") if isinstance(deleted_at, datetime) else "선택한"
+            if not self._ask_centered_yesno(
+                "복구 기록 삭제",
+                f"{entry_label} {deleted_text} 기록을 목록에서 영구삭제할까요?",
+                parent=dialog,
+            ):
+                return
+            try:
+                self.schedule_delete_history.pop(selected_index)
+            except IndexError:
+                status_var.set("삭제할 기록을 찾지 못했습니다.")
+                return
+            self._save_schedule_delete_history()
+            self._update_schedule_tree_action_buttons()
+            refresh_history_list(min(selected_index, max(0, len(self.schedule_delete_history) - 1)))
+            status_var.set(f"{entry_label} {deleted_text} 기록을 영구삭제했습니다.")
+            update_dialog_buttons()
+
+        def update_dialog_buttons() -> None:
+            has_history = bool(history_entries)
+            if restore_button is not None and restore_button.winfo_exists():
+                try:
+                    restore_button.config(state="normal" if has_history else "disabled", cursor="hand2" if has_history else "arrow")
+                except tk.TclError:
+                    pass
+            if delete_button is not None and delete_button.winfo_exists():
+                try:
+                    delete_button.config(state="normal" if has_history else "disabled", cursor="hand2" if has_history else "arrow")
+                except tk.TclError:
+                    pass
+
         listbox.bind("<<ListboxSelect>>", update_selection)
-        listbox.bind("<Double-Button-1>", lambda _event: restore_selected())
-        tk.Button(
+        delete_button = tk.Button(
             dialog,
-            text="복구",
+            text="삭제",
+            font=self.button_font,
+            bg="#dc2626",
+            fg="#ffffff",
+            activebackground="#b91c1c",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=delete_selected,
+            cursor="hand2",
+            state="normal" if history_entries else "disabled",
+        )
+        delete_button.place(x=18, y=282, width=80, height=28)
+        restore_button = tk.Button(
+            dialog,
+            text="불러오기",
             font=self.button_font,
             bg="#2563eb",
             fg="#ffffff",
@@ -18261,7 +22700,8 @@ class BossTimerApp:
             command=restore_selected,
             cursor="hand2",
             state="normal" if history_entries else "disabled",
-        ).place(x=424, y=282, width=80, height=28)
+        )
+        restore_button.place(x=424, y=282, width=80, height=28)
         tk.Button(
             dialog,
             text="닫기",
@@ -18276,6 +22716,8 @@ class BossTimerApp:
             command=close_dialog,
             cursor="hand2",
         ).place(x=516, y=282, width=86, height=28)
+        refresh_history_list()
+        update_dialog_buttons()
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
         dialog.bind("<Escape>", lambda _event: close_dialog())
         update_selection()
@@ -18284,7 +22726,11 @@ class BossTimerApp:
 
     def _apply_schedule_global_delete(self, cutoff_datetime: datetime) -> None:
         resolved_cutoff = cutoff_datetime.replace(microsecond=0)
-        snapshot = self._create_schedule_full_state_snapshot()
+        snapshot = self._create_schedule_restore_snapshot()
+        self._backup_current_schedule_shared_export(
+            self.current_season_no,
+            self.current_season_started_at,
+        )
         counts = self._get_schedule_delete_scope_counts(resolved_cutoff)
         removed_event_items = [
             dict(item)
@@ -18361,16 +22807,12 @@ class BossTimerApp:
         self._purge_schedule_cut_state(identities=removed_identities, raw_keys=removed_raw_keys)
         self.schedule_delete_default_cutoff_datetime = resolved_cutoff
         self.schedule_delete_active_cutoff_datetime = resolved_cutoff
-        self.schedule_delete_history = [
-            {
-                "deleted_at": self._get_schedule_reference_datetime().replace(microsecond=0),
-                "cutoff_datetime": resolved_cutoff,
-                "deleted_count": counts["total"],
-                "summary": counts,
-                "snapshot": snapshot,
-            },
-            *self.schedule_delete_history,
-        ][:5]
+        self._append_schedule_delete_history_entry(
+            snapshot=snapshot,
+            entry_type="delete",
+            cutoff_datetime=resolved_cutoff,
+            summary=counts,
+        )
         self._reset_schedule_delete_runtime_state()
         self._save_schedule_state()
         self._save_schedule_delete_history()
@@ -18384,20 +22826,43 @@ class BossTimerApp:
             self.schedule_status_var.set(f"{cutoff_text} 이후 삭제 기준을 저장했습니다.")
 
     def _restore_schedule_delete_history_entry(self, entry: dict[str, object]) -> None:
-        snapshot = entry.get("snapshot") if isinstance(entry, dict) else None
-        if not isinstance(snapshot, dict):
-            self.schedule_status_var.set("복구할 삭제 스냅샷이 없습니다.")
+        snapshot = self._sanitize_schedule_restore_snapshot(entry.get("snapshot") if isinstance(entry, dict) else None)
+        if not self._schedule_restore_snapshot_has_data(snapshot):
+            self.schedule_status_var.set("불러올 스케쥴 스냅샷이 없습니다.")
             return
-        if not self._restore_schedule_full_state_snapshot(snapshot):
-            self.schedule_status_var.set("삭제 스냅샷 복구에 실패했습니다.")
-            return
+        current_snapshot = self._create_schedule_restore_cycle_snapshot()
+        self._backup_current_schedule_shared_export(
+            self.current_season_no,
+            self.current_season_started_at,
+        )
+        shared_archive_path = self._archive_current_schedule_shared_export(
+            self.current_season_no,
+            self.current_season_started_at,
+            archive_reason="before_restore_load",
+        )
+        backed_up_current = self._append_schedule_delete_history_entry(
+            snapshot=current_snapshot,
+            entry_type="load",
+        )
+        self._restore_schedule_state_snapshot(snapshot)
+        self.schedule_tree_quick_cut_history = []
+        self.schedule_active_quick_cut_history = []
+        self.schedule_delete_active_cutoff_datetime = None
         self._reset_schedule_delete_runtime_state()
         self._save_schedule_state()
         self._save_schedule_delete_history()
         self._refresh_schedule_view()
         deleted_at = entry.get("deleted_at")
         deleted_text = deleted_at.strftime("%Y-%m-%d %H:%M:%S") if isinstance(deleted_at, datetime) else "최근"
-        self.schedule_status_var.set(f"{deleted_text} 삭제 기록을 복구했습니다.")
+        entry_label = self._get_schedule_restore_history_label(entry)
+        if backed_up_current and shared_archive_path:
+            self.schedule_status_var.set(f"현재 스케쥴과 저장용 스케쥴을 보관하고 {entry_label} {deleted_text} 기록을 불러왔습니다.")
+        elif backed_up_current:
+            self.schedule_status_var.set(f"현재 스케쥴을 보관하고 {entry_label} {deleted_text} 기록을 불러왔습니다.")
+        elif shared_archive_path:
+            self.schedule_status_var.set(f"저장용 스케쥴을 보관하고 {entry_label} {deleted_text} 기록을 불러왔습니다.")
+        else:
+            self.schedule_status_var.set(f"{entry_label} {deleted_text} 기록을 불러왔습니다.")
 
     def _open_schedule_delete_dialog(self) -> None:
         cutoff_datetime = self._show_schedule_delete_period_dialog(parent=self.schedule_window)
@@ -18495,12 +22960,65 @@ class BossTimerApp:
         self._scroll_schedule_tree_to_focus_next_event()
         self._save_schedule_state()
 
-    def _move_schedule_view_to_today(self) -> None:
+    def _run_schedule_today_view_actions(self, *, save_state: bool = True) -> None:
         today = self._get_schedule_reference_datetime()
         self._set_schedule_view_datetime_fields(today)
         self._refresh_schedule_tree_scope()
         self._scroll_schedule_tree_to_focus_next_event()
-        self._save_schedule_state()
+        self._select_schedule_tree_next_event()
+        if save_state:
+            self._save_schedule_state()
+
+    def _move_schedule_view_to_today(self) -> None:
+        self._run_schedule_today_view_actions(save_state=True)
+
+    def _get_schedule_started_event_targets(
+        self,
+        previous_reference: datetime | None,
+        current_reference: datetime,
+    ) -> list[tuple[tuple[str, str, str, str], datetime]]:
+        if not isinstance(previous_reference, datetime) or not isinstance(current_reference, datetime):
+            return []
+        previous_value = previous_reference.replace(microsecond=0)
+        current_value = current_reference.replace(microsecond=0)
+        if current_value <= previous_value:
+            return []
+        cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
+        started_targets: list[tuple[tuple[str, str, str, str], datetime]] = []
+        for item in self.schedule_events:
+            scheduled_at = item.get("scheduled_at")
+            created_at = item.get("created_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if scheduled_at <= previous_value or scheduled_at > current_value:
+                continue
+            if not self._is_schedule_event_visible(
+                scheduled_at,
+                created_at if isinstance(created_at, datetime) else None,
+                current_value,
+                cutoff_datetime,
+                is_invasion=self._is_schedule_invasion_item(item),
+            ):
+                continue
+            started_targets.append((self._get_schedule_item_identity("event", item), scheduled_at.replace(microsecond=0)))
+        return started_targets
+
+    def _should_auto_focus_schedule_today_for_started_targets(
+        self,
+        started_targets: list[tuple[tuple[str, str, str, str], datetime]],
+    ) -> bool:
+        if not started_targets:
+            return False
+        visible_identities = {
+            identity
+            for meta in self.schedule_tree_item_meta.values()
+            for identity in [meta.get("identity")]
+            if isinstance(identity, tuple)
+        }
+        for identity, _scheduled_at in started_targets:
+            if identity not in visible_identities:
+                return True
+        return False
 
     def _ensure_schedule_events_cover_generation_end(self) -> None:
         if not self.schedule_events:
@@ -18929,7 +23447,12 @@ class BossTimerApp:
             return "server_open"
         return None
 
-    def _parse_schedule_input_line(self, line: str) -> dict[str, object] | None:
+    def _parse_schedule_input_line(
+        self,
+        line: str,
+        *,
+        treat_cut_text_as_seed: bool = True,
+    ) -> dict[str, object] | None:
         cleaned = re.sub(r"\s+", " ", (line or "").strip())
         if not cleaned or self._should_ignore_schedule_input_line(cleaned):
             return None
@@ -18945,6 +23468,11 @@ class BossTimerApp:
                 return None
             hours, minutes, seconds, precision = parsed_token
             boss_info = self._normalize_schedule_input_boss_name(clock_cut_match.group("boss"))
+            cut_flags = (
+                {"preserve_past_seed": True}
+                if treat_cut_text_as_seed
+                else {"cut_applied": True}
+            )
             return {
                 **boss_info,
                 "state": "scheduled",
@@ -18955,7 +23483,7 @@ class BossTimerApp:
                 "clock_minutes": minutes,
                 "clock_seconds": seconds,
                 "precision": precision,
-                "cut_applied": True,
+                **cut_flags,
                 "source_text": cleaned,
             }
 
@@ -19067,12 +23595,17 @@ class BossTimerApp:
         cut_now_match = re.fullmatch(r"(?P<boss>.+?)\s+컷", cleaned)
         if cut_now_match:
             boss_info = self._normalize_schedule_input_boss_name(cut_now_match.group("boss"))
+            cut_flags = (
+                {"preserve_past_seed": True}
+                if treat_cut_text_as_seed
+                else {"cut_applied": True}
+            )
             return {
                 **boss_info,
                 "state": "scheduled",
                 "mode": "cut_now",
                 "precision": "second",
-                "cut_applied": True,
+                **cut_flags,
                 "source_text": cleaned,
             }
 
@@ -19156,7 +23689,7 @@ class BossTimerApp:
                 # immediately exposes cancel state, which is misleading during
                 # invasion batch input.
                 continue
-            if bool(item.get("cut_applied")):
+            if bool(item.get("cut_applied")) or bool(item.get("preserve_past_seed")):
                 continue
             if int(item.get("day_offset") or 0) != 0:
                 continue
@@ -19164,6 +23697,76 @@ class BossTimerApp:
             if seed_datetime is not None and seed_datetime < reference_datetime:
                 past_items.append(item)
         return past_items
+
+    def _collect_schedule_existing_visible_past_raw_keys(
+        self,
+        reference_datetime: datetime,
+        *,
+        past_start_datetime: datetime | None = None,
+    ) -> set[str]:
+        if not isinstance(reference_datetime, datetime):
+            return set()
+        future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
+        normalized_past_start = past_start_datetime.replace(microsecond=0) if isinstance(past_start_datetime, datetime) else None
+        existing_raw_keys: set[str] = set()
+        for item in self.schedule_events:
+            if not isinstance(item, dict):
+                continue
+            raw_key = str(item.get("raw_key") or "").strip()
+            scheduled_at = item.get("scheduled_at")
+            if not raw_key or not isinstance(scheduled_at, datetime) or scheduled_at >= reference_datetime:
+                continue
+            if isinstance(normalized_past_start, datetime) and scheduled_at < normalized_past_start:
+                continue
+            created_at = item.get("created_at")
+            if not self._is_schedule_event_visible(
+                scheduled_at,
+                created_at if isinstance(created_at, datetime) else None,
+                reference_datetime,
+                future_cutoff_datetime,
+                is_invasion=self._is_schedule_invasion_item(item),
+            ):
+                continue
+            existing_raw_keys.add(raw_key)
+        return existing_raw_keys
+
+    def _find_schedule_recent_visible_past_event_datetime(
+        self,
+        raw_key: str,
+        reference_datetime: datetime,
+        *,
+        lookback_seconds: int = 86400,
+    ) -> datetime | None:
+        normalized_raw_key = str(raw_key or "").strip()
+        if not normalized_raw_key or not isinstance(reference_datetime, datetime):
+            return None
+        lookback_window_seconds = max(0, int(lookback_seconds or 0))
+        reference_value = reference_datetime.replace(microsecond=0)
+        lookback_start = reference_value - timedelta(seconds=lookback_window_seconds)
+        future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
+        target_datetime: datetime | None = None
+        for item in self.schedule_events:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("raw_key") or "").strip() != normalized_raw_key:
+                continue
+            scheduled_at = item.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if scheduled_at >= reference_value or scheduled_at < lookback_start:
+                continue
+            created_at = item.get("created_at")
+            if not self._is_schedule_event_visible(
+                scheduled_at,
+                created_at if isinstance(created_at, datetime) else None,
+                reference_value,
+                future_cutoff_datetime,
+                is_invasion=self._is_schedule_invasion_item(item),
+            ):
+                continue
+            if target_datetime is None or scheduled_at > target_datetime:
+                target_datetime = scheduled_at.replace(microsecond=0)
+        return target_datetime
 
     def _show_schedule_past_time_dialog(self, items: list[dict[str, object]]) -> str | None:
         parent = self.schedule_input_window if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists() else self.root
@@ -19405,18 +24008,27 @@ class BossTimerApp:
         dialog.wait_window()
         return result["choice"]
 
-    def _parse_schedule_input_lines(self, raw_text: str) -> tuple[list[dict[str, object]], int]:
+    def _parse_schedule_input_lines(
+        self,
+        raw_text: str,
+        *,
+        reference_datetime: datetime | None = None,
+        treat_cut_text_as_seed: bool = True,
+    ) -> tuple[list[dict[str, object]], int]:
         parsed_items: list[dict[str, object]] = []
         ignored_count = 0
         for raw_line in raw_text.splitlines():
             stripped_line = raw_line.strip()
-            parsed = self._parse_schedule_input_line(raw_line)
+            parsed = self._parse_schedule_input_line(
+                raw_line,
+                treat_cut_text_as_seed=treat_cut_text_as_seed,
+            )
             if parsed is None:
                 if stripped_line and not self._should_ignore_schedule_input_line(stripped_line):
                     ignored_count += 1
                 continue
             parsed_items.append(parsed)
-        self._apply_schedule_clock_rollover(parsed_items)
+        self._normalize_schedule_clock_items(parsed_items, reference_datetime=reference_datetime)
         parsed_map: dict[str, dict[str, object]] = {}
         control_items: list[dict[str, object]] = []
         for parsed in parsed_items:
@@ -19426,7 +24038,12 @@ class BossTimerApp:
             parsed_map[str(parsed["raw_key"])] = parsed
         return list(parsed_map.values()) + control_items, ignored_count
 
-    def _apply_schedule_clock_rollover(self, parsed_items: list[dict[str, object]]) -> None:
+    def _normalize_schedule_clock_items(
+        self,
+        parsed_items: list[dict[str, object]],
+        *,
+        reference_datetime: datetime | None = None,
+    ) -> None:
         inferred_day_offset = 0
         previous_clock_seconds: int | None = None
         for item in parsed_items:
@@ -19443,6 +24060,39 @@ class BossTimerApp:
                     inferred_day_offset += 1
                 item["day_offset"] = inferred_day_offset
             previous_clock_seconds = current_clock_seconds
+        if not isinstance(reference_datetime, datetime):
+            return
+        reference_value = reference_datetime.replace(microsecond=0)
+        for item in parsed_items:
+            if str(item.get("mode") or "") != "clock":
+                continue
+            if bool(item.get("day_offset_explicit")):
+                continue
+            state = str(item.get("state") or "")
+            if state == "scheduled":
+                if bool(item.get("cut_applied")) or bool(item.get("preserve_past_seed")):
+                    # Typed absolute cut-text input such as "1817 그로아 컷"
+                    # should keep the user-entered past clock time as a seed
+                    # row instead of being pushed to the next future occurrence.
+                    continue
+                while True:
+                    seed_datetime = self._resolve_schedule_seed_datetime(item, reference_value)
+                    if not isinstance(seed_datetime, datetime) or seed_datetime > reference_value:
+                        break
+                    item["day_offset"] = int(item.get("day_offset") or 0) + 1
+                continue
+            if state != "control":
+                continue
+            while True:
+                day_offset = int(item.get("day_offset") or 0)
+                hours = int(item.get("clock_hours") or 0)
+                minutes = int(item.get("clock_minutes") or 0)
+                seconds = int(item.get("clock_seconds") or 0)
+                base_date = (reference_value + timedelta(days=day_offset)).date()
+                target_datetime = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds)
+                if target_datetime > reference_value:
+                    break
+                item["day_offset"] = day_offset + 1
 
     def _get_schedule_respawn_seconds_for_boss(self, boss_name: str) -> int:
         item = self.schedule_boss_definitions.get(boss_name, {})
@@ -19527,7 +24177,7 @@ class BossTimerApp:
         persisted_item = {
             key: value
             for key, value in item.items()
-            if key not in {"edit_cut_preserve_scheduled_at", "edit_preserve_first_time"}
+            if key not in {"edit_cut_preserve_scheduled_at", "edit_preserve_first_time", "cut_applied", "preserve_past_seed"}
         }
         if str(item.get("state")) == "active":
             active_entry = {
@@ -19550,6 +24200,7 @@ class BossTimerApp:
         preserve_scheduled_at = item.get("edit_cut_preserve_scheduled_at")
         preserve_first_time = bool(item.get("edit_preserve_first_time"))
         is_cut_applied = bool(item.get("cut_applied"))
+        preserve_past_seed = bool(item.get("preserve_past_seed"))
         schedule_metric_duration_seconds: int | None = None
         if self._is_schedule_boss_metric_schedule_duration_enabled():
             resolved_duration_seconds = self._get_schedule_boss_metric_effective_duration_seconds(item)
@@ -19592,20 +24243,21 @@ class BossTimerApp:
                     cycle_anchor_at = preserve_scheduled_value
                     cycle_offset_direction = 0
                     scheduled_at = preserve_scheduled_value
-                elif generated_anchor_at < first_time_value:
-                    cycle_offset_direction = -1
-                    scheduled_at = (generated_anchor_at - timedelta(seconds=schedule_metric_duration_seconds)).replace(microsecond=0)
-                elif generated_anchor_at > first_time_value:
-                    cycle_offset_direction = 1
-                    scheduled_at = (generated_anchor_at + timedelta(seconds=schedule_metric_duration_seconds)).replace(microsecond=0)
                 else:
-                    cycle_offset_direction = 0
-                    scheduled_at = generated_anchor_at
+                    if respawn_seconds > 0:
+                        cycle_offset_direction = int(
+                            round((generated_anchor_at - first_time_value).total_seconds() / float(respawn_seconds))
+                        )
+                    else:
+                        cycle_offset_direction = 0
+                    scheduled_at = (
+                        generated_anchor_at + timedelta(seconds=(schedule_metric_duration_seconds * cycle_offset_direction))
+                    ).replace(microsecond=0)
             is_seed_row = (
                 (is_preserved_display_row and isinstance(first_time_value, datetime))
                 or generated_anchor_at == first_time_value
             )
-            if scheduled_at < start_datetime and not ((is_cut_applied or preserve_first_time) and is_seed_row):
+            if scheduled_at < start_datetime and not ((is_cut_applied or preserve_first_time or preserve_past_seed) and is_seed_row):
                 continue
             schedule_entries.append(
                 {
@@ -19630,8 +24282,14 @@ class BossTimerApp:
         schedule_entries: list[dict[str, object]],
         active_entries: list[dict[str, object]],
         force_past_update_keys: set[str] | None = None,
+        overwrite_cutoff_by_raw_key: dict[str, datetime] | None = None,
     ) -> int:
         force_past_update_keys = set(force_past_update_keys or set())
+        normalized_overwrite_cutoff_by_raw_key = {
+            str(raw_key or "").strip(): cutoff.replace(microsecond=0)
+            for raw_key, cutoff in (overwrite_cutoff_by_raw_key or {}).items()
+            if str(raw_key or "").strip() and isinstance(cutoff, datetime)
+        }
         imported_schedule_keys = {
             str(item.get("raw_key") or "")
             for item in schedule_entries
@@ -19649,7 +24307,12 @@ class BossTimerApp:
         for item in self.schedule_events:
             raw_key = str(item.get("raw_key") or "")
             scheduled_at = item.get("scheduled_at")
-            overwrite_cutoff = start_datetime if raw_key in force_past_update_keys else default_cutoff
+            custom_overwrite_cutoff = normalized_overwrite_cutoff_by_raw_key.get(raw_key)
+            overwrite_cutoff = (
+                custom_overwrite_cutoff
+                if isinstance(custom_overwrite_cutoff, datetime)
+                else (start_datetime if raw_key in force_past_update_keys else default_cutoff)
+            )
             if raw_key in imported_schedule_keys and isinstance(scheduled_at, datetime) and scheduled_at >= overwrite_cutoff:
                 overwritten_count += 1
                 continue
@@ -20106,9 +24769,16 @@ class BossTimerApp:
         refresh_active_rows_on_suppress: bool = True,
         ignore_delete_cutoff: bool = False,
         suppress_auto_cut_raw_keys: set[str] | None = None,
+        preserve_existing_past_raw_keys: set[str] | None = None,
+        overwrite_cutoff_by_raw_key: dict[str, datetime] | None = None,
     ) -> bool:
         generation_reference_datetime = reference_datetime
         control_generation_reference_datetime = start_datetime if isinstance(start_datetime, datetime) else reference_datetime
+        normalized_overwrite_cutoff_by_raw_key = {
+            str(raw_key or "").strip(): cutoff.replace(microsecond=0)
+            for raw_key, cutoff in (overwrite_cutoff_by_raw_key or {}).items()
+            if str(raw_key or "").strip() and isinstance(cutoff, datetime)
+        }
         generation_end = self._get_schedule_generation_end_datetime(
             generation_reference_datetime,
             include_delete_cutoff=not ignore_delete_cutoff,
@@ -20118,6 +24788,11 @@ class BossTimerApp:
         suppressed_auto_cut_raw_keys = {
             str(raw_key or "").strip()
             for raw_key in (suppress_auto_cut_raw_keys or set())
+            if str(raw_key or "").strip()
+        }
+        preserved_existing_past_raw_keys = {
+            str(raw_key or "").strip()
+            for raw_key in (preserve_existing_past_raw_keys or set())
             if str(raw_key or "").strip()
         }
         if suppressed_auto_cut_raw_keys:
@@ -20162,6 +24837,14 @@ class BossTimerApp:
             )
             schedule_entries.extend(generated_schedule_entries)
             active_entries.extend(generated_active_entries)
+        if preserved_existing_past_raw_keys:
+            schedule_entries = [
+                item
+                for item in schedule_entries
+                if str(item.get("raw_key") or "").strip() not in preserved_existing_past_raw_keys
+                or not isinstance(item.get("scheduled_at"), datetime)
+                or item.get("scheduled_at") >= reference_datetime
+            ]
 
         imported_schedule_keys = {
             str(item.get("raw_key") or "")
@@ -20174,18 +24857,24 @@ class BossTimerApp:
             if str(item.get("state") or "") == "active" and str(item.get("raw_key") or "")
         }
         imported_keys = imported_schedule_keys | imported_active_keys
+        had_schedule_before = bool(self.schedule_events or self.schedule_active_entries or self.schedule_control_events)
         effective_force_past_keys = set(force_past_update_keys or (self.schedule_input_edit_keys if edit_mode else set()))
         if not edit_mode and not self.schedule_input_add_mode:
             # Full schedule input / OCR import is chain restoration, so when the same
             # boss is imported again we should replace that boss chain end-to-end
             # instead of preserving older past entries from the previous anchor.
-            effective_force_past_keys.update(imported_schedule_keys)
+            effective_force_past_keys.update(imported_schedule_keys - preserved_existing_past_raw_keys)
         default_overwrite_cutoff = overwrite_cutoff_datetime if isinstance(overwrite_cutoff_datetime, datetime) else max(start_datetime, reference_datetime)
         overwritten_count = 0
         for item in self.schedule_events:
             raw_key = str(item.get("raw_key") or "")
             scheduled_at = item.get("scheduled_at")
-            overwrite_cutoff = start_datetime if raw_key in effective_force_past_keys else default_overwrite_cutoff
+            custom_overwrite_cutoff = normalized_overwrite_cutoff_by_raw_key.get(raw_key)
+            overwrite_cutoff = (
+                custom_overwrite_cutoff
+                if isinstance(custom_overwrite_cutoff, datetime)
+                else (start_datetime if raw_key in effective_force_past_keys else default_overwrite_cutoff)
+            )
             if raw_key in imported_schedule_keys and isinstance(scheduled_at, datetime) and scheduled_at >= overwrite_cutoff:
                 overwritten_count += 1
         overwritten_count += sum(1 for item in self.schedule_active_entries if str(item.get("raw_key") or "") in imported_keys)
@@ -20221,6 +24910,7 @@ class BossTimerApp:
             schedule_entries,
             active_entries,
             effective_force_past_keys,
+            normalized_overwrite_cutoff_by_raw_key,
         )
         self._merge_schedule_control_events(control_entries)
         self._apply_schedule_parsed_cut_states(parsed_items, generation_reference_datetime)
@@ -20270,6 +24960,13 @@ class BossTimerApp:
             self.schedule_input_status_var.set(f"{current_status}{suffix}" if current_status else suffix.strip())
         if isinstance(backup_payload, dict):
             backup_payload["summary_text"] = applied_summary
+        if (
+            not edit_mode
+            and not self.schedule_input_add_mode
+            and not had_schedule_before
+            and (scheduled_count > 0 or active_count > 0 or len(control_entries) > 0)
+        ):
+            self._run_schedule_today_view_actions(save_state=True)
         self._update_schedule_input_undo_state()
         return True
 
@@ -20288,10 +24985,39 @@ class BossTimerApp:
         if self.schedule_input_text is None:
             return
         raw_text = self._get_schedule_input_raw_text()
-        parsed_items, ignored_count = self._parse_schedule_input_lines(raw_text)
+        parsed_items, ignored_count = self._parse_schedule_input_lines(
+            raw_text,
+            reference_datetime=None if self.schedule_input_edit_mode else reference_datetime,
+        )
         if not parsed_items:
             self.schedule_input_status_var.set("파싱 가능한 스케쥴 데이터가 없습니다.")
             return
+        preserve_existing_past_raw_keys: set[str] = set()
+        if self.schedule_input_past_enabled and not self.schedule_input_edit_mode:
+            existing_past_raw_keys = self._collect_schedule_existing_visible_past_raw_keys(
+                reference_datetime,
+                past_start_datetime=start_datetime,
+            )
+            preserve_existing_past_raw_keys = {
+                str(item.get("raw_key") or "").strip()
+                for item in parsed_items
+                if str(item.get("state") or "") != "control"
+                and str(item.get("raw_key") or "").strip() in existing_past_raw_keys
+            }
+        preserve_past_seed_overwrite_cutoff_by_raw_key: dict[str, datetime] = {}
+        for item in parsed_items:
+            if not isinstance(item, dict) or not bool(item.get("preserve_past_seed")):
+                continue
+            raw_key = str(item.get("raw_key") or "").strip()
+            if not raw_key or raw_key in preserve_past_seed_overwrite_cutoff_by_raw_key:
+                continue
+            closest_past_datetime = self._find_schedule_recent_visible_past_event_datetime(
+                raw_key,
+                reference_datetime,
+                lookback_seconds=86400,
+            )
+            if isinstance(closest_past_datetime, datetime):
+                preserve_past_seed_overwrite_cutoff_by_raw_key[raw_key] = closest_past_datetime
         if not self.schedule_input_edit_mode:
             uncertain_overwrite_items = self._collect_schedule_uncertain_overwrite_items(parsed_items)
             if uncertain_overwrite_items:
@@ -20328,9 +25054,15 @@ class BossTimerApp:
             edit_mode=self.schedule_input_edit_mode,
             source_label="스케쥴 수정" if self.schedule_input_edit_mode else ("스케쥴 추가" if self.schedule_input_add_mode else "스케쥴 적용"),
             ignore_delete_cutoff=True,
+            preserve_existing_past_raw_keys=preserve_existing_past_raw_keys,
+            overwrite_cutoff_by_raw_key=preserve_past_seed_overwrite_cutoff_by_raw_key,
         )
         if not applied:
             return
+        if preserve_existing_past_raw_keys:
+            current_status = str(self.schedule_input_status_var.get() or "").strip()
+            suffix = f" (기존 과거 체인 {len(preserve_existing_past_raw_keys)}보스는 과거 보존 후 미래만 갱신)"
+            self.schedule_input_status_var.set(f"{current_status}{suffix}" if current_status else suffix.strip())
         self._reset_schedule_input_mode_state()
         self._update_schedule_input_undo_state()
 
@@ -21162,6 +25894,7 @@ class BossTimerApp:
     def _on_fixed_boss_color_data_enabled_changed(self, *_args) -> None:
         self.fixed_boss_color_data_enabled_default = bool(self.fixed_boss_color_data_enabled_var.get())
         self._save_settings()
+        self._refresh_fixed_boss_list()
         self._refresh_schedule_tree_scope()
 
     def _sync_schedule_boss_form_state(self) -> None:
@@ -21371,8 +26104,10 @@ class BossTimerApp:
     def _get_schedule_boss_config_form_name_alias(self, item: dict[str, str | bool]) -> tuple[str, str]:
         canonical_name = str(item.get("boss_name") or "").strip()
         alias_name = str(item.get("alias") or "").strip()
-        if canonical_name and canonical_name in self._build_schedule_boss_definitions() and alias_name:
-            return alias_name, ""
+        # User-defined alias should stay separate from the canonical boss name
+        # in the boss-config UI. Showing the alias in the main name field makes
+        # the preview tree look like the boss name changed and can also disturb
+        # the builtin area order while editing.
         return canonical_name, alias_name
 
     def _get_schedule_boss_config_tree_name_alias(self, item: dict[str, str | bool]) -> tuple[str, str]:
@@ -23599,6 +28334,9 @@ class BossTimerApp:
         schedule_input_ocr_addon_fast_input_value = self.schedule_input_ocr_addon_fast_input_enabled
         if hasattr(self, "schedule_input_ocr_addon_fast_input_var") and self.schedule_input_ocr_addon_fast_input_var is not None:
             schedule_input_ocr_addon_fast_input_value = bool(self.schedule_input_ocr_addon_fast_input_var.get())
+        schedule_input_ocr_addon_restore_delay_seconds_value = self._normalize_schedule_input_ocr_addon_restore_delay_seconds(
+            getattr(self, "schedule_input_ocr_addon_restore_delay_seconds", SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS),
+        )
         schedule_input_ocr_sort_by_time_value = self.schedule_input_ocr_sort_by_time_enabled
         if hasattr(self, "schedule_input_ocr_sort_by_time_var") and self.schedule_input_ocr_sort_by_time_var is not None:
             schedule_input_ocr_sort_by_time_value = bool(self.schedule_input_ocr_sort_by_time_var.get())
@@ -23681,6 +28419,7 @@ class BossTimerApp:
             "schedule_time_sync_last_error": str(getattr(self, "schedule_time_sync_last_error", "") or ""),
             "schedule_invasion_weekday": schedule_invasion_weekday_value,
             "schedule_input_ocr_addon_fast_input": str(schedule_input_ocr_addon_fast_input_value),
+            "schedule_input_ocr_addon_restore_delay_seconds": f"{schedule_input_ocr_addon_restore_delay_seconds_value:.2f}",
             "schedule_input_ocr_sort_by_time": str(schedule_input_ocr_sort_by_time_value),
             "archive_keep_seasons": str(archive_keep_seasons_value),
             "log_archive_filter": log_archive_filter_value,
@@ -25575,13 +30314,21 @@ class BossTimerApp:
             self._close_schedule_input_ocr_addon_window()
 
     def _open_schedule_input_window_normal(self) -> None:
+        if self.schedule_input_window_open and self._widget_available(self.schedule_input_window):
+            try:
+                self.schedule_input_window.deiconify()
+                self.schedule_input_window.lift()
+                self.schedule_input_window.focus_force()
+            except tk.TclError:
+                pass
+            return
         self._reset_schedule_input_mode_state()
         self.schedule_input_undo_edit_context = False
         self.schedule_input_past_enabled = True
         self.schedule_input_invasion_var.set(False)
         self._set_schedule_base_datetime_fields(self._get_schedule_default_server_open_datetime())
         self.schedule_input_ocr_items = []
-        self._clear_schedule_input_ocr_results()
+        self._clear_schedule_input_ocr_results(clear_rendered_text=True)
         self.open_schedule_input_window()
 
     def _open_schedule_input_window_for_add(self) -> None:
@@ -26240,7 +30987,25 @@ class BossTimerApp:
         self.schedule_alarm_countdown_start_var.set(str(countdown_start))
         self.schedule_alarm_countdown_start_default = countdown_start
         self.schedule_alarm_countdown_enabled_default = bool(self.schedule_alarm_countdown_enabled_var.get())
+        self.schedule_alarm_countdown_ai_voice_enabled_default = bool(self.schedule_alarm_countdown_ai_voice_var.get())
+        self.schedule_alarm_boss_ai_voice_enabled_default = bool(self.schedule_alarm_boss_ai_voice_var.get())
         self.schedule_fixed_boss_alarm_enabled_default = bool(self.schedule_fixed_boss_alarm_enabled_var.get())
+        countdown_ai_enabled = self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_countdown_ai_voice_enabled_default
+        boss_audio_enabled = self.schedule_alarm_boss_ai_voice_enabled_default
+        active_countdown_window = False
+        try:
+            active_countdown_window = self._has_active_schedule_countdown_window(self._get_schedule_reference_datetime())
+        except Exception:
+            active_countdown_window = False
+        if not countdown_ai_enabled:
+            self._drop_pending_schedule_alarm_queue_items(category="countdown")
+            self._stop_schedule_alarm_countdown_audio(close_host=not active_countdown_window)
+        else:
+            self._ensure_schedule_alarm_countdown_audio_host_process()
+        if not boss_audio_enabled:
+            self._stop_schedule_alarm_boss_audio(close_host=True)
+        else:
+            self._ensure_schedule_alarm_boss_audio_host_process()
         self._save_schedule_alarm_settings()
         if show_status:
             self.schedule_alarm_status_var.set("초읽기와 고정보스 안내 설정을 저장했습니다.")
@@ -26290,11 +31055,154 @@ class BossTimerApp:
         digits = digits[:6].rjust(6, "0")
         return f"{digits[:2]}:{digits[2:4]}:{digits[4:6]}"
 
+    def _normalize_fixed_boss_anchor_date_text(self, raw_text: str | None) -> str:
+        text = str(raw_text or "").strip()
+        if not text:
+            return ""
+        for fmt in ("%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return ""
+
+    def _get_fixed_boss_day_indices(self, days: list[str] | tuple[str, ...] | None = None) -> list[int]:
+        weekday_order = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
+        source_days = list(days) if isinstance(days, (list, tuple)) else [
+            day
+            for day, variable in self.fixed_boss_day_vars.items()
+            if variable.get()
+        ]
+        return sorted({weekday_order[day] for day in source_days if day in weekday_order})
+
+    def _resolve_fixed_boss_anchor_date_text(
+        self,
+        repeat_mode: str,
+        days: list[str] | tuple[str, ...] | None = None,
+        *,
+        reference_datetime: datetime | None = None,
+    ) -> str:
+        if repeat_mode not in {"biweekly_current", "biweekly_next"}:
+            return ""
+        day_indices = self._get_fixed_boss_day_indices(days)
+        if not day_indices:
+            return ""
+        base_datetime = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
+        base_date = base_datetime.date()
+        week_start = base_date - timedelta(days=base_date.weekday())
+        if repeat_mode == "biweekly_next":
+            week_start += timedelta(days=7)
+        anchor_date = week_start + timedelta(days=day_indices[0])
+        return anchor_date.strftime("%Y-%m-%d")
+
+    def _get_fixed_boss_anchor_date_text(
+        self,
+        item: dict[str, object],
+        *,
+        fallback_reference_datetime: datetime | None = None,
+    ) -> str:
+        if not isinstance(item, dict):
+            return ""
+        repeat_mode = str(item.get("repeat_mode") or "weekly")
+        if repeat_mode not in {"biweekly_current", "biweekly_next"}:
+            return ""
+        anchor_date_text = self._normalize_fixed_boss_anchor_date_text(item.get("anchor_date"))
+        if anchor_date_text:
+            return anchor_date_text
+        return self._resolve_fixed_boss_anchor_date_text(
+            repeat_mode,
+            item.get("days") if isinstance(item.get("days"), list) else None,
+            reference_datetime=fallback_reference_datetime,
+        )
+
+    def _format_fixed_boss_anchor_date_label(self, anchor_date_text: str) -> str:
+        normalized = self._normalize_fixed_boss_anchor_date_text(anchor_date_text)
+        if not normalized:
+            return ""
+        try:
+            anchor_datetime = datetime.strptime(normalized, "%Y-%m-%d")
+        except ValueError:
+            return ""
+        return f"{anchor_datetime.month}월 {anchor_datetime.day}일"
+
+    def _get_fixed_boss_repeat_display_text(self, item: dict[str, object]) -> str:
+        repeat_mode = str(item.get("repeat_mode") or "weekly")
+        if repeat_mode == "weekly":
+            return "매주"
+        anchor_date_text = self._get_fixed_boss_anchor_date_text(item)
+        anchor_label = self._format_fixed_boss_anchor_date_label(anchor_date_text)
+        return f"격주({anchor_label})" if anchor_label else "격주"
+
+    def _is_fixed_boss_entry_active_on_date(
+        self,
+        item: dict[str, object],
+        current_date,
+        *,
+        fallback_reference_datetime: datetime | None = None,
+    ) -> bool:
+        repeat_mode = str(item.get("repeat_mode") or "weekly")
+        if repeat_mode == "weekly":
+            return True
+        if repeat_mode not in {"biweekly_current", "biweekly_next"}:
+            return True
+        anchor_date_text = self._get_fixed_boss_anchor_date_text(
+            item,
+            fallback_reference_datetime=fallback_reference_datetime,
+        )
+        normalized_anchor = self._normalize_fixed_boss_anchor_date_text(anchor_date_text)
+        if not normalized_anchor:
+            return False
+        try:
+            anchor_date = datetime.strptime(normalized_anchor, "%Y-%m-%d").date()
+        except ValueError:
+            return False
+        anchor_week_start = anchor_date - timedelta(days=anchor_date.weekday())
+        candidate_week_start = current_date - timedelta(days=current_date.weekday())
+        week_offset = (candidate_week_start - anchor_week_start).days // 7
+        return week_offset % 2 == 0
+
+    def _refresh_fixed_boss_repeat_button_labels(self) -> None:
+        current_anchor_label = self._format_fixed_boss_anchor_date_label(
+            self._resolve_fixed_boss_anchor_date_text("biweekly_current")
+        )
+        next_anchor_label = self._format_fixed_boss_anchor_date_label(
+            self._resolve_fixed_boss_anchor_date_text("biweekly_next")
+        )
+        label_map = {
+            "weekly": "매주",
+            "biweekly_current": f"격주(이번주 {current_anchor_label})" if current_anchor_label else "격주(이번주 기준)",
+            "biweekly_next": f"격주(다음주 {next_anchor_label})" if next_anchor_label else "격주(다음주 기준)",
+        }
+        for mode, button in self.fixed_boss_repeat_buttons.items():
+            if button is None or not button.winfo_exists():
+                continue
+            try:
+                button.config(text=label_map.get(mode, "매주"))
+            except tk.TclError:
+                continue
+
+    def _write_fixed_boss_definitions_file(self, entries: list[dict[str, object]]) -> None:
+        self._ensure_init_dir()
+        with open(SCHEDULE_FIXED_BOSSES_PATH, "w", encoding="utf-8") as file:
+            file.write("# 보스명|시간(HH:MM:SS)|요일(월,화,...)|반복(weekly/biweekly_current/biweekly_next)|기준일(YYYY-MM-DD)|사용여부(1/0)|글자색(#RRGGBB)|배경색(#RRGGBB)\n")
+            for item in entries:
+                file.write(
+                    f"{str(item.get('boss_name') or '').strip()}|"
+                    f"{self._normalize_fixed_boss_time_text(str(item.get('time_text') or '00:00:00'))}|"
+                    f"{','.join(day for day in item.get('days', []) if day in ('월', '화', '수', '목', '금', '토', '일'))}|"
+                    f"{str(item.get('repeat_mode') or 'weekly')}|"
+                    f"{self._normalize_fixed_boss_anchor_date_text(item.get('anchor_date'))}|"
+                    f"{'1' if bool(item.get('enabled', True)) else '0'}|"
+                    f"{self._normalize_hex_color(str(item.get('text_color') or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR)}|"
+                    f"{self._normalize_hex_color(str(item.get('bg_color') or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR)}\n"
+                )
+
     def _load_fixed_boss_definitions(self) -> list[dict[str, object]]:
         self._ensure_init_dir()
         if not os.path.exists(SCHEDULE_FIXED_BOSSES_PATH):
             return []
         entries: list[dict[str, object]] = []
+        changed = False
         try:
             with open(SCHEDULE_FIXED_BOSSES_PATH, "r", encoding="utf-8") as file:
                 for raw_line in file:
@@ -26308,35 +31216,47 @@ class BossTimerApp:
                     if not boss_name:
                         continue
                     days = [day for day in (parts[2].split(",") if len(parts) >= 3 and parts[2] else []) if day in ("월", "화", "수", "목", "금", "토", "일")]
+                    repeat_mode = parts[3] if parts[3] in {"weekly", "biweekly_current", "biweekly_next"} else "weekly"
+                    anchor_date_text = ""
+                    enabled_index = 4
+                    text_color_index = 5
+                    bg_color_index = 6
+                    if len(parts) >= 8:
+                        anchor_date_text = self._normalize_fixed_boss_anchor_date_text(parts[4])
+                        enabled_index = 5
+                        text_color_index = 6
+                        bg_color_index = 7
+                    if repeat_mode in {"biweekly_current", "biweekly_next"} and not anchor_date_text:
+                        anchor_date_text = self._resolve_fixed_boss_anchor_date_text(
+                            repeat_mode,
+                            days,
+                            reference_datetime=datetime.now(),
+                        )
+                        if anchor_date_text:
+                            changed = True
                     entries.append(
                         {
                             "boss_name": boss_name,
                             "time_text": self._normalize_fixed_boss_time_text(parts[1]),
                             "days": days,
-                            "repeat_mode": parts[3] if parts[3] in {"weekly", "biweekly_current", "biweekly_next"} else "weekly",
-                            "enabled": self._parse_schedule_definition_bool(parts[4], True),
-                            "text_color": self._normalize_hex_color(parts[5] if len(parts) >= 6 else DEFAULT_FIXED_BOSS_TEXT_COLOR, DEFAULT_FIXED_BOSS_TEXT_COLOR),
-                            "bg_color": self._normalize_hex_color(parts[6] if len(parts) >= 7 else DEFAULT_FIXED_BOSS_BG_COLOR, DEFAULT_FIXED_BOSS_BG_COLOR),
+                            "repeat_mode": repeat_mode,
+                            "anchor_date": anchor_date_text,
+                            "enabled": self._parse_schedule_definition_bool(parts[enabled_index] if len(parts) > enabled_index else None, True),
+                            "text_color": self._normalize_hex_color(parts[text_color_index] if len(parts) > text_color_index else DEFAULT_FIXED_BOSS_TEXT_COLOR, DEFAULT_FIXED_BOSS_TEXT_COLOR),
+                            "bg_color": self._normalize_hex_color(parts[bg_color_index] if len(parts) > bg_color_index else DEFAULT_FIXED_BOSS_BG_COLOR, DEFAULT_FIXED_BOSS_BG_COLOR),
                         }
                     )
         except OSError:
             return []
+        if changed:
+            try:
+                self._write_fixed_boss_definitions_file(entries)
+            except OSError:
+                pass
         return entries
 
     def _save_fixed_boss_definitions(self) -> None:
-        self._ensure_init_dir()
-        with open(SCHEDULE_FIXED_BOSSES_PATH, "w", encoding="utf-8") as file:
-            file.write("# 보스명|시간(HH:MM:SS)|요일(월,화,...)|반복(weekly/biweekly_current/biweekly_next)|사용여부(1/0)|글자색(#RRGGBB)|배경색(#RRGGBB)\n")
-            for item in self.fixed_boss_entries:
-                file.write(
-                    f"{str(item.get('boss_name') or '').strip()}|"
-                    f"{self._normalize_fixed_boss_time_text(str(item.get('time_text') or '00:00:00'))}|"
-                    f"{','.join(day for day in item.get('days', []) if day in ('월', '화', '수', '목', '금', '토', '일'))}|"
-                    f"{str(item.get('repeat_mode') or 'weekly')}|"
-                    f"{'1' if bool(item.get('enabled', True)) else '0'}|"
-                    f"{self._normalize_hex_color(str(item.get('text_color') or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR)}|"
-                    f"{self._normalize_hex_color(str(item.get('bg_color') or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR)}\n"
-                )
+        self._write_fixed_boss_definitions_file(self.fixed_boss_entries)
 
     def _position_schedule_break_window(self) -> None:
         if self.schedule_break_window is None or not self.schedule_break_window.winfo_exists() or not self.schedule_break_window_open:
@@ -26967,10 +31887,10 @@ class BossTimerApp:
         self._refresh_fixed_boss_day_button_styles()
 
     def _set_fixed_boss_add_button_active(self, active: bool) -> None:
-        self.fixed_boss_add_button_active = bool(active)
+        self.fixed_boss_add_button_active = bool(active) and self.fixed_boss_selected_index is not None
         if self.fixed_boss_add_button is None or not self.fixed_boss_add_button.winfo_exists():
             return
-        if active:
+        if self.fixed_boss_add_button_active:
             self.fixed_boss_add_button.config(
                 bg="#0f766e",
                 fg="#ffffff",
@@ -27009,6 +31929,7 @@ class BossTimerApp:
         self.fixed_boss_add_button.bind("<Leave>", on_leave)
 
     def _refresh_fixed_boss_day_button_styles(self) -> None:
+        self._refresh_fixed_boss_repeat_button_labels()
         all_selected = all(variable.get() for variable in self.fixed_boss_day_vars.values())
         if self.fixed_boss_everyday_button is not None and self.fixed_boss_everyday_button.winfo_exists():
             everyday_bg = "#0f766e" if all_selected else "#dbeafe"
@@ -27069,9 +31990,34 @@ class BossTimerApp:
         self.fixed_boss_inline_status_var.set("")
         self._set_fixed_boss_add_button_active(True)
 
+    def _build_fixed_boss_entry_from_form(self) -> dict[str, object] | None:
+        boss_name = (self.fixed_boss_name_var.get() or "").strip()
+        if not boss_name:
+            self.fixed_boss_inline_status_var.set("보스 이름을 먼저 입력하세요.")
+            self.fixed_boss_status_var.set("고정보스 이름을 입력하세요.")
+            return None
+        selected_days = [day for day, variable in self.fixed_boss_day_vars.items() if variable.get()]
+        if not selected_days:
+            self.fixed_boss_inline_status_var.set("요일을 하나 이상 선택해야 등록할 수 있습니다.")
+            self.fixed_boss_status_var.set("적어도 한 개 이상의 요일을 선택하세요.")
+            return None
+        self.fixed_boss_inline_status_var.set("")
+        repeat_mode = self.fixed_boss_repeat_mode_var.get()
+        return {
+            "boss_name": boss_name,
+            "time_text": self._normalize_fixed_boss_time_text(self.fixed_boss_time_var.get() or "00:00:00"),
+            "days": selected_days,
+            "repeat_mode": repeat_mode if repeat_mode in {"weekly", "biweekly_current", "biweekly_next"} else "weekly",
+            "anchor_date": self._resolve_fixed_boss_anchor_date_text(repeat_mode, selected_days),
+            "enabled": bool(self.fixed_boss_use_var.get()),
+            "text_color": self._normalize_hex_color(self.fixed_boss_text_color_var.get(), DEFAULT_FIXED_BOSS_TEXT_COLOR),
+            "bg_color": self._normalize_hex_color(self.fixed_boss_bg_color_var.get(), DEFAULT_FIXED_BOSS_BG_COLOR),
+        }
+
     def _load_fixed_boss_entry_to_form(self, index: int) -> None:
         if not (0 <= index < len(self.fixed_boss_entries)):
             return
+        self.fixed_boss_selected_index = index
         self.fixed_boss_form_syncing = True
         item = self.fixed_boss_entries[index]
         self.fixed_boss_name_var.set(str(item.get("boss_name") or ""))
@@ -27111,6 +32057,7 @@ class BossTimerApp:
             return
 
     def _reset_fixed_boss_form(self) -> None:
+        self.fixed_boss_selected_index = None
         self.fixed_boss_form_syncing = True
         self.fixed_boss_name_var.set("")
         self.fixed_boss_time_var.set("00:00:00")
@@ -27136,6 +32083,8 @@ class BossTimerApp:
             self.fixed_boss_entries[index]["enabled"] = not bool(self.fixed_boss_entries[index].get("enabled", True))
         else:
             self.fixed_boss_entries[index]["enabled"] = bool(enabled)
+        if self.fixed_boss_selected_index == index:
+            self.fixed_boss_use_var.set(bool(self.fixed_boss_entries[index].get("enabled", True)))
         self._save_fixed_boss_definitions()
         self._refresh_fixed_boss_list()
         self._refresh_schedule_view()
@@ -27146,13 +32095,18 @@ class BossTimerApp:
             return
         deleted_item = dict(self.fixed_boss_entries[index])
         self.fixed_boss_deleted_backup = [deleted_item]
+        deleted_selected_item = self.fixed_boss_selected_index == index
         del self.fixed_boss_entries[index]
+        if self.fixed_boss_selected_index is not None and self.fixed_boss_selected_index > index:
+            self.fixed_boss_selected_index -= 1
         self._save_fixed_boss_definitions()
         self._sync_schedule_boss_metrics_with_definitions()
         if self.schedule_boss_metrics_window_open:
             self._populate_schedule_boss_metrics_tree()
         self._refresh_fixed_boss_list()
         self._refresh_schedule_view()
+        if deleted_selected_item:
+            self._reset_fixed_boss_form()
         self.fixed_boss_status_var.set(f"{str(deleted_item.get('boss_name') or '')} 고정보스를 삭제했습니다.")
         self._set_fixed_boss_add_button_active(True)
 
@@ -27170,6 +32124,7 @@ class BossTimerApp:
             self._populate_schedule_boss_metrics_tree()
         self._refresh_fixed_boss_list()
         self._refresh_schedule_view()
+        self._reset_fixed_boss_form()
         self.fixed_boss_status_var.set("등록된 고정보스를 모두 삭제했습니다.")
         self._set_fixed_boss_add_button_active(True)
 
@@ -27262,8 +32217,10 @@ class BossTimerApp:
         for index, item in enumerate(self.fixed_boss_entries):
             row_y = 8 + (index * 34)
             enabled = bool(item.get("enabled", True))
-            configured_text_color = self._normalize_hex_color(str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR)
-            configured_bg_color = self._normalize_hex_color(str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR)
+            configured_text_color, configured_bg_color = self._get_fixed_boss_effective_colors(
+                str(item.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR),
+                str(item.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR),
+            )
             row_bg = configured_bg_color if enabled else "#f1f5f9"
             row_fg = configured_text_color if enabled else "#475569"
             row_frame = tk.Frame(self.fixed_boss_rows_frame, bg=row_bg, bd=1, relief="solid")
@@ -27282,14 +32239,13 @@ class BossTimerApp:
             ).place(x=8, y=4, width=22, height=22)
             boss_label = tk.Label(row_frame, text=str(item.get("boss_name") or ""), font=self.button_font, bg=row_bg, fg=row_fg if enabled else "#0f172a", anchor="w", cursor="hand2")
             boss_label.place(x=40, y=3, width=180, height=22)
-            repeat_mode = str(item.get("repeat_mode") or "weekly")
-            repeat_label = "매주" if repeat_mode == "weekly" else "격주(이번주)" if repeat_mode == "biweekly_current" else "격주(다음주)"
+            repeat_label = self._get_fixed_boss_repeat_display_text(item)
             repeat_label_widget = tk.Label(row_frame, text=repeat_label, font=self.percent_font, bg=row_bg, fg=row_fg if enabled else "#1e3a8a", anchor="w", cursor="hand2")
-            repeat_label_widget.place(x=228, y=5, width=90, height=18)
+            repeat_label_widget.place(x=228, y=5, width=112, height=18)
             time_label = tk.Label(row_frame, text=self._normalize_fixed_boss_time_text(str(item.get("time_text") or "00:00:00")), font=self.button_font, bg=row_bg, fg=row_fg if enabled else "#7c2d12", anchor="center", cursor="hand2")
-            time_label.place(x=326, y=3, width=88, height=22)
+            time_label.place(x=348, y=3, width=88, height=22)
             days_label = tk.Label(row_frame, text=", ".join(item.get("days", [])) or "-", font=self.percent_font, bg=row_bg, fg=row_fg, anchor="w", cursor="hand2")
-            days_label.place(x=426, y=5, width=200, height=18)
+            days_label.place(x=448, y=5, width=190, height=18)
             for widget in (row_frame, boss_label, repeat_label_widget, time_label, days_label):
                 widget.bind("<Button-1>", lambda _event, idx=index: self._load_fixed_boss_entry_to_form(idx))
             delete_button = tk.Button(
@@ -27306,7 +32262,7 @@ class BossTimerApp:
                 command=lambda idx=index: self._delete_fixed_boss_entry(idx),
                 cursor="hand2",
             )
-            delete_button.place(x=636, y=3, width=62, height=22)
+            delete_button.place(x=650, y=3, width=48, height=22)
             self._bind_hover_button(delete_button, "#fee2e2", "#fecaca", "#991b1b", "#991b1b")
         content_height = max(44, 8 + (len(self.fixed_boss_entries) * 34))
         self.fixed_boss_rows_frame.configure(height=content_height)
@@ -27316,49 +32272,21 @@ class BossTimerApp:
             return
         self._bind_fixed_boss_scroll_recursive(self.fixed_boss_rows_frame)
 
-    def _apply_fixed_boss_add(self) -> None:
-        boss_name = (self.fixed_boss_name_var.get() or "").strip()
-        if not boss_name:
-            self.fixed_boss_inline_status_var.set("보스 이름을 먼저 입력하세요.")
-            self.fixed_boss_status_var.set("고정보스 이름을 입력하세요.")
+    def _apply_fixed_boss_update(self) -> None:
+        if self.fixed_boss_selected_index is None or not (0 <= self.fixed_boss_selected_index < len(self.fixed_boss_entries)):
+            self.fixed_boss_inline_status_var.set("수정할 고정보스를 목록에서 먼저 선택하세요.")
+            self.fixed_boss_status_var.set("수정할 고정보스를 먼저 선택하세요.")
+            self._set_fixed_boss_add_button_active(False)
             return
-        selected_days = [day for day, variable in self.fixed_boss_day_vars.items() if variable.get()]
-        if not selected_days:
-            self.fixed_boss_inline_status_var.set("요일을 하나 이상 선택해야 등록할 수 있습니다.")
-            self.fixed_boss_status_var.set("적어도 한 개 이상의 요일을 선택하세요.")
+        entry = self._build_fixed_boss_entry_from_form()
+        if entry is None:
             return
-        self.fixed_boss_inline_status_var.set("")
-        time_text = self._normalize_fixed_boss_time_text(self.fixed_boss_time_var.get() or "00:00:00")
-        matched_enabled = True
-        for item in self.fixed_boss_entries:
-            if str(item.get("boss_name") or "") == boss_name and str(item.get("time_text") or "") == time_text:
-                matched_enabled = bool(item.get("enabled", True))
-                break
-
-        entry = {
-            "boss_name": boss_name,
-            "time_text": time_text,
-            "days": selected_days,
-            "repeat_mode": self.fixed_boss_repeat_mode_var.get() if self.fixed_boss_repeat_mode_var.get() in {"weekly", "biweekly_current", "biweekly_next"} else "weekly",
-            "enabled": matched_enabled,
-            "text_color": self._normalize_hex_color(self.fixed_boss_text_color_var.get(), DEFAULT_FIXED_BOSS_TEXT_COLOR),
-            "bg_color": self._normalize_hex_color(self.fixed_boss_bg_color_var.get(), DEFAULT_FIXED_BOSS_BG_COLOR),
-        }
-        replaced = False
-        changed = True
-        for index, item in enumerate(self.fixed_boss_entries):
-            if str(item.get("boss_name") or "") == boss_name and str(item.get("time_text") or "") == time_text:
-                replaced = True
-                changed = self.fixed_boss_entries[index] != entry
-                if changed:
-                    self.fixed_boss_entries[index] = entry
-                break
-        if replaced and not changed:
+        selected_index = self.fixed_boss_selected_index
+        if self.fixed_boss_entries[selected_index] == entry:
             self.fixed_boss_status_var.set("변경된 고정보스 설정이 없습니다.")
             self._set_fixed_boss_add_button_active(False)
             return
-        if not replaced:
-            self.fixed_boss_entries.append(entry)
+        self.fixed_boss_entries[selected_index] = entry
         self.fixed_boss_entries.sort(key=lambda item: (str(item.get("time_text") or ""), str(item.get("boss_name") or "")))
         self.fixed_boss_last_text_color = str(entry.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR)
         self.fixed_boss_last_bg_color = str(entry.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR)
@@ -27369,7 +32297,26 @@ class BossTimerApp:
         self._save_settings()
         self._refresh_fixed_boss_list()
         self._refresh_schedule_view()
-        self.fixed_boss_status_var.set(f"{boss_name} 고정보스를 {'갱신' if replaced else '추가'}했습니다.")
+        self.fixed_boss_status_var.set(f"{str(entry.get('boss_name') or '')} 고정보스를 수정했습니다.")
+        self._reset_fixed_boss_form()
+        self._set_fixed_boss_add_button_active(False)
+
+    def _apply_fixed_boss_add(self) -> None:
+        entry = self._build_fixed_boss_entry_from_form()
+        if entry is None:
+            return
+        self.fixed_boss_entries.append(entry)
+        self.fixed_boss_entries.sort(key=lambda item: (str(item.get("time_text") or ""), str(item.get("boss_name") or "")))
+        self.fixed_boss_last_text_color = str(entry.get("text_color") or DEFAULT_FIXED_BOSS_TEXT_COLOR)
+        self.fixed_boss_last_bg_color = str(entry.get("bg_color") or DEFAULT_FIXED_BOSS_BG_COLOR)
+        self._save_fixed_boss_definitions()
+        self._sync_schedule_boss_metrics_with_definitions()
+        if self.schedule_boss_metrics_window_open:
+            self._populate_schedule_boss_metrics_tree()
+        self._save_settings()
+        self._refresh_fixed_boss_list()
+        self._refresh_schedule_view()
+        self.fixed_boss_status_var.set(f"{str(entry.get('boss_name') or '')} 고정보스를 추가했습니다.")
         self._reset_fixed_boss_form()
         self._set_fixed_boss_add_button_active(False)
 
@@ -27503,18 +32450,18 @@ class BossTimerApp:
             anchor="w",
         )
         self.schedule_time_sync_info_label.place(x=136, y=15, width=658, height=16)
-        self.schedule_alarm_master_button = tk.Button(
+        schedule_metrics_button = tk.Button(
             top_frame,
-            text="알람 OFF",
+            text="소요시간/점수",
             font=self.percent_font,
-            bg="#dc2626",
+            bg="#0f766e",
             fg="#ffffff",
-            activebackground="#b91c1c",
+            activebackground="#115e59",
             activeforeground="#ffffff",
             relief="raised",
             bd=1,
             highlightthickness=0,
-            command=self._toggle_schedule_alarm_master,
+            command=self.open_schedule_boss_metrics_window,
             cursor="hand2",
         )
         schedule_break_button = tk.Button(
@@ -27531,8 +32478,8 @@ class BossTimerApp:
             command=self.open_schedule_break_window,
             cursor="hand2",
         )
-        schedule_break_button.place(x=804, y=10, width=120, height=26)
-        self.schedule_alarm_master_button.place(x=932, y=10, width=88, height=26)
+        schedule_metrics_button.place(x=794, y=10, width=110, height=26)
+        schedule_break_button.place(x=914, y=10, width=110, height=26)
         tk.Button(
             top_frame,
             text="알람 설정",
@@ -27546,12 +32493,13 @@ class BossTimerApp:
             highlightthickness=0,
             command=self.open_schedule_alarm_window,
             cursor="hand2",
-        ).place(x=1028, y=10, width=124, height=26)
+        ).place(x=1034, y=10, width=128, height=26)
 
         buttons = [
             ("스케쥴 입력", "#2563eb", "#ffffff", self._open_schedule_input_window_normal, 18, 46, 102),
-            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 128, 46, 84),
-            ("소요시간/점수", "#0f766e", "#ffffff", self.open_schedule_boss_metrics_window, 660, 46, 126),
+            ("저장", "#16a34a", "#ffffff", self._save_current_schedule_shared_archive, 128, 46, 74),
+            ("불러오기", "#2563eb", "#ffffff", self._load_schedule_from_shared_archive, 210, 46, 86),
+            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 304, 46, 84),
             ("고정 보스", "#f8f1df", "#7c2d12", self.open_fixed_boss_window, 794, 46, 110),
             ("보스 설정", "#f59e0b", "#ffffff", self.open_schedule_boss_config_window, 914, 46, 110),
             ("아군/적군 막타", "#7c3aed", "#ffffff", self.open_record_book_window, 1034, 46, 128),
@@ -27575,6 +32523,7 @@ class BossTimerApp:
             button.place(x=x, y=y, width=width, height=30)
             hover_bg = (
                 "#1d4ed8" if bg == "#2563eb"
+                else "#15803d" if bg == "#16a34a"
                 else "#d97706" if bg == "#f59e0b"
                 else "#6d28d9" if bg == "#7c3aed"
                 else "#b91c1c" if bg == "#dc2626"
@@ -27582,21 +32531,22 @@ class BossTimerApp:
                 else "#115e59"
             )
             self._bind_hover_button(button, bg, hover_bg, fg, fg)
+        self._bind_hover_button(schedule_metrics_button, "#0f766e", "#115e59", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_break_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
-        self._bind_hover_button(self.schedule_alarm_master_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
-        self._update_schedule_alarm_master_button()
-        tk.Label(top_frame, textvariable=self.schedule_status_var, font=self.percent_font, bg="#dbeafe", fg="#1e3a8a", anchor="w").place(x=18, y=102, width=1006, height=14)
+        tk.Label(top_frame, textvariable=self.schedule_status_var, font=self.percent_font, bg="#dbeafe", fg="#1e3a8a", anchor="w").place(x=18, y=102, width=720, height=14)
         tk.Frame(self.schedule_window, bg="#cbd5e1").place(x=0, y=118, width=SCHEDULE_WINDOW_WIDTH, height=1)
+        notice_frame = tk.Frame(self.schedule_window, bg="#fee2e2", bd=0, relief="flat", highlightthickness=0)
+        notice_frame.place(x=560, y=117, width=600, height=22)
         tk.Label(
-        self.schedule_window,
-        text="참고: 출현 중, 1일 이상 (분/초가 확정되지 않은) 이벤트를 관리합니다.",
-        font=self.percent_font,
-        bg="#fee2e2",
-        fg="#7f1d1d",
-        anchor="w",
-        ).place(x=18, y=120, width=388, height=14)
+            notice_frame,
+            text="참고: 출현 중, 1일 이상 (분/초가 확정되지 않은) 이벤트를 관리합니다.",
+            font=self.percent_font,
+            bg="#fee2e2",
+            fg="#7f1d1d",
+            anchor="w",
+        ).place(x=8, y=3, width=410, height=16)
         delete_note_button = tk.Button(
-            self.schedule_window,
+            notice_frame,
             text="삭제",
             font=self.percent_font,
             bg="#dc2626",
@@ -27609,10 +32559,10 @@ class BossTimerApp:
             command=self._open_schedule_delete_boss_dialog,
             cursor="hand2",
         )
-        delete_note_button.place(x=412, y=117, width=56, height=22)
+        delete_note_button.place(x=424, y=0, width=60, height=22)
         self._bind_hover_button(delete_note_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
         add_note_button = tk.Button(
-            self.schedule_window,
+            notice_frame,
             text="추가",
             font=self.percent_font,
             bg="#16a34a",
@@ -27625,14 +32575,18 @@ class BossTimerApp:
             command=self._open_schedule_add_boss_dialog,
             cursor="hand2",
         )
-        add_note_button.place(x=472, y=117, width=56, height=22)
+        add_note_button.place(x=488, y=0, width=60, height=22)
         self._bind_hover_button(add_note_button, "#16a34a", "#15803d", "#ffffff", "#ffffff")
+
+        current_time_frame = tk.Frame(self.schedule_window, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
+        self.schedule_current_time_frame = current_time_frame
+        current_time_frame.place(x=18, y=142, width=170, height=70)
 
         active_frame = tk.Frame(self.schedule_window, bg="#fee2e2", bd=0, relief="flat", highlightthickness=0)
         self.schedule_active_frame = active_frame
-        active_frame.place(x=18, y=138, width=382, height=54)
+        active_frame.place(x=560, y=142, width=600, height=54)
         self.schedule_active_rows_canvas = tk.Canvas(active_frame, bg="#fee2e2", bd=0, highlightthickness=0, relief="flat")
-        self.schedule_active_rows_canvas.place(x=10, y=10, width=362, height=34)
+        self.schedule_active_rows_canvas.place(x=10, y=10, width=564, height=34)
         self.schedule_active_rows_scrollbar = tk.Scrollbar(active_frame, orient="vertical", command=self.schedule_active_rows_canvas.yview)
         self.schedule_active_rows_canvas.configure(yscrollcommand=self.schedule_active_rows_scrollbar.set)
         self.schedule_active_rows_frame = tk.Frame(self.schedule_active_rows_canvas, bg="#fee2e2", bd=0, relief="flat", highlightthickness=0)
@@ -27641,7 +32595,7 @@ class BossTimerApp:
         self._bind_schedule_active_rows_mousewheel(self.schedule_active_rows_frame)
         schedule_option_frame = tk.Frame(self.schedule_window, bg="#dbeafe", bd=1, relief="solid", highlightthickness=0)
         self.schedule_option_frame = schedule_option_frame
-        schedule_option_frame.place(x=646, y=138, width=328, height=62)
+        schedule_option_frame.place(x=206, y=142, width=332, height=70)
         tk.Label(
             schedule_option_frame,
             text="스케쥴 옵션",
@@ -27678,7 +32632,7 @@ class BossTimerApp:
             anchor="w",
             cursor="hand2",
         )
-        self.schedule_color_data_schedule_check.place(x=160, y=20, width=68, height=18)
+        self.schedule_color_data_schedule_check.place(x=136, y=20, width=68, height=18)
         self.fixed_boss_color_data_schedule_check = tk.Checkbutton(
             schedule_option_frame,
             text="고정보스 색",
@@ -27692,7 +32646,7 @@ class BossTimerApp:
             anchor="w",
             cursor="hand2",
         )
-        self.fixed_boss_color_data_schedule_check.place(x=160, y=36, width=104, height=18)
+        self.fixed_boss_color_data_schedule_check.place(x=136, y=36, width=104, height=18)
         tk.Checkbutton(
             schedule_option_frame,
             text="초읽기 사용",
@@ -27708,28 +32662,54 @@ class BossTimerApp:
             anchor="w",
             cursor="hand2",
         ).place(x=10, y=36, width=132, height=18)
+        self.schedule_alarm_master_button = tk.Button(
+            schedule_option_frame,
+            text="알람 OFF",
+            font=self.percent_font,
+            bg="#dc2626",
+            fg="#ffffff",
+            activebackground="#b91c1c",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._toggle_schedule_alarm_master,
+            cursor="hand2",
+        )
+        self.schedule_alarm_master_button.place(x=242, y=18, width=78, height=32)
+        self._bind_hover_button(self.schedule_alarm_master_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
+        self._update_schedule_alarm_master_button()
         list_frame = tk.Frame(self.schedule_window, bg="#eef2ff", bd=0, relief="flat")
         self.schedule_list_frame = list_frame
-        list_frame.place(x=18, y=206, width=SCHEDULE_WINDOW_WIDTH - 36, height=SCHEDULE_WINDOW_HEIGHT - 224)
-        tk.Frame(list_frame, bg="#dbeafe", bd=0, relief="flat").place(x=0, y=0, width=SCHEDULE_WINDOW_WIDTH - 36, height=76)
+        list_frame.place(x=14, y=215, width=SCHEDULE_WINDOW_WIDTH - 28, height=SCHEDULE_WINDOW_HEIGHT - 233)
+        tk.Frame(list_frame, bg="#dbeafe", bd=0, relief="flat").place(x=0, y=0, width=SCHEDULE_WINDOW_WIDTH - 28, height=78)
+        date_nav_frame = tk.Frame(list_frame, bg="#e2e8f0", bd=0, relief="flat", highlightthickness=0)
+        self.schedule_date_nav_frame = date_nav_frame
+        date_nav_frame.place(x=14, y=2, width=236, height=72)
+        next_summary_frame = tk.Frame(list_frame, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
+        self.schedule_next_summary_frame = next_summary_frame
+        next_summary_frame.place(x=238, y=2, width=376, height=72)
+        maintenance_frame = tk.Frame(top_frame, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
+        self.schedule_maintenance_frame = maintenance_frame
+        maintenance_frame.place(x=748, y=84, width=278, height=30)
         tk.Label(
-            list_frame,
+            current_time_frame,
             text="현재시간",
             font=(self.current_font_family, 12, "bold"),
             bg="#dbeafe",
             fg="#1d4ed8",
             anchor="w",
-        ).place(x=14, y=6, width=110, height=20)
+        ).place(x=12, y=4, width=92, height=18)
         tk.Label(
-            list_frame,
+            current_time_frame,
             textvariable=self.schedule_current_time_var,
             font=(self.current_font_family, 18, "bold"),
             bg="#dbeafe",
             fg="#1e40af",
             anchor="w",
-        ).place(x=14, y=24, width=136, height=30)
+        ).place(x=12, y=19, width=146, height=24)
         self.schedule_share_copy_button = tk.Button(
-            list_frame,
+            current_time_frame,
             text="스케쥴 복사",
             font=self.percent_font,
             bg="#2563eb",
@@ -27742,91 +32722,91 @@ class BossTimerApp:
             command=self._copy_schedule_share_image_to_clipboard,
             cursor="hand2",
         )
-        self.schedule_share_copy_button.place(x=14, y=54, width=110, height=20)
+        self.schedule_share_copy_button.place(x=12, y=44, width=114, height=14)
         self._bind_hover_button(self.schedule_share_copy_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
         self.schedule_previous_boss_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_previous_boss_var,
             font=(self.current_font_family, 10, "overstrike"),
             bg="#dbeafe",
             fg="#64748b",
             anchor="w",
         )
-        self.schedule_previous_boss_label.place(x=136, y=8, width=420, height=16)
+        self.schedule_previous_boss_label.place(x=-2, y=6, width=340, height=16)
         self.schedule_next_boss_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_next_boss_var,
             font=(self.current_font_family, 16, "bold"),
             bg="#dbeafe",
             fg="#0f172a",
             anchor="w",
         )
-        self.schedule_next_boss_label.place(x=136, y=24, width=320, height=24)
+        self.schedule_next_boss_label.place(x=0, y=22, width=224, height=28)
         self.schedule_next_boss_remaining_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_next_boss_remaining_var,
             font=(self.current_font_family, 15, "bold"),
             bg="#dbeafe",
             fg="#dc2626",
             anchor="w",
         )
-        self.schedule_next_boss_remaining_label.place(x=392, y=24, width=96, height=24)
+        self.schedule_next_boss_remaining_label.place(x=214, y=22, width=110, height=28)
         self.schedule_next_boss_seconds_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_next_boss_seconds_var,
             font=(self.current_font_family, 10, "bold"),
             bg="#dbeafe",
             fg="#dc2626",
             anchor="w",
         )
-        self.schedule_next_boss_seconds_label.place(x=496, y=30, width=34, height=14)
+        self.schedule_next_boss_seconds_label.place(x=320, y=30, width=32, height=14)
         self.schedule_following_boss_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_following_boss_var,
             font=(self.current_font_family, 10, "bold"),
             bg="#dbeafe",
             fg="#334155",
             anchor="w",
         )
-        self.schedule_following_boss_label.place(x=136, y=50, width=320, height=18)
+        self.schedule_following_boss_label.place(x=0, y=50, width=224, height=16)
         self.schedule_following_boss_remaining_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_following_boss_remaining_var,
             font=(self.current_font_family, 10, "bold"),
             bg="#dbeafe",
             fg="#475569",
             anchor="w",
         )
-        self.schedule_following_boss_remaining_label.place(x=392, y=50, width=58, height=18)
+        self.schedule_following_boss_remaining_label.place(x=214, y=50, width=74, height=16)
         self.schedule_following_boss_seconds_label = tk.Label(
-            list_frame,
+            next_summary_frame,
             textvariable=self.schedule_following_boss_seconds_var,
             font=(self.current_font_family, 8, "bold"),
             bg="#dbeafe",
             fg="#475569",
             anchor="w",
         )
-        self.schedule_following_boss_seconds_label.place(x=458, y=54, width=30, height=12)
-        view_year_values = [f"{year}년" for year in range(datetime.now().year - 2, datetime.now().year + 3)]
+        self.schedule_following_boss_seconds_label.place(x=290, y=52, width=34, height=12)
+        view_year_values = [f"{year % 100:02d}년" for year in range(datetime.now().year - 2, datetime.now().year + 3)]
         view_month_values = [f"{month:02d}월" for month in range(1, 13)]
         view_day_values = [f"{day:02d}일" for day in range(1, 32)]
         maintenance_hour_values = [f"{hour:02d}시" for hour in range(0, 24)]
         maintenance_minute_values = [f"{minute:02d}분" for minute in range(0, 60)]
         self.schedule_view_weekday_label = tk.Label(
-            list_frame,
+            date_nav_frame,
             textvariable=self.schedule_view_weekday_var,
             font=self.percent_font,
-            bg="#dbeafe",
+            bg="#e2e8f0",
             fg="#475569",
             anchor="w",
         )
-        self.schedule_view_weekday_label.place(x=668, y=12, width=34, height=18)
-        view_year_combo = ttk.Combobox(list_frame, textvariable=self.schedule_view_year_var, values=view_year_values, font=(self.current_font_family, 10, "bold"), state="normal")
-        view_year_combo.place(x=708, y=8, width=78, height=26)
-        view_month_combo = ttk.Combobox(list_frame, textvariable=self.schedule_view_month_var, values=view_month_values, font=(self.current_font_family, 10, "bold"), state="normal")
-        view_month_combo.place(x=792, y=8, width=58, height=26)
-        view_day_combo = ttk.Combobox(list_frame, textvariable=self.schedule_view_day_var, values=view_day_values, font=(self.current_font_family, 10, "bold"), state="normal")
-        view_day_combo.place(x=856, y=8, width=58, height=26)
+        self.schedule_view_weekday_label.place(x=173, y=18, width=46, height=18)
+        view_year_combo = ttk.Combobox(date_nav_frame, textvariable=self.schedule_view_year_var, values=view_year_values, font=(self.current_font_family, 10, "bold"), state="normal")
+        view_year_combo.place(x=-1, y=12, width=54, height=26)
+        view_month_combo = ttk.Combobox(date_nav_frame, textvariable=self.schedule_view_month_var, values=view_month_values, font=(self.current_font_family, 10, "bold"), state="normal")
+        view_month_combo.place(x=59, y=12, width=54, height=26)
+        view_day_combo = ttk.Combobox(date_nav_frame, textvariable=self.schedule_view_day_var, values=view_day_values, font=(self.current_font_family, 10, "bold"), state="normal")
+        view_day_combo.place(x=119, y=12, width=54, height=26)
         for combo in (view_year_combo, view_month_combo, view_day_combo):
             combo.bind("<<ComboboxSelected>>", self._on_schedule_view_date_changed)
             combo.bind("<Return>", self._on_schedule_view_date_changed)
@@ -27844,10 +32824,10 @@ class BossTimerApp:
             relief="raised",
             bd=1,
             highlightthickness=0,
-            command=self._open_schedule_input_window_for_add,
+            command=self._open_schedule_input_window_normal,
             cursor="hand2",
         )
-        self.schedule_tree_add_button.place(x=468, y=47, width=60, height=24)
+        self.schedule_tree_add_button.place(x=744, y=10, width=60, height=26)
         self._bind_hover_button(self.schedule_tree_add_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
         self.schedule_tree_modify_button = tk.Button(
             list_frame,
@@ -27864,7 +32844,7 @@ class BossTimerApp:
             state="disabled",
             cursor="arrow",
         )
-        self.schedule_tree_modify_button.place(x=534, y=47, width=60, height=24)
+        self.schedule_tree_modify_button.place(x=744, y=44, width=60, height=26)
         self.schedule_tree_delete_button = tk.Button(
             list_frame,
             text="행삭제",
@@ -27880,7 +32860,7 @@ class BossTimerApp:
             state="disabled",
             cursor="arrow",
         )
-        self.schedule_tree_delete_button.place(x=600, y=47, width=60, height=24)
+        self.schedule_tree_delete_button.place(x=810, y=44, width=62, height=26)
         self.schedule_tree_cut_button = tk.Button(
             list_frame,
             text="삭제",
@@ -27896,7 +32876,7 @@ class BossTimerApp:
             state="normal",
             cursor="hand2",
         )
-        self.schedule_tree_cut_button.place(x=534, y=16, width=60, height=24)
+        self.schedule_tree_cut_button.place(x=810, y=10, width=62, height=26)
         self.schedule_tree_cut_time_button = tk.Button(
             list_frame,
             text="복구",
@@ -27912,7 +32892,7 @@ class BossTimerApp:
             state="normal",
             cursor="hand2",
         )
-        self.schedule_tree_cut_time_button.place(x=600, y=16, width=60, height=24)
+        self.schedule_tree_cut_time_button.place(x=876, y=10, width=62, height=26)
         self.schedule_tree_restore_button = tk.Button(
             list_frame,
             text="행복구",
@@ -27928,7 +32908,7 @@ class BossTimerApp:
             state="disabled",
             cursor="arrow",
         )
-        self.schedule_tree_restore_button.place(x=666, y=47, width=60, height=24)
+        self.schedule_tree_restore_button.place(x=876, y=44, width=62, height=26)
         self.schedule_prev_day_button = tk.Button(
             list_frame,
             text="전일",
@@ -27943,7 +32923,7 @@ class BossTimerApp:
             command=lambda: self._move_schedule_view_date(-1),
             cursor="hand2",
         )
-        self.schedule_prev_day_button.place(x=732, y=40, width=60, height=24)
+        self.schedule_prev_day_button.place(x=12, y=45, width=62, height=22)
         self.schedule_next_day_button = tk.Button(
             list_frame,
             text="다음날",
@@ -27958,7 +32938,7 @@ class BossTimerApp:
             command=lambda: self._move_schedule_view_date(1),
             cursor="hand2",
         )
-        self.schedule_next_day_button.place(x=798, y=40, width=70, height=24)
+        self.schedule_next_day_button.place(x=80, y=45, width=62, height=22)
         today_button = tk.Button(
             list_frame,
             text="오늘",
@@ -27973,17 +32953,16 @@ class BossTimerApp:
             command=self._move_schedule_view_to_today,
             cursor="hand2",
         )
-        today_button.place(x=874, y=40, width=50, height=24)
+        today_button.place(x=148, y=45, width=62, height=22)
         self._bind_hover_button(today_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
 
-        tk.Label(list_frame, text="정기점검", font=self.percent_font, bg="#dbeafe", fg="#0f172a", anchor="w").place(x=928, y=10, width=64, height=18)
-        maintenance_day_combo = ttk.Combobox(list_frame, textvariable=self.schedule_maintenance_weekday_var, values=["월", "화", "수", "목", "금", "토", "일"], font=(self.current_font_family, 9, "bold"), state="normal")
-        maintenance_day_combo.place(x=984, y=8, width=42, height=24)
-        maintenance_hour_combo = ttk.Combobox(list_frame, textvariable=self.schedule_maintenance_hour_var, values=maintenance_hour_values, font=(self.current_font_family, 9, "bold"), state="normal")
-        maintenance_hour_combo.place(x=1031, y=8, width=50, height=24)
-        maintenance_minute_combo = ttk.Combobox(list_frame, textvariable=self.schedule_maintenance_minute_var, values=maintenance_minute_values, font=(self.current_font_family, 9, "bold"), state="normal")
-        maintenance_minute_combo.place(x=1084, y=8, width=50, height=24)
-        tk.Label(list_frame, text="00:00이면 미적용", font=self.percent_font, bg="#dbeafe", fg="#64748b").place(x=940, y=40, width=202, height=18)
+        tk.Label(maintenance_frame, text="정기점검", font=self.percent_font, bg="#dbeafe", fg="#0f172a", anchor="w").place(x=8, y=5, width=64, height=18)
+        maintenance_day_combo = ttk.Combobox(maintenance_frame, textvariable=self.schedule_maintenance_weekday_var, values=["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"], font=(self.current_font_family, 9, "bold"), state="normal")
+        maintenance_day_combo.place(x=72, y=3, width=76, height=24)
+        maintenance_hour_combo = ttk.Combobox(maintenance_frame, textvariable=self.schedule_maintenance_hour_var, values=maintenance_hour_values, font=(self.current_font_family, 9, "bold"), state="normal")
+        maintenance_hour_combo.place(x=154, y=3, width=56, height=24)
+        maintenance_minute_combo = ttk.Combobox(maintenance_frame, textvariable=self.schedule_maintenance_minute_var, values=maintenance_minute_values, font=(self.current_font_family, 9, "bold"), state="normal")
+        maintenance_minute_combo.place(x=216, y=3, width=56, height=24)
         for combo in (maintenance_day_combo, maintenance_hour_combo, maintenance_minute_combo):
             combo.bind("<<ComboboxSelected>>", self._on_schedule_maintenance_changed)
             combo.bind("<Return>", self._on_schedule_maintenance_changed)
@@ -27998,8 +32977,8 @@ class BossTimerApp:
         schedule_tree_style.configure("Schedule.Treeview", rowheight=25, font=self.schedule_tree_body_font)
         schedule_tree_style.map(
             "Schedule.Treeview",
-            background=[("selected", "#bfdbfe")],
-            foreground=[("selected", "#0f172a")],
+            background=[],
+            foreground=[],
         )
         self.schedule_tree = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="extended", style="Schedule.Treeview")
         headings = {
@@ -28016,11 +32995,28 @@ class BossTimerApp:
         for key, text in headings.items():
             self.schedule_tree.heading(key, text=text)
             self.schedule_tree.column(key, width=widths[key], anchor="center")
-        self.schedule_tree.place(x=14, y=88, width=SCHEDULE_WINDOW_WIDTH - 82, height=SCHEDULE_WINDOW_HEIGHT - 458)
-        tree_scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self._on_schedule_tree_scrollbar)
+        self.schedule_tree.place(x=14, y=94, width=SCHEDULE_WINDOW_WIDTH - 82, height=SCHEDULE_WINDOW_HEIGHT - 464)
+        tree_scrollbar = tk.Scrollbar(
+            list_frame,
+            orient="vertical",
+            command=self._on_schedule_tree_scrollbar,
+            bg="#475569",
+            activebackground="#475569",
+            troughcolor="#cbd5e1",
+            relief="flat",
+            bd=0,
+            elementborderwidth=0,
+            highlightthickness=0,
+            width=int(SCHEDULE_TREE_SCROLLBAR_WIDTH),
+        )
         self.schedule_tree_scrollbar = tree_scrollbar
         self.schedule_tree.configure(yscrollcommand=tree_scrollbar.set)
-        tree_scrollbar.place(x=SCHEDULE_WINDOW_WIDTH - 82, y=88, width=18, height=SCHEDULE_WINDOW_HEIGHT - 458)
+        tree_scrollbar.place(
+            x=SCHEDULE_WINDOW_WIDTH - 82,
+            y=94,
+            width=int(SCHEDULE_TREE_SCROLLBAR_WIDTH),
+            height=SCHEDULE_WINDOW_HEIGHT - 464,
+        )
         self.schedule_tree.tag_configure("date_header", background="#dbeafe", foreground="#1e3a8a", font=self.schedule_tree_header_font)
         self.schedule_tree.tag_configure("maintenance", background="#fee2e2", foreground="#991b1b", font=self.schedule_tree_body_font)
         self.schedule_tree.tag_configure("no_schedule", background="#fff7ed", foreground="#9a3412", font=self.schedule_tree_body_font)
@@ -28029,9 +33025,13 @@ class BossTimerApp:
         self.schedule_tree.bind("<Button-1>", self._on_schedule_tree_press)
         self.schedule_tree.bind("<B1-Motion>", self._on_schedule_tree_drag)
         self.schedule_tree.bind("<Button-3>", self._on_schedule_tree_right_click)
+        self.schedule_tree.bind("<Left>", self._on_schedule_tree_left_key)
+        self.schedule_tree.bind("<Right>", self._on_schedule_tree_right_key)
+        self.schedule_tree.bind("<Delete>", self._on_schedule_tree_delete_key)
         self.schedule_tree.bind("<Configure>", self._schedule_tree_overlay_after_idle)
         self.schedule_tree.bind("<MouseWheel>", self._on_schedule_tree_mousewheel)
         self.schedule_tree.bind("<ButtonRelease-1>", self._on_schedule_tree_button_release)
+        self._schedule_schedule_tree_selection_pulse()
         self.schedule_tree_footer_label = tk.Label(
             list_frame,
             text="날짜별로 묶어서 2일치만 표시합니다. 날짜를 바꾸거나 전일/다음날로 이동해 다른 구간을 확인할 수 있습니다.",
@@ -29252,6 +34252,52 @@ class BossTimerApp:
             bd=0,
             cursor="hand2",
         ).place(x=258, y=486)
+        tk.Checkbutton(
+            right_frame,
+            text="초읽기 AI 음성",
+            variable=self.schedule_alarm_countdown_ai_voice_var,
+            command=self._apply_schedule_alarm_global_options,
+            font=self.percent_font,
+            bg="#eff6ff",
+            fg="#0f172a",
+            selectcolor="#ffffff",
+            activebackground="#eff6ff",
+            activeforeground="#0f172a",
+            highlightthickness=0,
+            bd=0,
+            cursor="hand2",
+        ).place(x=18, y=512)
+        tk.Checkbutton(
+            right_frame,
+            text="보스 알람 AI 음성",
+            variable=self.schedule_alarm_boss_ai_voice_var,
+            command=self._apply_schedule_alarm_global_options,
+            font=self.percent_font,
+            bg="#eff6ff",
+            fg="#0f172a",
+            selectcolor="#ffffff",
+            activebackground="#eff6ff",
+            activeforeground="#0f172a",
+            highlightthickness=0,
+            bd=0,
+            cursor="hand2",
+        ).place(x=156, y=512)
+        countdown_reload_test_button = tk.Button(
+            right_frame,
+            text="초읽기 Reload/Test",
+            font=self.percent_font,
+            bg="#dbeafe",
+            fg="#1e3a8a",
+            activebackground="#bfdbfe",
+            activeforeground="#1e3a8a",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._reload_and_test_schedule_alarm_countdown_audio,
+            cursor="hand2",
+        )
+        countdown_reload_test_button.place(x=314, y=508, width=156, height=28)
+        self._bind_hover_button(countdown_reload_test_button, "#dbeafe", "#bfdbfe", "#1e3a8a", "#1e3a8a")
         tk.Label(
             right_frame,
             textvariable=self.schedule_alarm_voice_label_var,
@@ -29259,7 +34305,7 @@ class BossTimerApp:
             bg="#eff6ff",
             fg="#475569",
             anchor="w",
-        ).place(x=18, y=522, width=458, height=18)
+        ).place(x=18, y=536, width=458, height=18)
         self.schedule_alarm_window_status_label = tk.Label(
             right_frame,
             textvariable=self.schedule_alarm_status_var,
@@ -29355,9 +34401,25 @@ class BossTimerApp:
             cursor="hand2",
         )
         self.fixed_boss_bg_color_button.place(x=684, y=0, width=74, height=30)
+        self.fixed_boss_append_button = tk.Button(
+            self.fixed_boss_window,
+            text="추가",
+            font=self.button_font,
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._apply_fixed_boss_add,
+            cursor="hand2",
+        )
+        self.fixed_boss_append_button.place(x=578, y=54, width=102, height=30)
+        self._bind_hover_button(self.fixed_boss_append_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
         self.fixed_boss_add_button = tk.Button(
             self.fixed_boss_window,
-            text="등록/수정",
+            text="수정",
             font=self.button_font,
             bg="#0f766e",
             fg="#ffffff",
@@ -29366,7 +34428,7 @@ class BossTimerApp:
             relief="raised",
             bd=1,
             highlightthickness=0,
-            command=self._apply_fixed_boss_add,
+            command=self._apply_fixed_boss_update,
             cursor="hand2",
         )
         self.fixed_boss_add_button.place(x=690, y=54, width=102, height=30)
@@ -29456,7 +34518,7 @@ class BossTimerApp:
             indicatoron=False,
             command=self._refresh_fixed_boss_day_button_styles,
         )
-        biweekly_current_radio.place(x=80, y=40, width=132, height=24)
+        biweekly_current_radio.place(x=80, y=40, width=170, height=24)
         self.fixed_boss_repeat_buttons["biweekly_current"] = biweekly_current_radio
         biweekly_next_radio = tk.Radiobutton(
             weekday_frame,
@@ -29474,7 +34536,7 @@ class BossTimerApp:
             indicatoron=False,
             command=self._refresh_fixed_boss_day_button_styles,
         )
-        biweekly_next_radio.place(x=220, y=40, width=132, height=24)
+        biweekly_next_radio.place(x=258, y=40, width=170, height=24)
         self.fixed_boss_repeat_buttons["biweekly_next"] = biweekly_next_radio
 
         list_frame = tk.Frame(self.fixed_boss_window, bg="#eff6ff", bd=1, relief="solid")
@@ -29514,10 +34576,10 @@ class BossTimerApp:
         self.fixed_boss_restore_button.place(x=674, y=8, width=68, height=24)
         tk.Label(list_frame, text="사용", font=self.percent_font, bg="#eff6ff", fg="#0f172a").place(x=16, y=38, width=44, height=16)
         tk.Label(list_frame, text="보스명", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=62, y=38, width=160, height=16)
-        tk.Label(list_frame, text="반복", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=230, y=38, width=90, height=16)
-        tk.Label(list_frame, text="시간", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="center").place(x=328, y=38, width=88, height=16)
-        tk.Label(list_frame, text="요일", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=426, y=38, width=200, height=16)
-        tk.Label(list_frame, text="관리", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="center").place(x=636, y=38, width=62, height=16)
+        tk.Label(list_frame, text="반복", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=248, y=38, width=112, height=16)
+        tk.Label(list_frame, text="시간", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="center").place(x=362, y=38, width=88, height=16)
+        tk.Label(list_frame, text="요일", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=462, y=38, width=182, height=16)
+        tk.Label(list_frame, text="관리", font=self.percent_font, bg="#eff6ff", fg="#0f172a", anchor="center").place(x=664, y=38, width=48, height=16)
         fixed_canvas = tk.Canvas(list_frame, bg="#f8fafc", highlightthickness=0, bd=0)
         self.fixed_boss_canvas = fixed_canvas
         fixed_canvas.place(x=14, y=58, width=728, height=250)
@@ -34233,6 +39295,8 @@ class BossTimerApp:
             season_history = dict(self.season_history_map.get(season_no_text) or {})
             started_at_text = str(season_history.get("started_at") or "").strip()
             ended_at_text = str(season_history.get("ended_at") or "").strip()
+            server_name_text = str(season_history.get("server_name") or "").strip()
+            guild_name_text = str(season_history.get("guild_name") or "").strip()
             if not started_at_text and current_season_text and season_no_text == current_season_text:
                 started_at_text = str(self.current_season_started_at or "").strip()
             entries.append(
@@ -34240,6 +39304,8 @@ class BossTimerApp:
                     "season_label": season_name,
                     "folder_name": season_name,
                     "season_no_text": season_no_text,
+                    "server_name": server_name_text,
+                    "guild_name": guild_name_text,
                     "file_count": str(len(json_paths)),
                     "record_count": str(total_record_count),
                     "month_count": str(len(month_names)),
@@ -34300,6 +39366,8 @@ class BossTimerApp:
             f"시즌: {entry.get('season_label', '-')}",
             f"폴더: {entry.get('folder_name', '-')}",
             f"상태: {status_text}",
+            f"서버: {str(entry.get('server_name') or '-').strip() or '-'}",
+            f"길드: {str(entry.get('guild_name') or '-').strip() or '-'}",
             f"시작일: {str(entry.get('started_at') or '-').strip() or '-'}",
             f"종료일: {ended_at or '-'}",
             f"파일 수: {entry.get('file_count', '0')}개",

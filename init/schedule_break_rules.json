@@ -1,13 +1,13 @@
 [
   {
-    "min_gap_minutes": 45,
+    "min_gap_minutes": 40,
     "max_gap_minutes": 54,
     "label_text": "휴식",
     "display_mode": "actual",
     "display_text": "",
     "row_scale": 1.0,
     "font_size": 14,
-    "bold": false,
+    "bold": true,
     "text_color": "#FFFFFF",
     "bg_color": "#4646FF",
     "enabled": true
@@ -613,7 +613,7 @@
   {
     "min_gap_minutes": 1430,
     "max_gap_minutes": 1440,
-    "label_text": "휴식",
+    "label_text": "게임망함",
     "display_mode": "fixed",
     "display_text": "24시간 0분",
     "row_scale": 3.0,
