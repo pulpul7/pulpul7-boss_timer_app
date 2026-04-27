@@ -71,6 +71,8 @@ datas = [
 ]
 datas += collect_tree(Path("init"), "init")
 datas += collect_tree(Path("icons"), "icons")
+datas += collect_tree(Path("voice"), "voice")
+datas += collect_tree(Path("wave"), "wave")
 datas += collect_tree(tcl_root / "tcl8.6", "_tcl_data")
 datas += collect_tree(tcl_root / "tk8.6", "_tk_data")
 

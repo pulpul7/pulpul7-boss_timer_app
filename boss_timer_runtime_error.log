@@ -726,3 +726,132 @@ Traceback (most recent call last):
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AttributeError: 'BossTimerApp' object has no attribute '_ensure_schedule_boss_metrics_window'
 
+[2026-04-25 18:54:49]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+[2026-04-25 18:54:51]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+[2026-04-25 18:55:14]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+[2026-04-25 18:55:40]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23028, in _on_schedule_view_date_changed
+    self._set_schedule_view_datetime_fields(view_datetime)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 4825, in _set_schedule_view_datetime_fields
+    self.schedule_view_year_var.set(date_value.strftime("%y년"))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: format %y requires year >= 1900 on Windows
+
+[2026-04-25 20:57:50]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30208, in open_schedule_window
+    self._ensure_schedule_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 32528, in _ensure_schedule_window
+    self._bind_hover_button(schedule_break_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 2245, in _bind_hover_button
+    button.bind("<Enter>", on_enter)
+    ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'bind'
+
+[2026-04-25 21:01:40]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30208, in open_schedule_window
+    self._ensure_schedule_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 32529, in _ensure_schedule_window
+    self._bind_hover_button(self.schedule_alarm_master_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 2245, in _bind_hover_button
+    button.bind("<Enter>", on_enter)
+    ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'bind'
+
+[2026-04-25 21:02:43]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30208, in open_schedule_window
+    self._ensure_schedule_window()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 32529, in _ensure_schedule_window
+    self._bind_hover_button(self.schedule_alarm_master_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 2245, in _bind_hover_button
+    button.bind("<Enter>", on_enter)
+    ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'bind'
+
