@@ -9919,8 +9919,8 @@ class BossTimerApp:
                 preview_delta = 0.0
         stored_offset = self._get_schedule_second_precision_offset_for_item(item)
         remaining_seconds = (scheduled_at - datetime.now()).total_seconds() + stored_offset + float(preview_delta or 0.0)
-        remaining_seconds = max(0.0, round(remaining_seconds, 1))
-        return f"{remaining_seconds:.1f}초"
+        seconds_only = max(0.0, remaining_seconds) % 60.0
+        return f"{round(seconds_only, 1):.1f}초"
 
     def _update_schedule_second_precision_selected_seconds_label(self) -> None:
         if self.schedule_second_precision_selected_seconds_var is None:
