@@ -9892,6 +9892,16 @@ class BossTimerApp:
             numeric_value = 0.0
         return f"{numeric_value:+.1f}초"
 
+    def _format_schedule_second_precision_datetime_text(self, value: datetime | None) -> str:
+        if not isinstance(value, datetime):
+            return "-"
+        tenths = int(round(value.microsecond / 100000.0))
+        display_value = value
+        if tenths >= 10:
+            display_value = display_value + timedelta(seconds=1)
+            tenths = 0
+        return f"{display_value.strftime('%H:%M:%S')}.{tenths}"
+
     def _find_schedule_second_precision_offset_target_item(self) -> dict[str, object] | None:
         raw_key = str(self.schedule_second_precision_offset_target_key or "").strip()
         if not raw_key:
@@ -10183,6 +10193,8 @@ class BossTimerApp:
         adjusted_count = 0
         previous_identity = self.schedule_second_precision_offset_target_identity
         restored_identity = None
+        first_before_at = None
+        first_after_at = None
         if abs(delta) >= 0.05:
             adjusted_events: list[dict[str, object]] = []
             for item in self.schedule_events:
@@ -10194,6 +10206,9 @@ class BossTimerApp:
                 ):
                     updated_item = dict(item)
                     updated_item["scheduled_at"] = item["scheduled_at"] - timedelta(seconds=delta)
+                    if first_before_at is None:
+                        first_before_at = item["scheduled_at"]
+                        first_after_at = updated_item["scheduled_at"]
                     if (
                         isinstance(previous_identity, tuple)
                         and self._get_schedule_item_identity("event", item) == previous_identity
@@ -10220,8 +10235,14 @@ class BossTimerApp:
         self._restore_schedule_second_precision_offset_target_selection(ensure_visible=True)
         self._update_schedule_second_precision_offset_controls()
         display_name = self.schedule_second_precision_offset_target_name or raw_key
+        before_after_text = ""
+        if isinstance(first_before_at, datetime) and isinstance(first_after_at, datetime):
+            before_after_text = (
+                f" / 예정 {self._format_schedule_second_precision_datetime_text(first_before_at)}"
+                f" -> {self._format_schedule_second_precision_datetime_text(first_after_at)}"
+            )
         self.schedule_status_var.set(
-            f"{display_name} 초 보정 {self._format_schedule_second_precision_offset_text(delta)} 추가 저장 / 누적 {self._format_schedule_second_precision_offset_text(new_offset)} ({adjusted_count}건 반영)"
+            f"{display_name} 초 보정 {self._format_schedule_second_precision_offset_text(delta)} 추가 저장 / 누적 {self._format_schedule_second_precision_offset_text(new_offset)} ({adjusted_count}건 반영){before_after_text}"
         )
 
     def _update_schedule_tree_action_buttons(self) -> None:
