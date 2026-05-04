@@ -9152,7 +9152,7 @@ class BossTimerApp:
         viewport_height = max(24, content_height - 20)
         panel_height = active_content_y + viewport_height
         self.schedule_active_panel_content_height = max(24, display_row_count * 26 + max(0, display_row_count - 1) * 2)
-        base_panel_y = 130
+        base_panel_y = 144
         active_y = base_panel_y
         current_x = 18
         active_x = 560
@@ -35838,15 +35838,22 @@ class BossTimerApp:
         self._bind_hover_button(self.schedule_github_sync_button, "#0ea5e9", "#0284c7", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_metrics_button, "#0f766e", "#115e59", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_break_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
-        tk.Label(top_frame, textvariable=self.schedule_status_var, font=self.percent_font, bg="#dbeafe", fg="#1e3a8a", anchor="w").place(x=18, y=102, width=640, height=14)
         tk.Frame(self.schedule_window, bg="#cbd5e1").place(x=0, y=118, width=SCHEDULE_WINDOW_WIDTH, height=1)
+        tk.Label(
+            self.schedule_window,
+            textvariable=self.schedule_status_var,
+            font=self.percent_font,
+            bg="#eff6ff",
+            fg="#1e3a8a",
+            anchor="w",
+        ).place(x=18, y=122, width=1140, height=16)
         current_time_frame = tk.Frame(self.schedule_window, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
         self.schedule_current_time_frame = current_time_frame
-        current_time_frame.place(x=18, y=130, width=170, height=64)
+        current_time_frame.place(x=18, y=144, width=170, height=64)
 
         active_frame = tk.Frame(self.schedule_window, bg="#eff6ff", bd=0, relief="flat", highlightthickness=0)
         self.schedule_active_frame = active_frame
-        active_frame.place(x=560, y=130, width=600, height=54)
+        active_frame.place(x=560, y=144, width=600, height=54)
         notice_frame = tk.Frame(active_frame, bg="#fee2e2", bd=0, relief="flat", highlightthickness=0)
         self.schedule_active_notice_frame = notice_frame
         notice_frame.place(x=0, y=0, width=600, height=22)
@@ -35901,7 +35908,7 @@ class BossTimerApp:
         self._bind_schedule_active_rows_mousewheel(self.schedule_active_rows_frame)
         schedule_option_frame = tk.Frame(self.schedule_window, bg="#dbeafe", bd=1, relief="solid", highlightthickness=0)
         self.schedule_option_frame = schedule_option_frame
-        schedule_option_frame.place(x=206, y=130, width=332, height=64)
+        schedule_option_frame.place(x=206, y=144, width=332, height=64)
         tk.Label(
             schedule_option_frame,
             text="스케쥴 옵션",
