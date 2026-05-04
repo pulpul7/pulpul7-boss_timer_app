@@ -938,7 +938,6 @@ class BossTimerApp:
         self.schedule_github_server_combo = None
         self.schedule_github_sync_button = None
         self.schedule_github_refresh_button = None
-        self.schedule_github_sync_frame = None
         self.schedule_github_server_entries: list[dict[str, object]] = []
         self.schedule_github_server_loading = False
         self.schedule_input_window = None
@@ -9158,7 +9157,6 @@ class BossTimerApp:
         current_x = 18
         active_x = 560
         option_x = 206
-        github_x = 550
         active_bottom = active_y + panel_height
         controls_y = max(base_panel_y, active_bottom - option_height)
         current_y = controls_y
@@ -9182,8 +9180,6 @@ class BossTimerApp:
                 self.schedule_active_notice_frame.place_configure(x=0, y=0, width=panel_width, height=notice_height)
             if self.schedule_option_frame is not None and self.schedule_option_frame.winfo_exists():
                 self.schedule_option_frame.place_configure(x=option_x, y=option_y, width=option_width, height=option_height)
-            if self.schedule_github_sync_frame is not None and self.schedule_github_sync_frame.winfo_exists():
-                self.schedule_github_sync_frame.place_configure(x=github_x, y=option_y, width=332, height=option_height)
             if self.schedule_active_rows_canvas is not None and self.schedule_active_rows_canvas.winfo_exists():
                 self.schedule_active_rows_canvas.place_configure(x=0, y=active_content_y, width=588, height=viewport_height)
             if self.schedule_active_rows_scrollbar is not None and self.schedule_active_rows_scrollbar.winfo_exists():
@@ -35764,10 +35760,12 @@ class BossTimerApp:
 
         buttons = [
             ("스케쥴 입력", "#2563eb", "#ffffff", self._open_schedule_input_window_normal, 18, 46, 102),
+            ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
+            ("동기화", "#0ea5e9", "#ffffff", self._sync_selected_github_schedule, 280, 46, 58),
+            ("GitHub 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
             ("내PC에 저장", "#16a34a", "#ffffff", self._save_current_schedule_shared_archive, 18, 80, 102),
             ("PC에서 불러오기", "#2563eb", "#ffffff", self._load_schedule_from_shared_archive, 128, 80, 132),
-            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 304, 46, 84),
-            ("GitHub 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 396, 46, 118),
+            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 268, 80, 84),
             ("고정 보스", "#f8f1df", "#7c2d12", self.open_fixed_boss_window, 794, 46, 110),
             ("보스 설정", "#f59e0b", "#ffffff", self.open_schedule_boss_config_window, 914, 46, 110),
             ("아군/적군 막타", "#7c3aed", "#ffffff", self.open_record_book_window, 1034, 46, 128),
@@ -35789,8 +35787,14 @@ class BossTimerApp:
                 cursor="hand2",
             )
             button.place(x=x, y=y, width=width, height=30)
+            if command == self._refresh_github_server_list:
+                self.schedule_github_refresh_button = button
+            elif command == self._sync_selected_github_schedule:
+                self.schedule_github_sync_button = button
             hover_bg = (
                 "#1d4ed8" if bg == "#2563eb"
+                else "#bae6fd" if bg == "#e0f2fe"
+                else "#0284c7" if bg == "#0ea5e9"
                 else "#0369a1" if bg == "#0284c7"
                 else "#15803d" if bg == "#16a34a"
                 else "#d97706" if bg == "#f59e0b"
@@ -35800,6 +35804,14 @@ class BossTimerApp:
                 else "#115e59"
             )
             self._bind_hover_button(button, bg, hover_bg, fg, fg)
+        self.schedule_github_server_combo = ttk.Combobox(
+            top_frame,
+            textvariable=self.schedule_github_server_var,
+            values=[],
+            font=(self.current_font_family, 9, "bold"),
+            state="readonly",
+        )
+        self.schedule_github_server_combo.place(x=128, y=46, width=94, height=30)
         self._bind_hover_button(schedule_metrics_button, "#0f766e", "#115e59", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_break_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
         tk.Frame(self.schedule_window, bg="#cbd5e1").place(x=0, y=118, width=SCHEDULE_WINDOW_WIDTH, height=1)
@@ -35873,9 +35885,6 @@ class BossTimerApp:
         schedule_option_frame = tk.Frame(self.schedule_window, bg="#dbeafe", bd=1, relief="solid", highlightthickness=0)
         self.schedule_option_frame = schedule_option_frame
         schedule_option_frame.place(x=206, y=144, width=332, height=64)
-        github_sync_frame = tk.Frame(self.schedule_window, bg="#dbeafe", bd=1, relief="solid", highlightthickness=0)
-        self.schedule_github_sync_frame = github_sync_frame
-        github_sync_frame.place(x=550, y=144, width=332, height=64)
         tk.Label(
             schedule_option_frame,
             text="스케쥴 옵션",
@@ -35959,54 +35968,6 @@ class BossTimerApp:
         self.schedule_alarm_master_button.place(x=242, y=18, width=78, height=32)
         self._bind_hover_button(self.schedule_alarm_master_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
         self._update_schedule_alarm_master_button()
-        tk.Label(
-            github_sync_frame,
-            text="서버 동기화",
-            font=(self.current_font_family, 9, "bold"),
-            bg="#dbeafe",
-            fg="#1e3a8a",
-            anchor="w",
-        ).place(x=10, y=4, width=100, height=14)
-        self.schedule_github_server_combo = ttk.Combobox(
-            github_sync_frame,
-            textvariable=self.schedule_github_server_var,
-            values=[],
-            font=(self.current_font_family, 9, "bold"),
-            state="readonly",
-        )
-        self.schedule_github_server_combo.place(x=10, y=28, width=166, height=26)
-        self.schedule_github_refresh_button = tk.Button(
-            github_sync_frame,
-            text="목록",
-            font=self.percent_font,
-            bg="#e0f2fe",
-            fg="#075985",
-            activebackground="#bae6fd",
-            activeforeground="#075985",
-            relief="raised",
-            bd=1,
-            highlightthickness=0,
-            command=self._refresh_github_server_list,
-            cursor="hand2",
-        )
-        self.schedule_github_refresh_button.place(x=184, y=28, width=54, height=26)
-        self.schedule_github_sync_button = tk.Button(
-            github_sync_frame,
-            text="동기화",
-            font=self.percent_font,
-            bg="#0ea5e9",
-            fg="#ffffff",
-            activebackground="#0284c7",
-            activeforeground="#ffffff",
-            relief="raised",
-            bd=1,
-            highlightthickness=0,
-            command=self._sync_selected_github_schedule,
-            cursor="hand2",
-        )
-        self.schedule_github_sync_button.place(x=246, y=28, width=72, height=26)
-        self._bind_hover_button(self.schedule_github_refresh_button, "#e0f2fe", "#bae6fd", "#075985", "#075985")
-        self._bind_hover_button(self.schedule_github_sync_button, "#0ea5e9", "#0284c7", "#ffffff", "#ffffff")
         list_frame = tk.Frame(self.schedule_window, bg="#eef2ff", bd=0, relief="flat")
         self.schedule_list_frame = list_frame
         list_frame.place(x=14, y=215, width=SCHEDULE_WINDOW_WIDTH - 28, height=SCHEDULE_WINDOW_HEIGHT - 233)
