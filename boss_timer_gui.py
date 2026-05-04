@@ -935,6 +935,11 @@ class BossTimerApp:
         self.schedule_window_x = None
         self.schedule_window_y = None
         self.schedule_window_busy = False
+        self.schedule_github_server_combo = None
+        self.schedule_github_sync_button = None
+        self.schedule_github_refresh_button = None
+        self.schedule_github_server_entries: list[dict[str, object]] = []
+        self.schedule_github_server_loading = False
         self.schedule_input_window = None
         self.schedule_input_window_open = False
         self.schedule_input_window_busy = False
@@ -1255,6 +1260,7 @@ class BossTimerApp:
         self.schedule_alarm_common_second_var = tk.StringVar(value="0")
         self.schedule_alarm_boss_minute_var = tk.StringVar(value="0")
         self.schedule_alarm_boss_second_var = tk.StringVar(value="0")
+        self.schedule_github_server_var = tk.StringVar(value="서버 목록")
         self.schedule_alarm_selected_boss_var = tk.StringVar(value="보스를 선택하세요.")
         self.schedule_alarm_boss_enabled_var = tk.BooleanVar(value=False)
         self.schedule_alarm_voice_label_var = tk.StringVar(value=self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME)
@@ -3128,6 +3134,35 @@ class BossTimerApp:
             "dataVersion": data_version,
             "servers": servers,
         }
+
+    def _extract_github_server_entries(self, index_payload: dict[str, object] | None) -> list[dict[str, object]]:
+        if not isinstance(index_payload, dict):
+            return []
+        entries: list[dict[str, object]] = []
+        for raw_item in index_payload.get("servers", []):
+            if not isinstance(raw_item, dict):
+                continue
+            server_id = str(raw_item.get("id") or "").strip()
+            server_name = str(raw_item.get("name") or server_id).strip()
+            schedule_path = str(raw_item.get("schedule") or "").strip()
+            if not server_id or not server_name or not schedule_path:
+                continue
+            item = dict(raw_item)
+            item["id"] = server_id
+            item["name"] = server_name
+            item["schedule"] = schedule_path
+            entries.append(item)
+        entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        return entries
+
+    def _unwrap_github_schedule_payload(self, payload: dict[str, object] | None) -> dict[str, object] | None:
+        if not isinstance(payload, dict):
+            return None
+        if str(payload.get("kind") or "").strip() == "schedule" and isinstance(payload.get("payload"), dict):
+            restored = self._deserialize_schedule_state_value(payload.get("payload"))
+            return dict(restored) if isinstance(restored, dict) else None
+        restored = self._deserialize_schedule_state_value(payload)
+        return dict(restored) if isinstance(restored, dict) else None
 
     def _upload_current_schedule_to_github_data(self) -> tuple[bool, str]:
         context = self._get_schedule_shared_export_context(self.current_season_no, self.current_season_started_at)
@@ -24289,6 +24324,102 @@ class BossTimerApp:
             cursor="hand2",
         ).place(x=400, y=250, width=88, height=30)
 
+    def _set_schedule_github_controls_state(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        for widget in (self.schedule_github_server_combo, self.schedule_github_sync_button, self.schedule_github_refresh_button):
+            if widget is None:
+                continue
+            try:
+                widget.configure(state=("readonly" if widget is self.schedule_github_server_combo and enabled else state))
+            except tk.TclError:
+                pass
+
+    def _refresh_github_server_list(self) -> None:
+        if self.schedule_github_server_loading:
+            return
+        self.schedule_github_server_loading = True
+        self._set_schedule_github_controls_state(False)
+        self.schedule_github_server_var.set("목록 갱신 중")
+        if self._widget_available(self.schedule_window):
+            self.schedule_status_var.set("GitHub 서버 목록을 읽는 중입니다.")
+
+        def worker() -> None:
+            index_payload, _sha, error = self._github_get_json_file("data/server_index.json")
+            entries = [] if error else self._extract_github_server_entries(index_payload)
+
+            def finish() -> None:
+                self.schedule_github_server_loading = False
+                self.schedule_github_server_entries = entries
+                values = [str(item.get("name") or item.get("id") or "") for item in entries]
+                if self.schedule_github_server_combo is not None:
+                    try:
+                        self.schedule_github_server_combo.configure(values=values)
+                    except tk.TclError:
+                        pass
+                if error:
+                    self.schedule_github_server_var.set("목록 실패")
+                    self.schedule_status_var.set(f"GitHub 서버 목록 읽기 실패: {error}")
+                elif values:
+                    current = self.schedule_github_server_var.get().strip()
+                    self.schedule_github_server_var.set(current if current in values else values[0])
+                    self.schedule_status_var.set(f"GitHub 서버 목록 {len(values)}개를 읽었습니다.")
+                else:
+                    self.schedule_github_server_var.set("서버 없음")
+                    self.schedule_status_var.set("GitHub에 업로드된 서버 목록이 없습니다.")
+                self._set_schedule_github_controls_state(True)
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _get_selected_github_server_entry(self) -> dict[str, object] | None:
+        selected_name = str(self.schedule_github_server_var.get() or "").strip()
+        for entry in self.schedule_github_server_entries:
+            if selected_name == str(entry.get("name") or entry.get("id") or "").strip():
+                return entry
+        return self.schedule_github_server_entries[0] if self.schedule_github_server_entries else None
+
+    def _sync_selected_github_schedule(self) -> None:
+        entry = self._get_selected_github_server_entry()
+        if not entry:
+            self.schedule_status_var.set("동기화할 GitHub 서버를 선택하세요.")
+            return
+        server_name = str(entry.get("name") or entry.get("id") or "").strip() or "GitHub 서버"
+        schedule_path = str(entry.get("schedule") or "").strip()
+        if not schedule_path:
+            self.schedule_status_var.set(f"{server_name}: 스케쥴 경로가 없습니다.")
+            return
+        self._set_schedule_github_controls_state(False)
+        self.schedule_status_var.set(f"{server_name} 스케쥴을 GitHub에서 다운로드 중입니다.")
+
+        def worker() -> None:
+            payload, _sha, error = self._github_get_json_file(schedule_path)
+            schedule_payload = None if error else self._unwrap_github_schedule_payload(payload)
+
+            def finish() -> None:
+                self._set_schedule_github_controls_state(True)
+                if error:
+                    self.schedule_status_var.set(f"GitHub 스케쥴 다운로드 실패: {error}")
+                    return
+                if not isinstance(schedule_payload, dict):
+                    self.schedule_status_var.set(f"{server_name}: 다운로드한 스케쥴 형식이 올바르지 않습니다.")
+                    return
+                self._apply_loaded_schedule_shared_payload(
+                    schedule_payload,
+                    source_label=f"{server_name} GitHub",
+                    source_path=schedule_path,
+                )
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _load_schedule_from_shared_archive(self) -> None:
         parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
         initial_dir = self._get_schedule_shared_export_dir()
@@ -24302,10 +24433,19 @@ class BossTimerApp:
         if not selected_path:
             return
         payload = self._load_schedule_shared_payload_from_path(selected_path)
-        snapshot = self._create_schedule_full_snapshot_from_shared_payload(payload, source_path=selected_path)
+        self._apply_loaded_schedule_shared_payload(payload, source_label=os.path.basename(selected_path), source_path=selected_path)
+
+    def _apply_loaded_schedule_shared_payload(
+        self,
+        payload: dict[str, object] | None,
+        *,
+        source_label: str,
+        source_path: str = "",
+    ) -> bool:
+        snapshot = self._create_schedule_full_snapshot_from_shared_payload(payload, source_path=source_path)
         if not self._schedule_restore_snapshot_has_data(snapshot):
             self.schedule_status_var.set("불러올 저장용 스케쥴 데이터가 없습니다.")
-            return
+            return False
         current_snapshot = self._create_schedule_restore_cycle_snapshot()
         self._backup_current_schedule_shared_export(
             self.current_season_no,
@@ -24322,11 +24462,11 @@ class BossTimerApp:
         )
         if not self._restore_schedule_full_state_snapshot(snapshot):
             self.schedule_status_var.set("저장용 스케쥴 불러오기에 실패했습니다.")
-            return
+            return False
         self._save_schedule_state()
         self._save_schedule_delete_history(prune=not backed_up_current)
         self._refresh_schedule_view()
-        loaded_name = os.path.basename(selected_path)
+        loaded_name = str(source_label or "").strip() or (os.path.basename(source_path) if source_path else "GitHub 스케쥴")
         if backed_up_current and shared_archive_path:
             self.schedule_status_var.set(f"현재 스케쥴과 저장용 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
         elif backed_up_current:
@@ -24335,6 +24475,7 @@ class BossTimerApp:
             self.schedule_status_var.set(f"저장용 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
         else:
             self.schedule_status_var.set(f"{loaded_name} 저장용 스케쥴을 불러왔습니다.")
+        return True
 
     def _show_schedule_input_overwrite_confirm(self, overwritten_count: int, *, is_edit_mode: bool, is_add_mode: bool = False) -> bool:
         parent = self.schedule_input_window if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists() else self.schedule_window
@@ -35655,6 +35796,46 @@ class BossTimerApp:
                 else "#115e59"
             )
             self._bind_hover_button(button, bg, hover_bg, fg, fg)
+        self.schedule_github_server_combo = ttk.Combobox(
+            top_frame,
+            textvariable=self.schedule_github_server_var,
+            values=[],
+            font=(self.current_font_family, 9, "bold"),
+            state="readonly",
+        )
+        self.schedule_github_server_combo.place(x=522, y=46, width=142, height=30)
+        self.schedule_github_refresh_button = tk.Button(
+            top_frame,
+            text="목록",
+            font=self.percent_font,
+            bg="#e0f2fe",
+            fg="#075985",
+            activebackground="#bae6fd",
+            activeforeground="#075985",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._refresh_github_server_list,
+            cursor="hand2",
+        )
+        self.schedule_github_refresh_button.place(x=672, y=46, width=48, height=30)
+        self.schedule_github_sync_button = tk.Button(
+            top_frame,
+            text="동기화",
+            font=self.percent_font,
+            bg="#0ea5e9",
+            fg="#ffffff",
+            activebackground="#0284c7",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._sync_selected_github_schedule,
+            cursor="hand2",
+        )
+        self.schedule_github_sync_button.place(x=728, y=46, width=58, height=30)
+        self._bind_hover_button(self.schedule_github_refresh_button, "#e0f2fe", "#bae6fd", "#075985", "#075985")
+        self._bind_hover_button(self.schedule_github_sync_button, "#0ea5e9", "#0284c7", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_metrics_button, "#0f766e", "#115e59", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_break_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
         tk.Label(top_frame, textvariable=self.schedule_status_var, font=self.percent_font, bg="#dbeafe", fg="#1e3a8a", anchor="w").place(x=18, y=102, width=640, height=14)
@@ -36237,6 +36418,10 @@ class BossTimerApp:
         self._set_schedule_view_datetime_fields(self._get_schedule_reference_datetime())
         self._refresh_schedule_view()
         self._scroll_schedule_tree_to_focus_next_event()
+        try:
+            self.root.after(250, self._refresh_github_server_list)
+        except tk.TclError:
+            pass
 
     def _ensure_schedule_input_window(self) -> None:
         if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
