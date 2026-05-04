@@ -3155,6 +3155,21 @@ class BossTimerApp:
         entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
         return entries
 
+    def _format_github_server_combo_text(self, name: str) -> str:
+        text = str(name or "").strip()
+        return f"  {text}" if text else ""
+
+    def _get_current_github_upload_server_entry(self) -> dict[str, object]:
+        context = self._get_schedule_shared_export_context(self.current_season_no, self.current_season_started_at)
+        server_id = str(context.get("share_prefix") or "").strip() or self._get_current_season_share_prefix()
+        server_id = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", server_id).strip("._-") or "default"
+        server_name = str(context.get("server_name") or server_id).strip() or server_id
+        return {
+            "id": server_id,
+            "name": server_name,
+            "schedule": f"data/schedules/{server_id}.json",
+        }
+
     def _unwrap_github_schedule_payload(self, payload: dict[str, object] | None) -> dict[str, object] | None:
         if not isinstance(payload, dict):
             return None
@@ -3164,11 +3179,11 @@ class BossTimerApp:
         restored = self._deserialize_schedule_state_value(payload)
         return dict(restored) if isinstance(restored, dict) else None
 
-    def _upload_current_schedule_to_github_data(self) -> tuple[bool, str]:
-        context = self._get_schedule_shared_export_context(self.current_season_no, self.current_season_started_at)
-        server_id = str(context.get("share_prefix") or "").strip() or self._get_current_season_share_prefix()
+    def _upload_current_schedule_to_github_data(self, target_server: dict[str, object] | None = None) -> tuple[bool, str]:
+        target_server = dict(target_server or self._get_current_github_upload_server_entry())
+        server_id = str(target_server.get("id") or "").strip()
         server_id = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", server_id).strip("._-") or "default"
-        server_name = str(context.get("server_name") or server_id).strip() or server_id
+        server_name = str(target_server.get("name") or server_id).strip() or server_id
         schedule_path = f"data/schedules/{server_id}.json"
         index_payload, index_sha, index_error = self._github_get_json_file("data/server_index.json")
         if index_error:
@@ -3178,6 +3193,9 @@ class BossTimerApp:
         )
         try:
             schedule_payload = self._build_github_schedule_payload(data_version)
+            if isinstance(schedule_payload.get("payload"), dict):
+                schedule_payload["payload"]["share_prefix"] = server_id
+                schedule_payload["payload"]["server_name"] = server_name
         except ValueError as exc:
             return False, str(exc)
         _existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
@@ -24217,13 +24235,22 @@ class BossTimerApp:
         dialog.resizable(False, False)
         dialog.configure(bg="#eef2ff")
         dialog.transient(parent)
-        self._center_window_over_parent(dialog, parent, 520, 300)
+        self._center_window_over_parent(dialog, parent, 520, 334)
 
         owner_var = tk.StringVar(value=str(getattr(self, "github_data_owner", "pulpul7") or "pulpul7"))
         repo_var = tk.StringVar(value=str(getattr(self, "github_data_repo", "pulpul7-boss_timer_data") or "pulpul7-boss_timer_data"))
         branch_var = tk.StringVar(value=str(getattr(self, "github_data_branch", "main") or "main"))
         token_var = tk.StringVar(value=str(getattr(self, "github_data_token", "") or ""))
         status_var = tk.StringVar(value="현재 스케쥴을 GitHub data 저장소에 업로드합니다.")
+        target_entries: list[dict[str, object]] = [self._get_current_github_upload_server_entry()]
+        for entry in self.schedule_github_server_entries:
+            entry_id = str(entry.get("id") or "").strip()
+            if entry_id and all(str(item.get("id") or "").strip() != entry_id for item in target_entries):
+                target_entries.append(dict(entry))
+        target_values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in target_entries]
+        selected_entry = self._get_selected_github_server_entry()
+        selected_name = str(selected_entry.get("name") or selected_entry.get("id") or "").strip() if selected_entry else str(target_entries[0].get("name") or target_entries[0].get("id") or "").strip()
+        target_server_var = tk.StringVar(value=self._format_github_server_combo_text(selected_name))
 
         def save_settings_from_form() -> bool:
             owner = owner_var.get().strip()
@@ -24252,9 +24279,10 @@ class BossTimerApp:
                 dialog.update_idletasks()
             except tk.TclError:
                 pass
+            target_server = get_target_server_from_form()
 
             def worker() -> None:
-                success, message = self._upload_current_schedule_to_github_data()
+                success, message = self._upload_current_schedule_to_github_data(target_server)
 
                 def finish() -> None:
                     if success:
@@ -24275,6 +24303,13 @@ class BossTimerApp:
 
             threading.Thread(target=worker, daemon=True).start()
 
+        def get_target_server_from_form() -> dict[str, object]:
+            selected_text = target_server_var.get().strip()
+            for entry in target_entries:
+                if selected_text == str(entry.get("name") or entry.get("id") or "").strip():
+                    return dict(entry)
+            return dict(target_entries[0])
+
         tk.Label(dialog, text="GitHub 데이터 업로드", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=520, height=42)
         tk.Label(dialog, text="Owner", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=58, width=90, height=22)
         tk.Entry(dialog, textvariable=owner_var, font=self.button_font).place(x=120, y=56, width=180, height=26)
@@ -24284,6 +24319,14 @@ class BossTimerApp:
         tk.Entry(dialog, textvariable=branch_var, font=self.button_font).place(x=120, y=124, width=120, height=26)
         tk.Label(dialog, text="Token", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=160, width=90, height=22)
         tk.Entry(dialog, textvariable=token_var, font=self.button_font, show="*").place(x=120, y=158, width=360, height=26)
+        tk.Label(dialog, text="Server", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=194, width=90, height=22)
+        ttk.Combobox(
+            dialog,
+            textvariable=target_server_var,
+            values=target_values,
+            font=(self.current_font_family, 9, "bold"),
+            state="readonly",
+        ).place(x=120, y=192, width=220, height=26)
         tk.Label(
             dialog,
             textvariable=status_var,
@@ -24293,7 +24336,7 @@ class BossTimerApp:
             anchor="w",
             justify="left",
             wraplength=470,
-        ).place(x=24, y=202, width=470, height=34)
+        ).place(x=24, y=236, width=470, height=34)
         upload_button = tk.Button(
             dialog,
             text="업로드",
@@ -24308,7 +24351,7 @@ class BossTimerApp:
             command=upload,
             cursor="hand2",
         )
-        upload_button.place(x=300, y=250, width=88, height=30)
+        upload_button.place(x=300, y=284, width=88, height=30)
         tk.Button(
             dialog,
             text="닫기",
@@ -24322,7 +24365,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=dialog.destroy,
             cursor="hand2",
-        ).place(x=400, y=250, width=88, height=30)
+        ).place(x=400, y=284, width=88, height=30)
 
     def _set_schedule_github_controls_state(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
@@ -24350,7 +24393,7 @@ class BossTimerApp:
             def finish() -> None:
                 self.schedule_github_server_loading = False
                 self.schedule_github_server_entries = entries
-                values = [str(item.get("name") or item.get("id") or "") for item in entries]
+                values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in entries]
                 if self.schedule_github_server_combo is not None:
                     try:
                         self.schedule_github_server_combo.configure(values=values)
@@ -24361,7 +24404,8 @@ class BossTimerApp:
                     self.schedule_status_var.set(f"GitHub 서버 목록 읽기 실패: {error}")
                 elif values:
                     current = self.schedule_github_server_var.get().strip()
-                    self.schedule_github_server_var.set(current if current in values else values[0])
+                    value_names = [value.strip() for value in values]
+                    self.schedule_github_server_var.set(self._format_github_server_combo_text(current) if current in value_names else values[0])
                     self.schedule_status_var.set(f"GitHub 서버 목록 {len(values)}개를 읽었습니다.")
                 else:
                     self.schedule_github_server_var.set("서버 없음")
@@ -35762,7 +35806,7 @@ class BossTimerApp:
             ("스케쥴 입력", "#2563eb", "#ffffff", self._open_schedule_input_window_normal, 18, 46, 102),
             ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
             ("동기화", "#0ea5e9", "#ffffff", self._sync_selected_github_schedule, 280, 46, 58),
-            ("GitHub 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
+            ("서버 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
             ("내PC에 저장", "#16a34a", "#ffffff", self._save_current_schedule_shared_archive, 18, 80, 102),
             ("PC에서 불러오기", "#2563eb", "#ffffff", self._load_schedule_from_shared_archive, 128, 80, 132),
             ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 268, 80, 84),
