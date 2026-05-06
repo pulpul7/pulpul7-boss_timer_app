@@ -5696,7 +5696,7 @@ class BossTimerApp:
                         and isinstance(item.get("scheduled_at"), datetime)
                     ):
                         updated_item = dict(item)
-                        updated_item["scheduled_at"] = item["scheduled_at"] + timedelta(seconds=stored_offset)
+                        updated_item["scheduled_at"] = item["scheduled_at"] - timedelta(seconds=stored_offset)
                         reverted_events.append(updated_item)
                     else:
                         reverted_events.append(item)
@@ -5743,7 +5743,7 @@ class BossTimerApp:
         offset_seconds = self._get_schedule_second_precision_offset_for_item(item) + float(extra_offset_delta or 0.0)
         if abs(offset_seconds) < 0.05:
             return scheduled_at
-        return scheduled_at - timedelta(seconds=offset_seconds)
+        return scheduled_at + timedelta(seconds=offset_seconds)
 
     def _format_schedule_clock_text_for_input(self, scheduled_at: datetime | None, precision: object) -> str:
         if not isinstance(scheduled_at, datetime):
@@ -10033,7 +10033,7 @@ class BossTimerApp:
                 preview_delta = round(float(self.schedule_second_precision_offset_var.get()), 1)
             except (tk.TclError, TypeError, ValueError):
                 preview_delta = 0.0
-        preview_scheduled_at = scheduled_at - timedelta(seconds=float(preview_delta or 0.0))
+        preview_scheduled_at = scheduled_at + timedelta(seconds=float(preview_delta or 0.0))
         remaining_seconds = (preview_scheduled_at - self._get_schedule_reference_datetime()).total_seconds()
         seconds_only = max(0.0, remaining_seconds) % 60.0
         return f"{round(seconds_only, 1):.1f}초"
@@ -10124,7 +10124,7 @@ class BossTimerApp:
         delta = self._get_schedule_second_precision_offset_preview_delta(item)
         if abs(delta) < 0.05:
             return scheduled_at
-        return scheduled_at - timedelta(seconds=delta)
+        return scheduled_at + timedelta(seconds=delta)
 
     def _restore_schedule_second_precision_offset_target_selection(self, *, ensure_visible: bool = False) -> None:
         raw_key = str(self.schedule_second_precision_offset_target_key or "").strip()
@@ -10311,7 +10311,7 @@ class BossTimerApp:
                     and isinstance(item.get("scheduled_at"), datetime)
                 ):
                     updated_item = dict(item)
-                    updated_item["scheduled_at"] = item["scheduled_at"] - timedelta(seconds=delta)
+                    updated_item["scheduled_at"] = item["scheduled_at"] + timedelta(seconds=delta)
                     if first_before_at is None:
                         first_before_at = item["scheduled_at"]
                         first_after_at = updated_item["scheduled_at"]
