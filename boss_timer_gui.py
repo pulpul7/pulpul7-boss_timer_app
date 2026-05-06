@@ -1415,6 +1415,7 @@ class BossTimerApp:
         self.schedule_second_precision_offset_scale = None
         self.schedule_second_precision_offset_canvas = None
         self.schedule_second_precision_offset_save_button = None
+        self.schedule_second_precision_offset_reset_button = None
         self.schedule_share_copy_button = None
         self.main_current_datetime_item = None
         self.schedule_tree_item_meta: dict[str, dict[str, object]] = {}
@@ -5708,6 +5709,12 @@ class BossTimerApp:
             if str(self.schedule_second_precision_offset_target_key or "").strip() in normalized_keys:
                 self.schedule_second_precision_offset_var.set(0.0)
                 self.schedule_second_precision_offset_value_var.set("+0.0초")
+                self.schedule_second_precision_offset_label_var.set(
+                    self._format_schedule_second_precision_target_label(
+                        self.schedule_second_precision_offset_target_name,
+                        self.schedule_second_precision_offset_target_key,
+                    )
+                )
                 self._update_schedule_second_precision_selected_seconds_label()
         return cleared_count
 
@@ -9969,6 +9976,14 @@ class BossTimerApp:
             numeric_value = 0.0
         return f"{numeric_value:+.1f}초"
 
+    def _format_schedule_second_precision_target_label(self, display_name: str, raw_key: str) -> str:
+        name_text = str(display_name or raw_key or "초확정 행 선택").strip()
+        key_text = str(raw_key or "").strip()
+        if not key_text:
+            return name_text
+        cumulative_offset = self._get_schedule_second_precision_offset_for_key(key_text)
+        return f"{name_text} ({self._format_schedule_second_precision_offset_text(cumulative_offset)})"
+
     def _format_schedule_second_precision_datetime_text(self, value: datetime | None) -> str:
         if not isinstance(value, datetime):
             return "-"
@@ -10065,7 +10080,9 @@ class BossTimerApp:
                 self.schedule_second_precision_offset_target_name = display_name
                 self.schedule_second_precision_offset_target_identity = target.get("identity") if isinstance(target.get("identity"), tuple) else None
                 self.schedule_second_precision_offset_var.set(current_offset)
-                self.schedule_second_precision_offset_label_var.set(display_name)
+                self.schedule_second_precision_offset_label_var.set(
+                    self._format_schedule_second_precision_target_label(display_name, raw_key)
+                )
                 self.schedule_second_precision_selected_seconds_var.set(
                     self._format_schedule_second_precision_selected_seconds_text(dict(target.get("item") or {}), current_offset)
                 )
@@ -10099,6 +10116,15 @@ class BossTimerApp:
                     fg=button_fg,
                     activebackground="#15803d" if state == "normal" else "#cbd5e1",
                     activeforeground=button_fg,
+                    cursor=cursor,
+                )
+            if self.schedule_second_precision_offset_reset_button is not None:
+                self.schedule_second_precision_offset_reset_button.config(
+                    state=state,
+                    bg="#f97316" if state == "normal" else "#cbd5e1",
+                    fg="#ffffff" if state == "normal" else "#f8fafc",
+                    activebackground="#ea580c" if state == "normal" else "#cbd5e1",
+                    activeforeground="#ffffff" if state == "normal" else "#f8fafc",
                     cursor=cursor,
                 )
         except tk.TclError:
@@ -10273,7 +10299,9 @@ class BossTimerApp:
         except (tk.TclError, TypeError, ValueError):
             offset_value = 0.0
         display_name = self.schedule_second_precision_offset_target_name or self.schedule_second_precision_offset_target_key
-        self.schedule_second_precision_offset_label_var.set(display_name)
+        self.schedule_second_precision_offset_label_var.set(
+            self._format_schedule_second_precision_target_label(display_name, self.schedule_second_precision_offset_target_key)
+        )
         self.schedule_second_precision_selected_seconds_var.set(
             self._format_schedule_second_precision_selected_seconds_text(
                 self._find_schedule_second_precision_offset_target_item(),
@@ -10349,6 +10377,50 @@ class BossTimerApp:
             )
         self.schedule_status_var.set(
             f"{display_name} 초 보정 {self._format_schedule_second_precision_offset_text(delta)} 추가 저장 / 누적 {self._format_schedule_second_precision_offset_text(new_offset)} ({adjusted_count}건 반영){before_after_text}"
+        )
+
+    def _reset_schedule_second_precision_offset(self) -> None:
+        raw_key = str(self.schedule_second_precision_offset_target_key or "").strip()
+        if not raw_key:
+            self.schedule_status_var.set("초 보정을 초기화할 초확정 보스 행을 선택하세요.")
+            return
+        old_offset = self._get_schedule_second_precision_offset_for_key(raw_key)
+        if abs(old_offset) < 0.05:
+            self.schedule_second_precision_offset_var.set(0.0)
+            self.schedule_second_precision_offset_value_var.set(self._format_schedule_second_precision_offset_text(0.0))
+            self.schedule_second_precision_offset_label_var.set(
+                self._format_schedule_second_precision_target_label(
+                    self.schedule_second_precision_offset_target_name or raw_key,
+                    raw_key,
+                )
+            )
+            self.schedule_status_var.set("선택된 보스의 누적 초 보정은 이미 0.0초입니다.")
+            return
+        previous_identity = self.schedule_second_precision_offset_target_identity
+        restored_identity = previous_identity
+        if isinstance(previous_identity, tuple) and len(previous_identity) >= 4:
+            try:
+                previous_scheduled_at = datetime.fromisoformat(str(previous_identity[2] or ""))
+                restored_identity = (
+                    str(previous_identity[0] or ""),
+                    str(previous_identity[1] or ""),
+                    (previous_scheduled_at - timedelta(seconds=old_offset)).isoformat(),
+                    str(previous_identity[3] or ""),
+                )
+            except ValueError:
+                restored_identity = previous_identity
+        cleared_count = self._clear_schedule_second_precision_offsets_for_raw_keys({raw_key})
+        self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
+        self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+        self._save_schedule_state()
+        self._refresh_schedule_view()
+        self.schedule_second_precision_offset_target_key = raw_key
+        self.schedule_second_precision_offset_target_identity = restored_identity if isinstance(restored_identity, tuple) else previous_identity
+        self._restore_schedule_second_precision_offset_target_selection(ensure_visible=True)
+        self._update_schedule_second_precision_offset_controls()
+        display_name = self.schedule_second_precision_offset_target_name or raw_key
+        self.schedule_status_var.set(
+            f"{display_name} 누적 초 보정 {self._format_schedule_second_precision_offset_text(old_offset)}을 0.0초로 초기화했습니다. ({cleared_count}건 반영)"
         )
 
     def _update_schedule_tree_action_buttons(self) -> None:
@@ -36367,7 +36439,7 @@ class BossTimerApp:
             fg="#1e3a8a",
             anchor="center",
         )
-        self.schedule_second_precision_offset_label.place(x=728, y=4, width=188, height=16)
+        self.schedule_second_precision_offset_label.place(x=712, y=4, width=204, height=16)
         self.schedule_second_precision_offset_canvas = tk.Canvas(
             list_frame,
             bg="#dbeafe",
@@ -36414,7 +36486,23 @@ class BossTimerApp:
             state="disabled",
             cursor="arrow",
         )
-        self.schedule_second_precision_offset_save_button.place(x=838, y=47, width=74, height=22)
+        self.schedule_second_precision_offset_save_button.place(x=832, y=47, width=36, height=22)
+        self.schedule_second_precision_offset_reset_button = tk.Button(
+            list_frame,
+            text="초기화",
+            font=self.percent_font,
+            bg="#cbd5e1",
+            fg="#f8fafc",
+            activebackground="#cbd5e1",
+            activeforeground="#f8fafc",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._reset_schedule_second_precision_offset,
+            state="disabled",
+            cursor="arrow",
+        )
+        self.schedule_second_precision_offset_reset_button.place(x=872, y=47, width=48, height=22)
         self.schedule_tree_add_button = tk.Button(
             list_frame,
             text="추가",
