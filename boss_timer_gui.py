@@ -336,6 +336,7 @@ RECORD_BOOK_CHAPTER_LABELS = {
 RECORD_BOOK_DOUBLE_CHECK_AREAS = {"요툰하임", "니다벨리르"}
 SCHEDULE_OCR_CACHE_DIRNAME = "schedule_ocr_cache"
 SCHEDULE_OCR_SCALES = (1.0,)
+SCHEDULE_OCR_SECOND_PRECISION_TARGET_OFFSET_SECONDS = -3
 SCHEDULE_OCR_SLOT_GRID = {
     "요툰하임": {"top": 4, "bottom": 4},
     "니다벨리르": {"top": 4, "bottom": 4},
@@ -17565,6 +17566,11 @@ class BossTimerApp:
             if isinstance(base_datetime, datetime):
                 reference_base = self._get_schedule_reference_datetime_for_precision(base_datetime, precision)
                 target_datetime = reference_base + timedelta(seconds=remaining_seconds)
+                if (
+                    self._normalize_schedule_precision_value(precision, fallback="minute") == "second"
+                    and int(remaining_seconds) < 86400
+                ):
+                    target_datetime += timedelta(seconds=SCHEDULE_OCR_SECOND_PRECISION_TARGET_OFFSET_SECONDS)
                 if remaining_seconds >= 86400:
                     rendered_text = f"{display_name} {duration_text}".strip()
                 else:
