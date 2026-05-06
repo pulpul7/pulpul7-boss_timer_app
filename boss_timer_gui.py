@@ -10055,7 +10055,7 @@ class BossTimerApp:
         preview_scheduled_at = scheduled_at + timedelta(seconds=float(preview_delta or 0.0))
         remaining_seconds = (preview_scheduled_at - self._get_schedule_reference_datetime()).total_seconds()
         seconds_only = max(0.0, remaining_seconds) % 60.0
-        return f"{round(seconds_only, 1):.1f}초"
+        return f"{int(round(seconds_only)):02d}초"
 
     def _update_schedule_second_precision_selected_seconds_label(self) -> None:
         if self.schedule_second_precision_selected_seconds_var is None:
