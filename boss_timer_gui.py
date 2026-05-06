@@ -4582,6 +4582,7 @@ class BossTimerApp:
         second_precision_offsets = restored.get("schedule_second_precision_offsets")
         if isinstance(second_precision_offsets, dict):
             self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(second_precision_offsets)
+        self._prune_expired_schedule_second_precision_offsets()
 
         saved_ocr_items = restored.get("schedule_input_ocr_saved_items")
         if isinstance(saved_ocr_items, list):
@@ -5668,6 +5669,68 @@ class BossTimerApp:
     def _get_schedule_second_precision_offset_for_item(self, item: dict[str, object] | None) -> float:
         return self._get_schedule_second_precision_offset_for_key(self._get_schedule_second_precision_offset_key(item))
 
+    def _clear_schedule_second_precision_offsets_for_raw_keys(self, raw_keys: object) -> int:
+        if not isinstance(raw_keys, (set, list, tuple)):
+            return 0
+        normalized_keys = {
+            str(raw_key or "").strip()
+            for raw_key in raw_keys
+            if str(raw_key or "").strip()
+        }
+        if not normalized_keys:
+            return 0
+        cleared_count = 0
+        for raw_key in normalized_keys:
+            if raw_key not in self.schedule_second_precision_offsets:
+                continue
+            try:
+                stored_offset = round(float(self.schedule_second_precision_offsets.get(raw_key, 0.0)), 1)
+            except (TypeError, ValueError):
+                stored_offset = 0.0
+            if abs(stored_offset) >= 0.05:
+                reverted_events: list[dict[str, object]] = []
+                for item in self.schedule_events:
+                    if (
+                        isinstance(item, dict)
+                        and self._get_schedule_second_precision_offset_key(item) == raw_key
+                        and isinstance(item.get("scheduled_at"), datetime)
+                    ):
+                        updated_item = dict(item)
+                        updated_item["scheduled_at"] = item["scheduled_at"] + timedelta(seconds=stored_offset)
+                        reverted_events.append(updated_item)
+                    else:
+                        reverted_events.append(item)
+                self.schedule_events = reverted_events
+            self.schedule_second_precision_offsets.pop(raw_key, None)
+            cleared_count += 1
+        if cleared_count:
+            self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(self.schedule_second_precision_offsets)
+            if str(self.schedule_second_precision_offset_target_key or "").strip() in normalized_keys:
+                self.schedule_second_precision_offset_var.set(0.0)
+                self.schedule_second_precision_offset_value_var.set("+0.0초")
+                self._update_schedule_second_precision_selected_seconds_label()
+        return cleared_count
+
+    def _prune_expired_schedule_second_precision_offsets(self) -> int:
+        if not self.schedule_second_precision_offsets:
+            return 0
+        valid_raw_keys: set[str] = set()
+        reference_now = datetime.now()
+        for item in self.schedule_events:
+            if not isinstance(item, dict):
+                continue
+            scheduled_at = item.get("scheduled_at")
+            if (
+                isinstance(scheduled_at, datetime)
+                and scheduled_at > reference_now
+                and self._is_schedule_second_precision(item)
+            ):
+                raw_key = self._get_schedule_second_precision_offset_key(item)
+                if raw_key:
+                    valid_raw_keys.add(raw_key)
+        expired_keys = set(self.schedule_second_precision_offsets.keys()) - valid_raw_keys
+        return self._clear_schedule_second_precision_offsets_for_raw_keys(expired_keys)
+
     def _apply_schedule_second_precision_offset_to_datetime(
         self,
         scheduled_at: datetime,
@@ -6741,12 +6804,17 @@ class BossTimerApp:
             return 9
         return 0
 
+    def _get_schedule_display_second_sort_datetime(self, value: datetime | None) -> datetime:
+        if isinstance(value, datetime):
+            return value.replace(microsecond=0)
+        return datetime.max
+
     def _get_schedule_visible_row_sort_key(
         self,
         row: tuple[datetime, str, str, str, str, str, str, str, str, dict[str, object], dict[str, object]],
     ) -> tuple[datetime, int, str]:
         return (
-            row[0],
+            self._get_schedule_display_second_sort_datetime(row[0]),
             self._get_schedule_break_row_sort_priority(str(row[8] or "")),
             str(row[1] or ""),
         )
@@ -6756,7 +6824,7 @@ class BossTimerApp:
         if not isinstance(scheduled_at, datetime):
             scheduled_at = datetime.max
         return (
-            scheduled_at,
+            self._get_schedule_display_second_sort_datetime(scheduled_at),
             self._get_schedule_break_row_sort_priority(str(entry.get("kind") or "")),
             str(entry.get("boss_text") or ""),
         )
@@ -6946,6 +7014,7 @@ class BossTimerApp:
             "schedule_events": [dict(item) for item in self.schedule_events],
             "schedule_active_entries": [dict(item) for item in self.schedule_active_entries],
             "schedule_control_events": [dict(item) for item in self.schedule_control_events],
+            "schedule_second_precision_offsets": dict(self.schedule_second_precision_offsets),
             "previous_meta": dict(self.schedule_last_import_meta) if isinstance(self.schedule_last_import_meta, dict) else None,
         }
 
@@ -6953,6 +7022,8 @@ class BossTimerApp:
         self.schedule_events = self._normalize_schedule_event_items([dict(item) for item in snapshot.get("schedule_events", []) if isinstance(item, dict)])
         self.schedule_active_entries = self._normalize_schedule_active_items([dict(item) for item in snapshot.get("schedule_active_entries", []) if isinstance(item, dict)])
         self.schedule_control_events = [dict(item) for item in snapshot.get("schedule_control_events", []) if isinstance(item, dict)]
+        if "schedule_second_precision_offsets" in snapshot:
+            self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(snapshot.get("schedule_second_precision_offsets"))
         previous_meta = snapshot.get("previous_meta")
         self.schedule_last_import_meta = dict(previous_meta) if isinstance(previous_meta, dict) else None
 
@@ -7168,6 +7239,7 @@ class BossTimerApp:
         self.schedule_events = []
         self.schedule_active_entries = []
         self.schedule_control_events = []
+        self.schedule_second_precision_offsets = {}
         self.schedule_last_import_meta = None
         self.schedule_delete_history = []
         self.schedule_delete_active_cutoff_datetime = None
@@ -7250,6 +7322,7 @@ class BossTimerApp:
         if isinstance(schedule_control_events, list):
             self.schedule_control_events = [item for item in schedule_control_events if isinstance(item, dict)]
         self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(snapshot.get("schedule_second_precision_offsets"))
+        self._prune_expired_schedule_second_precision_offsets()
         schedule_last_import_meta = snapshot.get("schedule_last_import_meta")
         self.schedule_last_import_meta = dict(schedule_last_import_meta) if isinstance(schedule_last_import_meta, dict) else None
         tree_quick_cut_history = snapshot.get("schedule_tree_quick_cut_history")
@@ -9859,6 +9932,7 @@ class BossTimerApp:
     def _get_selected_schedule_second_precision_offset_target(self) -> dict[str, object] | None:
         if self.schedule_tree is None:
             return None
+        reference_now = datetime.now()
         try:
             selected_ids = list(self.schedule_tree.selection())
         except tk.TclError:
@@ -9869,6 +9943,9 @@ class BossTimerApp:
                 continue
             item = meta.get("item")
             if not isinstance(item, dict) or not self._is_schedule_second_precision(item):
+                continue
+            scheduled_at = item.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime) or scheduled_at <= reference_now:
                 continue
             raw_key = self._get_schedule_second_precision_offset_key(item)
             if not raw_key:
@@ -24712,6 +24789,11 @@ class BossTimerApp:
         self.schedule_tree_deleted_backup = {
             "events": [dict(item) for item in selected_event_items],
             "controls": [dict(item) for item in selected_control_items],
+            "schedule_second_precision_offsets": {
+                raw_key: self.schedule_second_precision_offsets.get(raw_key)
+                for raw_key in event_raw_keys
+                if raw_key in self.schedule_second_precision_offsets
+            },
         }
         self.schedule_events = [
             item for item in self.schedule_events
@@ -24722,11 +24804,14 @@ class BossTimerApp:
             if self._get_schedule_item_identity("control", item) not in control_identities
         ]
         self._purge_schedule_cut_state(identities=event_identities, raw_keys=event_raw_keys)
+        cleared_offset_count = self._clear_schedule_second_precision_offsets_for_raw_keys(event_raw_keys)
         deleted_count = len(selected_event_items) + len(selected_control_items)
         if delete_mode == "future_all" and future_delete_count > 0:
-            self.schedule_status_var.set(f"선택 일정과 이후 같은 보스 스케쥴을 포함해 {deleted_count}건을 삭제했습니다.")
+            offset_text = f" 초보정 {cleared_offset_count}건도 초기화했습니다." if cleared_offset_count else ""
+            self.schedule_status_var.set(f"선택 일정과 이후 같은 보스 스케쥴을 포함해 {deleted_count}건을 삭제했습니다.{offset_text}")
         else:
-            self.schedule_status_var.set(f"{deleted_count}건의 스케쥴을 삭제했습니다.")
+            offset_text = f" 초보정 {cleared_offset_count}건도 초기화했습니다." if cleared_offset_count else ""
+            self.schedule_status_var.set(f"{deleted_count}건의 스케쥴을 삭제했습니다.{offset_text}")
         self._save_schedule_state()
         self._refresh_schedule_view()
         self._update_schedule_tree_action_buttons()
@@ -24749,6 +24834,17 @@ class BossTimerApp:
             if identity not in existing_control_identities:
                 self.schedule_control_events.append(item)
                 self.schedule_tree_pending_restore_identities.append(identity)
+        restored_offsets = self.schedule_tree_deleted_backup.get("schedule_second_precision_offsets")
+        if isinstance(restored_offsets, dict):
+            for raw_key, raw_value in restored_offsets.items():
+                key = str(raw_key or "").strip()
+                if not key:
+                    continue
+                try:
+                    self.schedule_second_precision_offsets[key] = round(float(raw_value), 1)
+                except (TypeError, ValueError):
+                    continue
+            self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(self.schedule_second_precision_offsets)
         self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
         self.schedule_control_events.sort(key=lambda item: item.get("scheduled_at") or datetime.max)
         self.schedule_tree_deleted_backup = None
@@ -25509,6 +25605,9 @@ class BossTimerApp:
         if self.schedule_window is None or not self.schedule_window_open or not self.schedule_window.winfo_exists():
             return
         reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        if self._prune_expired_schedule_second_precision_offsets():
+            self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
+            self._save_schedule_state()
         blink_active = bool(self.schedule_tree_recently_elapsed_blink_until)
         blink_phase_changed = self._update_schedule_recently_elapsed_blink_phase() if blink_active else False
         expired_blink_identities = self._get_schedule_recently_elapsed_blink_expired_identities(reference_now)
@@ -27271,12 +27370,14 @@ class BossTimerApp:
             if isinstance(entry, dict) and not self._schedule_delete_history_entry_matches_cutoff(entry, cutoff_datetime)
         ]
         self._purge_schedule_cut_state(identities=removed_identities, raw_keys=removed_raw_keys)
+        cleared_offset_count = self._clear_schedule_second_precision_offsets_for_raw_keys(removed_raw_keys)
         counts = {
             "events": len(removed_event_items),
             "active": 0,
             "controls": 0,
             "quick_cut": 0,
             "total": len(removed_event_items),
+            "second_precision_offset_cleared": cleared_offset_count,
         }
         self._append_schedule_delete_history_entry(
             snapshot=snapshot,
@@ -27958,6 +28059,18 @@ class BossTimerApp:
                 ({**item, "cut_applied": True} if str(item.get("raw_key") or "") in cut_apply_keys else item)
                 for item in parsed_items
             ]
+        imported_schedule_keys = {
+            str(item.get("raw_key") or "")
+            for item in parsed_items
+            if str(item.get("state") or "") == "scheduled" and str(item.get("raw_key") or "")
+        }
+        imported_active_keys = {
+            str(item.get("raw_key") or "")
+            for item in parsed_items
+            if str(item.get("state") or "") == "active" and str(item.get("raw_key") or "")
+        }
+        imported_keys = imported_schedule_keys | imported_active_keys
+        cleared_offset_count = self._clear_schedule_second_precision_offsets_for_raw_keys(imported_keys)
 
         schedule_entries: list[dict[str, object]] = []
         active_entries: list[dict[str, object]] = []
@@ -27999,17 +28112,6 @@ class BossTimerApp:
                 or item.get("scheduled_at") >= reference_datetime
             ]
 
-        imported_schedule_keys = {
-            str(item.get("raw_key") or "")
-            for item in parsed_items
-            if str(item.get("state") or "") == "scheduled" and str(item.get("raw_key") or "")
-        }
-        imported_active_keys = {
-            str(item.get("raw_key") or "")
-            for item in parsed_items
-            if str(item.get("state") or "") == "active" and str(item.get("raw_key") or "")
-        }
-        imported_keys = imported_schedule_keys | imported_active_keys
         had_schedule_before = bool(self.schedule_events or self.schedule_active_entries or self.schedule_control_events)
         effective_force_past_keys = set(force_past_update_keys or (self.schedule_input_edit_keys if edit_mode else set()))
         if not edit_mode and not self.schedule_input_add_mode:
@@ -28050,6 +28152,7 @@ class BossTimerApp:
                 "schedule_events": [dict(item) for item in self.schedule_events],
                 "schedule_active_entries": [dict(item) for item in self.schedule_active_entries],
                 "schedule_control_events": [dict(item) for item in self.schedule_control_events],
+                "schedule_second_precision_offsets": dict(self.schedule_second_precision_offsets),
                 "previous_meta": dict(self.schedule_last_import_meta) if isinstance(self.schedule_last_import_meta, dict) else None,
                 "raw_text": raw_text,
                 "imported_at": datetime.now(),
@@ -28087,6 +28190,7 @@ class BossTimerApp:
             "active_count": len(active_entries),
             "control_count": len(control_entries),
             "overwritten_count": overwritten_count,
+            "second_precision_offset_cleared_count": cleared_offset_count,
         }
         if suppress_schedule_view_refresh:
             self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
@@ -28107,14 +28211,19 @@ class BossTimerApp:
 
         scheduled_count = len(schedule_entries)
         active_count = len(active_entries)
+        offset_clear_text = f", 초보정 초기화 {cleared_offset_count}건" if cleared_offset_count else ""
         self.schedule_status_var.set(
-            f"{source_label}: 현재시간 기준 스케쥴 예정 {scheduled_count}건, 출현 중 {active_count}건, 제어 {len(control_entries)}건을 적용했습니다."
+            f"{source_label}: 현재시간 기준 스케쥴 예정 {scheduled_count}건, 출현 중 {active_count}건, 제어 {len(control_entries)}건을 적용했습니다{offset_clear_text}."
         )
         if ignored_count:
             applied_summary = f"예정 {scheduled_count}건, 출현 중 {active_count}건, 제어 {len(control_entries)}건, 무시 {ignored_count}줄, 갱신 {overwritten_count}건"
+            if cleared_offset_count:
+                applied_summary += f", 초보정 초기화 {cleared_offset_count}건"
             self.schedule_input_status_var.set(f"적용 완료: {applied_summary}")
         else:
             applied_summary = f"예정 {scheduled_count}건, 출현 중 {active_count}건, 제어 {len(control_entries)}건, 갱신 {overwritten_count}건"
+            if cleared_offset_count:
+                applied_summary += f", 초보정 초기화 {cleared_offset_count}건"
             self.schedule_input_status_var.set(f"적용 완료: {applied_summary}")
         if auto_applied_past_cut_count > 0:
             current_status = str(self.schedule_input_status_var.get() or "").strip()
