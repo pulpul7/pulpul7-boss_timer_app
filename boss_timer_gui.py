@@ -6724,14 +6724,18 @@ class BossTimerApp:
                 adjusted_scheduled_at = (
                     anchor_at + timedelta(seconds=(metric_duration_seconds * duration_offset_direction))
                 ).replace(microsecond=0)
-                if scheduled_at.replace(microsecond=0) != adjusted_scheduled_at or not isinstance(stored_anchor, datetime):
+                adjusted_scheduled_at = self._apply_schedule_second_precision_offset_to_datetime(adjusted_scheduled_at, new_item)
+                if scheduled_at != adjusted_scheduled_at or not isinstance(stored_anchor, datetime):
                     changed = True
                 new_item["cycle_anchor_at"] = anchor_at
                 new_item["scheduled_at"] = adjusted_scheduled_at
             else:
                 if isinstance(stored_anchor, datetime):
-                    restored_scheduled_at = stored_anchor.replace(microsecond=0)
-                    if scheduled_at.replace(microsecond=0) != restored_scheduled_at:
+                    restored_scheduled_at = self._apply_schedule_second_precision_offset_to_datetime(
+                        stored_anchor.replace(microsecond=0),
+                        new_item,
+                    )
+                    if scheduled_at != restored_scheduled_at:
                         changed = True
                     new_item["scheduled_at"] = restored_scheduled_at
                 if "cycle_anchor_at" in new_item:
