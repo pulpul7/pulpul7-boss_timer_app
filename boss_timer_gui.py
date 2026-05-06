@@ -9995,9 +9995,6 @@ class BossTimerApp:
                         continue
                     if self._get_schedule_second_precision_offset_key(item) != raw_key:
                         continue
-                    identity = meta.get("identity")
-                    if isinstance(target_identity, tuple) and isinstance(identity, tuple) and identity != target_identity:
-                        continue
                     return dict(item)
             except tk.TclError:
                 pass
@@ -10037,7 +10034,7 @@ class BossTimerApp:
             except (tk.TclError, TypeError, ValueError):
                 preview_delta = 0.0
         preview_scheduled_at = scheduled_at - timedelta(seconds=float(preview_delta or 0.0))
-        remaining_seconds = (preview_scheduled_at - datetime.now()).total_seconds()
+        remaining_seconds = (preview_scheduled_at - self._get_schedule_reference_datetime()).total_seconds()
         seconds_only = max(0.0, remaining_seconds) % 60.0
         return f"{round(seconds_only, 1):.1f}초"
 
