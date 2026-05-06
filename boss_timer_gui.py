@@ -9984,14 +9984,46 @@ class BossTimerApp:
         if not raw_key:
             return None
         target_identity = self.schedule_second_precision_offset_target_identity
+        if self.schedule_tree is not None:
+            try:
+                for item_id in self.schedule_tree.selection():
+                    meta = self.schedule_tree_item_meta.get(item_id, {})
+                    if str(meta.get("kind") or "") != "event":
+                        continue
+                    item = meta.get("item")
+                    if not isinstance(item, dict) or not self._is_schedule_second_precision(item):
+                        continue
+                    if self._get_schedule_second_precision_offset_key(item) != raw_key:
+                        continue
+                    identity = meta.get("identity")
+                    if isinstance(target_identity, tuple) and isinstance(identity, tuple) and identity != target_identity:
+                        continue
+                    return dict(item)
+            except tk.TclError:
+                pass
+        target_scheduled_at = None
+        if isinstance(target_identity, tuple) and len(target_identity) >= 3:
+            try:
+                target_scheduled_at = datetime.fromisoformat(str(target_identity[2] or ""))
+            except ValueError:
+                target_scheduled_at = None
+        raw_key_fallback: dict[str, object] | None = None
+        raw_key_fallback_distance: float | None = None
         for item in self.schedule_events:
             if not isinstance(item, dict) or not self._is_schedule_second_precision(item):
                 continue
             if isinstance(target_identity, tuple) and self._get_schedule_item_identity("event", item) == target_identity:
                 return dict(item)
             if self._get_schedule_second_precision_offset_key(item) == raw_key:
-                return dict(item)
-        return None
+                scheduled_at = item.get("scheduled_at")
+                if isinstance(scheduled_at, datetime) and isinstance(target_scheduled_at, datetime):
+                    distance = abs((scheduled_at - target_scheduled_at).total_seconds())
+                    if raw_key_fallback is None or raw_key_fallback_distance is None or distance < raw_key_fallback_distance:
+                        raw_key_fallback = dict(item)
+                        raw_key_fallback_distance = distance
+                elif raw_key_fallback is None:
+                    raw_key_fallback = dict(item)
+        return raw_key_fallback
 
     def _format_schedule_second_precision_selected_seconds_text(self, item: dict[str, object] | None, preview_delta: float | None = None) -> str:
         if not isinstance(item, dict):
@@ -10004,8 +10036,8 @@ class BossTimerApp:
                 preview_delta = round(float(self.schedule_second_precision_offset_var.get()), 1)
             except (tk.TclError, TypeError, ValueError):
                 preview_delta = 0.0
-        stored_offset = self._get_schedule_second_precision_offset_for_item(item)
-        remaining_seconds = (scheduled_at - datetime.now()).total_seconds() + stored_offset + float(preview_delta or 0.0)
+        preview_scheduled_at = scheduled_at - timedelta(seconds=float(preview_delta or 0.0))
+        remaining_seconds = (preview_scheduled_at - datetime.now()).total_seconds()
         seconds_only = max(0.0, remaining_seconds) % 60.0
         return f"{round(seconds_only, 1):.1f}초"
 
