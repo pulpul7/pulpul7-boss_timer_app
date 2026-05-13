@@ -175,7 +175,7 @@
   },
   "발리": {
     "source_mode": "user_first",
-    "user_duration_seconds": 6,
+    "user_duration_seconds": 3,
     "score": 10,
     "war_score": 15
   },
@@ -259,7 +259,7 @@
   },
   "안나": {
     "source_mode": "user_first",
-    "user_duration_seconds": 3000,
+    "user_duration_seconds": 0,
     "score": 100,
     "war_score": 200
   },
@@ -307,7 +307,7 @@
   },
   "월드보스": {
     "source_mode": "user_first",
-    "user_duration_seconds": 120,
+    "user_duration_seconds": 180,
     "score": null,
     "war_score": null
   },
@@ -317,13 +317,25 @@
     "score": null,
     "war_score": null
   },
+  "핏빛고블린": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 480,
+    "score": null,
+    "war_score": null
+  },
+  "황금고블린": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 480,
+    "score": null,
+    "war_score": null
+  },
   "닻": {
     "source_mode": "user_first",
     "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
-  "지옥성체 정예": {
+  "지옥성채 정예": {
     "source_mode": "user_first",
     "user_duration_seconds": 0,
     "score": null,
@@ -343,7 +355,7 @@
   },
   "쟁탈전": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 900,
     "score": null,
     "war_score": null
   },

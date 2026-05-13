@@ -1,0 +1,1 @@
+whale.runtime.onMessage.addListener(({action:e})=>{if("createDummyIframe"===e){const e=document.createElement("IFRAME");e.src="https://m.calendar.naver.com#_background",document.body.appendChild(e)}}),whale.runtime.sendMessage({action:"offscreenLoaded"});

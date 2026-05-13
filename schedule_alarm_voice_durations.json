@@ -1,0 +1,1329 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-10 17:16:15",
+  "files": {
+    "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
+      "signature": [
+        1776791172418151700,
+        93074
+      ],
+      "duration_ms": 528
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\4층.wav": {
+      "signature": [
+        1776791172467427600,
+        84690
+      ],
+      "duration_ms": 480
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\7층.wav": {
+      "signature": [
+        1776791172504604700,
+        90626
+      ],
+      "duration_ms": 514
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공성전.wav": {
+      "signature": [
+        1776791172543625700,
+        107174
+      ],
+      "duration_ms": 608
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\굴베이그.wav": {
+      "signature": [
+        1776791172581566700,
+        101634
+      ],
+      "duration_ms": 576
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\그로아.wav": {
+      "signature": [
+        1776791172619391700,
+        67594
+      ],
+      "duration_ms": 383
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\길드던전.wav": {
+      "signature": [
+        1776791172658283900,
+        127298
+      ],
+      "duration_ms": 722
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\노트.wav": {
+      "signature": [
+        1776791172697576600,
+        78310
+      ],
+      "duration_ms": 444
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\니드호그.wav": {
+      "signature": [
+        1776791172736018300,
+        93362
+      ],
+      "duration_ms": 529
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\닻.wav": {
+      "signature": [
+        1776791172774176400,
+        32810
+      ],
+      "duration_ms": 186
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\두라스로르.wav": {
+      "signature": [
+        1776791172811910200,
+        112150
+      ],
+      "duration_ms": 636
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\드라우그.wav": {
+      "signature": [
+        1776791172849293800,
+        91970
+      ],
+      "duration_ms": 521
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\라이노르.wav": {
+      "signature": [
+        1776791172889447500,
+        95302
+      ],
+      "duration_ms": 540
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\라타토스크.wav": {
+      "signature": [
+        1776791172926989000,
+        141898
+      ],
+      "duration_ms": 804
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\로키.wav": {
+      "signature": [
+        1776791172965300500,
+        73574
+      ],
+      "duration_ms": 417
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\메기르.wav": {
+      "signature": [
+        1776791173003853000,
+        75938
+      ],
+      "duration_ms": 431
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\모네가름.wav": {
+      "signature": [
+        1776791173042694500,
+        98534
+      ],
+      "duration_ms": 559
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\미미르.wav": {
+      "signature": [
+        1776791173079284000,
+        77782
+      ],
+      "duration_ms": 441
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\바우티.wav": {
+      "signature": [
+        1776791173118362400,
+        82882
+      ],
+      "duration_ms": 470
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\발리.wav": {
+      "signature": [
+        1776791173157397000,
+        73574
+      ],
+      "duration_ms": 417
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\발할라 대전.wav": {
+      "signature": [
+        1776791173195251100,
+        140410
+      ],
+      "duration_ms": 796
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\브륀힐드.wav": {
+      "signature": [
+        1776791173232878800,
+        104794
+      ],
+      "duration_ms": 594
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\비요른.wav": {
+      "signature": [
+        1776791173272343600,
+        84506
+      ],
+      "duration_ms": 479
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\샤무크.wav": {
+      "signature": [
+        1776791173321817600,
+        99318
+      ],
+      "duration_ms": 563
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\성채.wav": {
+      "signature": [
+        1776791173360049800,
+        81314
+      ],
+      "duration_ms": 461
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\셀로비아.wav": {
+      "signature": [
+        1776791173398683200,
+        93074
+      ],
+      "duration_ms": 528
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\수드리.wav": {
+      "signature": [
+        1776791173434914300,
+        76854
+      ],
+      "duration_ms": 436
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\수르트.wav": {
+      "signature": [
+        1776791173475172200,
+        87274
+      ],
+      "duration_ms": 495
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\스바르트.wav": {
+      "signature": [
+        1776791173515154900,
+        100674
+      ],
+      "duration_ms": 571
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\스카디.wav": {
+      "signature": [
+        1776791173562590500,
+        84330
+      ],
+      "duration_ms": 478
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\스칼드메르.wav": {
+      "signature": [
+        1776791173610386100,
+        128382
+      ],
+      "duration_ms": 728
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\스칼라니르.wav": {
+      "signature": [
+        1776791173656085900,
+        123310
+      ],
+      "duration_ms": 699
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\스쿨드.wav": {
+      "signature": [
+        1776791173699455900,
+        98262
+      ],
+      "duration_ms": 557
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\신마라.wav": {
+      "signature": [
+        1776791173738385600,
+        90986
+      ],
+      "duration_ms": 516
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\안나.wav": {
+      "signature": [
+        1776791173776949900,
+        68390
+      ],
+      "duration_ms": 388
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\야른.wav": {
+      "signature": [
+        1776791173814983200,
+        70606
+      ],
+      "duration_ms": 400
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\에기르.wav": {
+      "signature": [
+        1776791173852471700,
+        77434
+      ],
+      "duration_ms": 439
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\엘드룬.wav": {
+      "signature": [
+        1776791173893002900,
+        89466
+      ],
+      "duration_ms": 507
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\엘디르.mp3": {
+      "signature": [
+        1776747623626524400,
+        6625
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\엘디르.wav": {
+      "signature": [
+        1776791173938989300,
+        83170
+      ],
+      "duration_ms": 472
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\오딘.mp3": {
+      "signature": [
+        1776745954492224100,
+        5216
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\오딘.wav": {
+      "signature": [
+        1776791173991657700,
+        66694
+      ],
+      "duration_ms": 378
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\우로보로스.wav": {
+      "signature": [
+        1776791174042467600,
+        126342
+      ],
+      "duration_ms": 716
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\월드보스.wav": {
+      "signature": [
+        1777205223918237700,
+        136960
+      ],
+      "duration_ms": 777
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\이미르.mp3": {
+      "signature": [
+        1776747385218042600,
+        5477
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\이미르.wav": {
+      "signature": [
+        1776791174130403800,
+        71850
+      ],
+      "duration_ms": 407
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\임시점검.mp3": {
+      "signature": [
+        1776749558290427000,
+        9728
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\임시점검.wav": {
+      "signature": [
+        1776791174174170200,
+        146334
+      ],
+      "duration_ms": 830
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\쟁탈전.mp3": {
+      "signature": [
+        1776748914309713000,
+        8190
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\쟁탈전.wav": {
+      "signature": [
+        1776791174213930500,
+        112918
+      ],
+      "duration_ms": 640
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\점검.mp3": {
+      "signature": [
+        1776749610985973900,
+        5789
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\점검.wav": {
+      "signature": [
+        1776791174253091500,
+        81658
+      ],
+      "duration_ms": 463
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\정기점검.wav": {
+      "signature": [
+        1776791174294235200,
+        132078
+      ],
+      "duration_ms": 749
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\지옥 성채.wav": {
+      "signature": [
+        1776791174332486100,
+        131830
+      ],
+      "duration_ms": 747
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\최하층강글.wav": {
+      "signature": [
+        1776791174371787200,
+        155746
+      ],
+      "duration_ms": 883
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\최하층굴베.wav": {
+      "signature": [
+        1776791174409224200,
+        154990
+      ],
+      "duration_ms": 879
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\최하층스네르.wav": {
+      "signature": [
+        1776791174446981500,
+        154554
+      ],
+      "duration_ms": 876
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\탕그리스니르.wav": {
+      "signature": [
+        1776791174486891600,
+        139186
+      ],
+      "duration_ms": 789
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\토르.wav": {
+      "signature": [
+        1776791174527026400,
+        63806
+      ],
+      "duration_ms": 362
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\트리니티 리그.wav": {
+      "signature": [
+        1776791174569076700,
+        141698
+      ],
+      "duration_ms": 803
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\티르.wav": {
+      "signature": [
+        1776791174607901500,
+        57950
+      ],
+      "duration_ms": 329
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\파르바.wav": {
+      "signature": [
+        1776791174648134100,
+        77770
+      ],
+      "duration_ms": 441
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\페티.wav": {
+      "signature": [
+        1776841636437287000,
+        87948
+      ],
+      "duration_ms": 499
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\프레이.wav": {
+      "signature": [
+        1776791174687612300,
+        67006
+      ],
+      "duration_ms": 380
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\헤르가름.wav": {
+      "signature": [
+        1776791174724097200,
+        94590
+      ],
+      "duration_ms": 536
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\헤르모드.wav": {
+      "signature": [
+        1776791174761646400,
+        89606
+      ],
+      "duration_ms": 508
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\헤이드.wav": {
+      "signature": [
+        1776791174801251800,
+        77826
+      ],
+      "duration_ms": 441
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\호드.wav": {
+      "signature": [
+        1776791174839443700,
+        54586
+      ],
+      "duration_ms": 310
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\황금고블린.wav": {
+      "signature": [
+        1777785639370539300,
+        172348
+      ],
+      "duration_ms": 977
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\흐니르.wav": {
+      "signature": [
+        1776791174877242800,
+        68918
+      ],
+      "duration_ms": 391
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\히로킨.wav": {
+      "signature": [
+        1776791174915355900,
+        95554
+      ],
+      "duration_ms": 542
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\곧.wav": {
+      "signature": [
+        1777747211887732700,
+        60680
+      ],
+      "duration_ms": 344
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\다음보스는.wav": {
+      "signature": [
+        1776943618318632700,
+        181316
+      ],
+      "duration_ms": 1028
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\연속보스감지.wav": {
+      "signature": [
+        1776948356052002800,
+        203452
+      ],
+      "duration_ms": 1154
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\연속보스감지02.wav": {
+      "signature": [
+        1776948331384832300,
+        203964
+      ],
+      "duration_ms": 1157
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\연속보스를감지했어요.wav": {
+      "signature": [
+        1777212511358003800,
+        332424
+      ],
+      "duration_ms": 1885
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\연타임보스.wav": {
+      "signature": [
+        1776943011581150600,
+        194724
+      ],
+      "duration_ms": 1104
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\예시.wav": {
+      "signature": [
+        1777747073008648800,
+        413712
+      ],
+      "duration_ms": 2346
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\입니다.wav": {
+      "signature": [
+        1776866442742854000,
+        58496
+      ],
+      "duration_ms": 663
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\젠.wav": {
+      "signature": [
+        1776956765839645300,
+        135184
+      ],
+      "duration_ms": 767
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\지옥성체 정예.wav": {
+      "signature": [
+        1777052526152505300,
+        219920
+      ],
+      "duration_ms": 1247
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\초읽기시작.wav": {
+      "signature": [
+        1776940696920576800,
+        178044
+      ],
+      "duration_ms": 1010
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\축작업하세요.wav": {
+      "signature": [
+        1777212316680102000,
+        258796
+      ],
+      "duration_ms": 1467
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\침공.wav": {
+      "signature": [
+        1776791174954235200,
+        101390
+      ],
+      "duration_ms": 575
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\타임입니다.wav": {
+      "signature": [
+        1777747097379206000,
+        242588
+      ],
+      "duration_ms": 1375
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\10min01.wav": {
+      "signature": [
+        1777056650278589400,
+        170000
+      ],
+      "duration_ms": 964
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\11min01.wav": {
+      "signature": [
+        1777053162915220700,
+        183444
+      ],
+      "duration_ms": 1040
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\12min01.wav": {
+      "signature": [
+        1777053821995814500,
+        185032
+      ],
+      "duration_ms": 1049
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\13min01.wav": {
+      "signature": [
+        1777053782924681400,
+        180228
+      ],
+      "duration_ms": 1022
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\14min01.wav": {
+      "signature": [
+        1777053933095877100,
+        185560
+      ],
+      "duration_ms": 1052
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\15min01.wav": {
+      "signature": [
+        1777053701100971900,
+        179244
+      ],
+      "duration_ms": 1016
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\16min01.wav": {
+      "signature": [
+        1777053638828055900,
+        184240
+      ],
+      "duration_ms": 1045
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\17min01.wav": {
+      "signature": [
+        1777053591651022200,
+        183828
+      ],
+      "duration_ms": 1042
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\18min01.wav": {
+      "signature": [
+        1777053535862388700,
+        187464
+      ],
+      "duration_ms": 1063
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\19min01.wav": {
+      "signature": [
+        1777053492229001100,
+        185184
+      ],
+      "duration_ms": 1050
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\1min01.wav": {
+      "signature": [
+        1777054046771390800,
+        177212
+      ],
+      "duration_ms": 1005
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\20min01.wav": {
+      "signature": [
+        1777053443856621700,
+        158184
+      ],
+      "duration_ms": 897
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\21min01.wav": {
+      "signature": [
+        1777054505328618500,
+        196612
+      ],
+      "duration_ms": 1115
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\22min01.wav": {
+      "signature": [
+        1777054557038888300,
+        224076
+      ],
+      "duration_ms": 1271
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\23min01.wav": {
+      "signature": [
+        1777054622985424000,
+        171108
+      ],
+      "duration_ms": 970
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\24min01.wav": {
+      "signature": [
+        1777054672094508800,
+        190388
+      ],
+      "duration_ms": 1080
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\25min01.wav": {
+      "signature": [
+        1777054719628858100,
+        161352
+      ],
+      "duration_ms": 915
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\26min01.wav": {
+      "signature": [
+        1777054895752996100,
+        190560
+      ],
+      "duration_ms": 1081
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\27min01.wav": {
+      "signature": [
+        1777054943786856900,
+        171152
+      ],
+      "duration_ms": 970
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\28min01.wav": {
+      "signature": [
+        1777054976585249600,
+        167536
+      ],
+      "duration_ms": 950
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\29min01.wav": {
+      "signature": [
+        1777055014532892700,
+        175944
+      ],
+      "duration_ms": 998
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\2min01.wav": {
+      "signature": [
+        1777057263388969200,
+        140536
+      ],
+      "duration_ms": 797
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\30min01.wav": {
+      "signature": [
+        1777055062152600700,
+        155744
+      ],
+      "duration_ms": 883
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\31min01.wav": {
+      "signature": [
+        1777055181010477100,
+        189520
+      ],
+      "duration_ms": 1075
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\32min01.wav": {
+      "signature": [
+        1777055219513359100,
+        194308
+      ],
+      "duration_ms": 1102
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\33min01.wav": {
+      "signature": [
+        1777055263471906700,
+        206688
+      ],
+      "duration_ms": 1172
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\34min01.wav": {
+      "signature": [
+        1777055306170098400,
+        190392
+      ],
+      "duration_ms": 1080
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\35min01.wav": {
+      "signature": [
+        1777055387601743900,
+        189580
+      ],
+      "duration_ms": 1075
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\36min01.wav": {
+      "signature": [
+        1777055421588299500,
+        200480
+      ],
+      "duration_ms": 1137
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\37min01.wav": {
+      "signature": [
+        1777055472897871400,
+        192112
+      ],
+      "duration_ms": 1089
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\38min01.wav": {
+      "signature": [
+        1777055522400979600,
+        191608
+      ],
+      "duration_ms": 1086
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\39min01.wav": {
+      "signature": [
+        1777055548345433100,
+        191112
+      ],
+      "duration_ms": 1084
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\3min01.wav": {
+      "signature": [
+        1777057219919999800,
+        152392
+      ],
+      "duration_ms": 864
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\40min01.wav": {
+      "signature": [
+        1777055578385068500,
+        180020
+      ],
+      "duration_ms": 1021
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\41min01.wav": {
+      "signature": [
+        1777055754614768700,
+        190708
+      ],
+      "duration_ms": 1081
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\42min01.wav": {
+      "signature": [
+        1777055786905165700,
+        186412
+      ],
+      "duration_ms": 1057
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\43min01.wav": {
+      "signature": [
+        1777055826130227900,
+        190268
+      ],
+      "duration_ms": 1079
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\44min01.wav": {
+      "signature": [
+        1777055860946276500,
+        168164
+      ],
+      "duration_ms": 954
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\45min01.wav": {
+      "signature": [
+        1777055952938005000,
+        188092
+      ],
+      "duration_ms": 1067
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\46min01.wav": {
+      "signature": [
+        1777055975775264500,
+        185716
+      ],
+      "duration_ms": 1053
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\47min01.wav": {
+      "signature": [
+        1777056004956342400,
+        191596
+      ],
+      "duration_ms": 1086
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\48min01.wav": {
+      "signature": [
+        1777056037995541900,
+        185020
+      ],
+      "duration_ms": 1049
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\49min01.wav": {
+      "signature": [
+        1777056068730167000,
+        169928
+      ],
+      "duration_ms": 964
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\4min01.wav": {
+      "signature": [
+        1777057164956025100,
+        155108
+      ],
+      "duration_ms": 880
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\50min01.wav": {
+      "signature": [
+        1777056104348945700,
+        143672
+      ],
+      "duration_ms": 815
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\51min01.wav": {
+      "signature": [
+        1777056223244924300,
+        171652
+      ],
+      "duration_ms": 973
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\52min01.wav": {
+      "signature": [
+        1777056270644896600,
+        190388
+      ],
+      "duration_ms": 1080
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\53min01.wav": {
+      "signature": [
+        1777056329594589800,
+        170424
+      ],
+      "duration_ms": 966
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\54min01.wav": {
+      "signature": [
+        1777056366271825400,
+        190036
+      ],
+      "duration_ms": 1078
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\55min01.wav": {
+      "signature": [
+        1777056392529923700,
+        161296
+      ],
+      "duration_ms": 915
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\56min01.wav": {
+      "signature": [
+        1777056430270105400,
+        180392
+      ],
+      "duration_ms": 1023
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\57min01.wav": {
+      "signature": [
+        1777056471482293400,
+        173564
+      ],
+      "duration_ms": 984
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\58min01.wav": {
+      "signature": [
+        1777056497494979900,
+        171468
+      ],
+      "duration_ms": 972
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\59min01.wav": {
+      "signature": [
+        1777056527732151700,
+        175848
+      ],
+      "duration_ms": 997
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\5min01.wav": {
+      "signature": [
+        1777052914447283700,
+        144148
+      ],
+      "duration_ms": 817
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\60min01.wav": {
+      "signature": [
+        1777056561322782800,
+        159752
+      ],
+      "duration_ms": 906
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\6min01.wav": {
+      "signature": [
+        1777057078392262300,
+        179724
+      ],
+      "duration_ms": 1019
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\7min01.wav": {
+      "signature": [
+        1777056950998398900,
+        151008
+      ],
+      "duration_ms": 856
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\8min01.wav": {
+      "signature": [
+        1777056913733727700,
+        158500
+      ],
+      "duration_ms": 899
+    },
+    "c:\\mycode\\bosstimer\\voice\\min\\9min01.wav": {
+      "signature": [
+        1777056868128078500,
+        143184
+      ],
+      "duration_ms": 812
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\0.wav": {
+      "signature": [
+        1776791175384345300,
+        40866
+      ],
+      "duration_ms": 232
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\1.wav": {
+      "signature": [
+        1776791175423031100,
+        47010
+      ],
+      "duration_ms": 267
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\10.wav": {
+      "signature": [
+        1776791175460143200,
+        30962
+      ],
+      "duration_ms": 176
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\11.wav": {
+      "signature": [
+        1776791175497718200,
+        72886
+      ],
+      "duration_ms": 413
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\12.wav": {
+      "signature": [
+        1776791175535462500,
+        99022
+      ],
+      "duration_ms": 561
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\13.wav": {
+      "signature": [
+        1776791175576918000,
+        85382
+      ],
+      "duration_ms": 484
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\14.wav": {
+      "signature": [
+        1776791175630004900,
+        78786
+      ],
+      "duration_ms": 447
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\15.wav": {
+      "signature": [
+        1776791175674164800,
+        66022
+      ],
+      "duration_ms": 374
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\16.wav": {
+      "signature": [
+        1776791175716697800,
+        76194
+      ],
+      "duration_ms": 432
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\17.wav": {
+      "signature": [
+        1776791175759721000,
+        90902
+      ],
+      "duration_ms": 515
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\18.wav": {
+      "signature": [
+        1776791175805194100,
+        79426
+      ],
+      "duration_ms": 450
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\19.wav": {
+      "signature": [
+        1776791175849267800,
+        80982
+      ],
+      "duration_ms": 459
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\2.wav": {
+      "signature": [
+        1776791175886752400,
+        39386
+      ],
+      "duration_ms": 223
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\20.wav": {
+      "signature": [
+        1776791175925308200,
+        53018
+      ],
+      "duration_ms": 301
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\21.wav": {
+      "signature": [
+        1777057648962791900,
+        101616
+      ],
+      "duration_ms": 576
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\22.wav": {
+      "signature": [
+        1777057728325170200,
+        103004
+      ],
+      "duration_ms": 584
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\23.wav": {
+      "signature": [
+        1777057788958671900,
+        106104
+      ],
+      "duration_ms": 602
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\24.wav": {
+      "signature": [
+        1777057844692409400,
+        119564
+      ],
+      "duration_ms": 678
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\25.wav": {
+      "signature": [
+        1776791175971475500,
+        80050
+      ],
+      "duration_ms": 454
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\26.wav": {
+      "signature": [
+        1777057887262958000,
+        102332
+      ],
+      "duration_ms": 580
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\27.wav": {
+      "signature": [
+        1777057926553089000,
+        126780
+      ],
+      "duration_ms": 719
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\28.wav": {
+      "signature": [
+        1777057979712256300,
+        123068
+      ],
+      "duration_ms": 698
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\29.wav": {
+      "signature": [
+        1777058010565187300,
+        117344
+      ],
+      "duration_ms": 665
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\3.wav": {
+      "signature": [
+        1776791155594209400,
+        131314
+      ],
+      "duration_ms": 744
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\30.wav": {
+      "signature": [
+        1776791176016128500,
+        82590
+      ],
+      "duration_ms": 468
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\4.wav": {
+      "signature": [
+        1776791176068076500,
+        41914
+      ],
+      "duration_ms": 238
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\40.wav": {
+      "signature": [
+        1776791176116692700,
+        60510
+      ],
+      "duration_ms": 343
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\5.wav": {
+      "signature": [
+        1776791176161396400,
+        38910
+      ],
+      "duration_ms": 221
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\50.wav": {
+      "signature": [
+        1776791176216926400,
+        54902
+      ],
+      "duration_ms": 311
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\6.wav": {
+      "signature": [
+        1776791176281724200,
+        34702
+      ],
+      "duration_ms": 197
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\7.wav": {
+      "signature": [
+        1776791176336828300,
+        48510
+      ],
+      "duration_ms": 275
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\8.wav": {
+      "signature": [
+        1776791176382680500,
+        74554
+      ],
+      "duration_ms": 423
+    },
+    "c:\\mycode\\bosstimer\\voice\\sec\\9.wav": {
+      "signature": [
+        1776791176423451500,
+        73778
+      ],
+      "duration_ms": 418
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\지옥성체 정예.wav": {
+      "signature": [
+        1777052526152505300,
+        219920
+      ],
+      "duration_ms": 1247
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\핏빛고블린.wav": {
+      "signature": [
+        1778391670052249100,
+        169752
+      ],
+      "duration_ms": 963
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\지옥성채 정예.wav": {
+      "signature": [
+        1777052526152505300,
+        219920
+      ],
+      "duration_ms": 1247
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\서버오픈.wav": {
+      "signature": [
+        1778392490118803500,
+        155744
+      ],
+      "duration_ms": 883
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\임시점검.wav": {
+      "signature": [
+        1776791174174170200,
+        146334
+      ],
+      "duration_ms": 830
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\점검.wav": {
+      "signature": [
+        1776791174253091500,
+        81658
+      ],
+      "duration_ms": 463
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\정기점검.wav": {
+      "signature": [
+        1776791174294235200,
+        132078
+      ],
+      "duration_ms": 749
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\길던.wav": {
+      "signature": [
+        1778394738494176900,
+        181300
+      ],
+      "duration_ms": 1028
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\길드던전.wav": {
+      "signature": [
+        1778394738494176900,
+        181300
+      ],
+      "duration_ms": 1028
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\출정식01.wav": {
+      "signature": [
+        1778398324382687800,
+        3133072
+      ],
+      "duration_ms": 17761
+    },
+    "c:\\mycode\\bosstimer\\voice\\etc\\출정식02.wav": {
+      "signature": [
+        1778398608463808600,
+        2855724
+      ],
+      "duration_ms": 16189
+    }
+  }
+}
