@@ -1,0 +1,36 @@
+{
+   "blocked-reporting-start": "13422875234111840",
+   "tracking-rules": {
+      "blocked-domain-counters": {
+      },
+      "blocked-for-origin-counters": {
+      },
+      "deleted-presets": [  ],
+      "enabled": true,
+      "exceptions-type": 1,
+      "exempt_list": [  ],
+      "index-checksum": "3741677681",
+      "known-sources": [  ],
+      "process_list": [  ],
+      "rule-sources": [ {
+         "allow-abp-snippets": false,
+         "expires": "43200000000",
+         "group": 0,
+         "has-tracker-infos": false,
+         "homepage": "",
+         "invalid-rules-count": 275,
+         "last-fetch-result": 0,
+         "last-upate": "13422875236508852",
+         "license": "",
+         "next-fetch": "13422920093277576",
+         "redirect": "",
+         "rules-list-checksum": "3021838798",
+         "source-url": "https://shared-whale.pstatic.net/tds/tds-v2-current.json",
+         "title": "DuckDuckGo blocking list",
+         "unsupported-rules-count": 18,
+         "valid-rules-count": 2636,
+         "version": "0"
+      } ]
+   },
+   "version": 6
+}

@@ -1,0 +1,25 @@
+{
+   "description": "",
+   "host_permissions": [ "\u003Call_urls>" ],
+   "icons": {
+      "128": "icons/128.png",
+      "22": "icons/22.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvOjyNpJUmrHPaMdKw2lkA1ov8PjaajSBWn9Q7SfD/5ol0Vas35Ir3SjpMP3m6DnolfKnHeF1C8o78uyBqiShIhWs/wXK6G+fZLN5RYpKukrBj7GR/Kd0cbFpsJduytEsmCcamy2Y6x/zYMdLmXbPZnsNaG40yXWWhyuUdqLjvH4uHtPZQl1+Hrgt3b7aXcGqGyH1qfrnp4/LjimXkbUr0BMNIebFPeek8ZMcDS0XXjzRV7JZcvDhY2BYirf027MYvJLhxHwcx7hQ3UyP2RHu3r4hWBqSvSrcZj+s6vKsChxZqCZ47S6cCPeTm0BYUrdR/qv3B+m8dOpWhum2X0mE8wIDAQAB",
+   "manifest_version": 3,
+   "name": "네이버페이 모바일 증권",
+   "sidebar_action": {
+      "custom_user_agent": "naver-stock",
+      "default_icon": {
+         "22": "icons/22.png"
+      },
+      "default_page": "index.html",
+      "default_title": "네이버페이 모바일 증권",
+      "mobile_user_agent": false,
+      "use_navigation_bar": true,
+      "use_touch_event": false
+   },
+   "update_url": "https://store.whale.naver.com/update/whx",
+   "version": "2.0.0",
+   "whale_extension": true
+}

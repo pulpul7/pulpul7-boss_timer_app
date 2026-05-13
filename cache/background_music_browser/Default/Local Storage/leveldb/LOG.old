@@ -1,0 +1,15 @@
+2026/05/13-03:46:36.312 18764 Reusing MANIFEST C:\MyCode\BossTimer\cache\background_music_browser\Default\Local Storage\leveldb/MANIFEST-000001
+2026/05/13-03:46:36.316 18764 Recovering log #204
+2026/05/13-03:46:36.317 18764 Reusing old log C:\MyCode\BossTimer\cache\background_music_browser\Default\Local Storage\leveldb/000204.log 
+2026/05/13-03:47:36.325 18b9c Level-0 table #207: started
+2026/05/13-03:47:36.330 18b9c Level-0 table #207: 23590 bytes OK
+2026/05/13-03:47:36.331 18b9c Delete type=0 #204
+2026/05/13-03:47:36.332 18764 Compacting 4@0 + 1@1 files
+2026/05/13-03:47:36.336 18764 Generated table #208@0: 14 keys, 12632 bytes
+2026/05/13-03:47:36.336 18764 Compacted 4@0 + 1@1 files => 12632 bytes
+2026/05/13-03:47:36.336 18764 compacted to: files[ 0 1 0 0 0 0 0 ]
+2026/05/13-03:47:36.337 18764 Delete type=2 #196
+2026/05/13-03:47:36.337 18764 Delete type=2 #199
+2026/05/13-03:47:36.337 18764 Delete type=2 #201
+2026/05/13-03:47:36.337 18764 Delete type=2 #203
+2026/05/13-03:47:36.337 18764 Delete type=2 #207

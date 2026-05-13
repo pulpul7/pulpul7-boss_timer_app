@@ -13,3 +13,6 @@ build/
 
 # vscode 설정
 .vscode/
+
+# separate GitHub data repository
+pulpul7-boss_timer_data/

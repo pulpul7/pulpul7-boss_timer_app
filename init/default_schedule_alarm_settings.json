@@ -1,5 +1,5 @@
 {
-  "version": "v3.0.4.beta",
+  "version": "v3.1.0.beta",
   "master_enabled": true,
   "common_offsets": [
     300,
@@ -9,6 +9,7 @@
   "countdown_ai_voice_enabled": true,
   "boss_ai_voice_enabled": true,
   "countdown_start_seconds": 15,
+  "second_precision_expire_hours": 24,
   "fixed_boss_enabled": true,
   "voice_name": "Microsoft Heami Desktop - Korean",
   "boss_overrides": {
@@ -176,7 +177,6 @@
     "스카디": {
       "enabled": true,
       "offsets": [
-        600,
         300,
         60
       ]
@@ -198,7 +198,6 @@
     "스쿨드": {
       "enabled": true,
       "offsets": [
-        600,
         300,
         60
       ]
@@ -213,7 +212,6 @@
     "안나": {
       "enabled": true,
       "offsets": [
-        600,
         300,
         60
       ]
@@ -228,7 +226,6 @@
     "에기르": {
       "enabled": true,
       "offsets": [
-        600,
         300,
         60
       ]
@@ -243,7 +240,6 @@
     "엘디르": {
       "enabled": true,
       "offsets": [
-        600,
         300,
         60
       ]

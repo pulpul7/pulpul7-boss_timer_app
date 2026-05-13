@@ -1,0 +1,37 @@
+{
+   "background": {
+      "service_worker": "js/background.js"
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "css": [ "css/content-style.css" ],
+      "js": [ "js/content-script.js" ],
+      "matches": [ "http://mail.naver.com/*", "https://mail.naver.com/*" ],
+      "run_at": "document_end"
+   } ],
+   "default_locale": "ko",
+   "description": "__MSG_APP_DESCRIPTION__",
+   "host_permissions": [ "http://mail.naver.com/*", "https://mail.naver.com/*" ],
+   "icons": {
+      "128": "img/icon128.png",
+      "16": "img/icon16.png",
+      "32": "img/icon32.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5wHcqwN6mbKnSnVJfGC+UW1/yQxbymdjU0uJ/ubtMH6VcbfhKVDtf7tf5XrLHy2Ua2cRNLXzqoupYSkGaTciEmyzZGIXiBxj3v/eWFKYgyotPimugsL6xnQ2CVY99ERa3U+pOpy4ElOLAalg28KkADKhwBrjcWRViFn55GuFD8GG+3CpZigxW721oUDyrBHAHMldkrt+j4YnwLZAYU1c3R9sTUq++2usssJdIMNQ8RmqjceBb8NynF8JH8iSSXc4DpKlt395GVQz0MnX8Q5jkNonAkppox8EhJEn9Xk9+O/eGeuOpiYhzKhajH/GY17Q2kdESeKzjdbcjHLWzOBzhwIDAQAB",
+   "manifest_version": 3,
+   "name": "__MSG_APP_NAME__",
+   "permissions": [ "alarms", "storage", "notifications", "webRequest" ],
+   "sidebar_action": {
+      "custom_user_agent": "naver-mail",
+      "default_icon": {
+         "128": "img/icon128.png",
+         "16": "img/icon16.png",
+         "32": "img/icon32.png"
+      },
+      "default_page": "index.html",
+      "default_title": "__MSG_APP_NAME__"
+   },
+   "update_url": "https://store.whale.naver.com/update/whx",
+   "version": "2.0.8",
+   "whale_extension": true
+}

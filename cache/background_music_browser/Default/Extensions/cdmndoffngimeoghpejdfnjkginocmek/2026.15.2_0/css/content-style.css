@@ -1,0 +1,75 @@
+/*
+ *  Navigation menu > page navigation buttons
+ *  Settings > hide page navigation links
+ */
+._sidebar a[href="/subscribePage.nhn"],
+._sidebar a[href*="://calendar.naver.com"],
+._sidebar a[href*="m.help.naver.com"],
+._sidebar a.link_naver.sp_icon,
+._sidebar #promotion_banner {
+    display: none !important;
+}
+
+._sidebar .header {
+    text-align: left;
+    padding-left: 8px;
+}
+
+._sidebar .header h1 .btn_prev,
+._sidebar .header h1 .btn_next {
+    display: block;
+}
+
+._sidebar .header h1 button:only-child {
+    margin-left: 9px;
+}
+
+._sidebar.small .monthly_cont .schedule p,
+._sidebar.small .monthly_cont .days_schedule p,
+._sidebar.small .monthly_cont .todo_schedule p {
+    height: 15px !important;
+    line-height: 16px !important;
+}
+
+._sidebar.small .monthly_cont .schedule,
+._sidebar.small .monthly_cont .days_schedule,
+._sidebar.small .monthly_cont .todo_schedule {
+    height: 16px;
+}
+
+._sidebar .monthly_cont .col_wrap.today .date em {
+    line-height: 20px !important;
+}
+
+._sidebar .layer_custom_date .footer {
+    white-space: nowrap;
+}
+
+._sidebar div[data-view="layer/TodoGroupSelectLayer"] {
+    left: 9px !important;
+}
+
+._sidebar .layer_select .select_group .bu {
+    left: 24px;
+}
+
+._sidebar .Nmenu_item .whale_cal_item_more {
+    position: absolute;
+    top: 8px;
+    right: 5px;
+    width: 30px;
+    height: 30px;
+}
+
+._sidebar .Nmenu_item .whale_cal_item_more .sp_icon {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 15px;
+    height: 15px;
+    margin: auto;
+    background-position: -230px -500px;
+    color: transparent;
+}

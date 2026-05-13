@@ -1,0 +1,25 @@
+{
+   "background": {
+      "service_worker": "background.js"
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "js": [ "content.js" ],
+      "matches": [ "http://*.navercorp.com/*", "https://*.navercorp.com/*", "https://*.naver.com/*" ],
+      "run_at": "document_start"
+   } ],
+   "description": "네이버 동영상 서비스 이용을 위한 확장 프로그램",
+   "externally_connectable": {
+      "matches": [ "http://*.navercorp.com/*", "https://*.navercorp.com/*", "https://*.naver.com/*" ]
+   },
+   "host_permissions": [ "http://*.navercorp.com/*", "https://*.navercorp.com/*", "https://*.naver.com/*" ],
+   "icons": {
+      "128": "icon.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA32UJ3MmoANEJfek+QIutd97whsPP1RKKZtn2sb6Ah7eDQOr/9UxJbLk029SPRZtftpwlEMlS1ddjAWLMsxkP0JBa+BCBVGPoJdmwUS5+L64Er50/KsMoBdw7Dahl3Vbe/n/aVbcm5aMkv/EmeYJqzmdk8CIUWbrVSK7hXgAeWCxSVWSNLJ5VaXibYcHQBow+klVA7bV5vJRK15yCj6Z5R9I+gSy0aSGju67lX4yBpsplbz60EZ82f2XpbD8GzJNMUiNgAYImtR23mAdBipxIrzsFJMnpGjP8+UNRB4k1EEBsHXIslUIMmpM4pdDMFh+vdtzkOfRPKopz6GRXzUIL7wIDAQAB",
+   "manifest_version": 3,
+   "name": "네이버 동영상 플러그인",
+   "permissions": [ "activeTab", "nativeMessaging" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.0.2.4"
+}

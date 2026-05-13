@@ -1,0 +1,11 @@
+{
+   "APP_DESCRIPTION": {
+      "message": "NAVER Mail :: WHALE browser extension"
+   },
+   "APP_NAME": {
+      "message": "NAVER Mail"
+   },
+   "NEW_MAIL_NOTIFICATION": {
+      "message": "A new email has arrived."
+   }
+}

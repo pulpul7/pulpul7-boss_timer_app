@@ -855,3 +855,675 @@ Traceback (most recent call last):
     ^^^^^^^^^^^
 AttributeError: 'NoneType' object has no attribute 'bind'
 
+[2026-04-29 23:26:17]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:17]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:17]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:32]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:32]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:32]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:37]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:37]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:37]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:44]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:44]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:44]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:47]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:47]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-04-29 23:26:47]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30518, in _on_schedule_boss_metric_form_value_changed
+    self._populate_schedule_boss_metrics_tree()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30607, in _populate_schedule_boss_metrics_tree
+    self._load_schedule_boss_metric_into_form(target_selection)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30644, in _on_schedule_boss_metrics_tree_select
+    self._load_schedule_boss_metric_into_form(selection[0])
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 30633, in _load_schedule_boss_metric_into_form
+    self._update_schedule_boss_metric_duration_placeholder()
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 5819, in _update_schedule_boss_metric_duration_placeholder
+    has_focus = self.schedule_boss_metrics_window.focus_get() == entry if self._widget_available(self.schedule_boss_metrics_window) else False
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 806, in focus_get
+    return self._nametowidget(name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1583, in nametowidget
+    w = w.children[n]
+        ~~~~~~~~~~^^^
+KeyError: 'popdown'
+
+[2026-05-01 21:22:02]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 23554, in _open_temporary_maintenance_dialog
+    apply_button = tk.Button(
+                   ^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2739, in __init__
+    Widget.__init__(self, master, 'button', cnf, kw)
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 2661, in __init__
+    self.tk.call(
+_tkinter.TclError: bad window path name ".!toplevel.!toplevel3"
+
+[2026-05-03 04:25:10]
+Traceback (most recent call last):
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1968, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\pulpu\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 862, in callit
+    func(*args)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 24222, in _schedule_alarm_tick
+    self._process_schedule_alarm_tick(reference_now)
+  File "C:\MyCode\BossTimer\boss_timer_gui.py", line 20882, in _process_schedule_alarm_tick
+    self._schedule_second_precision_gen_audio_notice(
+TypeError: BossTimerApp._schedule_second_precision_gen_audio_notice() takes 1 positional argument but 3 positional arguments (and 1 keyword-only argument) were given
+
