@@ -16,3 +16,9 @@ build/
 
 # separate GitHub data repository
 pulpul7-boss_timer_data/
+
+# local runtime settings / secrets
+boss_timer_settings.ini
+
+# local runtime settings may contain private tokens
+boss_timer_settings.ini

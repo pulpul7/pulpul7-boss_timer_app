@@ -50,14 +50,14 @@ def write_build_metadata() -> Path:
     if not resolved_version:
         resolved_version = BUILD_VERSION
     metadata = {
-        "author": "나츠",
+        "author": "\ub098\uce20",
         "version": resolved_version,
         "last_updated": last_updated or BUILD_LAST_UPDATED,
         "build_detail_version": detail_version or resolved_version,
         "build_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     metadata_path = project_root / "build_metadata.json"
-    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=True, indent=2), encoding="utf-8")
     return metadata_path
 
 
@@ -65,14 +65,12 @@ build_metadata_path = write_build_metadata()
 
 datas = [
     (str(build_metadata_path), "."),
-    ("assets\\기본배경.png", "assets"),
-    ("assets\\벽지.png", "assets"),
-    ("assets\\장원영.png", "assets"),
 ]
-datas += collect_tree(Path("init"), "init")
-datas += collect_tree(Path("icons"), "icons")
-datas += collect_tree(Path("voice"), "voice")
-datas += collect_tree(Path("wave"), "wave")
+datas += collect_tree(project_root / "assets", "assets")
+datas += collect_tree(project_root / "init", "init")
+datas += collect_tree(project_root / "icons", "icons")
+datas += collect_tree(project_root / "voice", "voice")
+datas += collect_tree(project_root / "wave", "wave")
 datas += collect_tree(tcl_root / "tcl8.6", "_tcl_data")
 datas += collect_tree(tcl_root / "tk8.6", "_tk_data")
 

@@ -666,6 +666,9 @@ BUILD_TIMESTAMP = BUILD_METADATA.get("build_timestamp", DEFAULT_BUILD_TIMESTAMP)
 
 def get_builtin_background_path(background_key: str) -> str:
     parts = BUILTIN_BACKGROUNDS.get(background_key, BUILTIN_BACKGROUNDS[DEFAULT_BG_KEY])
+    app_path = os.path.join(get_app_root(), *parts)
+    if os.path.exists(app_path):
+        return app_path
     return os.path.join(get_resource_root(), *parts)
 
 
@@ -931,14 +934,17 @@ class BossTimerApp:
         self.settings_window_y = 140
         self._seed_init_directory_from_resources()
         self._seed_runtime_default_files_from_resource_init()
+        self._seed_runtime_assets_from_resources()
         if self._reset_outdated_runtime_config_files_for_upgrade():
             self._seed_init_directory_from_resources()
             self._seed_runtime_default_files_from_resource_init()
+            self._seed_runtime_assets_from_resources()
         self._load_settings()
         self.schedule_break_entries: list[dict[str, object]] = self._load_schedule_break_rules()
         self._load_season_history()
         self._prune_missing_archive_history_entries()
         self._repair_runtime_season_state()
+        self._migrate_contextual_archive_season_dirs()
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{self.main_window_x}+{self.main_window_y}")
 
         self.font_family_var = tk.StringVar(value=self.current_font_family)
@@ -2582,7 +2588,7 @@ class BossTimerApp:
         ]
         try:
             with open(SEASON_HISTORY_PATH, "w", encoding="utf-8") as file:
-                json.dump(entries, file, ensure_ascii=False, indent=2)
+                json.dump(entries, file, ensure_ascii=True, indent=2)
         except OSError:
             return
 
@@ -2639,6 +2645,26 @@ class BossTimerApp:
         guild_text = self._sanitize_season_metadata_text(guild_name)
         parts = [part for part in (server_text, guild_text, f"{int(season_text)}차 시즌") if part]
         return " ".join(parts)
+
+    def _build_archive_season_label_with_context(
+        self,
+        archive_label: object,
+        *,
+        server_name: object = "",
+        guild_name: object = "",
+    ) -> str:
+        label_text = self._sanitize_season_metadata_text(archive_label)
+        server_text = self._sanitize_season_metadata_text(server_name)
+        guild_text = self._sanitize_season_metadata_text(guild_name)
+        if not label_text:
+            return ""
+        prefix_parts = [part for part in (server_text, guild_text) if part]
+        if not prefix_parts:
+            return label_text
+        prefix_text = " ".join(prefix_parts)
+        if label_text == prefix_text or label_text.startswith(f"{prefix_text} "):
+            return label_text
+        return " ".join([*prefix_parts, label_text])
 
     def _get_next_season_number_text(self) -> str:
         self._repair_runtime_season_state()
@@ -3055,8 +3081,21 @@ class BossTimerApp:
             "owner": str(getattr(self, "github_data_owner", "pulpul7") or "pulpul7").strip(),
             "repo": str(getattr(self, "github_data_repo", "pulpul7-boss_timer_data") or "pulpul7-boss_timer_data").strip(),
             "branch": str(getattr(self, "github_data_branch", "main") or "main").strip(),
-            "token": str(getattr(self, "github_data_token", "") or "").strip(),
+            "token": self._sanitize_github_token(getattr(self, "github_data_token", "")),
         }
+
+    def _sanitize_github_token(self, token: object) -> str:
+        token_text = str(token or "").strip().strip("\"'")
+        token_text = re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", token_text)
+        for prefix in ("Bearer", "bearer", "token", "Token"):
+            if token_text.startswith(f"{prefix}:") or token_text.startswith(f"{prefix} "):
+                token_text = token_text[len(prefix):].strip().strip(":").strip().strip("\"'")
+                token_text = re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", token_text)
+        return token_text
+
+    def _is_masked_github_token_text(self, token: object) -> bool:
+        token_text = str(token or "").strip()
+        return bool(token_text) and set(token_text) <= {"*"}
 
     def _get_github_json_headers(self, token: str) -> dict[str, str]:
         headers = {
@@ -3092,23 +3131,59 @@ class BossTimerApp:
         data_bytes = None
         if payload is not None:
             data_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=data_bytes,
-            headers={
-                **self._get_github_json_headers(settings["token"]),
-                "Content-Type": "application/json",
-            },
-            method=method.upper(),
-        )
-        try:
+        def request_json(token: str) -> str:
+            request = urllib.request.Request(
+                url,
+                data=data_bytes,
+                headers={
+                    **self._get_github_json_headers(token),
+                    "Content-Type": "application/json",
+                },
+                method=method.upper(),
+            )
             with urllib.request.urlopen(request, timeout=20) as response:
-                raw_text = response.read().decode("utf-8")
+                return response.read().decode("utf-8")
+
+        try:
+            raw_text = request_json(settings["token"])
         except urllib.error.HTTPError as exc:
+            if method.upper() == "GET" and settings["token"] and exc.code in (401, 403):
+                try:
+                    raw_text = request_json("")
+                    if not raw_text.strip():
+                        return True, {}, ""
+                    try:
+                        return True, json.loads(raw_text), ""
+                    except json.JSONDecodeError:
+                        return False, None, "GitHub 응답 JSON을 해석하지 못했습니다."
+                except Exception:
+                    pass
             try:
                 error_text = exc.read().decode("utf-8", errors="replace")
             except Exception:
                 error_text = str(exc)
+            try:
+                error_payload = json.loads(error_text)
+            except json.JSONDecodeError:
+                error_payload = None
+            if isinstance(error_payload, dict):
+                message = str(error_payload.get("message") or "").strip()
+                errors = error_payload.get("errors")
+                if isinstance(errors, list) and errors:
+                    error_details = []
+                    for item in errors[:3]:
+                        if isinstance(item, dict):
+                            detail = str(item.get("message") or item.get("code") or item.get("resource") or "").strip()
+                        else:
+                            detail = str(item or "").strip()
+                        if detail:
+                            error_details.append(detail)
+                    if error_details:
+                        message = f"{message} ({'; '.join(error_details)})" if message else "; ".join(error_details)
+                if message:
+                    if exc.code in (401, 403):
+                        message = f"{message} - 토큰 문자열, 대상 저장소 접근 권한, Contents 읽기/쓰기 권한을 확인하세요."
+                    return False, None, f"GitHub API 오류 {exc.code}: {message}"
             return False, None, f"GitHub API 오류 {exc.code}: {error_text}"
         except Exception as exc:
             return False, None, f"GitHub API 연결 실패: {exc}"
@@ -3131,7 +3206,51 @@ class BossTimerApp:
         content_text = str(response.get("content") or "")
         sha = str(response.get("sha") or "").strip() or None
         if not content_text:
-            return {}, sha, ""
+            git_url = str(response.get("git_url") or "").strip()
+            download_url = str(response.get("download_url") or "").strip()
+            raw_errors: list[str] = []
+            if download_url:
+                try:
+                    parsed_download_url = urllib.parse.urlsplit(download_url)
+                    safe_download_url = urllib.parse.urlunsplit(
+                        (
+                            parsed_download_url.scheme,
+                            parsed_download_url.netloc.encode("idna").decode("ascii"),
+                            urllib.parse.quote(parsed_download_url.path, safe="/%"),
+                            urllib.parse.quote(parsed_download_url.query, safe="=&%:/?+"),
+                            urllib.parse.quote(parsed_download_url.fragment, safe="=&%:/?+"),
+                        )
+                    )
+                    request = urllib.request.Request(
+                        safe_download_url,
+                        headers={
+                            "User-Agent": "BossTimerApp",
+                            "Accept": "application/json,text/plain,*/*",
+                        },
+                        method="GET",
+                    )
+                    with urllib.request.urlopen(request, timeout=20) as raw_response:
+                        decoded = raw_response.read().decode("utf-8-sig")
+                    parsed = json.loads(decoded)
+                    return parsed if isinstance(parsed, dict) else {}, sha, ""
+                except Exception as exc:
+                    raw_errors.append(f"raw={exc}")
+            if git_url:
+                try:
+                    request = urllib.request.Request(
+                        git_url,
+                        headers=self._get_github_json_headers(""),
+                        method="GET",
+                    )
+                    with urllib.request.urlopen(request, timeout=20) as blob_response:
+                        blob_payload = json.loads(blob_response.read().decode("utf-8"))
+                    blob_content = str(blob_payload.get("content") or "")
+                    decoded = base64.b64decode(blob_content).decode("utf-8-sig")
+                    parsed = json.loads(decoded)
+                    return parsed if isinstance(parsed, dict) else {}, sha, ""
+                except Exception as exc:
+                    raw_errors.append(f"blob={exc}")
+            return None, sha, f"{path} 원본 JSON 다운로드 실패: {'; '.join(raw_errors) or 'download_url 없음'}"
         try:
             decoded = base64.b64decode(content_text).decode("utf-8")
             parsed = json.loads(decoded)
@@ -3405,11 +3524,27 @@ class BossTimerApp:
     def _unwrap_github_schedule_payload(self, payload: dict[str, object] | None) -> dict[str, object] | None:
         if not isinstance(payload, dict):
             return None
-        if str(payload.get("kind") or "").strip() == "schedule" and isinstance(payload.get("payload"), dict):
-            restored = self._deserialize_schedule_state_value(payload.get("payload"))
-            return dict(restored) if isinstance(restored, dict) else None
-        restored = self._deserialize_schedule_state_value(payload)
-        return dict(restored) if isinstance(restored, dict) else None
+        candidates: list[object] = []
+        if str(payload.get("kind") or "").strip() == "schedule":
+            candidates.append(payload.get("payload"))
+        for key in ("payload", "schedule", "schedule_payload", "schedule_state", "data"):
+            if key in payload:
+                candidates.append(payload.get(key))
+        candidates.append(payload)
+        for candidate in candidates:
+            if isinstance(candidate, str):
+                try:
+                    candidate = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+            restored = self._deserialize_schedule_state_value(candidate)
+            if not isinstance(restored, dict):
+                continue
+            if self._schedule_shared_payload_has_data(restored):
+                return dict(restored)
+            if any(key in restored for key in ("schedule_events", "schedule_active_entries", "schedule_control_events")):
+                return dict(restored)
+        return None
 
     def _unwrap_github_boss_config_payload(self, payload: dict[str, object] | None) -> dict[str, object] | None:
         if not isinstance(payload, dict):
@@ -4124,7 +4259,11 @@ class BossTimerApp:
         season_entry = dict(self.season_history_map.get(season_text) or {})
         archive_label = str(season_entry.get("archive_label") or "").strip()
         if archive_label:
-            return archive_label
+            return self._build_archive_season_label_with_context(
+                archive_label,
+                server_name=season_entry.get("server_name"),
+                guild_name=season_entry.get("guild_name"),
+            )
         return self._build_archive_season_default_label(
             season_text,
             server_name=season_entry.get("server_name"),
@@ -4142,6 +4281,55 @@ class BossTimerApp:
         if season_match:
             return str(int(season_match.group(1)))
         return ""
+
+    def _move_archive_dir_contents(self, source_dir: str, target_dir: str) -> bool:
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            for item_name in os.listdir(source_dir):
+                source_path = os.path.join(source_dir, item_name)
+                target_path = os.path.join(target_dir, item_name)
+                if os.path.exists(target_path):
+                    continue
+                shutil.move(source_path, target_path)
+            try:
+                os.rmdir(source_dir)
+            except OSError:
+                pass
+            return True
+        except OSError:
+            return False
+
+    def _migrate_contextual_archive_season_dirs(self) -> None:
+        archive_root = self._get_log_archive_dir()
+        if not os.path.isdir(archive_root):
+            return
+        changed = False
+        for season_no, season_entry in list(self.season_history_map.items()):
+            desired_label = self._get_archive_season_label(season_no)
+            if not desired_label:
+                continue
+            desired_dir = os.path.join(archive_root, desired_label)
+            raw_archive_label = str(season_entry.get("archive_label") or "").strip()
+            legacy_labels = [
+                raw_archive_label,
+                f"{int(season_no)}차 시즌" if str(season_no).isdigit() else "",
+            ]
+            for legacy_label in dict.fromkeys(label for label in legacy_labels if label and label != desired_label):
+                legacy_dir = os.path.join(archive_root, legacy_label)
+                if not os.path.isdir(legacy_dir):
+                    continue
+                if os.path.exists(desired_dir):
+                    if self._move_archive_dir_contents(legacy_dir, desired_dir):
+                        changed = True
+                else:
+                    try:
+                        os.rename(legacy_dir, desired_dir)
+                        changed = True
+                    except OSError:
+                        if self._move_archive_dir_contents(legacy_dir, desired_dir):
+                            changed = True
+        if changed and self._widget_available(getattr(self, "log_panel", None)):
+            self._refresh_archive_management_view()
 
     def _get_archive_season_dir(self, season_no: str | int | None) -> str:
         season_dir = os.path.join(self._get_log_archive_dir(), self._get_archive_season_label(season_no))
@@ -26410,17 +26598,24 @@ class BossTimerApp:
             owner = owner_var.get().strip()
             repo = repo_var.get().strip()
             branch = branch_var.get().strip()
-            token = token_var.get().strip()
+            token = self._sanitize_github_token(token_var.get())
             if not owner or not repo or not branch:
                 status_var.set("owner / repo / branch를 입력하세요.")
                 return False
             if not token:
                 status_var.set("GitHub fine-grained token을 입력하세요.")
                 return False
+            if self._is_masked_github_token_text(token_var.get()):
+                status_var.set("마스킹 문자(*)가 아니라 실제 GitHub 토큰을 입력하세요.")
+                return False
+            if len(token) < 20:
+                status_var.set("토큰이 너무 짧습니다. 실제 GitHub 토큰 전체를 붙여넣어 주세요.")
+                return False
             self.github_data_owner = owner
             self.github_data_repo = repo
             self.github_data_branch = branch
             self.github_data_token = token
+            token_var.set(token)
             self._save_settings()
             return True
 
@@ -26864,6 +27059,16 @@ class BossTimerApp:
             boss_error = ""
             boss_config_version = boss_config_version_from_index
 
+            def describe_payload_shape(value: object) -> str:
+                if not isinstance(value, dict):
+                    return type(value).__name__
+                keys = ", ".join(str(key) for key in list(value.keys())[:8])
+                payload_value = value.get("payload")
+                if isinstance(payload_value, dict):
+                    payload_keys = ", ".join(str(key) for key in list(payload_value.keys())[:8])
+                    return f"keys=[{keys}], payload.keys=[{payload_keys}]"
+                return f"keys=[{keys}]"
+
             schedule_same_version = bool(schedule_version) and schedule_version == local_schedule_version
             boss_config_available = bool(boss_config_path and boss_config_version)
             boss_same_version = bool(boss_config_version) and boss_config_version == local_boss_config_version
@@ -26895,7 +27100,7 @@ class BossTimerApp:
                     return
                 if not schedule_same_version and not isinstance(schedule_payload, dict):
                     close_progress_dialog()
-                    self.schedule_status_var.set(f"{server_name}: 다운로드한 스케쥴 형식이 올바르지 않습니다.")
+                    self.schedule_status_var.set(f"{server_name}: 다운로드한 스케쥴 형식이 올바르지 않습니다. {describe_payload_shape(schedule_raw_payload)}")
                     return
                 if boss_config_available and boss_error:
                     close_progress_dialog()
@@ -27044,6 +27249,7 @@ class BossTimerApp:
             self.schedule_github_version_cache_suspended = previous_cache_suspended
         self._save_schedule_delete_history(prune=not backed_up_current)
         self._refresh_schedule_view()
+        self._run_schedule_today_view_actions(save_state=True)
         loaded_name = str(source_label or "").strip() or (os.path.basename(source_path) if source_path else "GitHub 스케쥴")
         if backed_up_current and shared_archive_path:
             self.schedule_status_var.set(f"현재 스케쥴과 저장용 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
@@ -31077,6 +31283,28 @@ class BossTimerApp:
             except OSError:
                 continue
 
+    def _seed_runtime_assets_from_resources(self) -> None:
+        resource_assets_dir = os.path.join(get_resource_root(), "assets")
+        runtime_assets_dir = os.path.join(get_app_root(), "assets")
+        if not os.path.isdir(resource_assets_dir):
+            return
+        for root_dir, _, filenames in os.walk(resource_assets_dir):
+            relative_dir = os.path.relpath(root_dir, resource_assets_dir)
+            target_dir = runtime_assets_dir if relative_dir == "." else os.path.join(runtime_assets_dir, relative_dir)
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+            except OSError:
+                continue
+            for filename in filenames:
+                source_path = os.path.join(root_dir, filename)
+                target_path = os.path.join(target_dir, filename)
+                if os.path.exists(target_path):
+                    continue
+                try:
+                    shutil.copy2(source_path, target_path)
+                except OSError:
+                    continue
+
     def _seed_init_file_from_resource(self, filename: str) -> None:
         self._ensure_init_dir()
         target_path = os.path.join(INIT_DIR, filename)
@@ -34293,7 +34521,7 @@ class BossTimerApp:
             "github_data_owner": str(getattr(self, "github_data_owner", "pulpul7") or "pulpul7"),
             "github_data_repo": str(getattr(self, "github_data_repo", "pulpul7-boss_timer_data") or "pulpul7-boss_timer_data"),
             "github_data_branch": str(getattr(self, "github_data_branch", "main") or "main"),
-            "github_data_token": str(getattr(self, "github_data_token", "") or ""),
+            "github_data_token": "",
             "schedule_invasion_weekday": schedule_invasion_weekday_value,
             "schedule_input_ocr_addon_fast_input": str(schedule_input_ocr_addon_fast_input_value),
             "schedule_input_ocr_addon_restore_delay_seconds": f"{schedule_input_ocr_addon_restore_delay_seconds_value:.2f}",
@@ -38826,14 +39054,30 @@ class BossTimerApp:
     def _get_background_music_edge_window_geometry(self) -> tuple[int, int, int, int]:
         try:
             user32 = ctypes.windll.user32
-            screen_width = int(user32.GetSystemMetrics(0))
-            screen_height = int(user32.GetSystemMetrics(1))
+            work_area = wintypes.RECT()
+            if bool(user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(work_area), 0)):
+                left = int(work_area.left)
+                top = int(work_area.top)
+                right = int(work_area.right)
+                bottom = int(work_area.bottom)
+            else:
+                left = 0
+                top = 0
+                right = int(user32.GetSystemMetrics(0))
+                bottom = int(user32.GetSystemMetrics(1))
         except Exception:
-            screen_width = 1920
-            screen_height = 1080
-        width = min(480, max(360, screen_width))
-        height = min(300, max(220, screen_height))
-        return max(0, screen_width - 5), max(0, screen_height - height), width, height
+            left = 0
+            top = 0
+            right = 1920
+            bottom = 1080
+        margin = 16
+        work_width = max(320, right - left)
+        work_height = max(220, bottom - top)
+        width = min(520, max(380, work_width - (margin * 2)))
+        height = min(320, max(240, work_height - (margin * 2)))
+        x = max(left, right - width - margin)
+        y = max(top, bottom - height - margin)
+        return x, y, width, height
 
     def _snapshot_top_level_window_hwnds(self, *, visible_only: bool = False) -> set[int]:
         hwnds: set[int] = set()
