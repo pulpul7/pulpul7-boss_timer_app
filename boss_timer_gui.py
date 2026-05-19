@@ -2936,6 +2936,7 @@ class BossTimerApp:
                         create_backups=False,
                         allow_empty=True,
                         sync_shared_export=False,
+                        mark_github_dirty=False,
                     )
                 else:
                     self._update_github_import_meta(
@@ -28931,6 +28932,7 @@ class BossTimerApp:
                 create_backups=False,
                 allow_empty=True,
                 sync_shared_export=False,
+                mark_github_dirty=False,
             ):
                 boss_payload = self._load_github_local_boss_payload(entry)
                 if isinstance(boss_payload, dict):
@@ -29179,6 +29181,7 @@ class BossTimerApp:
                                 create_restore_history=False,
                                 create_backups=False,
                                 sync_shared_export=False,
+                                mark_github_dirty=False,
                             ):
                                 return
                             applied_parts.append("스케쥴")
@@ -29268,6 +29271,7 @@ class BossTimerApp:
         create_backups: bool = True,
         allow_empty: bool = False,
         sync_shared_export: bool = True,
+        mark_github_dirty: bool = True,
     ) -> bool:
         snapshot = self._create_schedule_full_snapshot_from_shared_payload(payload, source_path=source_path)
         if not self._schedule_restore_snapshot_has_data(snapshot) and not (allow_empty and isinstance(payload, dict)):
@@ -29303,7 +29307,15 @@ class BossTimerApp:
             self.schedule_github_version_cache_suspended = previous_cache_suspended
         self._save_schedule_delete_history(prune=not backed_up_current)
         self._refresh_schedule_view()
-        self._run_schedule_today_view_actions(save_state=True)
+        if mark_github_dirty:
+            self._run_schedule_today_view_actions(save_state=True)
+        else:
+            previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
+            self.schedule_github_version_cache_suspended = True
+            try:
+                self._run_schedule_today_view_actions(save_state=True)
+            finally:
+                self.schedule_github_version_cache_suspended = previous_cache_suspended
         loaded_name = str(source_label or "").strip() or (os.path.basename(source_path) if source_path else "GitHub 스케쥴")
         if backed_up_current and shared_archive_path:
             self.schedule_status_var.set(f"현재 스케쥴과 저장용 스케쥴을 보관하고 {loaded_name}을(를) 불러왔습니다.")
