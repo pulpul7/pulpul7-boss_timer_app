@@ -185,6 +185,7 @@ LOG_ENTRY_SEPARATOR = "\n\n" + ("=" * 37) + "\n\n"
 LOG_ARCHIVE_DIRNAME = "archive_logs"
 SCHEDULE_ARCHIVE_DIRNAME = "schedule_archives"
 SCHEDULE_SHARED_EXPORT_DIRNAME = "shared_schedules"
+SCHEDULE_SHARED_MAIN_DIRNAME = "main"
 SCHEDULE_SHARED_ARCHIVE_DIRNAME = "shared_schedule_archives"
 SCHEDULE_ARCHIVE_MAX_FILES = 3
 SEASON_PRESTART_ARCHIVE_DIRNAME = "season_prestart_logs"
@@ -255,9 +256,12 @@ SCHEDULE_RESTORE_HISTORY_RETENTION_DAYS = 14
 SCHEDULE_RESTORE_HISTORY_MAX_ENTRIES = 5
 SCHEDULE_ALARM_SETTINGS_FILENAME = "schedule_alarm_settings.json"
 SCHEDULE_GITHUB_VERSION_CACHE_FILENAME = "schedule_github_versions.json"
+SCHEDULE_GITHUB_SERVER_CACHE_FILENAME = "schedule_github_servers.json"
+SCHEDULE_GITHUB_LOCAL_CACHE_DIRNAME = os.path.join("cache", "github_data")
 SCHEDULE_ALARM_VOICE_DURATION_CACHE_FILENAME = "schedule_alarm_voice_durations.json"
 BACKGROUND_MUSIC_SETTINGS_FILENAME = "background_music_settings.json"
 BACKGROUND_MUSIC_VIDEO_CACHE_FILENAME = "background_music_video_cache.json"
+BACKGROUND_MUSIC_MIN_VIDEO_SECONDS = 60 * 60
 DEFAULT_BACKGROUND_MUSIC_SEARCH_TERMS = [
     "\uac78\uadf8\ub8f9",
     "\ub77d\ubc1c\ub77c\ub4dc",
@@ -518,7 +522,16 @@ def get_app_root() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def get_user_config_dir() -> str:
+    base_dir = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+    if not base_dir:
+        base_dir = os.path.expanduser("~")
+    return os.path.join(base_dir, "BossTimer")
+
+
 CONFIG_PATH = os.path.join(get_app_root(), "boss_timer_settings.ini")
+GITHUB_TOKEN_CONFIG_PATH = os.path.join(get_user_config_dir(), "github_token.ini")
+MASTER_DEVELOPER_CONFIG_PATH = os.path.join(get_user_config_dir(), "master_developer.ini")
 RECORD_BOOK_PATH = os.path.join(get_app_root(), RECORD_BOOK_FILENAME)
 INIT_DIR = os.path.join(get_app_root(), "init")
 SEASON_HISTORY_PATH = os.path.join(get_app_root(), "season_history.json")
@@ -534,6 +547,8 @@ SCHEDULE_STATE_PATH = os.path.join(get_app_root(), SCHEDULE_STATE_FILENAME)
 SCHEDULE_DELETE_HISTORY_PATH = os.path.join(get_app_root(), SCHEDULE_DELETE_HISTORY_FILENAME)
 SCHEDULE_ALARM_SETTINGS_PATH = os.path.join(get_app_root(), SCHEDULE_ALARM_SETTINGS_FILENAME)
 SCHEDULE_GITHUB_VERSION_CACHE_PATH = os.path.join(get_app_root(), SCHEDULE_GITHUB_VERSION_CACHE_FILENAME)
+SCHEDULE_GITHUB_SERVER_CACHE_PATH = os.path.join(get_app_root(), SCHEDULE_GITHUB_SERVER_CACHE_FILENAME)
+SCHEDULE_GITHUB_LOCAL_CACHE_DIR = os.path.join(get_app_root(), SCHEDULE_GITHUB_LOCAL_CACHE_DIRNAME)
 BACKGROUND_MUSIC_SETTINGS_PATH = os.path.join(get_app_root(), BACKGROUND_MUSIC_SETTINGS_FILENAME)
 BACKGROUND_MUSIC_VIDEO_CACHE_PATH = os.path.join(get_app_root(), BACKGROUND_MUSIC_VIDEO_CACHE_FILENAME)
 SCHEDULE_OCR_CORRECTIONS_PATH = os.path.join(get_app_root(), SCHEDULE_OCR_CORRECTIONS_FILENAME)
@@ -882,7 +897,10 @@ class BossTimerApp:
         self.github_data_owner = "pulpul7"
         self.github_data_repo = "pulpul7-boss_timer_data"
         self.github_data_branch = "main"
-        self.github_data_token = ""
+        self.github_data_token = self._load_github_data_token_from_user_config()
+        self.master_developer_mode_enabled = self._load_master_developer_mode_enabled()
+        self.master_developer_author_click_times: list[float] = []
+        self.master_developer_dialog = None
         self.background_music_process: subprocess.Popen | None = None
         self.background_music_video_ids: list[str] = []
         self.background_music_volume = 0.35
@@ -890,14 +908,12 @@ class BossTimerApp:
         self.background_music_starting = False
         self.background_music_window_hwnds: set[int] = set()
         self.background_music_start_after_id = None
-        self.background_music_ad_monitor_after_id = None
-        self.background_music_ad_restarting = False
-        self.background_music_ad_check_running = False
-        self.background_music_ad_detect_count = 0
-        self.background_music_ad_restart_cooldown_until = 0.0
         self.background_music_toggle_unlock_after_id = None
         self.background_music_checkbutton = None
         self.background_music_target_ids: set[str] = set()
+        self.background_music_process_ids_cache: set[int] = set()
+        self.background_music_process_ids_cache_until = 0.0
+        self.background_music_cache_refresh_running = False
         self.background_music_search_terms: list[str] = self._load_background_music_search_terms()
         self.background_music_video_cache: dict[str, object] = self._load_background_music_video_cache()
         self.schedule_boss_metric_bulk_area_default = RECORD_BOOK_AREAS[0]
@@ -1005,10 +1021,12 @@ class BossTimerApp:
         self.schedule_github_refresh_button = None
         self.schedule_github_upload_button = None
         self.schedule_github_server_entries: list[dict[str, object]] = []
+        self.schedule_github_deleted_server_ids: set[str] = set()
         self.schedule_github_server_loading = False
         self.schedule_github_refresh_cooldown_until = 0.0
         self.schedule_github_sync_cooldown_until = 0.0
         self.schedule_github_upload_cooldown_until = 0.0
+        self.schedule_github_sync_attempt_times: list[float] = []
         self.schedule_github_refresh_cooldown_after_id = None
         self.schedule_github_sync_cooldown_after_id = None
         self.schedule_github_upload_cooldown_after_id = None
@@ -1218,7 +1236,7 @@ class BossTimerApp:
         self.log_status_var = tk.StringVar(value="로그 패널을 열어 기록 후보를 확인하세요.")
         self.log_record_subview_var = tk.StringVar(value="candidate")
         self.log_history_mode_var = tk.StringVar(value="records")
-        self.log_history_folder_path_var = tk.StringVar(value=self._get_logs_dir())
+        self.log_history_folder_path_var = tk.StringVar(value=self._get_logs_dir(create=False))
         self.archive_keep_seasons_var = tk.StringVar(value=str(self.archive_keep_seasons_default))
         self.log_archive_title_var = tk.StringVar(value="보관 관리")
         self.log_archive_current_season_var = tk.StringVar(value="현재 시즌: -")
@@ -1723,10 +1741,13 @@ class BossTimerApp:
         self.schedule_last_import_meta: dict[str, object] | None = None
         self.schedule_github_version_cache: dict[str, dict[str, str]] = self._load_github_version_cache()
         self.schedule_github_version_cache_suspended = False
+        self.schedule_main_save_after_id = None
         self.schedule_delete_active_cutoff_datetime: datetime | None = None
         self.schedule_second_precision_startup_cleared = False
         self._load_schedule_state()
         self._restore_github_cache_from_import_meta()
+        self.schedule_github_server_entries = self._merge_local_github_server_entries(self._load_github_server_entries_cache())
+        self._sync_github_server_combo_to_loaded_meta()
         self._clear_schedule_ocr_session_cache()
         if self._reapply_schedule_boss_metric_schedule_times() or self.schedule_second_precision_startup_cleared:
             previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
@@ -1982,7 +2003,7 @@ class BossTimerApp:
         saved_github_data_owner = settings.get("github_data_owner", self.github_data_owner).strip()
         saved_github_data_repo = settings.get("github_data_repo", self.github_data_repo).strip()
         saved_github_data_branch = settings.get("github_data_branch", self.github_data_branch).strip()
-        saved_github_data_token = settings.get("github_data_token", "").strip()
+        saved_github_data_token = ""
         saved_archive_keep_seasons = settings.get("archive_keep_seasons", str(self.archive_keep_seasons_default))
         saved_log_archive_filter = settings.get("log_archive_filter", self.log_archive_filter_default).strip()
         saved_log_archive_previous_season = settings.get("log_archive_previous_season", self.log_archive_previous_season_default).strip()
@@ -2097,7 +2118,7 @@ class BossTimerApp:
         self.github_data_owner = saved_github_data_owner or self.github_data_owner
         self.github_data_repo = saved_github_data_repo or self.github_data_repo
         self.github_data_branch = saved_github_data_branch or self.github_data_branch
-        self.github_data_token = saved_github_data_token
+        self.github_data_token = self._load_github_data_token_from_user_config()
         if hasattr(self, "schedule_break_rows_enabled_var") and self.schedule_break_rows_enabled_var is not None:
             try:
                 self.schedule_break_rows_enabled_var.set(saved_schedule_break_rows_enabled)
@@ -2689,6 +2710,10 @@ class BossTimerApp:
         dialog.title("새 시즌 시작")
         dialog.resizable(False, False)
         dialog.configure(bg="#eff6ff")
+        try:
+            dialog.transient(host)
+        except tk.TclError:
+            pass
         self._center_window_over_parent(dialog, host, 430, 388)
         result = {"confirmed": False}
         season_var = tk.StringVar(value=self._get_next_season_number_text())
@@ -2842,7 +2867,7 @@ class BossTimerApp:
             self.season_history_map[self.current_season_no] = current_entry
             self._save_season_history()
             if hasattr(self, "log_history_folder_path_var") and self.log_history_folder_path_var is not None:
-                self.log_history_folder_path_var.set(self._get_logs_dir())
+                self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
             self._update_archive_keep_seasons_description()
             self._save_settings()
             close_with(True)
@@ -2856,7 +2881,22 @@ class BossTimerApp:
         tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2").place(x=234, y=346, width=80, height=28)
         tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=lambda: close_with(False), cursor="hand2").place(x=326, y=346, width=82, height=28)
         dialog.bind("<Return>", lambda _event: confirm())
-        dialog.grab_set()
+        def raise_dialog() -> None:
+            try:
+                self._center_window_over_parent(dialog, host, 430, 388)
+                dialog.attributes("-topmost", True)
+                dialog.lift(host)
+                dialog.focus_force()
+                dialog.after(250, lambda: dialog.attributes("-topmost", False) if dialog.winfo_exists() else None)
+            except tk.TclError:
+                pass
+
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            pass
+        dialog.after(0, raise_dialog)
+        dialog.after(100, raise_dialog)
         entry.focus_set()
         entry.selection_range(0, tk.END)
         dialog.wait_window()
@@ -2873,10 +2913,43 @@ class BossTimerApp:
 
     def _ensure_startup_season_configuration(self) -> None:
         self._repair_runtime_season_state()
+        had_ready_season = self._has_ready_season()
         if not self._has_ready_season():
-            self._show_season_setup_dialog(parent=self.root)
+            if self._show_season_setup_dialog(parent=self.root):
+                self._repair_runtime_season_state()
+                if self._has_ready_season():
+                    self._reset_schedule_for_new_season()
             self._repair_runtime_season_state()
+        if self._has_ready_season():
+            upload_entry = self._get_current_github_upload_server_entry()
+            self._upsert_github_server_entry_locally(upload_entry)
+            loaded_entry = self._get_current_loaded_github_server_entry_from_meta()
+            if not self._current_schedule_has_data():
+                startup_entry = loaded_entry if isinstance(loaded_entry, dict) else upload_entry
+                payload, payload_path = self._load_github_local_schedule_payload(startup_entry)
+                if isinstance(payload, dict) and self._is_github_local_schedule_cache_trusted(startup_entry, payload):
+                    self._apply_loaded_schedule_shared_payload(
+                        payload,
+                        source_label=f"{str(startup_entry.get('name') or startup_entry.get('id') or '').strip()} main",
+                        source_path=payload_path,
+                        create_restore_history=False,
+                        create_backups=False,
+                        allow_empty=True,
+                        sync_shared_export=False,
+                    )
+                else:
+                    self._update_github_import_meta(
+                        server_id=str(startup_entry.get("id") or "").strip(),
+                        server_name=str(startup_entry.get("name") or startup_entry.get("id") or "").strip(),
+                        schedule_path=str(startup_entry.get("schedule") or "").strip(),
+                        schedule_version="",
+                        boss_config_path=str(startup_entry.get("bosses") or "").strip(),
+                        boss_config_version="",
+                    )
+            if not had_ready_season:
+                self._refresh_schedule_view()
         self._ensure_startup_schedule_archive_seed()
+        self._normalize_existing_schedule_shared_archive_names()
         self._update_archive_keep_seasons_description()
 
     def _bind_record_subtab_hover(self, button: tk.Button, mode: str, hover_bg: str, hover_fg: str) -> None:
@@ -2932,11 +3005,12 @@ class BossTimerApp:
                 pass
             self.tooltip_window = None
 
-    def _get_logs_dir(self) -> str:
+    def _get_logs_dir(self, *, create: bool = True) -> str:
         if self._has_active_season():
-            return self._get_archive_season_dir(self.current_season_no)
+            return self._get_archive_season_dir(self.current_season_no, create=create)
         archive_dir = self._get_log_archive_dir()
-        os.makedirs(archive_dir, exist_ok=True)
+        if create:
+            os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
     def _get_log_archive_dir(self) -> str:
@@ -2953,6 +3027,11 @@ class BossTimerApp:
         export_dir = os.path.join(get_app_root(), SCHEDULE_SHARED_EXPORT_DIRNAME)
         os.makedirs(export_dir, exist_ok=True)
         return export_dir
+
+    def _get_schedule_shared_main_dir(self) -> str:
+        main_dir = os.path.join(self._get_schedule_shared_export_dir(), SCHEDULE_SHARED_MAIN_DIRNAME)
+        os.makedirs(main_dir, exist_ok=True)
+        return main_dir
 
     def _build_schedule_share_prefix(self, server_name: object = "", guild_name: object = "") -> str:
         server_text = self._sanitize_season_metadata_text(server_name)
@@ -2982,6 +3061,22 @@ class BossTimerApp:
         file_name = self._get_schedule_shared_backup_file_name(share_prefix)
         return os.path.join(self._get_schedule_shared_export_dir(), file_name)
 
+    def _get_schedule_shared_main_file_name(self, share_prefix: str | None = None) -> str:
+        resolved_prefix = str(share_prefix or "").strip() or self._get_current_season_share_prefix()
+        safe_prefix = self._safe_github_local_cache_server_id(resolved_prefix)
+        return f"{safe_prefix}_main_schedule.json"
+
+    def _get_schedule_shared_main_path(self, share_prefix: str | None = None) -> str:
+        return os.path.join(self._get_schedule_shared_main_dir(), self._get_schedule_shared_main_file_name(share_prefix))
+
+    def _get_schedule_shared_main_boss_file_name(self, share_prefix: str | None = None) -> str:
+        resolved_prefix = str(share_prefix or "").strip() or self._get_current_season_share_prefix()
+        safe_prefix = self._safe_github_local_cache_server_id(resolved_prefix)
+        return f"{safe_prefix}_main_bosses.json"
+
+    def _get_schedule_shared_main_boss_path(self, share_prefix: str | None = None) -> str:
+        return os.path.join(self._get_schedule_shared_main_dir(), self._get_schedule_shared_main_boss_file_name(share_prefix))
+
     def _get_schedule_shared_manual_default_file_name(self, share_prefix: str | None = None) -> str:
         resolved_prefix = str(share_prefix or "").strip() or self._get_current_season_share_prefix()
         timestamp = self._get_schedule_reference_datetime().strftime("%m%d_%H%M%S")
@@ -2992,13 +3087,14 @@ class BossTimerApp:
         os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
-    def _get_schedule_shared_archive_dir(self, season_no: str | int | None = None) -> str:
+    def _get_schedule_shared_archive_dir(self, season_no: str | int | None = None, *, create: bool = True) -> str:
         season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
         if season_text:
-            archive_dir = os.path.join(self._get_archive_season_dir(season_text), SCHEDULE_SHARED_ARCHIVE_DIRNAME)
+            archive_dir = os.path.join(self._get_archive_season_dir(season_text, create=create), SCHEDULE_SHARED_ARCHIVE_DIRNAME)
         else:
             archive_dir = self._get_schedule_shared_archive_fallback_dir()
-        os.makedirs(archive_dir, exist_ok=True)
+        if create:
+            os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
     def _get_schedule_shared_export_context(
@@ -3064,15 +3160,25 @@ class BossTimerApp:
         }
 
     def _write_schedule_shared_export_payload(self, payload: dict[str, object], target_path: str) -> bool:
+        temp_path = ""
         try:
-            with open(target_path, "w", encoding="utf-8") as file:
+            target_dir = os.path.dirname(os.path.abspath(target_path))
+            os.makedirs(target_dir, exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target_dir, delete=False, suffix=".tmp") as file:
+                temp_path = file.name
                 json.dump(
                     self._serialize_schedule_state_value(payload),
                     file,
                     ensure_ascii=False,
                     separators=(",", ":"),
                 )
+            os.replace(temp_path, target_path)
         except OSError:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
             return False
         return True
 
@@ -3097,15 +3203,241 @@ class BossTimerApp:
         token_text = str(token or "").strip()
         return bool(token_text) and set(token_text) <= {"*"}
 
-    def _get_github_json_headers(self, token: str) -> dict[str, str]:
+    def _looks_like_non_github_token(self, token: object) -> str:
+        token_text = self._sanitize_github_token(token)
+        if token_text.startswith(("sk-", "sk_")):
+            return "OpenAI API Key"
+        return ""
+
+    def _looks_like_github_token(self, token: object) -> bool:
+        token_text = self._sanitize_github_token(token)
+        return token_text.startswith(("github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"))
+
+    def _load_github_data_token_from_user_config(self) -> str:
+        config = configparser.ConfigParser()
+        try:
+            if not os.path.exists(GITHUB_TOKEN_CONFIG_PATH):
+                return ""
+            config.read(GITHUB_TOKEN_CONFIG_PATH, encoding="utf-8")
+        except (OSError, configparser.Error):
+            return ""
+        token = self._sanitize_github_token(config.get("github", "token", fallback=""))
+        if self._looks_like_non_github_token(token):
+            return ""
+        return token
+
+    def _save_github_data_token_to_user_config(self, token: object) -> bool:
+        token_text = self._sanitize_github_token(token)
+        if not token_text or self._looks_like_non_github_token(token_text):
+            return False
+        config = configparser.ConfigParser()
+        config["github"] = {"token": token_text}
+        try:
+            os.makedirs(os.path.dirname(GITHUB_TOKEN_CONFIG_PATH), exist_ok=True)
+            with open(GITHUB_TOKEN_CONFIG_PATH, "w", encoding="utf-8") as file:
+                config.write(file)
+        except OSError:
+            return False
+        return True
+
+    def _load_master_developer_mode_enabled(self) -> bool:
+        config = configparser.ConfigParser()
+        try:
+            if not os.path.exists(MASTER_DEVELOPER_CONFIG_PATH):
+                return False
+            config.read(MASTER_DEVELOPER_CONFIG_PATH, encoding="utf-8")
+        except (OSError, configparser.Error):
+            return False
+        return config.getboolean("master_developer", "enabled", fallback=False)
+
+    def _save_master_developer_mode_enabled(self, enabled: bool) -> bool:
+        config = configparser.ConfigParser()
+        config["master_developer"] = {"enabled": "1" if enabled else "0"}
+        try:
+            os.makedirs(os.path.dirname(MASTER_DEVELOPER_CONFIG_PATH), exist_ok=True)
+            with open(MASTER_DEVELOPER_CONFIG_PATH, "w", encoding="utf-8") as file:
+                config.write(file)
+        except OSError:
+            return False
+        return True
+
+    def _is_master_developer_mode_enabled(self) -> bool:
+        return bool(getattr(self, "master_developer_mode_enabled", False))
+
+    def _reset_master_developer_author_clicks(self) -> None:
+        self.master_developer_author_click_times = []
+
+    def _on_author_label_right_click(self, _event=None) -> str:
+        now = time.monotonic()
+        click_times = [
+            timestamp
+            for timestamp in getattr(self, "master_developer_author_click_times", []) or []
+            if now - float(timestamp) <= 10.0
+        ]
+        click_times.append(now)
+        self.master_developer_author_click_times = click_times
+        if len(click_times) >= 7:
+            self._reset_master_developer_author_clicks()
+            self._open_master_developer_mode_dialog()
+        return "break"
+
+    def _open_master_developer_mode_dialog(self) -> None:
+        self._reset_master_developer_author_clicks()
+        existing_dialog = getattr(self, "master_developer_dialog", None)
+        if self._widget_available(existing_dialog):
+            try:
+                existing_dialog.lift()
+                existing_dialog.focus_force()
+            except tk.TclError:
+                pass
+            return
+        parent = self.settings_window if self._widget_available(getattr(self, "settings_window", None)) else self.root
+        dialog = tk.Toplevel(parent)
+        self.master_developer_dialog = dialog
+        dialog.title("마스터 개발자 모드")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#eff6ff")
+        try:
+            dialog.transient(parent)
+        except tk.TclError:
+            pass
+        self._center_window_over_parent(dialog, parent, 300, 150)
+        password_var = tk.StringVar(value="")
+        status_var = tk.StringVar(value="비밀번호를 입력하세요.")
+
+        def close_dialog() -> None:
+            self.master_developer_dialog = None
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
+
+        def confirm() -> None:
+            if str(password_var.get() or "").strip() != "0714":
+                status_var.set("비밀번호가 맞지 않습니다.")
+                return
+            self.master_developer_mode_enabled = True
+            self._save_master_developer_mode_enabled(True)
+            status_var.set("마스터 개발자 모드가 켜졌습니다.")
+            self._set_schedule_github_controls_state(True)
+            try:
+                dialog.after(500, close_dialog)
+            except tk.TclError:
+                close_dialog()
+
+        tk.Label(dialog, text="마스터 개발자 모드", font=self.header_font, bg="#dbeafe", fg="#1e3a8a").place(x=0, y=0, width=300, height=38)
+        tk.Label(dialog, text="Password", font=self.label_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=24, y=52, width=76, height=24)
+        entry = tk.Entry(dialog, textvariable=password_var, font=(self.current_font_family, 11), show="*", bd=1, relief="solid")
+        entry.place(x=104, y=52, width=154, height=26)
+        tk.Label(dialog, textvariable=status_var, font=self.percent_font, bg="#eff6ff", fg="#1d4ed8", anchor="w").place(x=24, y=86, width=236, height=20)
+        tk.Button(dialog, text="확인", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="flat", bd=0, command=confirm, cursor="hand2").place(x=104, y=114, width=72, height=26)
+        tk.Button(dialog, text="닫기", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="flat", bd=0, command=close_dialog, cursor="hand2").place(x=186, y=114, width=72, height=26)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+        dialog.bind("<Return>", lambda _event: confirm())
+        entry.focus_set()
+
+    def _clear_github_data_token_user_config(self) -> None:
+        self.github_data_token = ""
+        try:
+            if os.path.exists(GITHUB_TOKEN_CONFIG_PATH):
+                os.remove(GITHUB_TOKEN_CONFIG_PATH)
+        except OSError:
+            pass
+
+    def _get_github_json_headers(self, token: str, auth_scheme: str = "Bearer") -> dict[str, str]:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "BossTimerApp",
         }
         if token:
-            headers["Authorization"] = f"Bearer {token}"
+            scheme = str(auth_scheme or "Bearer").strip() or "Bearer"
+            headers["Authorization"] = f"{scheme} {token}"
         return headers
+
+    def _mask_github_token_for_status(self, token: object) -> str:
+        token_text = self._sanitize_github_token(token)
+        if not token_text:
+            return "빈 토큰"
+        if len(token_text) <= 10:
+            return f"{token_text[:2]}...{token_text[-2:]}"
+        return f"{token_text[:6]}...{token_text[-4:]}"
+
+    def _describe_github_token_input(self, token: object) -> str:
+        token_text = self._sanitize_github_token(token)
+        if not token_text:
+            return "입력값 없음"
+        prefix = token_text[:8]
+        return f"시작={prefix}, 길이={len(token_text)}"
+
+    def _github_api_get_json_url(self, url: str, token: str) -> tuple[bool, dict[str, object] | None, int | None, str]:
+        last_error = ""
+        last_code = None
+        for auth_scheme in ("Bearer", "token"):
+            try:
+                request = urllib.request.Request(
+                    url,
+                    headers=self._get_github_json_headers(token, auth_scheme=auth_scheme),
+                    method="GET",
+                )
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    raw_text = response.read().decode("utf-8")
+                if not raw_text.strip():
+                    return True, {}, None, ""
+                parsed = json.loads(raw_text)
+                return True, parsed if isinstance(parsed, dict) else {}, None, ""
+            except urllib.error.HTTPError as exc:
+                last_code = exc.code
+                try:
+                    error_text = exc.read().decode("utf-8", errors="replace")
+                except Exception:
+                    error_text = str(exc)
+                try:
+                    error_payload = json.loads(error_text)
+                except json.JSONDecodeError:
+                    error_payload = {}
+                if isinstance(error_payload, dict):
+                    last_error = str(error_payload.get("message") or error_text).strip()
+                else:
+                    last_error = str(error_text or exc).strip()
+                if exc.code != 401:
+                    break
+            except Exception as exc:
+                return False, None, None, f"GitHub API 연결 실패: {exc}"
+        return False, None, last_code, last_error or "GitHub API 요청 실패"
+
+    def _validate_github_data_upload_token(self, token_override: object | None = None) -> tuple[bool, str]:
+        settings = self._get_github_data_settings()
+        token = self._sanitize_github_token(token_override) if token_override is not None else settings["token"]
+        if not token:
+            return False, "GitHub 토큰을 입력하세요."
+        non_github_token_name = self._looks_like_non_github_token(token)
+        if non_github_token_name:
+            self._clear_github_data_token_user_config()
+            token_detail = self._describe_github_token_input(token)
+            return False, f"{non_github_token_name}로 판정되었습니다({token_detail}). GitHub fine-grained token을 입력하세요."
+        token_label = self._mask_github_token_for_status(token)
+        user_ok, _user_payload, user_code, user_error = self._github_api_get_json_url(
+            "https://api.github.com/user",
+            token,
+        )
+        if not user_ok:
+            if user_code == 401:
+                return False, f"GitHub 토큰 인증 실패: 입력한 토큰({token_label})을 GitHub가 Bad credentials로 거부했습니다. 토큰을 새로 발급해 주세요."
+            return False, f"GitHub 토큰 확인 실패: {user_error}"
+        repo_url = (
+            "https://api.github.com/repos/"
+            f"{urllib.parse.quote(settings['owner'], safe='')}/"
+            f"{urllib.parse.quote(settings['repo'], safe='')}"
+        )
+        repo_ok, _repo_payload, repo_code, repo_error = self._github_api_get_json_url(repo_url, token)
+        if not repo_ok:
+            if repo_code == 404:
+                return False, f"GitHub 저장소 접근 실패: {settings['owner']}/{settings['repo']} 저장소를 찾지 못했거나 토큰에 해당 저장소 접근 권한이 없습니다."
+            if repo_code == 403:
+                return False, f"GitHub 저장소 접근 실패: 토큰에 {settings['owner']}/{settings['repo']} 접근 권한이 부족합니다. fine-grained token의 Repository access와 Contents 권한을 확인하세요."
+            return False, f"GitHub 저장소 확인 실패: {repo_error}"
+        return True, ""
 
     def _github_data_contents_url(self, path: str) -> str:
         settings = self._get_github_data_settings()
@@ -3131,12 +3463,12 @@ class BossTimerApp:
         data_bytes = None
         if payload is not None:
             data_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        def request_json(token: str) -> str:
+        def request_json(token: str, auth_scheme: str = "Bearer") -> str:
             request = urllib.request.Request(
                 url,
                 data=data_bytes,
                 headers={
-                    **self._get_github_json_headers(token),
+                    **self._get_github_json_headers(token, auth_scheme=auth_scheme),
                     "Content-Type": "application/json",
                 },
                 method=method.upper(),
@@ -3144,10 +3476,23 @@ class BossTimerApp:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return response.read().decode("utf-8")
 
+        request_token = settings["token"] if settings["token"] else ""
         try:
-            raw_text = request_json(settings["token"])
+            raw_text = request_json(request_token)
         except urllib.error.HTTPError as exc:
-            if method.upper() == "GET" and settings["token"] and exc.code in (401, 403):
+            if method.upper() != "GET" and request_token and exc.code == 401:
+                try:
+                    raw_text = request_json(request_token, auth_scheme="token")
+                except urllib.error.HTTPError as token_scheme_exc:
+                    exc = token_scheme_exc
+                else:
+                    if not raw_text.strip():
+                        return True, {}, ""
+                    try:
+                        return True, json.loads(raw_text), ""
+                    except json.JSONDecodeError:
+                        return False, None, "GitHub 응답 JSON을 해석하지 못했습니다."
+            if method.upper() == "GET" and request_token and exc.code in (401, 403):
                 try:
                     raw_text = request_json("")
                     if not raw_text.strip():
@@ -3226,6 +3571,7 @@ class BossTimerApp:
                         headers={
                             "User-Agent": "BossTimerApp",
                             "Accept": "application/json,text/plain,*/*",
+                            **({"Authorization": f"Bearer {settings['token']}"} if settings.get("token") else {}),
                         },
                         method="GET",
                     )
@@ -3265,7 +3611,7 @@ class BossTimerApp:
         *,
         message: str,
         sha: str | None = None,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, dict[str, object] | None]:
         settings = self._get_github_data_settings()
         content_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         request_payload: dict[str, object] = {
@@ -3277,6 +3623,111 @@ class BossTimerApp:
             request_payload["sha"] = sha
         success, _response, error = self._github_data_request("PUT", path, payload=request_payload)
         return success, error
+
+    def _github_delete_file(self, path: str, *, message: str) -> tuple[bool, str]:
+        _payload, sha, error = self._github_get_json_file(path)
+        if error:
+            return False, error
+        if not sha:
+            return True, ""
+        settings = self._get_github_data_settings()
+        request_payload: dict[str, object] = {
+            "message": message,
+            "sha": sha,
+            "branch": settings["branch"],
+        }
+        success, _response, delete_error = self._github_data_request("DELETE", path, payload=request_payload)
+        return success, delete_error
+
+    def _copy_github_json_file(self, old_path: str, new_path: str, *, message: str) -> tuple[bool, str]:
+        old_path = str(old_path or "").strip()
+        new_path = str(new_path or "").strip()
+        if not old_path or not new_path or old_path == new_path:
+            return True, ""
+        payload, _old_sha, read_error = self._github_get_json_file(old_path)
+        if read_error:
+            return False, read_error
+        if not isinstance(payload, dict):
+            return True, ""
+        _existing_payload, new_sha, new_error = self._github_get_json_file(new_path)
+        if new_error:
+            return False, new_error
+        ok, put_error = self._github_put_json_file(new_path, payload, message=message, sha=new_sha)
+        if not ok:
+            return False, put_error
+        return True, ""
+
+    def _rename_github_server_entry_remote(
+        self,
+        old_entry: dict[str, object],
+        new_entry: dict[str, object],
+    ) -> tuple[bool, str]:
+        old_id = str((old_entry or {}).get("id") or "").strip()
+        new_id = str((new_entry or {}).get("id") or "").strip()
+        if not old_id or not new_id:
+            return False, "서버 ID를 확인하지 못했습니다."
+        if old_id == new_id and str(old_entry.get("name") or "").strip() == str(new_entry.get("name") or "").strip():
+            return True, "GitHub 서버 정보 변경이 없습니다."
+        index_payload, index_sha, index_error = self._github_get_json_file("data/server_index.json")
+        if index_error:
+            return False, index_error
+        existing_entries = self._extract_github_server_entries(index_payload)
+        remote_old_entry = self._find_github_server_entry(existing_entries, old_id)
+        if not isinstance(remote_old_entry, dict):
+            return True, "GitHub 서버 목록에는 이전 서버 항목이 없어 로컬만 갱신했습니다."
+        merged_new_entry = dict(remote_old_entry)
+        merged_new_entry.update(new_entry)
+        merged_new_entry["id"] = new_id
+        merged_new_entry["name"] = str(new_entry.get("name") or new_id).strip() or new_id
+        merged_new_entry["schedule"] = str(new_entry.get("schedule") or f"data/schedules/{new_id}.json").strip()
+        merged_new_entry["bosses"] = str(new_entry.get("bosses") or f"data/bosses/{new_id}.json").strip()
+        merged_new_entry["config"] = str(new_entry.get("config") or f"data/config/{new_id}.json").strip()
+        merged_new_entry["notices"] = str(new_entry.get("notices") or f"data/notices/{new_id}.json").strip()
+        merged_new_entry["updatedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for key, default_old_path in (
+            ("schedule", f"data/schedules/{old_id}.json"),
+            ("bosses", f"data/bosses/{old_id}.json"),
+            ("config", f"data/config/{old_id}.json"),
+            ("notices", f"data/notices/{old_id}.json"),
+        ):
+            old_path = str(remote_old_entry.get(key) or default_old_path).strip()
+            new_path = str(merged_new_entry.get(key) or "").strip()
+            ok, error = self._copy_github_json_file(old_path, new_path, message=f"Rename server {old_id} to {new_id}: copy {key}")
+            if not ok:
+                return False, error
+        next_entries = [
+            dict(entry)
+            for entry in existing_entries
+            if str(entry.get("id") or "").strip() not in {old_id, new_id}
+        ]
+        next_entries.append(merged_new_entry)
+        next_entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        updated_index = dict(index_payload or {})
+        updated_index["appMinVersion"] = str(updated_index.get("appMinVersion") or self._get_app_version_for_data())
+        updated_index["schemaVersion"] = str(updated_index.get("schemaVersion") or "1.0.0")
+        updated_index["dataVersion"] = self._get_next_github_data_version(str(updated_index.get("dataVersion") or ""))
+        updated_index["servers"] = next_entries
+        ok, error = self._github_put_json_file(
+            "data/server_index.json",
+            updated_index,
+            message=f"Rename server {old_id} to {new_id}",
+            sha=index_sha,
+        )
+        if not ok:
+            return False, error
+        if old_id != new_id:
+            for key, default_old_path in (
+                ("schedule", f"data/schedules/{old_id}.json"),
+                ("bosses", f"data/bosses/{old_id}.json"),
+                ("config", f"data/config/{old_id}.json"),
+                ("notices", f"data/notices/{old_id}.json"),
+            ):
+                old_path = str(remote_old_entry.get(key) or default_old_path).strip()
+                new_path = str(merged_new_entry.get(key) or "").strip()
+                if old_path and new_path and old_path != new_path:
+                    self._github_delete_file(old_path, message=f"Rename server {old_id} to {new_id}: delete old {key}")
+        self._cache_github_server_entries_from_index(next_entries)
+        return True, "GitHub 서버 이름/경로를 갱신했습니다."
 
     def _get_next_github_data_version(self, current_version: object = None) -> str:
         today_prefix = datetime.now().strftime("%Y.%m.%d")
@@ -3479,6 +3930,18 @@ class BossTimerApp:
             "servers": servers,
         }
 
+    def _build_github_server_index_entry(
+        self,
+        index_payload: dict[str, object] | None,
+        server_id: str,
+    ) -> dict[str, object] | None:
+        if not isinstance(index_payload, dict):
+            return None
+        for item in index_payload.get("servers", []):
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == str(server_id or "").strip():
+                return dict(item)
+        return None
+
     def _find_github_server_entry(self, entries: list[dict[str, object]], server_id: str) -> dict[str, object] | None:
         target_id = str(server_id or "").strip()
         for entry in entries:
@@ -3520,6 +3983,504 @@ class BossTimerApp:
             "name": server_name,
             "schedule": f"data/schedules/{server_id}.json",
         }
+
+    def _build_github_server_entry_from_metadata(self, server_name: object, guild_name: object = "") -> dict[str, object]:
+        server_id = self._build_schedule_share_prefix(server_name, guild_name)
+        server_id = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", server_id).strip("._-") or "default"
+        display_name = self._sanitize_season_metadata_text(server_name) or server_id
+        return {
+            "id": server_id,
+            "name": display_name,
+            "schedule": f"data/schedules/{server_id}.json",
+            "bosses": f"data/bosses/{server_id}.json",
+            "config": f"data/config/{server_id}.json",
+            "notices": f"data/notices/{server_id}.json",
+        }
+
+    def _remove_github_server_entry_locally(self, server_id: object) -> None:
+        target_id = str(server_id or "").strip()
+        if not target_id:
+            return
+        entries = [
+            dict(entry)
+            for entry in getattr(self, "schedule_github_server_entries", []) or []
+            if isinstance(entry, dict) and str(entry.get("id") or "").strip() != target_id
+        ]
+        self.schedule_github_server_entries = entries
+        self._save_github_server_entries_cache(entries)
+        values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in entries]
+        if self.schedule_github_server_combo is not None:
+            try:
+                self.schedule_github_server_combo.configure(values=values)
+            except tk.TclError:
+                pass
+
+    def _sync_github_server_combo_to_loaded_meta(self) -> bool:
+        if not hasattr(self, "schedule_github_server_var"):
+            return False
+        meta_entry = self._get_current_loaded_github_server_entry_from_meta()
+        meta_id = str((meta_entry or {}).get("id") or "").strip()
+        meta_name = str((meta_entry or {}).get("name") or meta_id).strip()
+        if not meta_id and not meta_name:
+            return False
+        matched_entry = None
+        for entry in getattr(self, "schedule_github_server_entries", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("id") or "").strip()
+            entry_name = str(entry.get("name") or entry_id).strip()
+            if (meta_id and entry_id == meta_id) or (meta_name and entry_name == meta_name):
+                matched_entry = entry
+                break
+        if matched_entry is None and isinstance(meta_entry, dict):
+            self._upsert_github_server_entry_locally(meta_entry)
+            matched_entry = meta_entry
+        if not isinstance(matched_entry, dict):
+            return False
+        server_name = str(matched_entry.get("name") or matched_entry.get("id") or "").strip()
+        if not server_name:
+            return False
+        self.schedule_github_server_var.set(self._format_github_server_combo_text(server_name))
+        return True
+
+    def _merge_local_github_server_entries(self, entries: list[dict[str, object]] | None) -> list[dict[str, object]]:
+        deleted_ids = {str(server_id or "").strip() for server_id in getattr(self, "schedule_github_deleted_server_ids", set()) if str(server_id or "").strip()}
+        merged_by_id: dict[str, dict[str, object]] = {}
+        for item in entries or []:
+            if not isinstance(item, dict):
+                continue
+            server_id = str(item.get("id") or "").strip()
+            if not server_id or server_id in deleted_ids:
+                continue
+            merged_by_id[server_id] = dict(item)
+        merged: list[dict[str, object]] = list(merged_by_id.values())
+        if not self._has_ready_season():
+            return merged
+        local_entry = self._get_current_github_upload_server_entry()
+        local_id = str(local_entry.get("id") or "").strip()
+        if not local_id:
+            return merged
+        if local_id not in merged_by_id:
+            local_entry["localOnly"] = True
+            merged.append(local_entry)
+        merged.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        return merged
+
+    def _normalize_github_server_entries_cache(self, payload: object) -> list[dict[str, object]]:
+        raw_entries = payload.get("servers") if isinstance(payload, dict) else payload
+        if not isinstance(raw_entries, list):
+            return []
+        deleted_ids = {str(server_id or "").strip() for server_id in getattr(self, "schedule_github_deleted_server_ids", set()) if str(server_id or "").strip()}
+        entries_by_id: dict[str, dict[str, object]] = {}
+        for raw_entry in raw_entries:
+            if not isinstance(raw_entry, dict):
+                continue
+            server_id = str(raw_entry.get("id") or "").strip()
+            server_name = str(raw_entry.get("name") or server_id).strip()
+            if not server_id or not server_name or server_id in deleted_ids:
+                continue
+            entry = dict(raw_entry)
+            entry["id"] = server_id
+            entry["name"] = server_name
+            entry["schedule"] = str(raw_entry.get("schedule") or f"data/schedules/{server_id}.json").strip()
+            entries_by_id[server_id] = entry
+        entries = list(entries_by_id.values())
+        entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        return entries
+
+    def _load_github_server_entries_cache(self) -> list[dict[str, object]]:
+        if not os.path.exists(SCHEDULE_GITHUB_SERVER_CACHE_PATH):
+            return []
+        try:
+            with open(SCHEDULE_GITHUB_SERVER_CACHE_PATH, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return []
+        if isinstance(payload, dict):
+            raw_deleted_ids = payload.get("deletedServerIds")
+            if isinstance(raw_deleted_ids, list):
+                self.schedule_github_deleted_server_ids = {
+                    str(server_id or "").strip()
+                    for server_id in raw_deleted_ids
+                    if str(server_id or "").strip()
+                }
+        return self._normalize_github_server_entries_cache(payload)
+
+    def _save_github_server_entries_cache(self, entries: list[dict[str, object]] | None = None) -> None:
+        cached_entries = self._normalize_github_server_entries_cache(entries if entries is not None else getattr(self, "schedule_github_server_entries", []))
+        payload = {
+            "version": 1,
+            "cachedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "deletedServerIds": sorted(
+                str(server_id or "").strip()
+                for server_id in getattr(self, "schedule_github_deleted_server_ids", set())
+                if str(server_id or "").strip()
+            ),
+            "servers": cached_entries,
+        }
+        try:
+            with open(SCHEDULE_GITHUB_SERVER_CACHE_PATH, "w", encoding="utf-8") as file:
+                json.dump(payload, file, ensure_ascii=False, separators=(",", ":"))
+        except OSError:
+            return
+
+    def _safe_github_local_cache_server_id(self, server_id: object) -> str:
+        cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", str(server_id or "").strip()).strip("._-")
+        return cleaned or "default"
+
+    def _get_github_local_cache_path(self, server_id: object, kind: str) -> str:
+        safe_id = self._safe_github_local_cache_server_id(server_id)
+        safe_kind = re.sub(r"[^0-9A-Za-z._-]+", "_", str(kind or "").strip()).strip("._-") or "schedule"
+        if safe_kind == "schedule":
+            return self._get_schedule_shared_main_path(safe_id)
+        if safe_kind in {"bosses", "boss", "boss_config"}:
+            return self._get_schedule_shared_main_boss_path(safe_id)
+        return os.path.join(SCHEDULE_GITHUB_LOCAL_CACHE_DIR, f"{safe_id}_{safe_kind}.json")
+
+    def _get_github_legacy_local_cache_path(self, server_id: object, kind: str) -> str:
+        safe_id = self._safe_github_local_cache_server_id(server_id)
+        safe_kind = re.sub(r"[^0-9A-Za-z._-]+", "_", str(kind or "").strip()).strip("._-") or "schedule"
+        return os.path.join(SCHEDULE_GITHUB_LOCAL_CACHE_DIR, f"{safe_id}_{safe_kind}.json")
+
+    def _save_github_local_payload_cache(
+        self,
+        entry: dict[str, object] | None,
+        *,
+        schedule_payload: dict[str, object] | None = None,
+        boss_payload: dict[str, object] | None = None,
+    ) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        server_id = str(entry.get("id") or "").strip()
+        if not server_id:
+            return False
+        saved_any = False
+        failed = False
+        if isinstance(schedule_payload, dict):
+            cached_schedule_payload = dict(schedule_payload)
+            cached_schedule_payload["_githubCacheTargetId"] = server_id
+            source_meta_entry = self._get_current_loaded_github_server_entry_from_meta()
+            if isinstance(source_meta_entry, dict):
+                cached_schedule_payload["_githubCacheSourceId"] = str(source_meta_entry.get("id") or "").strip()
+            meta_item = self._get_github_import_meta_item_for_entry(entry)
+            cached_version_item = self._get_github_cached_item_for_entry(entry)
+            if meta_item or cached_version_item:
+                schedule_version_text = str(
+                    meta_item.get("scheduleVersion")
+                    or cached_version_item.get("scheduleVersion")
+                    or ""
+                ).strip()
+                boss_config_version_text = str(
+                    meta_item.get("bossConfigVersion")
+                    or cached_version_item.get("bossConfigVersion")
+                    or ""
+                ).strip()
+                cached_schedule_payload["_githubScheduleVersion"] = schedule_version_text
+                cached_schedule_payload["_githubBossConfigVersion"] = boss_config_version_text
+                cached_schedule_payload["_githubCacheComplete"] = bool(schedule_version_text or boss_config_version_text)
+            if self._write_schedule_shared_export_payload(cached_schedule_payload, self._get_github_local_cache_path(server_id, "schedule")):
+                saved_any = True
+            else:
+                failed = True
+        if isinstance(boss_payload, dict):
+            try:
+                cached_boss_payload = dict(boss_payload)
+                cached_boss_payload["_githubCacheTargetId"] = server_id
+                meta_item = self._get_github_import_meta_item_for_entry(entry)
+                if meta_item:
+                    cached_boss_payload["_githubBossConfigVersion"] = str(meta_item.get("bossConfigVersion") or "").strip()
+                if self._write_schedule_shared_export_payload(cached_boss_payload, self._get_github_local_cache_path(server_id, "bosses")):
+                    saved_any = True
+                else:
+                    failed = True
+            except OSError:
+                failed = True
+        return saved_any and not failed
+
+    def _get_github_local_cache_versions(
+        self,
+        entry: dict[str, object] | None,
+        schedule_payload: dict[str, object] | None = None,
+    ) -> tuple[str, str]:
+        payload = schedule_payload
+        if not isinstance(payload, dict):
+            payload, _cache_path = self._load_github_local_schedule_payload(entry)
+        if not isinstance(payload, dict):
+            return "", ""
+        schedule_version = str(payload.get("_githubScheduleVersion") or "").strip()
+        boss_config_version = str(payload.get("_githubBossConfigVersion") or "").strip()
+        if (
+            not schedule_version
+            and not boss_config_version
+            and isinstance(entry, dict)
+            and (bool(payload.get("_githubCacheComplete")) or self._schedule_shared_payload_has_data(payload))
+        ):
+            schedule_version, boss_config_version = self._get_github_cached_versions_for_entry(entry)
+        if not boss_config_version and isinstance(entry, dict):
+            boss_meta_payload = self._load_github_local_boss_payload_raw(entry)
+            if isinstance(boss_meta_payload, dict):
+                boss_config_version = str(boss_meta_payload.get("_githubBossConfigVersion") or boss_meta_payload.get("dataVersion") or "").strip()
+        return schedule_version, boss_config_version
+
+    def _get_current_loaded_github_server_entry_from_meta(self) -> dict[str, object] | None:
+        meta = self.schedule_last_import_meta if isinstance(self.schedule_last_import_meta, dict) else {}
+        server_id = str(meta.get("github_server_id") or "").strip()
+        if not server_id:
+            return None
+        server_name = str(meta.get("server_name") or meta.get("source_name") or server_id).strip() or server_id
+        schedule_path = str(meta.get("source_path") or f"data/schedules/{server_id}.json").strip()
+        boss_config_path = str(meta.get("bossConfigPath") or "").strip()
+        entry = {
+            "id": server_id,
+            "name": server_name,
+            "schedule": schedule_path,
+        }
+        if boss_config_path:
+            entry["bosses"] = boss_config_path
+        return entry
+
+    def _is_current_server_schedule_selected_for_upload(self) -> bool:
+        if self._is_master_developer_mode_enabled():
+            return True
+        current_entry = self._get_current_github_upload_server_entry()
+        current_id = str(current_entry.get("id") or "").strip()
+        if not current_id:
+            return False
+        selected_entry = self._get_selected_github_server_entry() if hasattr(self, "schedule_github_server_entries") else None
+        selected_id = str((selected_entry or {}).get("id") or "").strip()
+        meta_entry = self._get_current_loaded_github_server_entry_from_meta()
+        meta_id = str((meta_entry or {}).get("id") or "").strip()
+        if selected_id and selected_id != current_id:
+            return False
+        if meta_id and meta_id != current_id:
+            return False
+        return True
+
+    def _explain_upload_requires_own_server(self) -> None:
+        self.schedule_status_var.set("내 서버 스케쥴을 보고 있을 때만 서버 업로드를 할 수 있습니다. 서버 목록에서 내 서버로 변경하세요.")
+
+    def _save_current_schedule_to_github_local_cache(self, entry: dict[str, object] | None = None) -> bool:
+        target_entry = dict(entry or self._get_current_loaded_github_server_entry_from_meta() or self._get_current_github_upload_server_entry())
+        current_meta_entry = self._get_current_loaded_github_server_entry_from_meta()
+        if entry is not None and isinstance(current_meta_entry, dict):
+            target_id = str(target_entry.get("id") or "").strip()
+            current_id = str(current_meta_entry.get("id") or "").strip()
+            if target_id and current_id and target_id != current_id:
+                return False
+        payload = self._create_schedule_shared_export_payload(self.current_season_no, self.current_season_started_at)
+        server_id = str(target_entry.get("id") or "").strip()
+        server_name = str(target_entry.get("name") or server_id).strip()
+        if isinstance(payload, dict) and server_id:
+            payload["share_prefix"] = server_id
+            payload["server_name"] = server_name
+        return self._save_github_local_payload_cache(target_entry, schedule_payload=payload)
+
+    def _current_schedule_has_data(self) -> bool:
+        return bool(
+            len(getattr(self, "schedule_events", []) or [])
+            + len(getattr(self, "schedule_active_entries", []) or [])
+            + len(getattr(self, "schedule_control_events", []) or [])
+        )
+
+    def _schedule_debounced_save_current_main_schedule(self, delay_ms: int = 1200) -> None:
+        if bool(getattr(self, "schedule_github_version_cache_suspended", False)):
+            return
+        if not self._current_schedule_has_data():
+            return
+        previous_after_id = getattr(self, "schedule_main_save_after_id", None)
+        if previous_after_id is not None:
+            try:
+                self.root.after_cancel(previous_after_id)
+            except tk.TclError:
+                pass
+        try:
+            self.schedule_main_save_after_id = self.root.after(max(100, int(delay_ms)), self._flush_schedule_main_save)
+        except tk.TclError:
+            self.schedule_main_save_after_id = None
+
+    def _flush_schedule_main_save(self) -> bool:
+        self.schedule_main_save_after_id = None
+        if not self._current_schedule_has_data():
+            return False
+        return self._save_current_schedule_to_github_local_cache()
+
+    def _cancel_schedule_main_save_after(self) -> None:
+        after_id = getattr(self, "schedule_main_save_after_id", None)
+        if after_id is None:
+            return
+        try:
+            self.root.after_cancel(after_id)
+        except tk.TclError:
+            pass
+        self.schedule_main_save_after_id = None
+
+    def _github_entry_has_known_remote_schedule(self, entry: dict[str, object] | None) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        if bool(entry.get("localOnly")):
+            return False
+        if str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip():
+            return True
+        cached_schedule_version, _cached_boss_version = self._get_github_cached_versions_for_entry(entry)
+        return bool(str(cached_schedule_version or "").strip())
+
+    def _load_github_local_schedule_payload(self, entry: dict[str, object] | None) -> tuple[dict[str, object] | None, str]:
+        if not isinstance(entry, dict):
+            return None, ""
+        server_id = str(entry.get("id") or "").strip()
+        if not server_id:
+            return None, ""
+        path = self._get_github_local_cache_path(server_id, "schedule")
+        payload = self._load_schedule_shared_payload_from_path(path)
+        if isinstance(payload, dict):
+            return payload, path
+        legacy_path = self._get_github_legacy_local_cache_path(server_id, "schedule")
+        if legacy_path != path:
+            legacy_payload = self._load_schedule_shared_payload_from_path(legacy_path)
+            if isinstance(legacy_payload, dict):
+                self._write_schedule_shared_export_payload(legacy_payload, path)
+                try:
+                    os.remove(legacy_path)
+                except OSError:
+                    pass
+                return legacy_payload, path
+        return payload, path
+
+    def _copy_github_local_cache_between_entries(
+        self,
+        old_entry: dict[str, object] | None,
+        new_entry: dict[str, object] | None,
+        *,
+        season_label: str = "",
+        server_name: str = "",
+        guild_name: str = "",
+    ) -> bool:
+        if not isinstance(old_entry, dict) or not isinstance(new_entry, dict):
+            return False
+        old_id = str(old_entry.get("id") or "").strip()
+        new_id = str(new_entry.get("id") or "").strip()
+        if not old_id or not new_id or old_id == new_id:
+            return False
+        payload, _cache_path = self._load_github_local_schedule_payload(old_entry)
+        copied = False
+        new_name = str(new_entry.get("name") or server_name or new_id).strip() or new_id
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload["share_prefix"] = new_id
+            payload["server_name"] = str(server_name or new_name).strip() or new_name
+            if guild_name:
+                payload["guild_name"] = str(guild_name).strip()
+            if season_label:
+                payload["season_label"] = str(season_label).strip()
+            payload["_githubCacheTargetId"] = new_id
+            payload["_githubCacheSourceId"] = new_id
+            old_schedule_version, old_boss_version = self._get_github_local_cache_versions(old_entry, payload)
+            if old_schedule_version:
+                payload["_githubScheduleVersion"] = old_schedule_version
+            if old_boss_version:
+                payload["_githubBossConfigVersion"] = old_boss_version
+            if old_schedule_version or old_boss_version or self._schedule_shared_payload_has_data(payload):
+                payload["_githubCacheComplete"] = True
+            copied = self._write_schedule_shared_export_payload(
+                payload,
+                self._get_github_local_cache_path(new_id, "schedule"),
+            )
+            if copied:
+                old_main_path = self._get_github_local_cache_path(old_id, "schedule")
+                new_main_path = self._get_github_local_cache_path(new_id, "schedule")
+                if old_main_path != new_main_path:
+                    try:
+                        if os.path.exists(old_main_path):
+                            os.remove(old_main_path)
+                    except OSError:
+                        pass
+                self._write_schedule_shared_export_payload(payload, self._get_schedule_shared_backup_path(new_id))
+                self._set_github_cached_versions(
+                    new_id,
+                    str(payload.get("_githubScheduleVersion") or old_schedule_version or "").strip(),
+                    str(payload.get("_githubBossConfigVersion") or old_boss_version or "").strip(),
+                    server_name=new_name,
+                    schedule_path=str(new_entry.get("schedule") or "").strip(),
+                )
+        old_boss_path = self._get_github_local_cache_path(old_id, "bosses")
+        if not os.path.isfile(old_boss_path):
+            old_boss_path = self._get_github_legacy_local_cache_path(old_id, "bosses")
+        new_boss_path = self._get_github_local_cache_path(new_id, "bosses")
+        if os.path.isfile(old_boss_path):
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(new_boss_path)), exist_ok=True)
+                shutil.copy2(old_boss_path, new_boss_path)
+                if old_boss_path != new_boss_path:
+                    try:
+                        os.remove(old_boss_path)
+                    except OSError:
+                        pass
+                copied = True
+            except OSError:
+                pass
+        return copied
+
+    def _is_github_local_schedule_cache_trusted(
+        self,
+        entry: dict[str, object] | None,
+        payload: dict[str, object] | None,
+    ) -> bool:
+        if not isinstance(entry, dict) or not isinstance(payload, dict):
+            return False
+        server_id = str(entry.get("id") or "").strip()
+        if not server_id:
+            return False
+        cached_target_id = str(payload.get("_githubCacheTargetId") or payload.get("share_prefix") or "").strip()
+        if cached_target_id and cached_target_id != server_id:
+            return False
+        cached_source_id = str(payload.get("_githubCacheSourceId") or "").strip()
+        if cached_source_id and cached_source_id != server_id:
+            return False
+        if self._schedule_shared_payload_has_data(payload):
+            return True
+        if bool(payload.get("_githubCacheComplete")):
+            return True
+        has_remote_version = bool(str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip())
+        cached_schedule_version, cached_boss_version = self._get_github_cached_versions_for_entry(entry)
+        if has_remote_version or cached_schedule_version or cached_boss_version:
+            return False
+        return True
+
+    def _load_github_local_boss_payload(self, entry: dict[str, object] | None) -> dict[str, object] | None:
+        payload = self._load_github_local_boss_payload_raw(entry)
+        return self._unwrap_github_boss_config_payload(payload)
+
+    def _load_github_local_boss_payload_raw(self, entry: dict[str, object] | None) -> dict[str, object] | None:
+        if not isinstance(entry, dict):
+            return None
+        server_id = str(entry.get("id") or "").strip()
+        if not server_id:
+            return None
+        path = self._get_github_local_cache_path(server_id, "bosses")
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            payload = None
+        if isinstance(payload, dict):
+            return payload
+        legacy_path = self._get_github_legacy_local_cache_path(server_id, "bosses")
+        if legacy_path != path:
+            try:
+                with open(legacy_path, "r", encoding="utf-8") as file:
+                    legacy_payload = json.load(file)
+            except (OSError, json.JSONDecodeError):
+                legacy_payload = None
+            if isinstance(legacy_payload, dict):
+                unwrapped = self._unwrap_github_boss_config_payload(legacy_payload)
+                if isinstance(unwrapped, dict):
+                    self._save_github_local_payload_cache(entry, boss_payload=unwrapped)
+                    try:
+                        os.remove(legacy_path)
+                    except OSError:
+                        pass
+                    return legacy_payload
+        return None
 
     def _unwrap_github_schedule_payload(self, payload: dict[str, object] | None) -> dict[str, object] | None:
         if not isinstance(payload, dict):
@@ -3741,6 +4702,15 @@ class BossTimerApp:
             str(item.get("bossConfigVersion") or "").strip(),
         )
 
+    def _select_newer_github_data_version(self, left: str, right: str) -> str:
+        left_text = str(left or "").strip()
+        right_text = str(right or "").strip()
+        if not left_text:
+            return right_text
+        if not right_text:
+            return left_text
+        return left_text if self._compare_github_data_versions(left_text, right_text) >= 0 else right_text
+
     def _restore_github_cache_from_import_meta(self) -> None:
         meta = self.schedule_last_import_meta if isinstance(self.schedule_last_import_meta, dict) else {}
         if str(meta.get("source_type") or "").strip() != "github_data":
@@ -3757,6 +4727,74 @@ class BossTimerApp:
             server_name=str(meta.get("server_name") or meta.get("source_name") or server_id).strip(),
             schedule_path=str(meta.get("source_path") or "").strip(),
         )
+
+    def _cache_github_server_entries_from_index(self, entries: list[dict[str, object]]) -> None:
+        changed = False
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            server_id = str(entry.get("id") or "").strip()
+            if not server_id:
+                continue
+            self.schedule_github_deleted_server_ids.discard(server_id)
+            schedule_version = str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip()
+            boss_config_version = str(entry.get("bossConfigVersion") or "").strip()
+            if not schedule_version and not boss_config_version:
+                continue
+            server_name = str(entry.get("name") or server_id).strip()
+            schedule_path = str(entry.get("schedule") or "").strip()
+            for key in self._get_github_cache_keys_for_entry(
+                {"id": server_id, "name": server_name, "schedule": schedule_path}
+            ):
+                previous = dict(self.schedule_github_version_cache.get(key, {}))
+                next_item = dict(previous)
+                if schedule_version:
+                    next_item["scheduleVersion"] = schedule_version
+                if boss_config_version:
+                    next_item["bossConfigVersion"] = boss_config_version
+                next_item["scheduleDirty"] = ""
+                next_item["bossConfigDirty"] = ""
+                if next_item != previous:
+                    self.schedule_github_version_cache[key] = next_item
+                    changed = True
+        if changed:
+            self._save_github_version_cache()
+
+    def _upsert_github_server_entry_locally(self, entry: dict[str, object] | None) -> None:
+        if not isinstance(entry, dict):
+            return
+        server_id = str(entry.get("id") or "").strip()
+        server_name = str(entry.get("name") or server_id).strip()
+        if not server_id or not server_name:
+            return
+        normalized_entry = dict(entry)
+        normalized_entry["id"] = server_id
+        normalized_entry["name"] = server_name
+        normalized_entry["schedule"] = str(entry.get("schedule") or f"data/schedules/{server_id}.json").strip()
+        entries: list[dict[str, object]] = []
+        replaced = False
+        for raw_entry in getattr(self, "schedule_github_server_entries", []) or []:
+            if not isinstance(raw_entry, dict):
+                continue
+            raw_id = str(raw_entry.get("id") or "").strip()
+            if raw_id == server_id:
+                entries.append({**raw_entry, **normalized_entry})
+                replaced = True
+            else:
+                entries.append(dict(raw_entry))
+        if not replaced:
+            entries.append(normalized_entry)
+        entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        self.schedule_github_server_entries = entries
+        self._save_github_server_entries_cache(entries)
+        values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in entries]
+        if self.schedule_github_server_combo is not None:
+            try:
+                self.schedule_github_server_combo.configure(values=values)
+            except tk.TclError:
+                pass
+        if hasattr(self, "schedule_github_server_var"):
+            self.schedule_github_server_var.set(self._format_github_server_combo_text(server_name))
 
     def _update_github_import_meta(
         self,
@@ -3954,7 +4992,7 @@ class BossTimerApp:
         target_server: dict[str, object] | None = None,
         *,
         progress_callback=None,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, dict[str, object] | None]:
         def progress(message: str) -> None:
             if progress_callback is None:
                 return
@@ -3972,11 +5010,12 @@ class BossTimerApp:
         progress("서버 인덱스를 확인하는 중입니다.")
         index_payload, index_sha, index_error = self._github_get_json_file("data/server_index.json")
         if index_error:
-            return False, index_error
+            return False, index_error, None
         existing_entry = self._find_github_server_entry(
             self._extract_github_server_entries(index_payload),
             server_id,
         )
+        is_new_server_entry = existing_entry is None
         existing_schedule_version = str(
             (existing_entry or {}).get("scheduleVersion")
             or (existing_entry or {}).get("dataVersion")
@@ -3993,16 +5032,27 @@ class BossTimerApp:
         )
         local_schedule_version = str(local_cache_item.get("scheduleVersion") or existing_schedule_version).strip()
         local_boss_config_version = str(local_cache_item.get("bossConfigVersion") or existing_boss_config_version).strip()
-        schedule_changed = (
-            str(local_cache_item.get("scheduleDirty") or "") == "1"
-            or self._compare_github_data_versions(local_schedule_version, existing_schedule_version) > 0
-        )
-        boss_config_changed = (
-            str(local_cache_item.get("bossConfigDirty") or "") == "1"
-            or self._compare_github_data_versions(local_boss_config_version, existing_boss_config_version) > 0
-        )
+        schedule_dirty = str(local_cache_item.get("scheduleDirty") or "") == "1"
+        boss_config_dirty = str(local_cache_item.get("bossConfigDirty") or "") == "1"
+        schedule_version_compare = self._compare_github_data_versions(local_schedule_version, existing_schedule_version)
+        boss_config_version_compare = self._compare_github_data_versions(local_boss_config_version, existing_boss_config_version)
+        schedule_changed = is_new_server_entry or schedule_version_compare > 0 or (schedule_dirty and not existing_schedule_version)
+        boss_config_changed = is_new_server_entry or boss_config_version_compare > 0 or (boss_config_dirty and not existing_boss_config_version)
+        if schedule_dirty and existing_schedule_version and schedule_version_compare <= 0:
+            schedule_changed = False
+        if boss_config_dirty and existing_boss_config_version and boss_config_version_compare <= 0:
+            boss_config_changed = False
         if not schedule_changed and not boss_config_changed:
-            return True, f"{server_name}: 스케쥴/보스설정이 같은 버전입니다. 업로드하지 않았습니다."
+            if schedule_dirty or boss_config_dirty:
+                self._set_github_cached_versions(
+                    server_id,
+                    existing_schedule_version or local_schedule_version,
+                    existing_boss_config_version or local_boss_config_version,
+                    server_name=server_name,
+                    schedule_path=schedule_path,
+                )
+            unchanged_entry = self._build_github_server_index_entry(index_payload, server_id) or existing_entry
+            return True, f"{server_name}: 스케쥴/보스설정이 같은 버전입니다. 업로드하지 않았습니다.", unchanged_entry
         schedule_version = local_schedule_version if schedule_changed else existing_schedule_version
         boss_config_version = local_boss_config_version if boss_config_changed else existing_boss_config_version
         if schedule_changed and not schedule_version:
@@ -4019,7 +5069,7 @@ class BossTimerApp:
                 schedule_payload["payload"]["share_prefix"] = server_id
                 schedule_payload["payload"]["server_name"] = server_name
         except ValueError as exc:
-            return False, str(exc)
+            return False, str(exc), None
         schedule_payload["dataVersion"] = schedule_version
         schedule_payload["contentHash"] = existing_schedule_hash
         boss_config_payload["dataVersion"] = boss_config_version
@@ -4040,7 +5090,7 @@ class BossTimerApp:
                 progress("기존 스케쥴 파일 정보를 확인하는 중입니다.")
                 _existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
                 if schedule_error:
-                    return False, schedule_error
+                    return False, schedule_error, None
             progress("스케쥴 JSON을 업로드하는 중입니다.")
             ok, error = self._github_put_json_file(
                 schedule_path,
@@ -4049,13 +5099,13 @@ class BossTimerApp:
                 sha=schedule_sha,
             )
             if not ok:
-                return False, error
+                return False, error, None
         if boss_config_changed:
             if boss_config_sha is None:
                 progress("기존 보스설정 파일 정보를 확인하는 중입니다.")
                 _existing_boss_config, boss_config_sha, boss_config_error = self._github_get_json_file(boss_config_path)
                 if boss_config_error:
-                    return False, boss_config_error
+                    return False, boss_config_error, None
             progress("보스설정 JSON을 업로드하는 중입니다.")
             ok, error = self._github_put_json_file(
                 boss_config_path,
@@ -4064,7 +5114,7 @@ class BossTimerApp:
                 sha=boss_config_sha,
             )
             if not ok:
-                return False, error
+                return False, error, None
         progress("서버 목록 인덱스를 갱신하는 중입니다.")
         ok, error = self._github_put_json_file(
             "data/server_index.json",
@@ -4073,7 +5123,7 @@ class BossTimerApp:
             sha=index_sha,
         )
         if not ok:
-            return False, error
+            return False, error, None
         progress("업로드 버전을 기록하는 중입니다.")
         self._update_github_import_meta(
             server_id=server_id,
@@ -4083,7 +5133,160 @@ class BossTimerApp:
             boss_config_path=boss_config_path,
             boss_config_version=boss_config_version,
         )
-        return True, f"{server_name} 스케쥴/보스설정을 GitHub에 업로드했습니다. schedule={schedule_version}, boss={boss_config_version}"
+        self._save_current_schedule_to_github_local_cache(
+            {"id": server_id, "name": server_name, "schedule": schedule_path, "bosses": boss_config_path}
+        )
+        previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
+        self.schedule_github_version_cache_suspended = True
+        try:
+            self._save_schedule_state(mark_github_dirty=False)
+        finally:
+            self.schedule_github_version_cache_suspended = previous_cache_suspended
+        uploaded_entry = self._build_github_server_index_entry(index_payload, server_id)
+        return True, f"{server_name} 스케쥴/보스설정을 GitHub에 업로드했습니다. schedule={schedule_version}, boss={boss_config_version}", uploaded_entry
+
+    def _apply_github_server_management_changes(
+        self,
+        remaining_by_id: dict[str, dict[str, object]],
+        *,
+        requested_delete_ids: set[str] | None = None,
+        _retry_depth: int = 0,
+    ) -> tuple[bool, str, list[dict[str, object]]]:
+        index_payload, index_sha, index_error = self._github_get_json_file("data/server_index.json")
+        if index_error:
+            return False, index_error, self.schedule_github_server_entries
+        existing_entries = self._extract_github_server_entries(index_payload)
+        existing_by_id = {str(entry.get("id") or "").strip(): dict(entry) for entry in existing_entries if str(entry.get("id") or "").strip()}
+        requested_delete_ids = {str(server_id or "").strip() for server_id in (requested_delete_ids or set()) if str(server_id or "").strip()}
+        delete_ids = [
+            server_id
+            for server_id in existing_by_id
+            if server_id not in remaining_by_id or server_id in requested_delete_ids
+        ]
+        add_ids = [server_id for server_id in remaining_by_id if server_id not in existing_by_id]
+        next_entries: list[dict[str, object]] = []
+        for server_id, entry in remaining_by_id.items():
+            if server_id in requested_delete_ids:
+                continue
+            merged = dict(existing_by_id.get(server_id) or {})
+            merged.update(entry)
+            merged["id"] = server_id
+            merged["name"] = str(merged.get("name") or server_id).strip() or server_id
+            merged["schedule"] = str(merged.get("schedule") or f"data/schedules/{server_id}.json").strip()
+            merged["bosses"] = str(merged.get("bosses") or f"data/bosses/{server_id}.json").strip()
+            merged["config"] = str(merged.get("config") or f"data/config/{server_id}.json").strip()
+            merged["notices"] = str(merged.get("notices") or f"data/notices/{server_id}.json").strip()
+            if server_id in add_ids:
+                data_version = self._get_next_github_data_version()
+                merged["scheduleVersion"] = data_version
+                merged["dataVersion"] = data_version
+                merged["scheduleHash"] = ""
+                server_name_text = str(merged.get("name") or server_id).strip() or server_id
+                schedule_payload = self._build_empty_github_schedule_payload_for_server(server_id, server_name_text)
+                schedule_wrapper = {
+                    "appMinVersion": self._get_app_version_for_data(),
+                    "schemaVersion": "1.0.0",
+                    "dataVersion": data_version,
+                    "kind": "schedule",
+                    "payload": self._serialize_schedule_state_value(schedule_payload),
+                }
+                schedule_path = str(merged.get("schedule") or f"data/schedules/{server_id}.json").strip()
+                _existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
+                if schedule_error:
+                    return False, f"{server_name_text}: 기존 스케쥴 파일 확인 실패 - {schedule_error}", existing_entries
+                ok, error = self._github_put_json_file(
+                    schedule_path,
+                    schedule_wrapper,
+                    message=f"Create empty schedule {server_id} {data_version}",
+                    sha=schedule_sha,
+                )
+                if not ok:
+                    return False, f"{server_name_text}: 빈 스케쥴 파일 생성 실패 - {error}", existing_entries
+                self._save_github_local_payload_cache(merged, schedule_payload=schedule_payload)
+            next_entries.append(merged)
+        for server_id in delete_ids:
+            entry = existing_by_id.get(server_id, {})
+            paths = [
+                str(entry.get("schedule") or f"data/schedules/{server_id}.json").strip(),
+                str(entry.get("bosses") or f"data/bosses/{server_id}.json").strip(),
+                str(entry.get("config") or f"data/config/{server_id}.json").strip(),
+                str(entry.get("notices") or f"data/notices/{server_id}.json").strip(),
+            ]
+            for path in dict.fromkeys(path for path in paths if path):
+                ok, error = False, ""
+                for delete_attempt in range(3):
+                    ok, error = self._github_delete_file(path, message=f"Delete server file {server_id}")
+                    if ok:
+                        break
+                    if not any(code in str(error or "") for code in ("GitHub API 오류 403", "GitHub API 오류 409")):
+                        break
+                    time.sleep(0.75 * (delete_attempt + 1))
+                if not ok:
+                    return False, error, existing_entries
+            for cache_kind in ("schedule", "bosses"):
+                for cache_path in {
+                    self._get_github_local_cache_path(server_id, cache_kind),
+                    self._get_github_legacy_local_cache_path(server_id, cache_kind),
+                }:
+                    try:
+                        if os.path.exists(cache_path):
+                            os.remove(cache_path)
+                    except OSError:
+                        pass
+        next_entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        updated_index = dict(index_payload or {})
+        updated_index["appMinVersion"] = str(updated_index.get("appMinVersion") or self._get_app_version_for_data())
+        updated_index["schemaVersion"] = str(updated_index.get("schemaVersion") or "1.0.0")
+        updated_index["dataVersion"] = self._get_next_github_data_version(str(updated_index.get("dataVersion") or ""))
+        updated_index["servers"] = next_entries
+        ok, error = self._github_put_json_file(
+            "data/server_index.json",
+            updated_index,
+            message=f"Update server list {updated_index['dataVersion']}",
+            sha=index_sha,
+        )
+        if not ok:
+            if any(code in str(error or "") for code in ("GitHub API 오류 403", "GitHub API 오류 409")) and _retry_depth < 3:
+                time.sleep(0.8 * (_retry_depth + 1))
+                return self._apply_github_server_management_changes(
+                    remaining_by_id,
+                    requested_delete_ids=requested_delete_ids,
+                    _retry_depth=_retry_depth + 1,
+                )
+            return False, error, existing_entries
+        verify_note = ""
+        if add_ids or delete_ids:
+            verify_error = ""
+            missing_added_ids = list(add_ids)
+            still_present_ids: list[str] = []
+            for verify_attempt in range(4):
+                if verify_attempt:
+                    time.sleep(0.35 * verify_attempt)
+                verify_payload, _verify_sha, verify_error = self._github_get_json_file("data/server_index.json")
+                if verify_error:
+                    continue
+                verify_ids = {
+                    str(entry.get("id") or "").strip()
+                    for entry in self._extract_github_server_entries(verify_payload)
+                    if str(entry.get("id") or "").strip()
+                }
+                missing_added_ids = [server_id for server_id in add_ids if server_id not in verify_ids]
+                still_present_ids = [server_id for server_id in delete_ids if server_id in verify_ids]
+                if not missing_added_ids and not still_present_ids:
+                    break
+            if verify_error:
+                return False, f"서버 목록 저장 후 검증 실패: {verify_error}", existing_entries
+            if missing_added_ids:
+                verify_note = f" GitHub 목록 검증이 지연되어 수동 목록 갱신에서 확인될 수 있습니다: {', '.join(missing_added_ids)}"
+            if still_present_ids:
+                delayed_text = f"삭제 검증이 지연되어 수동 목록 갱신에서 확인될 수 있습니다: {', '.join(still_present_ids)}"
+                verify_note = f"{verify_note} {delayed_text}".strip()
+            if delete_ids:
+                self.schedule_github_deleted_server_ids.update(delete_ids)
+            if add_ids:
+                self.schedule_github_deleted_server_ids.difference_update(add_ids)
+        self._cache_github_server_entries_from_index(next_entries)
+        return True, f"서버 목록을 저장했습니다. 추가 {len(add_ids)}개, 삭제 {len(delete_ids)}개.{verify_note}", next_entries
 
     def _schedule_shared_payload_has_data(self, payload: dict[str, object] | None) -> bool:
         if not isinstance(payload, dict):
@@ -4146,16 +5349,78 @@ class BossTimerApp:
         server_name: str,
         guild_name: str,
     ) -> str:
-        parts: list[str] = []
-        for raw_value in (season_label, server_name, guild_name, "스케쥴(저장용)"):
+        def safe_part(raw_value: object) -> str:
             normalized = str(raw_value or "").strip()
             if not normalized:
-                continue
+                return ""
             safe_value = re.sub(r'[\\/:*?"<>|]+', "_", normalized)
             safe_value = re.sub(r"\s+", "_", safe_value).strip("._-")
+            return safe_value
+
+        def token_set(value: str) -> set[str]:
+            return {token for token in re.split(r"[_\s]+", value) if token}
+
+        season_safe = safe_part(season_label)
+        season_tokens = token_set(season_safe)
+        server_safe = safe_part(server_name)
+        guild_safe = safe_part(guild_name)
+        parts: list[str] = []
+        for safe_value in (season_safe, server_safe, guild_safe, "스케쥴(저장용)"):
+            if not safe_value:
+                continue
+            if safe_value in {server_safe, guild_safe} and safe_value in season_tokens:
+                continue
             if safe_value and safe_value not in parts:
                 parts.append(safe_value)
         return "_".join(parts) or "스케쥴(저장용)"
+
+    def _normalize_existing_schedule_shared_archive_names(self) -> None:
+        archive_root = self._get_log_archive_dir()
+        if not os.path.isdir(archive_root):
+            return
+        try:
+            season_dirs = os.listdir(archive_root)
+        except OSError:
+            return
+        for season_dir_name in season_dirs:
+            season_dir = os.path.join(archive_root, season_dir_name)
+            archive_dir = os.path.join(season_dir, SCHEDULE_SHARED_ARCHIVE_DIRNAME)
+            if not os.path.isdir(archive_dir):
+                continue
+            try:
+                file_names = os.listdir(archive_dir)
+            except OSError:
+                continue
+            for file_name in file_names:
+                if not file_name.lower().endswith(".json"):
+                    continue
+                source_path = os.path.join(archive_dir, file_name)
+                if not os.path.isfile(source_path):
+                    continue
+                payload = self._load_schedule_shared_payload_from_path(source_path)
+                if not isinstance(payload, dict):
+                    continue
+                archived_at = payload.get("archived_at")
+                if isinstance(archived_at, datetime):
+                    archive_datetime = archived_at
+                else:
+                    archive_datetime = datetime.fromtimestamp(os.path.getmtime(source_path))
+                reason_text = re.sub(r"[^a-z0-9_]+", "_", str(payload.get("archive_reason") or "archive").strip().lower()) or "archive"
+                archive_stem = self._build_schedule_shared_archive_stem(
+                    str(payload.get("season_label") or season_dir_name).strip(),
+                    str(payload.get("server_name") or "").strip(),
+                    str(payload.get("guild_name") or "").strip(),
+                )
+                target_name = f"{archive_stem}_{archive_datetime.strftime('%Y%m%d_%H%M%S')}_{reason_text}.json"
+                if target_name == file_name:
+                    continue
+                target_path = os.path.join(archive_dir, target_name)
+                if os.path.exists(target_path):
+                    continue
+                try:
+                    os.rename(source_path, target_path)
+                except OSError:
+                    continue
 
     def _archive_current_schedule_shared_export(
         self,
@@ -4331,21 +5596,23 @@ class BossTimerApp:
         if changed and self._widget_available(getattr(self, "log_panel", None)):
             self._refresh_archive_management_view()
 
-    def _get_archive_season_dir(self, season_no: str | int | None) -> str:
+    def _get_archive_season_dir(self, season_no: str | int | None, *, create: bool = True) -> str:
         season_dir = os.path.join(self._get_log_archive_dir(), self._get_archive_season_label(season_no))
-        os.makedirs(season_dir, exist_ok=True)
+        if create:
+            os.makedirs(season_dir, exist_ok=True)
         return season_dir
 
-    def _get_schedule_archive_dir(self, season_no: str | int | None) -> str:
-        archive_dir = os.path.join(self._get_archive_season_dir(season_no), SCHEDULE_ARCHIVE_DIRNAME)
-        os.makedirs(archive_dir, exist_ok=True)
+    def _get_schedule_archive_dir(self, season_no: str | int | None, *, create: bool = True) -> str:
+        archive_dir = os.path.join(self._get_archive_season_dir(season_no, create=create), SCHEDULE_ARCHIVE_DIRNAME)
+        if create:
+            os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
     def _get_schedule_archive_snapshot_paths(self, season_no: str | int | None) -> list[str]:
         season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
         if not season_text:
             return []
-        archive_dir = self._get_schedule_archive_dir(season_text)
+        archive_dir = self._get_schedule_archive_dir(season_text, create=False)
         try:
             file_names = os.listdir(archive_dir)
         except OSError:
@@ -4369,12 +5636,7 @@ class BossTimerApp:
         existing_snapshots = self._get_schedule_archive_snapshot_paths(season_text)
         if existing_snapshots:
             return existing_snapshots[0]
-        archive_path, _archive_counts = self._archive_current_schedule_for_season(
-            season_text,
-            self.current_season_started_at,
-            archive_reason="startup_seed",
-        )
-        return archive_path
+        return None
 
     def _get_log_month_key(self, recorded_at: str | None = None) -> str:
         try:
@@ -4384,9 +5646,10 @@ class BossTimerApp:
             pass
         return datetime.now().strftime("%Y-%m")
 
-    def _get_log_month_dir(self, season_no: str | int | None, recorded_at: str | None = None) -> str:
-        month_dir = os.path.join(self._get_archive_season_dir(season_no), self._get_log_month_key(recorded_at))
-        os.makedirs(month_dir, exist_ok=True)
+    def _get_log_month_dir(self, season_no: str | int | None, recorded_at: str | None = None, *, create: bool = True) -> str:
+        month_dir = os.path.join(self._get_archive_season_dir(season_no, create=create), self._get_log_month_key(recorded_at))
+        if create:
+            os.makedirs(month_dir, exist_ok=True)
         return month_dir
 
     def _get_season_prestart_month_dir(self, season_no: str | int | None, recorded_at: str | None = None) -> str:
@@ -4682,7 +5945,7 @@ class BossTimerApp:
             total_size = 0
             latest_mtime_ns = 0
             found_any = False
-            for log_path in self._find_log_paths_for_boss_in_folder(self._get_logs_dir(), candidate_name):
+            for log_path in self._find_log_paths_for_boss_in_folder(self._get_logs_dir(create=False), candidate_name):
                 if not os.path.exists(log_path):
                     continue
                 try:
@@ -5289,8 +6552,8 @@ class BossTimerApp:
 
     def _center_window_over_parent(self, window: tk.Toplevel, parent: tk.Widget, width: int, height: int) -> None:
         parent.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() - width) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - height) // 2
+        x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
         window.geometry(f"{width}x{height}+{x}+{y}")
 
     def _get_centered_messagebox_parent(self, parent: tk.Widget | None = None) -> tk.Widget:
@@ -5732,7 +6995,7 @@ class BossTimerApp:
             or before_active_count != len(self.schedule_active_quick_cut_history)
         )
 
-    def _save_schedule_state(self, *, mark_github_dirty: bool = True) -> None:
+    def _save_schedule_state(self, *, mark_github_dirty: bool = True, sync_shared_export: bool = True) -> None:
         payload = {
             "base_datetime": self._get_schedule_base_datetime(),
             "view_date": self._get_schedule_view_datetime(),
@@ -5754,19 +7017,31 @@ class BossTimerApp:
             "schedule_active_quick_cut_history": self.schedule_active_quick_cut_history,
             "schedule_delete_active_cutoff_datetime": getattr(self, "schedule_delete_active_cutoff_datetime", None),
         }
+        temp_path = ""
         try:
-            with open(SCHEDULE_STATE_PATH, "w", encoding="utf-8") as file:
+            target_dir = os.path.dirname(os.path.abspath(SCHEDULE_STATE_PATH))
+            os.makedirs(target_dir, exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target_dir, delete=False, suffix=".tmp") as file:
+                temp_path = file.name
                 json.dump(
                     self._serialize_schedule_state_value(payload),
                     file,
                     ensure_ascii=False,
                     separators=(",", ":"),
                 )
+            os.replace(temp_path, SCHEDULE_STATE_PATH)
         except OSError:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
             return
-        self._sync_current_schedule_shared_export()
+        if sync_shared_export:
+            self._sync_current_schedule_shared_export()
         if mark_github_dirty:
             self._invalidate_github_cached_versions(schedule=True)
+            self._schedule_debounced_save_current_main_schedule()
 
     def _get_weekday_label(self, date_value: datetime) -> str:
         return ("월", "화", "수", "목", "금", "토", "일")[date_value.weekday()]
@@ -5998,6 +7273,21 @@ class BossTimerApp:
             return False, output or "Windows 시간 동기화에 실패했습니다."
         return True, output or "Windows 시간 동기화 성공"
 
+    def _run_windows_time_resync_with_service_recovery(self) -> tuple[bool, str, bool]:
+        sync_success, sync_message = self._run_windows_time_resync_command()
+        if sync_success or not self._is_windows_time_service_stopped_message(sync_message):
+            return sync_success, sync_message, False
+        if not bool(getattr(self, "is_admin_process", False)):
+            return sync_success, sync_message, False
+        start_success, start_message = self._start_windows_time_service_command()
+        if not start_success:
+            return False, f"{sync_message} | service_start_failed={start_message}", True
+        time.sleep(0.8)
+        retry_success, retry_message = self._run_windows_time_resync_command()
+        if retry_success:
+            return True, retry_message, True
+        return False, f"{retry_message or sync_message} | service_start={start_message}", True
+
     def _run_windows_time_event_log_query_command(self) -> tuple[bool, str]:
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         powershell_command = (
@@ -6110,12 +7400,15 @@ class BossTimerApp:
             auto_result = None
             query_success_at_text = self._extract_schedule_time_sync_success_text_from_message(first_query_message)
             parsed_query_success_at = self._parse_schedule_time_sync_datetime(query_success_at_text)
+            force_startup_sync = str(reason or "").strip().lower() == "startup"
             auto_sync_needed = is_admin_process and (
-                not isinstance(parsed_query_success_at, datetime)
+                force_startup_sync
+                or not isinstance(parsed_query_success_at, datetime)
                 or (datetime.now() - parsed_query_success_at).total_seconds() >= SCHEDULE_TIME_SYNC_INTERVAL_SECONDS
             )
             if auto_sync_needed:
-                sync_success, _sync_message = self._run_windows_time_resync_command()
+                sync_success, sync_message, sync_service_recovery = self._run_windows_time_resync_with_service_recovery()
+                service_recovery_attempted = service_recovery_attempted or sync_service_recovery
                 auto_result = "success" if sync_success else "failed"
                 if sync_success:
                     time.sleep(1.0)
@@ -6124,6 +7417,8 @@ class BossTimerApp:
                 if followup_query_success or not first_query_success:
                     final_success = followup_query_success
                     final_message = followup_query_message
+                if not sync_success:
+                    final_message = f"{final_message} | resync_failed={sync_message}" if final_message else sync_message
             if service_recovery_attempted and auto_result is None:
                 auto_result = "service_started" if final_success else "service_start_failed"
 
@@ -6275,6 +7570,12 @@ class BossTimerApp:
         if target_datetime > reference_datetime:
             target_datetime -= timedelta(days=7)
         return target_datetime
+
+    def _get_schedule_cycle_window_start_datetime(self, reference_datetime: datetime) -> datetime:
+        previous_maintenance = self._get_schedule_previous_maintenance_datetime(reference_datetime)
+        if isinstance(previous_maintenance, datetime):
+            return previous_maintenance.replace(hour=0, minute=0, second=0, microsecond=0)
+        return self._get_schedule_default_server_open_datetime(reference_datetime)
 
     def _get_schedule_view_refresh_key(self) -> tuple[int, int, int] | None:
         view_datetime = self._get_schedule_view_datetime()
@@ -6769,6 +8070,8 @@ class BossTimerApp:
             except (TypeError, ValueError):
                 stored_offset = 0.0
             if bool(revert_events) and abs(stored_offset) >= 0.05:
+                stored_offset_ticks = self._schedule_second_precision_offset_ticks(stored_offset, limit_ticks=100)
+                stored_offset_delta = timedelta(milliseconds=stored_offset_ticks * 100)
                 reverted_events: list[dict[str, object]] = []
                 for item in self.schedule_events:
                     if (
@@ -6777,7 +8080,7 @@ class BossTimerApp:
                         and isinstance(item.get("scheduled_at"), datetime)
                     ):
                         updated_item = dict(item)
-                        updated_item["scheduled_at"] = item["scheduled_at"] - timedelta(seconds=stored_offset)
+                        updated_item["scheduled_at"] = item["scheduled_at"] - stored_offset_delta
                         reverted_events.append(updated_item)
                     else:
                         reverted_events.append(item)
@@ -6830,9 +8133,10 @@ class BossTimerApp:
         if not str(item.get("second_precision_offset_key") or "").strip() and not isinstance(item.get("scheduled_at"), datetime):
             return scheduled_at
         offset_seconds = self._get_schedule_second_precision_offset_for_item(item) + float(extra_offset_delta or 0.0)
-        if abs(offset_seconds) < 0.05:
+        offset_ticks = self._schedule_second_precision_offset_ticks(offset_seconds, limit_ticks=100)
+        if offset_ticks == 0:
             return scheduled_at
-        return scheduled_at + timedelta(seconds=offset_seconds)
+        return scheduled_at + timedelta(milliseconds=offset_ticks * 100)
 
     def _format_schedule_clock_text_for_input(self, scheduled_at: datetime | None, precision: object) -> str:
         if not isinstance(scheduled_at, datetime):
@@ -7004,6 +8308,13 @@ class BossTimerApp:
             available_dates.add(next_maintenance.date())
         return sorted(available_dates)
 
+    def _has_schedule_data_for_fixed_boss_rows(self) -> bool:
+        return bool(
+            self.schedule_events
+            or self.schedule_active_entries
+            or self.schedule_control_events
+        )
+
     def _get_fixed_boss_effective_colors(self, text_color: str, bg_color: str) -> tuple[str, str]:
         if not bool(self.fixed_boss_color_data_enabled_var.get()):
             return DEFAULT_SCHEDULE_TEXT_COLOR, DEFAULT_SCHEDULE_BG_COLOR
@@ -7026,7 +8337,7 @@ class BossTimerApp:
         )
 
     def _get_fixed_boss_schedule_rows(self) -> list[tuple[datetime, str, str, str, str, str, str, str]]:
-        if not self.fixed_boss_entries:
+        if not self.fixed_boss_entries or not self._has_schedule_data_for_fixed_boss_rows():
             return []
         view_datetime = self._get_schedule_view_datetime()
         if view_datetime is None:
@@ -7088,7 +8399,7 @@ class BossTimerApp:
         return rows
 
     def _get_fixed_boss_schedule_rows_for_alarm(self, reference_datetime: datetime, days: int = 3) -> list[tuple[datetime, str, str, str, str, str, str, str]]:
-        if not self.fixed_boss_entries:
+        if not self.fixed_boss_entries or not self._has_schedule_data_for_fixed_boss_rows():
             return []
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         window_start = reference_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -7144,7 +8455,7 @@ class BossTimerApp:
         start_datetime: datetime,
         end_datetime: datetime,
     ) -> list[tuple[datetime, str, str, str, str, str, str, str]]:
-        if not self.fixed_boss_entries:
+        if not self.fixed_boss_entries or not self._has_schedule_data_for_fixed_boss_rows():
             return []
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         window_start = start_datetime.replace(microsecond=0)
@@ -8226,8 +9537,7 @@ class BossTimerApp:
         if not sanitized_snapshot:
             return {}
         resolved_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
-        previous_maintenance = self._get_schedule_previous_maintenance_datetime(resolved_reference)
-        window_start = previous_maintenance if isinstance(previous_maintenance, datetime) else self._get_schedule_default_server_open_datetime(resolved_reference)
+        window_start = self._get_schedule_cycle_window_start_datetime(resolved_reference)
         window_end = self._get_schedule_maintenance_cutoff_datetime(resolved_reference)
         if not isinstance(window_end, datetime) or window_end <= window_start:
             window_end = window_start + timedelta(days=7)
@@ -8264,8 +9574,7 @@ class BossTimerApp:
 
     def _create_schedule_restore_cycle_snapshot(self, reference_datetime: datetime | None = None) -> dict[str, object]:
         resolved_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
-        previous_maintenance = self._get_schedule_previous_maintenance_datetime(resolved_reference)
-        window_start = previous_maintenance if isinstance(previous_maintenance, datetime) else self._get_schedule_default_server_open_datetime(resolved_reference)
+        window_start = self._get_schedule_cycle_window_start_datetime(resolved_reference)
         window_end = self._get_schedule_maintenance_cutoff_datetime(resolved_reference)
         if not isinstance(window_end, datetime) or window_end <= window_start:
             window_end = window_start + timedelta(days=7)
@@ -8385,6 +9694,7 @@ class BossTimerApp:
     def _reset_schedule_for_new_season(self, reference_datetime: datetime | None = None) -> None:
         resolved_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
         self.schedule_events = []
+        self._reset_schedule_alarm_event_index()
         self.schedule_active_entries = []
         self.schedule_control_events = []
         self.schedule_second_precision_offsets = {}
@@ -8463,6 +9773,8 @@ class BossTimerApp:
         schedule_events = snapshot.get("schedule_events")
         if isinstance(schedule_events, list):
             self.schedule_events = self._normalize_schedule_event_items([item for item in schedule_events if isinstance(item, dict)])
+            self._reset_schedule_alarm_event_index()
+            self.schedule_alarm_fired_keys = {}
         schedule_active_entries = snapshot.get("schedule_active_entries")
         if isinstance(schedule_active_entries, list):
             self.schedule_active_entries = self._normalize_schedule_active_items([item for item in schedule_active_entries if isinstance(item, dict)])
@@ -9799,19 +11111,30 @@ class BossTimerApp:
         next_maintenance_datetime = self._get_schedule_maintenance_cutoff_datetime(reference_now)
         previous_rows: list[tuple[datetime, str]] = []
         future_rows: list[tuple[datetime, str]] = []
-        for item in self.schedule_events:
-            scheduled_at = item.get("scheduled_at")
-            if not isinstance(scheduled_at, datetime):
+        previous_scan_start = reference_now - timedelta(days=14)
+        for item, scheduled_at in self._iter_schedule_alarm_events_between_reverse(previous_scan_start, reference_now):
+            display_scheduled_at = self._get_schedule_preview_scheduled_at(item, scheduled_at)
+            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(display_scheduled_at):
                 continue
+            if display_scheduled_at >= reference_now:
+                continue
+            previous_rows.append((display_scheduled_at, self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)))
+            if len(previous_rows) >= 4:
+                break
+        future_scan_end = cutoff_datetime if isinstance(cutoff_datetime, datetime) else reference_now + timedelta(days=14)
+        if future_scan_end < reference_now:
+            future_scan_end = reference_now
+        for item, scheduled_at in self._iter_schedule_alarm_events_between(reference_now, future_scan_end):
             display_scheduled_at = self._get_schedule_preview_scheduled_at(item, scheduled_at)
             if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(display_scheduled_at):
                 continue
             if display_scheduled_at < reference_now:
-                previous_rows.append((display_scheduled_at, self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)))
                 continue
             if cutoff_datetime is not None and display_scheduled_at >= cutoff_datetime:
                 continue
             future_rows.append((display_scheduled_at, self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)))
+            if len(future_rows) >= 4:
+                break
         for scheduled_at, boss_name, *_rest in self._get_fixed_boss_schedule_rows():
             if scheduled_at < reference_now:
                 previous_rows.append((scheduled_at, boss_name))
@@ -11038,11 +12361,10 @@ class BossTimerApp:
         window_end = window_start + timedelta(days=2)
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         candidate_times: list[datetime] = []
-        for item in self.schedule_events:
-            scheduled_at = item.get("scheduled_at")
+        scan_start = max(reference_now, window_start)
+        scan_end = window_end - timedelta(microseconds=1)
+        for item, scheduled_at in self._iter_schedule_alarm_events_between(scan_start, scan_end):
             created_at = item.get("created_at")
-            if not isinstance(scheduled_at, datetime):
-                continue
             if scheduled_at <= reference_now or scheduled_at < window_start or scheduled_at >= window_end:
                 continue
             if not self._is_schedule_event_visible(
@@ -11221,8 +12543,14 @@ class BossTimerApp:
                 preview_delta = self._normalize_schedule_second_precision_offset_value(self.schedule_second_precision_offset_var.get(), limit=1.0)
             except (tk.TclError, TypeError, ValueError):
                 preview_delta = 0.0
-        preview_scheduled_at = scheduled_at + timedelta(seconds=float(preview_delta or 0.0))
-        remaining_seconds = (preview_scheduled_at - datetime.now()).total_seconds()
+        preview_ticks = self._schedule_second_precision_offset_ticks(preview_delta, limit_ticks=10)
+        preview_scheduled_at = scheduled_at + timedelta(milliseconds=preview_ticks * 100)
+        reference_now = (
+            self.schedule_summary_last_reference_second
+            if isinstance(self.schedule_summary_last_reference_second, datetime)
+            else self._get_schedule_reference_datetime()
+        )
+        remaining_seconds = (preview_scheduled_at - reference_now).total_seconds()
         seconds_only = max(0.0, remaining_seconds) % 60.0
         return f"{int(seconds_only):02d}초"
 
@@ -11321,9 +12649,10 @@ class BossTimerApp:
 
     def _get_schedule_preview_scheduled_at(self, item: dict[str, object], scheduled_at: datetime) -> datetime:
         delta = self._get_schedule_second_precision_offset_preview_delta(item)
-        if abs(delta) < 0.05:
+        delta_ticks = self._schedule_second_precision_offset_ticks(delta, limit_ticks=10)
+        if delta_ticks == 0:
             return scheduled_at
-        return scheduled_at + timedelta(seconds=delta)
+        return scheduled_at + timedelta(milliseconds=delta_ticks * 100)
 
     def _restore_schedule_second_precision_offset_target_selection(self, *, ensure_visible: bool = False) -> None:
         raw_key = str(self.schedule_second_precision_offset_target_key or "").strip()
@@ -11602,10 +12931,11 @@ class BossTimerApp:
         if isinstance(previous_identity, tuple) and len(previous_identity) >= 4:
             try:
                 previous_scheduled_at = datetime.fromisoformat(str(previous_identity[2] or ""))
+                old_offset_ticks = self._schedule_second_precision_offset_ticks(old_offset, limit_ticks=100)
                 restored_identity = (
                     str(previous_identity[0] or ""),
                     str(previous_identity[1] or ""),
-                    (previous_scheduled_at - timedelta(seconds=old_offset)).isoformat(),
+                    (previous_scheduled_at - timedelta(milliseconds=old_offset_ticks * 100)).isoformat(),
                     str(previous_identity[3] or ""),
                 )
             except ValueError:
@@ -13472,12 +14802,40 @@ class BossTimerApp:
         dialog.focus_force()
 
     def _is_schedule_input_ocr_addon_target_title(self, title: str) -> bool:
-        normalized = str(title or "").strip().lower()
-        if not normalized:
+        title_text = str(title or "").strip()
+        normalized = title_text.lower()
+        if not title_text:
             return False
         if any(blocked in normalized for blocked in ("boss timer", "노른의 시간표", "스샷 애드온", "ocr", "record book", "보스 기록")):
             return False
-        return "오딘" in normalized or "odin" in normalized
+        return bool(re.search(r"\bODIN\b", title_text, flags=re.IGNORECASE))
+
+    def _is_schedule_input_ocr_addon_blocked_browser_window(self, hwnd: int, title: str | None = None) -> bool:
+        if not hwnd:
+            return False
+        title_text = str(title if title is not None else self._get_window_text(hwnd) or "").strip().lower()
+        class_name = self._get_window_class_name(hwnd).strip().lower()
+        if class_name.startswith("chrome_widgetwin"):
+            return True
+        browser_tokens = (
+            "google chrome",
+            "microsoft edge",
+            "naver whale",
+            "whale",
+            "chrome",
+            "edge",
+        )
+        return any(token in title_text for token in browser_tokens)
+
+    def _is_schedule_input_ocr_addon_target_window(self, hwnd: int) -> bool:
+        if not hwnd or not self._is_valid_window_handle(hwnd):
+            return False
+        title = self._get_window_text(hwnd)
+        if not self._is_schedule_input_ocr_addon_target_title(title):
+            return False
+        if self._is_schedule_input_ocr_addon_blocked_browser_window(hwnd, title):
+            return False
+        return True
 
     def _get_window_text(self, hwnd: int) -> str:
         if sys.platform != "win32" or not hwnd:
@@ -13792,7 +15150,7 @@ class BossTimerApp:
 
     def _get_schedule_input_ocr_addon_resize_target_window_handle(self) -> int:
         candidate = int(self.schedule_input_ocr_addon_resize_target_hwnd or 0)
-        if candidate and self._is_valid_window_handle(candidate):
+        if self._is_schedule_input_ocr_addon_target_window(candidate):
             return candidate
         return int(self._get_preferred_odin_window_handle() or 0)
 
@@ -13870,18 +15228,16 @@ class BossTimerApp:
     def _get_preferred_odin_window_handle(self) -> int:
         foreground = int(self._get_foreground_window_handle() or 0)
         foreground_root = int(self._get_root_window_handle(foreground) or 0)
-        if foreground_root and self._is_valid_window_handle(foreground_root):
-            foreground_title = self._get_window_text(foreground_root)
-            if self._is_schedule_input_ocr_addon_target_title(foreground_title):
-                return foreground_root
+        if self._is_schedule_input_ocr_addon_target_window(foreground_root):
+            return foreground_root
         for candidate in (
             int(self.schedule_input_ocr_addon_active_hwnd or 0),
             int(self.schedule_input_ocr_addon_last_odin_hwnd or 0),
         ):
-            if candidate and self._is_valid_window_handle(candidate):
+            if self._is_schedule_input_ocr_addon_target_window(candidate):
                 return candidate
         found_handle = int(self._find_odin_window_handle() or 0)
-        if found_handle and self._is_valid_window_handle(found_handle):
+        if self._is_schedule_input_ocr_addon_target_window(found_handle):
             return found_handle
         return 0
 
@@ -13890,27 +15246,35 @@ class BossTimerApp:
             return 0
         user32 = ctypes.windll.user32
         foreground = self._get_foreground_window_handle()
-        if foreground and self._is_schedule_input_ocr_addon_target_title(self._get_window_text(foreground)):
-            return foreground
-        found_candidates: list[tuple[int, int, int]] = []
+        foreground_root = self._get_root_window_handle(foreground)
+        if self._is_schedule_input_ocr_addon_target_window(foreground_root):
+            return foreground_root
+        found_candidates: list[tuple[int, int, int, int, int]] = []
+        enum_order = {"value": 0}
 
         @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         def _enum_proc(hwnd, _lparam):
             try:
+                enum_order["value"] += 1
                 if not user32.IsWindowVisible(hwnd):
                     return True
                 hwnd_int = int(hwnd)
-                title = self._get_window_text(hwnd_int)
-                if self._is_schedule_input_ocr_addon_target_title(title):
-                    client_rect = self._get_odin_client_screen_rect(hwnd_int)
-                    client_area = 0
-                    if isinstance(client_rect, dict):
-                        client_area = int(client_rect.get("width") or 0) * int(client_rect.get("height") or 0)
-                    window_rect = self._get_window_rect(hwnd_int)
-                    window_area = 0
-                    if isinstance(window_rect, dict):
-                        window_area = int(window_rect.get("width") or 0) * int(window_rect.get("height") or 0)
-                    found_candidates.append((client_area, window_area, hwnd_int))
+                if not self._is_schedule_input_ocr_addon_target_window(hwnd_int):
+                    return True
+                client_rect = self._get_odin_client_screen_rect(hwnd_int)
+                client_area = 0
+                if isinstance(client_rect, dict):
+                    client_area = int(client_rect.get("width") or 0) * int(client_rect.get("height") or 0)
+                window_rect = self._get_window_rect(hwnd_int)
+                if not isinstance(window_rect, dict):
+                    return True
+                found_candidates.append((
+                    int(window_rect.get("top") or 0),
+                    int(window_rect.get("left") or 0),
+                    -client_area,
+                    int(enum_order["value"]),
+                    hwnd_int,
+                ))
             except Exception:
                 return True
             return True
@@ -13921,8 +15285,8 @@ class BossTimerApp:
             return 0
         if not found_candidates:
             return 0
-        found_candidates.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
-        return int(found_candidates[0][2])
+        found_candidates.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
+        return int(found_candidates[0][4])
 
     def _get_odin_client_screen_rect(self, hwnd: int) -> dict[str, int] | None:
         if sys.platform != "win32" or not hwnd:
@@ -14475,7 +15839,7 @@ class BossTimerApp:
 
     def _capture_active_odin_window_image(self, hwnd: int | None = None) -> dict[str, object] | None:
         hwnd = int(hwnd or 0)
-        if not self._is_valid_window_handle(hwnd):
+        if not self._is_schedule_input_ocr_addon_target_window(hwnd):
             hwnd = self._get_preferred_odin_window_handle()
         if not hwnd:
             return None
@@ -14637,7 +16001,7 @@ class BossTimerApp:
             self._append_debug_log("resize_failed:no_target_hwnd")
             return
         title_text = self._get_window_text(hwnd) or self._get_window_class_name(hwnd) or f"hwnd={int(hwnd)}"
-        if self._is_schedule_input_ocr_addon_target_title(title_text):
+        if self._is_schedule_input_ocr_addon_target_window(hwnd):
             self.schedule_input_ocr_addon_active_hwnd = hwnd
             self.schedule_input_ocr_addon_last_odin_hwnd = hwnd
         before_rect = self._get_odin_client_screen_rect(hwnd)
@@ -14697,7 +16061,7 @@ class BossTimerApp:
         menu = self.schedule_input_ocr_addon_resize_menu
         if menu is None:
             return None
-        if target_hwnd and self._is_valid_window_handle(target_hwnd):
+        if target_hwnd and self._is_schedule_input_ocr_addon_target_window(target_hwnd):
             self.schedule_input_ocr_addon_resize_target_hwnd = int(target_hwnd)
         if event is None:
             return None
@@ -14721,7 +16085,7 @@ class BossTimerApp:
         menu = self.schedule_input_ocr_addon_resize_menu
         if menu is None:
             return False
-        if target_hwnd and self._is_valid_window_handle(target_hwnd):
+        if target_hwnd and self._is_schedule_input_ocr_addon_target_window(target_hwnd):
             self.schedule_input_ocr_addon_resize_target_hwnd = int(target_hwnd)
         try:
             menu.tk_popup(int(x_root), int(y_root))
@@ -14752,6 +16116,9 @@ class BossTimerApp:
         cursor_x, cursor_y = cursor_pos
         hwnd = self._get_window_from_screen_point(cursor_x, cursor_y)
         if not hwnd:
+            return False
+        hwnd = self._get_root_window_handle(hwnd)
+        if not self._is_schedule_input_ocr_addon_target_window(hwnd):
             return False
         hit_test = self._get_window_nchit_test(hwnd, cursor_x, cursor_y)
         self.schedule_input_ocr_addon_resize_target_hit_test = int(hit_test)
@@ -14938,13 +16305,9 @@ class BossTimerApp:
             return
         foreground_hwnd = self._get_foreground_window_handle()
         foreground_root_hwnd = self._get_root_window_handle(foreground_hwnd)
-        current_title = self._get_window_text(foreground_root_hwnd)
         is_odin_active = bool(
             foreground_root_hwnd
-            and (
-                foreground_root_hwnd == int(self.schedule_input_ocr_addon_last_odin_hwnd or 0)
-                or self._is_schedule_input_ocr_addon_target_title(current_title)
-            )
+            and self._is_schedule_input_ocr_addon_target_window(foreground_root_hwnd)
         )
         addon_root_hwnd = self._get_root_window_handle(int(window.winfo_id() or 0))
         is_addon_active = False
@@ -14996,6 +16359,8 @@ class BossTimerApp:
         if window is None or not window.winfo_exists() or not self.schedule_input_ocr_addon_open:
             return
         hwnd = self.schedule_input_ocr_addon_last_odin_hwnd or self.schedule_input_ocr_addon_active_hwnd or self._find_odin_window_handle()
+        if hwnd and not self._is_schedule_input_ocr_addon_target_window(int(hwnd)):
+            hwnd = self._find_odin_window_handle()
         rect = self._get_odin_client_screen_rect(hwnd) if hwnd else None
         if not isinstance(rect, dict):
             try:
@@ -21564,6 +22929,15 @@ class BossTimerApp:
             current = {"enabled": False, "offsets": []}
             self.schedule_boss_alarm_settings[canonical_name] = current
         normalized = self._normalize_schedule_boss_alarm_entry(current)
+        if (
+            not normalized.get("offsets")
+            and self.schedule_alarm_common_offsets
+            and self._get_schedule_alarm_boss_voice_path(boss_name=canonical_name)
+        ):
+            normalized = {
+                "enabled": True,
+                "offsets": self._normalize_schedule_alarm_offsets(self.schedule_alarm_common_offsets),
+            }
         self.schedule_boss_alarm_settings[canonical_name] = normalized
         return normalized
 
@@ -24004,6 +25378,31 @@ class BossTimerApp:
             ]
         return self.schedule_alarm_event_index_times
 
+    def _reset_schedule_alarm_event_index(self) -> None:
+        self.schedule_alarm_event_index_signature = None
+        self.schedule_alarm_event_index_times = []
+        self.schedule_events_normalized_signature = None
+
+    def _normalize_schedule_events_if_needed(self) -> None:
+        first_time = self.schedule_events[0].get("scheduled_at") if self.schedule_events else None
+        last_time = self.schedule_events[-1].get("scheduled_at") if self.schedule_events else None
+        signature = (
+            id(self.schedule_events),
+            len(self.schedule_events),
+            first_time if isinstance(first_time, datetime) else None,
+            last_time if isinstance(last_time, datetime) else None,
+        )
+        if signature == getattr(self, "schedule_events_normalized_signature", None):
+            return
+        self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
+        self._reset_schedule_alarm_event_index()
+        self.schedule_events_normalized_signature = (
+            id(self.schedule_events),
+            len(self.schedule_events),
+            self.schedule_events[0].get("scheduled_at") if self.schedule_events else None,
+            self.schedule_events[-1].get("scheduled_at") if self.schedule_events else None,
+        )
+
     def _iter_schedule_alarm_events_between(
         self,
         start_datetime: datetime,
@@ -24019,6 +25418,24 @@ class BossTimerApp:
             if not isinstance(scheduled_at, datetime):
                 continue
             if scheduled_at > end_datetime:
+                break
+            yield item, scheduled_at
+
+    def _iter_schedule_alarm_events_between_reverse(
+        self,
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ):
+        if not self.schedule_events:
+            return
+        event_times = self._get_schedule_alarm_event_time_index()
+        end_index = bisect.bisect_right(event_times, end_datetime) - 1
+        for index in range(end_index, -1, -1):
+            item = self.schedule_events[index]
+            scheduled_at = item.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            if scheduled_at < start_datetime:
                 break
             yield item, scheduled_at
 
@@ -24114,7 +25531,6 @@ class BossTimerApp:
         ) if countdown_enabled else []
         rapid_chain_warning_specs = (
             (610, 600, "10분전"),
-            (310, 300, "5분전"),
         )
 
         if (
@@ -24895,6 +26311,26 @@ class BossTimerApp:
         self.schedule_tree_overlay_cache[cache_key] = frame
         return frame
 
+    def _is_schedule_tree_bbox_fully_visible(self, bbox: object) -> bool:
+        if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
+            return False
+        if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+            return False
+        try:
+            tree_height = int(self.schedule_tree.winfo_height() or 0)
+            bbox_y = int(bbox[1])
+            bbox_h = int(bbox[3])
+        except (tk.TclError, TypeError, ValueError):
+            return False
+        return bool(tree_height <= 0 or (bbox_y >= 0 and bbox_y + bbox_h <= tree_height))
+
+    def _is_schedule_tree_row_fully_visible(self, first_bbox: object, last_bbox: object | None = None) -> bool:
+        if not self._is_schedule_tree_bbox_fully_visible(first_bbox):
+            return False
+        if last_bbox is not None and not self._is_schedule_tree_bbox_fully_visible(last_bbox):
+            return False
+        return True
+
     def _get_schedule_tree_elapsed_overlay_specs(self, item_id: str, meta: dict[str, object]) -> tuple[tuple[str, tuple[int, int, int, int], str], ...]:
         if self.schedule_tree is None or not self.schedule_tree.winfo_exists():
             return ()
@@ -24908,6 +26344,8 @@ class BossTimerApp:
             except tk.TclError:
                 bbox = ()
             if not bbox:
+                continue
+            if not self._is_schedule_tree_bbox_fully_visible(bbox):
                 continue
             specs.append((f"#{column_index}", tuple(bbox), str(raw_value or "")))
         return tuple(specs)
@@ -24984,6 +26422,10 @@ class BossTimerApp:
                     continue
                 cut_bbox = self.schedule_tree.bbox(item_id, "#5")
                 cut_time_bbox = self.schedule_tree.bbox(item_id, "#6")
+                if cut_bbox and not self._is_schedule_tree_bbox_fully_visible(cut_bbox):
+                    cut_bbox = ()
+                if cut_time_bbox and not self._is_schedule_tree_bbox_fully_visible(cut_time_bbox):
+                    cut_time_bbox = ()
                 if not cut_bbox and not cut_time_bbox:
                     continue
                 entries.append(
@@ -25033,7 +26475,7 @@ class BossTimerApp:
             for item_id in selected_item_ids:
                 first_bbox = self.schedule_tree.bbox(item_id, "#1")
                 last_bbox = self.schedule_tree.bbox(item_id, last_column_id)
-                if not first_bbox or not last_bbox:
+                if not self._is_schedule_tree_row_fully_visible(first_bbox, last_bbox):
                     continue
                 entries.append(
                     (
@@ -25101,6 +26543,10 @@ class BossTimerApp:
                     )
                     cut_bbox = self.schedule_tree.bbox(item_id, "#5")
                     cut_time_bbox = self.schedule_tree.bbox(item_id, "#6")
+                    if cut_bbox and not self._is_schedule_tree_bbox_fully_visible(cut_bbox):
+                        cut_bbox = ()
+                    if cut_time_bbox and not self._is_schedule_tree_bbox_fully_visible(cut_time_bbox):
+                        cut_time_bbox = ()
                     if mode == "cancel" and cut_bbox:
                             cache_key = (item_id, "cancel")
                             button = self._get_schedule_tree_overlay_button(cache_key, overlay_parent)
@@ -25230,7 +26676,7 @@ class BossTimerApp:
                         last_bbox = self.schedule_tree.bbox(item_id, "#8")
                     except tk.TclError:
                         continue
-                    if not first_bbox or not last_bbox:
+                    if not self._is_schedule_tree_row_fully_visible(first_bbox, last_bbox):
                         continue
                     row_x = tree_offset_x + int(first_bbox[0])
                     row_y = tree_offset_y + int(first_bbox[1])
@@ -26511,6 +27957,7 @@ class BossTimerApp:
                 self.schedule_status_var.set(status_text)
             else:
                 self.schedule_status_var.set(f"{current_label}이(가) 활성화되었습니다.")
+        self._upsert_github_server_entry_locally(self._get_current_github_upload_server_entry())
         if self._widget_available(self.log_archive_manage_frame):
             self._refresh_archive_management_view()
 
@@ -26544,8 +27991,20 @@ class BossTimerApp:
             self.schedule_status_var.set("저장용 스케쥴 저장에 실패했습니다.")
 
     def _open_github_data_upload_dialog(self) -> None:
+        if not self._is_current_server_schedule_selected_for_upload():
+            self._explain_upload_requires_own_server()
+            return
         parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        existing_dialog = getattr(self, "github_data_upload_dialog", None)
+        if self._widget_available(existing_dialog):
+            try:
+                existing_dialog.lift(parent)
+                existing_dialog.focus_force()
+            except tk.TclError:
+                pass
+            return
         dialog = tk.Toplevel(parent)
+        self.github_data_upload_dialog = dialog
         dialog.title("GitHub 데이터 업로드")
         dialog.resizable(False, False)
         dialog.configure(bg="#eef2ff")
@@ -26555,20 +28014,35 @@ class BossTimerApp:
         owner_var = tk.StringVar(value=str(getattr(self, "github_data_owner", "pulpul7") or "pulpul7"))
         repo_var = tk.StringVar(value=str(getattr(self, "github_data_repo", "pulpul7-boss_timer_data") or "pulpul7-boss_timer_data"))
         branch_var = tk.StringVar(value=str(getattr(self, "github_data_branch", "main") or "main"))
-        token_var = tk.StringVar(value=str(getattr(self, "github_data_token", "") or ""))
+        existing_token = self._sanitize_github_token(
+            getattr(self, "github_data_token", "") or self._load_github_data_token_from_user_config()
+        )
+        if self._looks_like_non_github_token(existing_token):
+            self._clear_github_data_token_user_config()
+            existing_token = ""
+        token_var = tk.StringVar(value=existing_token)
         status_var = tk.StringVar(value="현재 스케쥴과 보스설정을 GitHub data 저장소에 업로드합니다.")
-        target_entries: list[dict[str, object]] = [self._get_current_github_upload_server_entry()]
-        for entry in self.schedule_github_server_entries:
-            entry_id = str(entry.get("id") or "").strip()
-            if entry_id and all(str(item.get("id") or "").strip() != entry_id for item in target_entries):
-                target_entries.append(dict(entry))
-        target_values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in target_entries]
-        selected_entry = self._get_selected_github_server_entry()
-        selected_name = str(selected_entry.get("name") or selected_entry.get("id") or "").strip() if selected_entry else str(target_entries[0].get("name") or target_entries[0].get("id") or "").strip()
+        current_upload_entry = (
+            self._get_selected_github_server_entry()
+            if self._is_master_developer_mode_enabled()
+            else self._get_current_github_upload_server_entry()
+        )
+        if not isinstance(current_upload_entry, dict):
+            current_upload_entry = self._get_current_github_upload_server_entry()
+        selected_name = str(current_upload_entry.get("name") or current_upload_entry.get("id") or "").strip()
         target_server_var = tk.StringVar(value=self._format_github_server_combo_text(selected_name))
+        upload_token_for_request = ""
 
         def upload_cooldown_remaining_seconds() -> int:
             return max(0, int(math.ceil(float(getattr(self, "schedule_github_upload_cooldown_until", 0.0) or 0.0) - time.monotonic())))
+
+        def close_dialog() -> None:
+            if getattr(self, "github_data_upload_dialog", None) is dialog:
+                self.github_data_upload_dialog = None
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
 
         def refresh_upload_button_state() -> None:
             remaining_seconds = upload_cooldown_remaining_seconds()
@@ -26595,18 +28069,33 @@ class BossTimerApp:
                 return
 
         def save_settings_from_form() -> bool:
+            nonlocal upload_token_for_request
             owner = owner_var.get().strip()
             repo = repo_var.get().strip()
             branch = branch_var.get().strip()
-            token = self._sanitize_github_token(token_var.get())
+            try:
+                raw_token = token_entry.get()
+            except (NameError, tk.TclError):
+                raw_token = token_var.get()
+            token = self._sanitize_github_token(raw_token)
             if not owner or not repo or not branch:
                 status_var.set("owner / repo / branch를 입력하세요.")
                 return False
             if not token:
-                status_var.set("GitHub fine-grained token을 입력하세요.")
+                status_var.set("토큰 입력칸이 비어 있습니다. GitHub fine-grained token을 붙여넣어 주세요.")
                 return False
-            if self._is_masked_github_token_text(token_var.get()):
+            if self._is_masked_github_token_text(raw_token):
                 status_var.set("마스킹 문자(*)가 아니라 실제 GitHub 토큰을 입력하세요.")
+                return False
+            non_github_token_name = self._looks_like_non_github_token(token)
+            if non_github_token_name:
+                self._clear_github_data_token_user_config()
+                token_detail = self._describe_github_token_input(token)
+                status_var.set(f"{non_github_token_name}로 판정되었습니다({token_detail}). GitHub fine-grained token을 입력하세요.")
+                return False
+            if not self._looks_like_github_token(token):
+                token_detail = self._describe_github_token_input(token)
+                status_var.set(f"GitHub 토큰 형식이 아닙니다({token_detail}). github_pat_ 또는 ghp_ 로 시작하는 토큰을 입력하세요.")
                 return False
             if len(token) < 20:
                 status_var.set("토큰이 너무 짧습니다. 실제 GitHub 토큰 전체를 붙여넣어 주세요.")
@@ -26615,7 +28104,11 @@ class BossTimerApp:
             self.github_data_repo = repo
             self.github_data_branch = branch
             self.github_data_token = token
+            upload_token_for_request = token
             token_var.set(token)
+            if not self._save_github_data_token_to_user_config(token):
+                status_var.set("GitHub 토큰을 사용자 설정 파일에 저장하지 못했습니다.")
+                return False
             self._save_settings()
             return True
 
@@ -26662,10 +28155,16 @@ class BossTimerApp:
                 self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
 
             def worker() -> None:
-                success, message = self._upload_current_schedule_to_github_data(
-                    target_server,
-                    progress_callback=post_progress_status,
-                )
+                post_progress_status("GitHub 토큰을 확인하는 중입니다.")
+                self.github_data_token = upload_token_for_request
+                token_ok, token_message = self._validate_github_data_upload_token(upload_token_for_request)
+                if token_ok:
+                    success, message, uploaded_entry = self._upload_current_schedule_to_github_data(
+                        target_server,
+                        progress_callback=post_progress_status,
+                    )
+                else:
+                    success, message, uploaded_entry = False, token_message, None
                 should_keep_restore_marker = success and "업로드하지 않았습니다" not in str(message or "")
                 if should_keep_restore_marker:
                     post_progress_status("복구 지점을 저장하는 중입니다.")
@@ -26676,6 +28175,9 @@ class BossTimerApp:
                         if success:
                             status_var.set(message)
                             self.schedule_status_var.set(message)
+                            refreshed_entry = dict(uploaded_entry) if isinstance(uploaded_entry, dict) else dict(target_server)
+                            self._upsert_github_server_entry_locally(refreshed_entry)
+                            self._save_current_schedule_to_github_local_cache(refreshed_entry)
                             self._start_schedule_github_upload_cooldown()
                         else:
                             status_var.set(message or "GitHub 업로드 실패")
@@ -26697,11 +28199,7 @@ class BossTimerApp:
             threading.Thread(target=worker, daemon=True).start()
 
         def get_target_server_from_form() -> dict[str, object]:
-            selected_text = target_server_var.get().strip()
-            for entry in target_entries:
-                if selected_text == str(entry.get("name") or entry.get("id") or "").strip():
-                    return dict(entry)
-            return dict(target_entries[0])
+            return dict(current_upload_entry)
 
         tk.Label(dialog, text="GitHub 데이터 업로드", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=520, height=42)
         tk.Label(dialog, text="Owner", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=58, width=90, height=22)
@@ -26711,14 +28209,19 @@ class BossTimerApp:
         tk.Label(dialog, text="Branch", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=126, width=90, height=22)
         tk.Entry(dialog, textvariable=branch_var, font=self.button_font).place(x=120, y=124, width=120, height=26)
         tk.Label(dialog, text="Token", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=160, width=90, height=22)
-        tk.Entry(dialog, textvariable=token_var, font=self.button_font, show="*").place(x=120, y=158, width=360, height=26)
+        token_entry = tk.Entry(dialog, textvariable=token_var, font=self.button_font, show="*")
+        token_entry.place(x=120, y=158, width=360, height=26)
         tk.Label(dialog, text="Server", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=194, width=90, height=22)
-        ttk.Combobox(
+        tk.Label(
             dialog,
             textvariable=target_server_var,
-            values=target_values,
             font=(self.current_font_family, 9, "bold"),
-            state="readonly",
+            bg="#ffffff",
+            fg="#0f172a",
+            relief="sunken",
+            bd=1,
+            anchor="w",
+            padx=8,
         ).place(x=120, y=192, width=220, height=26)
         tk.Label(
             dialog,
@@ -26757,9 +28260,362 @@ class BossTimerApp:
             relief="raised",
             bd=1,
             highlightthickness=0,
-            command=dialog.destroy,
+            command=close_dialog,
             cursor="hand2",
         ).place(x=400, y=284, width=88, height=30)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+
+    def _build_empty_github_schedule_payload_for_server(self, server_id: str, server_name: str) -> dict[str, object]:
+        context = self._get_schedule_shared_export_context(self.current_season_no, self.current_season_started_at)
+        now_value = datetime.now().replace(microsecond=0)
+        return {
+            "version": 1,
+            "exported_at": now_value,
+            "season_no": str(context.get("season_no") or "").strip(),
+            "season_started_at": str(context.get("season_started_at") or "").strip(),
+            "season_label": str(context.get("season_label") or "").strip(),
+            "server_name": str(server_name or server_id).strip() or server_id,
+            "guild_name": "",
+            "share_prefix": str(server_id or "").strip() or "default",
+            "base_datetime": now_value,
+            "view_date": now_value,
+            "maintenance_weekday": "수요일",
+            "maintenance_hour": "08시",
+            "maintenance_minute": "00분",
+            "schedule_events": [],
+            "schedule_active_entries": [],
+            "schedule_control_events": [],
+            "schedule_second_precision_offsets": {},
+        }
+
+    def _open_github_server_manage_dialog(self) -> None:
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        dialog = tk.Toplevel(parent)
+        dialog.title("서버 추가/삭제")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#e0f2fe")
+        dialog.transient(parent)
+        self._center_window_over_parent(dialog, parent, 500, 420)
+        token_var = tk.StringVar(value=self._sanitize_github_token(self._load_github_data_token_from_user_config()))
+        add_var = tk.StringVar()
+        delete_var = tk.StringVar()
+        status_var = tk.StringVar(value="서버를 추가하거나 삭제할 수 있습니다. 저장할 때 GitHub에 반영됩니다.")
+        working_entries: list[dict[str, object]] = [dict(item) for item in self.schedule_github_server_entries if isinstance(item, dict)]
+        pending_deleted_server_ids: set[str] = set()
+        save_cooldown_until = 0.0
+        save_cooldown_after_id: str | None = None
+
+        def normalize_server_name(raw_value: object) -> str:
+            return self._sanitize_season_metadata_text(raw_value)
+
+        def current_server_names() -> set[str]:
+            return {str(item.get("name") or item.get("id") or "").strip().casefold() for item in working_entries}
+
+        def normalized_working_signature() -> tuple[tuple[str, str], ...]:
+            items: list[tuple[str, str]] = []
+            for entry in working_entries:
+                server_id = str(entry.get("id") or "").strip()
+                if not server_id:
+                    continue
+                name = str(entry.get("name") or server_id).strip() or server_id
+                items.append((server_id, name))
+            return tuple(sorted(items))
+
+        initial_working_signature = normalized_working_signature()
+
+        def update_save_button_state() -> None:
+            try:
+                now = time.monotonic()
+                cooldown_remaining = max(0, int(math.ceil(save_cooldown_until - now)))
+                if cooldown_remaining > 0:
+                    save_button.configure(state="disabled", text=f"대기 {cooldown_remaining}")
+                    return
+                has_changes = bool(pending_deleted_server_ids) or normalized_working_signature() != initial_working_signature
+                save_button.configure(state="normal" if has_changes else "disabled", text="저장")
+            except (NameError, tk.TclError):
+                pass
+
+        def refresh_save_cooldown() -> None:
+            nonlocal save_cooldown_after_id
+            save_cooldown_after_id = None
+            update_save_button_state()
+            if time.monotonic() < save_cooldown_until:
+                try:
+                    save_cooldown_after_id = dialog.after(1000, refresh_save_cooldown)
+                except tk.TclError:
+                    save_cooldown_after_id = None
+
+        def start_save_cooldown(seconds: float = 5.0) -> None:
+            nonlocal save_cooldown_until, save_cooldown_after_id
+            save_cooldown_until = max(save_cooldown_until, time.monotonic() + max(0.0, seconds))
+            if save_cooldown_after_id is None:
+                refresh_save_cooldown()
+
+        def refresh_list() -> None:
+            list_text.config(state="normal")
+            list_text.delete("1.0", "end")
+            list_text.insert("end", "목록을 클릭하면 삭제 입력란에 추가됩니다.\n")
+            for index, entry in enumerate(working_entries):
+                name = str(entry.get("name") or entry.get("id") or "").strip()
+                if not name:
+                    continue
+                tag_name = f"github_server_{index}"
+                list_text.insert("end", name, (tag_name,))
+                if index < len(working_entries) - 1:
+                    list_text.insert("end", ", ")
+                list_text.tag_configure(tag_name, foreground="#075985", underline=True)
+                list_text.tag_bind(tag_name, "<Button-1>", lambda _event, value=name: append_delete_name(value))
+                list_text.tag_bind(tag_name, "<Enter>", lambda _event, widget=list_text: widget.config(cursor="hand2"))
+                list_text.tag_bind(tag_name, "<Leave>", lambda _event, widget=list_text: widget.config(cursor="arrow"))
+            list_text.config(state="disabled")
+
+        def append_delete_name(server_name: str) -> None:
+            name = str(server_name or "").strip()
+            if not name:
+                return
+            current = [normalize_server_name(value) for value in re.split(r"[,\\n]+", delete_var.get())]
+            current = [value for value in current if value]
+            keys = {value.casefold() for value in current}
+            if name.casefold() not in keys:
+                current.append(name)
+            delete_var.set(", ".join(current))
+            status_var.set(f"{name}: 삭제 입력란에 추가했습니다.")
+
+        def add_servers() -> None:
+            names = [normalize_server_name(value) for value in re.split(r"[,\\n]+", add_var.get())]
+            names = [value for value in names if value]
+            if not names:
+                status_var.set("추가할 서버명을 입력하세요.")
+                return
+            existing = current_server_names()
+            added: list[str] = []
+            for name in names:
+                if name.casefold() in existing:
+                    continue
+                server_id = self._safe_github_local_cache_server_id(self._build_schedule_share_prefix(name, ""))
+                pending_deleted_server_ids.discard(server_id)
+                self.schedule_github_deleted_server_ids.discard(server_id)
+                working_entries.append(
+                    {
+                        "id": server_id,
+                        "name": name,
+                        "schedule": f"data/schedules/{server_id}.json",
+                        "bosses": f"data/bosses/{server_id}.json",
+                        "localOnly": True,
+                        "pendingAdd": True,
+                    }
+                )
+                existing.add(name.casefold())
+                added.append(name)
+            add_var.set("")
+            refresh_list()
+            update_save_button_state()
+            status_var.set(f"{', '.join(added)} 추가됨. 저장을 누르면 서버에 반영됩니다." if added else "이미 등록된 서버명입니다.")
+
+        def delete_servers_from_list() -> None:
+            names = [normalize_server_name(value) for value in re.split(r"[,\\n]+", delete_var.get())]
+            names = [value for value in names if value]
+            if not names:
+                status_var.set("삭제할 서버명을 입력하세요.")
+                return
+            delete_keys = {value.casefold() for value in names}
+            before_count = len(working_entries)
+            removed_ids = [
+                str(entry.get("id") or "").strip()
+                for entry in working_entries
+                if str(entry.get("name") or entry.get("id") or "").strip().casefold() in delete_keys
+            ]
+            working_entries[:] = [
+                entry
+                for entry in working_entries
+                if str(entry.get("name") or entry.get("id") or "").strip().casefold() not in delete_keys
+            ]
+            pending_deleted_server_ids.update(server_id for server_id in removed_ids if server_id)
+            delete_var.set("")
+            refresh_list()
+            update_save_button_state()
+            removed_count = before_count - len(working_entries)
+            status_var.set(f"{removed_count}개 서버를 삭제 목록에 반영했습니다. 저장을 누르면 서버에서도 삭제됩니다.")
+
+        def apply_pending_inputs_for_save() -> tuple[int, int]:
+            add_names = [normalize_server_name(value) for value in re.split(r"[,\\n]+", add_var.get())]
+            add_names = [value for value in add_names if value]
+            existing = current_server_names()
+            added_count = 0
+            for name in add_names:
+                if name.casefold() in existing:
+                    continue
+                server_id = self._safe_github_local_cache_server_id(self._build_schedule_share_prefix(name, ""))
+                pending_deleted_server_ids.discard(server_id)
+                self.schedule_github_deleted_server_ids.discard(server_id)
+                working_entries.append(
+                    {
+                        "id": server_id,
+                        "name": name,
+                        "schedule": f"data/schedules/{server_id}.json",
+                        "bosses": f"data/bosses/{server_id}.json",
+                        "localOnly": True,
+                        "pendingAdd": True,
+                    }
+                )
+                existing.add(name.casefold())
+                added_count += 1
+            delete_names = [normalize_server_name(value) for value in re.split(r"[,\\n]+", delete_var.get())]
+            delete_names = [value for value in delete_names if value]
+            deleted_count = 0
+            if delete_names:
+                delete_keys = {value.casefold() for value in delete_names}
+                before_count = len(working_entries)
+                removed_ids = [
+                    str(entry.get("id") or "").strip()
+                    for entry in working_entries
+                    if str(entry.get("name") or entry.get("id") or "").strip().casefold() in delete_keys
+                ]
+                working_entries[:] = [
+                    entry
+                    for entry in working_entries
+                    if str(entry.get("name") or entry.get("id") or "").strip().casefold() not in delete_keys
+                ]
+                pending_deleted_server_ids.update(server_id for server_id in removed_ids if server_id)
+                deleted_count = before_count - len(working_entries)
+            if added_count or deleted_count:
+                add_var.set("")
+                delete_var.set("")
+                refresh_list()
+                update_save_button_state()
+            return added_count, deleted_count
+
+        def save_changes() -> None:
+            if time.monotonic() < save_cooldown_until:
+                status_var.set("GitHub 반영 직후입니다. 잠시 후 다시 저장하세요.")
+                update_save_button_state()
+                return
+            staged_added_count, staged_deleted_count = apply_pending_inputs_for_save()
+            if not pending_deleted_server_ids and normalized_working_signature() == initial_working_signature:
+                status_var.set("추가 또는 삭제한 서버가 없습니다.")
+                update_save_button_state()
+                return
+            token = self._sanitize_github_token(token_entry.get())
+            if not token:
+                status_var.set("GitHub 토큰을 입력하세요.")
+                return
+            if self._looks_like_non_github_token(token) or not self._looks_like_github_token(token):
+                status_var.set("GitHub fine-grained token을 입력하세요.")
+                return
+            if staged_added_count or staged_deleted_count:
+                status_var.set(f"추가 {staged_added_count}개, 삭제 {staged_deleted_count}개를 저장 준비했습니다.")
+                dialog.update_idletasks()
+            self.github_data_token = token
+            self._save_github_data_token_to_user_config(token)
+            status_var.set("GitHub 서버 목록을 저장하는 중입니다.")
+            save_button.configure(state="disabled")
+            dialog.update_idletasks()
+            selected_before_entry = self._get_selected_github_server_entry()
+            selected_before_id = str((selected_before_entry or {}).get("id") or "").strip()
+            local_server_entry = self._get_current_github_upload_server_entry()
+            local_server_id = str(local_server_entry.get("id") or "").strip()
+            remaining_by_id = {str(entry.get("id") or "").strip(): dict(entry) for entry in working_entries if str(entry.get("id") or "").strip()}
+            requested_delete_ids = set(pending_deleted_server_ids)
+            try:
+                dialog.withdraw()
+            except tk.TclError:
+                pass
+            progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
+                "서버 목록",
+                dialog_title="서버 목록 저장 중",
+                title_text="서버 추가/삭제 저장 중",
+                initial_status="GitHub 서버 목록을 저장하는 중입니다.",
+                footer_text="작업이 끝날 때까지 이 창을 닫을 수 없습니다.",
+            )
+
+            def worker() -> None:
+                ok_token, token_message = self._validate_github_data_upload_token(token)
+                if not ok_token:
+                    success, message, new_entries = False, token_message, working_entries
+                else:
+                    if progress_status_var is not None:
+                        try:
+                            self.root.after(0, lambda: progress_status_var.set("서버 파일과 목록을 갱신하는 중입니다."))
+                        except tk.TclError:
+                            pass
+                    success, message, new_entries = self._apply_github_server_management_changes(remaining_by_id, requested_delete_ids=requested_delete_ids)
+
+                def finish() -> None:
+                    nonlocal initial_working_signature
+                    self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
+                    should_reopen_dialog = not success
+                    if should_reopen_dialog:
+                        try:
+                            dialog.deiconify()
+                            dialog.lift()
+                        except tk.TclError:
+                            pass
+                    try:
+                        save_button.configure(state="normal")
+                        status_var.set(message)
+                    except tk.TclError:
+                        pass
+                    if success:
+                        self.schedule_github_server_entries = self._merge_local_github_server_entries(new_entries)
+                        self._save_github_server_entries_cache(self.schedule_github_server_entries)
+                        working_entries[:] = [dict(item) for item in self.schedule_github_server_entries if isinstance(item, dict)]
+                        pending_deleted_server_ids.clear()
+                        try:
+                            refresh_list()
+                        except tk.TclError:
+                            pass
+                        initial_working_signature = normalized_working_signature()
+                        start_save_cooldown(5.0)
+                        update_save_button_state()
+                        values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in self.schedule_github_server_entries]
+                        if self.schedule_github_server_combo is not None:
+                            self.schedule_github_server_combo.configure(values=values)
+                        current_text = str(self.schedule_github_server_var.get() or "").strip()
+                        value_names = [value.strip() for value in values]
+                        if not values:
+                            self.schedule_github_server_var.set("서버 없음")
+                        deleted_selected = bool(selected_before_id and selected_before_id in requested_delete_ids)
+                        deleted_local = bool(local_server_id and local_server_id in requested_delete_ids)
+                        if deleted_selected or deleted_local:
+                            self._select_github_server_entry(local_server_entry, force=True)
+                        elif values and current_text not in value_names:
+                            self._select_github_server_entry(self.schedule_github_server_entries[0], force=True)
+                        self.schedule_status_var.set(message)
+                        try:
+                            dialog.destroy()
+                        except tk.TclError:
+                            pass
+                    else:
+                        self.schedule_status_var.set(message)
+
+                try:
+                    self.root.after(0, finish)
+                except tk.TclError:
+                    pass
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        tk.Label(dialog, text="서버 추가/삭제", font=self.header_font, bg="#bae6fd", fg="#0f172a").place(x=0, y=0, width=500, height=42)
+        tk.Label(dialog, text="Token", font=self.label_font, bg="#e0f2fe", fg="#075985", anchor="w").place(x=18, y=54, width=70, height=22)
+        token_entry = tk.Entry(dialog, textvariable=token_var, font=self.button_font, show="*")
+        token_entry.place(x=92, y=52, width=386, height=26)
+        tk.Label(dialog, text="서버 추가", font=self.label_font, bg="#e0f2fe", fg="#075985", anchor="w").place(x=18, y=90, width=80, height=22)
+        tk.Entry(dialog, textvariable=add_var, font=(self.current_font_family, 10, "bold"), relief="solid", bd=1).place(x=92, y=88, width=286, height=28)
+        tk.Button(dialog, text="추가", font=self.button_font, bg="#0ea5e9", fg="#ffffff", activebackground="#0284c7", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=add_servers, cursor="hand2").place(x=388, y=88, width=90, height=28)
+        tk.Label(dialog, text="서버 목록", font=self.label_font, bg="#e0f2fe", fg="#075985", anchor="w").place(x=18, y=128, width=120, height=20)
+        list_frame = tk.Frame(dialog, bg="#f0f9ff", relief="solid", bd=1)
+        list_frame.place(x=18, y=152, width=460, height=104)
+        list_text = tk.Text(list_frame, font=self.percent_font, bg="#f0f9ff", fg="#075985", relief="flat", bd=0, wrap="word", padx=6, pady=6, cursor="arrow", highlightthickness=0)
+        list_text.place(x=0, y=0, width=458, height=102)
+        tk.Label(dialog, text="삭제 서버", font=self.label_font, bg="#e0f2fe", fg="#075985", anchor="w").place(x=18, y=268, width=80, height=22)
+        tk.Entry(dialog, textvariable=delete_var, font=(self.current_font_family, 10, "bold"), relief="solid", bd=1).place(x=92, y=266, width=286, height=28)
+        tk.Button(dialog, text="삭제", font=self.button_font, bg="#dc2626", fg="#ffffff", activebackground="#b91c1c", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=delete_servers_from_list, cursor="hand2").place(x=388, y=266, width=90, height=28)
+        tk.Label(dialog, textvariable=status_var, font=self.percent_font, bg="#e0f2fe", fg="#075985", anchor="w", justify="left", wraplength=460).place(x=18, y=306, width=460, height=66)
+        save_button = tk.Button(dialog, text="저장", font=self.button_font, bg="#16a34a", fg="#ffffff", activebackground="#15803d", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=save_changes, cursor="hand2")
+        save_button.place(x=294, y=382, width=86, height=28)
+        tk.Button(dialog, text="닫기", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=dialog.destroy, cursor="hand2").place(x=392, y=382, width=86, height=28)
+        refresh_list()
+        update_save_button_state()
 
     def _get_schedule_github_sync_cooldown_remaining_seconds(self) -> int:
         return max(0, int(math.ceil(float(getattr(self, "schedule_github_sync_cooldown_until", 0.0) or 0.0) - time.monotonic())))
@@ -26799,10 +28655,24 @@ class BossTimerApp:
         self._set_schedule_github_controls_state(not bool(getattr(self, "schedule_github_server_loading", False)))
         self._schedule_github_cooldown_refresh("schedule_github_refresh_cooldown_after_id", 60000)
 
-    def _start_schedule_github_sync_cooldown(self) -> None:
-        self.schedule_github_sync_cooldown_until = time.monotonic() + 30.0
+    def _start_schedule_github_sync_cooldown(self, *, record_attempt: bool = False) -> None:
+        now = time.monotonic()
+        cooldown_seconds = 3.0
+        if record_attempt:
+            recent_attempts = [
+                float(timestamp)
+                for timestamp in getattr(self, "schedule_github_sync_attempt_times", []) or []
+                if now - float(timestamp) <= 60.0
+            ]
+            recent_attempts.append(now)
+            self.schedule_github_sync_attempt_times = recent_attempts
+            if len(recent_attempts) >= 4:
+                cooldown_seconds = 30.0
+        current_until = float(getattr(self, "schedule_github_sync_cooldown_until", 0.0) or 0.0)
+        self.schedule_github_sync_cooldown_until = max(current_until, now + cooldown_seconds)
         self._set_schedule_github_controls_state(not bool(getattr(self, "schedule_github_server_loading", False)))
-        self._schedule_github_cooldown_refresh("schedule_github_sync_cooldown_after_id", 30000)
+        delay_ms = max(1000, int(math.ceil(self.schedule_github_sync_cooldown_until - now) * 1000))
+        self._schedule_github_cooldown_refresh("schedule_github_sync_cooldown_after_id", delay_ms)
 
     def _start_schedule_github_upload_cooldown(self) -> None:
         self.schedule_github_upload_cooldown_until = time.monotonic() + 30.0
@@ -26814,6 +28684,7 @@ class BossTimerApp:
         refresh_remaining_seconds = self._get_schedule_github_refresh_cooldown_remaining_seconds()
         sync_remaining_seconds = self._get_schedule_github_sync_cooldown_remaining_seconds()
         upload_remaining_seconds = self._get_schedule_github_upload_cooldown_remaining_seconds()
+        upload_allowed = self._is_current_server_schedule_selected_for_upload()
         for widget in (
             self.schedule_github_server_combo,
             self.schedule_github_sync_button,
@@ -26837,8 +28708,11 @@ class BossTimerApp:
                 if widget is self.schedule_github_upload_button and upload_remaining_seconds > 0:
                     widget_state = "disabled"
                     widget.configure(text="서버 업로드 대기")
+                elif widget is self.schedule_github_upload_button and not upload_allowed:
+                    widget_state = "normal"
+                    widget.configure(text="서버 업로드", bg="#94a3b8", activebackground="#94a3b8", cursor="hand2")
                 elif widget is self.schedule_github_upload_button:
-                    widget.configure(text="서버 업로드")
+                    widget.configure(text="서버 업로드", bg="#0284c7", activebackground="#0369a1", cursor="hand2")
                 widget.configure(state=widget_state)
             except tk.TclError:
                 pass
@@ -26904,6 +28778,8 @@ class BossTimerApp:
             dialog.lift()
             dialog.grab_set()
             dialog.focus_force()
+            dialog.update_idletasks()
+            dialog.update()
         except tk.TclError:
             pass
         return dialog, status_var, progressbar
@@ -26942,32 +28818,60 @@ class BossTimerApp:
         self.schedule_github_server_var.set("목록 갱신 중")
         if self._widget_available(self.schedule_window):
             self.schedule_status_var.set("GitHub 서버 목록을 읽는 중입니다.")
+        progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
+            "서버 목록",
+            dialog_title="서버 목록 갱신 중",
+            title_text="서버 목록 갱신 중",
+            initial_status="GitHub 서버 목록을 다운로드하는 중입니다.",
+            footer_text="목록을 읽고 로컬 서버와 병합하는 중입니다.",
+        )
+
+        def set_progress_status(message: str) -> None:
+            if progress_status_var is None:
+                return
+            try:
+                progress_status_var.set(message)
+                if progress_dialog is not None and progress_dialog.winfo_exists():
+                    progress_dialog.update_idletasks()
+            except tk.TclError:
+                pass
 
         def worker() -> None:
             index_payload, _sha, error = self._github_get_json_file("data/server_index.json")
             entries = [] if error else self._extract_github_server_entries(index_payload)
 
             def finish() -> None:
+                set_progress_status("서버 목록을 적용하는 중입니다.")
                 self.schedule_github_server_loading = False
-                self.schedule_github_server_entries = entries
-                values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in entries]
+                self.schedule_github_server_entries = self._merge_local_github_server_entries(entries)
+                self._cache_github_server_entries_from_index(entries)
+                self._save_github_server_entries_cache(self.schedule_github_server_entries)
+                values = [self._format_github_server_combo_text(str(item.get("name") or item.get("id") or "")) for item in self.schedule_github_server_entries]
                 if self.schedule_github_server_combo is not None:
                     try:
                         self.schedule_github_server_combo.configure(values=values)
                     except tk.TclError:
                         pass
-                if error:
+                if error and values:
+                    current = self.schedule_github_server_var.get().strip()
+                    value_names = [value.strip() for value in values]
+                    if not self._sync_github_server_combo_to_loaded_meta():
+                        self.schedule_github_server_var.set(self._format_github_server_combo_text(current) if current in value_names else values[0])
+                    self.schedule_status_var.set(f"GitHub 서버 목록 읽기 실패: {error} 로컬 서버 {len(values)}개만 표시합니다.")
+                elif error:
                     self.schedule_github_server_var.set("목록 실패")
                     self.schedule_status_var.set(f"GitHub 서버 목록 읽기 실패: {error}")
                 elif values:
                     current = self.schedule_github_server_var.get().strip()
                     value_names = [value.strip() for value in values]
-                    self.schedule_github_server_var.set(self._format_github_server_combo_text(current) if current in value_names else values[0])
+                    if not self._sync_github_server_combo_to_loaded_meta():
+                        self.schedule_github_server_var.set(self._format_github_server_combo_text(current) if current in value_names else values[0])
                     self.schedule_status_var.set(f"GitHub 서버 목록 {len(values)}개를 읽었습니다.")
                 else:
                     self.schedule_github_server_var.set("서버 없음")
                     self.schedule_status_var.set("GitHub에 업로드된 서버 목록이 없습니다.")
                 self._set_schedule_github_controls_state(True)
+                self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
 
             try:
                 self.root.after(0, finish)
@@ -26976,10 +28880,132 @@ class BossTimerApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _select_github_server_entry(self, entry: dict[str, object] | None, *, force: bool = False) -> None:
+        if not isinstance(entry, dict):
+            return
+        server_name = str(entry.get("name") or entry.get("id") or "").strip()
+        if not server_name:
+            return
+        if hasattr(self, "schedule_github_server_var"):
+            self.schedule_github_server_var.set(self._format_github_server_combo_text(server_name))
+        self._on_github_server_selected(force=force)
+
+    def _on_github_server_selected(self, _event=None, *, force: bool = False) -> None:
+        entry = self._get_selected_github_server_entry()
+        if not entry:
+            return
+        server_name = str(entry.get("name") or entry.get("id") or "").strip() or "선택 서버"
+        current_meta = self.schedule_last_import_meta if isinstance(self.schedule_last_import_meta, dict) else {}
+        current_server_id = str(current_meta.get("github_server_id") or "").strip()
+        selected_server_id = str(entry.get("id") or "").strip()
+        if not force and current_server_id and selected_server_id and current_server_id == selected_server_id:
+            return
+        progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
+            server_name,
+            dialog_title="서버 변경 중",
+            title_text="서버 변경 중",
+            initial_status="PC에 저장된 서버 스케쥴을 확인하는 중입니다.",
+            footer_text="저장된 서버 자료를 불러오는 중입니다.",
+        )
+
+        def set_progress_status(message: str) -> None:
+            if progress_status_var is None:
+                return
+            try:
+                progress_status_var.set(message)
+                if progress_dialog is not None and progress_dialog.winfo_exists():
+                    progress_dialog.update_idletasks()
+            except tk.TclError:
+                pass
+
+        self._cancel_schedule_main_save_after()
+        set_progress_status("PC에 저장된 서버 스케쥴을 확인하는 중입니다.")
+        payload, cache_path = self._load_github_local_schedule_payload(entry)
+        if isinstance(payload, dict) and self._is_github_local_schedule_cache_trusted(entry, payload):
+            set_progress_status("저장된 스케쥴을 적용하는 중입니다.")
+            if self._apply_loaded_schedule_shared_payload(
+                payload,
+                source_label=f"{server_name} 로컬 캐시",
+                source_path=cache_path,
+                create_restore_history=False,
+                create_backups=False,
+                allow_empty=True,
+                sync_shared_export=False,
+            ):
+                boss_payload = self._load_github_local_boss_payload(entry)
+                if isinstance(boss_payload, dict):
+                    set_progress_status("보스설정을 적용하는 중입니다.")
+                    self._apply_github_boss_config_payload(boss_payload)
+                schedule_version, boss_config_version = self._get_github_local_cache_versions(entry, payload)
+                self._update_github_import_meta(
+                    server_id=selected_server_id,
+                    server_name=server_name,
+                    schedule_path=str(entry.get("schedule") or "").strip(),
+                    schedule_version=schedule_version,
+                    boss_config_path=str(entry.get("bosses") or "").strip(),
+                    boss_config_version=boss_config_version,
+                )
+                previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
+                self.schedule_github_version_cache_suspended = True
+                try:
+                    self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False)
+                finally:
+                    self.schedule_github_version_cache_suspended = previous_cache_suspended
+                self.schedule_status_var.set(f"{server_name}: PC에 저장된 스케쥴을 불러왔습니다. 최신 갱신은 동기화를 눌러주세요.")
+                self._set_schedule_github_controls_state(True)
+            self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
+            return
+        has_known_remote_schedule = self._github_entry_has_known_remote_schedule(entry)
+        set_progress_status("저장된 스케쥴이 없어 빈 페이지를 준비하는 중입니다.")
+        reference_now = self._get_schedule_reference_datetime()
+        self.schedule_events = []
+        self._reset_schedule_alarm_event_index()
+        self.schedule_active_entries = []
+        self.schedule_control_events = []
+        self.schedule_second_precision_offsets = {}
+        self.schedule_delete_history = []
+        self.schedule_delete_active_cutoff_datetime = None
+        self.schedule_delete_default_cutoff_datetime = self._get_schedule_default_server_open_datetime(reference_now)
+        self.schedule_tree_quick_cut_history = []
+        self.schedule_active_quick_cut_history = []
+        self.schedule_alarm_fired_keys = {}
+        self._set_schedule_base_datetime_fields(self._get_schedule_default_server_open_datetime(reference_now))
+        self._set_schedule_view_datetime_fields(reference_now)
+        self._reset_schedule_delete_runtime_state()
+        self._refresh_schedule_view()
+        self._update_github_import_meta(
+            server_id=selected_server_id,
+            server_name=server_name,
+            schedule_path=str(entry.get("schedule") or f"data/schedules/{selected_server_id}.json").strip(),
+            schedule_version="",
+            boss_config_path=str(entry.get("bosses") or "").strip(),
+            boss_config_version="",
+        )
+        previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
+        self.schedule_github_version_cache_suspended = True
+        try:
+            self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False)
+        finally:
+            self.schedule_github_version_cache_suspended = previous_cache_suspended
+        self.schedule_status_var.set(
+            f"{server_name}: PC에 저장된 스케쥴이 없어 빈 페이지를 표시합니다. 최신 자료는 동기화로 받을 수 있습니다."
+            if has_known_remote_schedule
+            else f"{server_name}: PC에 저장된 스케쥴이 없어 빈 페이지를 표시합니다."
+        )
+        self._set_schedule_github_controls_state(True)
+        self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
+
     def _get_selected_github_server_entry(self) -> dict[str, object] | None:
         selected_name = str(self.schedule_github_server_var.get() or "").strip()
         for entry in self.schedule_github_server_entries:
-            if selected_name == str(entry.get("name") or entry.get("id") or "").strip():
+            entry_name = str(entry.get("name") or entry.get("id") or "").strip()
+            entry_id = str(entry.get("id") or "").strip()
+            if selected_name in {
+                entry_name,
+                entry_id,
+                self._format_github_server_combo_text(entry_name).strip(),
+                self._format_github_server_combo_text(entry_id).strip(),
+            }:
                 return entry
         return self.schedule_github_server_entries[0] if self.schedule_github_server_entries else None
 
@@ -26999,18 +29025,35 @@ class BossTimerApp:
         if not schedule_path:
             self.schedule_status_var.set(f"{server_name}: 스케쥴 경로가 없습니다.")
             return
-        self._start_schedule_github_sync_cooldown()
+        self._start_schedule_github_sync_cooldown(record_attempt=True)
         boss_config_path = str(entry.get("bosses") or "").strip()
         schedule_version_from_index = str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip()
         boss_config_version_from_index = str(entry.get("bossConfigVersion") or "").strip()
-        local_cache_item = self._get_github_cached_item_for_entry(entry)
-        local_schedule_version, local_boss_config_version = self._get_github_import_meta_versions_for_entry(entry)
-        if not local_schedule_version and not local_boss_config_version:
-            local_schedule_version, local_boss_config_version = self._get_github_cached_versions_for_entry(entry)
-        schedule_same_from_index = bool(schedule_version_from_index) and schedule_version_from_index == local_schedule_version
+        meta_schedule_version, meta_boss_config_version = self._get_github_import_meta_versions_for_entry(entry)
+        cached_schedule_payload, _cached_schedule_path = self._load_github_local_schedule_payload(entry)
+        local_schedule_file_ready = isinstance(cached_schedule_payload, dict) and self._is_github_local_schedule_cache_trusted(entry, cached_schedule_payload)
+        cached_schedule_version, cached_boss_config_version = self._get_github_local_cache_versions(entry)
+        cached_version_item = self._get_github_cached_item_for_entry(entry)
+        schedule_dirty = str(cached_version_item.get("scheduleDirty") or "").strip() == "1"
+        boss_config_dirty = str(cached_version_item.get("bossConfigDirty") or "").strip() == "1"
+        local_schedule_version = cached_schedule_version if schedule_dirty and cached_schedule_version else (meta_schedule_version or cached_schedule_version)
+        local_boss_config_version = cached_boss_config_version if boss_config_dirty and cached_boss_config_version else (meta_boss_config_version or cached_boss_config_version)
+        schedule_same_from_index = bool(not schedule_dirty and local_schedule_file_ready and schedule_version_from_index and schedule_version_from_index == local_schedule_version)
         boss_config_available_from_index = bool(boss_config_path and boss_config_version_from_index)
-        boss_same_from_index = bool(boss_config_version_from_index) and boss_config_version_from_index == local_boss_config_version
+        boss_same_from_index = bool(not boss_config_dirty and boss_config_version_from_index and boss_config_version_from_index == local_boss_config_version)
         if schedule_same_from_index and (not boss_config_available_from_index or boss_same_from_index):
+            progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
+                server_name,
+                dialog_title="동기화 확인",
+                title_text="동기화 확인 중",
+                initial_status="서버와 PC의 버전을 비교하는 중입니다.",
+                footer_text="같은 버전이면 다운로드하지 않습니다.",
+            )
+            if progress_status_var is not None:
+                try:
+                    progress_status_var.set("같은 버전입니다. 업데이트하지 않습니다.")
+                except tk.TclError:
+                    pass
             self._set_github_cached_versions(
                 server_id,
                 schedule_version_from_index,
@@ -27020,10 +29063,11 @@ class BossTimerApp:
             )
             self._start_schedule_github_sync_cooldown()
             self.schedule_status_var.set(f"{server_name}: 스케쥴/보스설정이 같은 버전입니다. 업데이트하지 않았습니다.")
+            try:
+                self.root.after(450, lambda: self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar))
+            except tk.TclError:
+                self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
             return
-        background_music_resume_after_sync = bool(getattr(self, "background_music_enabled_var", None) and self.background_music_enabled_var.get())
-        if background_music_resume_after_sync:
-            self._cancel_background_music_ad_monitor()
         self._set_schedule_github_controls_state(False)
         self.schedule_status_var.set(f"{server_name} 스케쥴/보스설정을 GitHub에서 확인 중입니다.")
         progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(server_name)
@@ -27046,8 +29090,6 @@ class BossTimerApp:
 
         def close_progress_dialog() -> None:
             self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
-            if background_music_resume_after_sync and bool(getattr(self, "background_music_enabled_var", None) and self.background_music_enabled_var.get()):
-                self._schedule_background_music_ad_monitor(delay_ms=2500)
 
         def worker() -> None:
             schedule_raw_payload = None
@@ -27069,9 +29111,9 @@ class BossTimerApp:
                     return f"keys=[{keys}], payload.keys=[{payload_keys}]"
                 return f"keys=[{keys}]"
 
-            schedule_same_version = bool(schedule_version) and schedule_version == local_schedule_version
+            schedule_same_version = bool(not schedule_dirty and local_schedule_file_ready and schedule_version and schedule_version == local_schedule_version)
             boss_config_available = bool(boss_config_path and boss_config_version)
-            boss_same_version = bool(boss_config_version) and boss_config_version == local_boss_config_version
+            boss_same_version = bool(not boss_config_dirty and boss_config_version and boss_config_version == local_boss_config_version)
 
             if not schedule_same_version:
                 post_progress_status("스케쥴 JSON을 다운로드하는 중입니다.")
@@ -27080,7 +29122,7 @@ class BossTimerApp:
                 schedule_payload = None if schedule_error else self._unwrap_github_schedule_payload(schedule_raw_payload)
                 if isinstance(schedule_raw_payload, dict):
                     schedule_version = str(schedule_raw_payload.get("dataVersion") or schedule_version).strip()
-                schedule_same_version = bool(schedule_version) and schedule_version == local_schedule_version
+                schedule_same_version = bool(not schedule_dirty and local_schedule_file_ready and schedule_version and schedule_version == local_schedule_version)
 
             if boss_config_path and not boss_same_version:
                 post_progress_status("보스설정 JSON을 다운로드하는 중입니다.")
@@ -27090,7 +29132,7 @@ class BossTimerApp:
                 if isinstance(boss_raw_payload, dict):
                     boss_config_version = str(boss_raw_payload.get("dataVersion") or boss_config_version).strip()
                 boss_config_available = bool(boss_config_path and (boss_config_version or isinstance(boss_payload, dict)))
-                boss_same_version = bool(boss_config_version) and boss_config_version == local_boss_config_version
+                boss_same_version = bool(not boss_config_dirty and boss_config_version and boss_config_version == local_boss_config_version)
 
             def finish() -> None:
                 self._set_schedule_github_controls_state(True)
@@ -27135,6 +29177,8 @@ class BossTimerApp:
                                 source_label=f"{server_name} GitHub",
                                 source_path=schedule_path,
                                 create_restore_history=False,
+                                create_backups=False,
+                                sync_shared_export=False,
                             ):
                                 return
                             applied_parts.append("스케쥴")
@@ -27159,10 +29203,15 @@ class BossTimerApp:
                             boss_config_path=boss_config_path,
                             boss_config_version=boss_config_version or local_boss_config_version,
                         )
+                        self._save_github_local_payload_cache(
+                            entry,
+                            schedule_payload=schedule_payload if isinstance(schedule_payload, dict) else None,
+                            boss_payload=boss_payload if isinstance(boss_payload, dict) else None,
+                        )
                         previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
                         self.schedule_github_version_cache_suspended = True
                         try:
-                            self._save_schedule_state(mark_github_dirty=False)
+                            self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False)
                         finally:
                             self.schedule_github_version_cache_suspended = previous_cache_suspended
                         if applied_parts and skipped_parts:
@@ -27216,21 +29265,26 @@ class BossTimerApp:
         source_path: str = "",
         history_label: str | None = None,
         create_restore_history: bool = True,
+        create_backups: bool = True,
+        allow_empty: bool = False,
+        sync_shared_export: bool = True,
     ) -> bool:
         snapshot = self._create_schedule_full_snapshot_from_shared_payload(payload, source_path=source_path)
-        if not self._schedule_restore_snapshot_has_data(snapshot):
+        if not self._schedule_restore_snapshot_has_data(snapshot) and not (allow_empty and isinstance(payload, dict)):
             self.schedule_status_var.set("불러올 저장용 스케쥴 데이터가 없습니다.")
             return False
         current_snapshot = self._create_schedule_restore_cycle_snapshot()
-        self._backup_current_schedule_shared_export(
-            self.current_season_no,
-            self.current_season_started_at,
-        )
-        shared_archive_path = self._archive_current_schedule_shared_export(
-            self.current_season_no,
-            self.current_season_started_at,
-            archive_reason="before_shared_load",
-        )
+        shared_archive_path = None
+        if create_backups:
+            self._backup_current_schedule_shared_export(
+                self.current_season_no,
+                self.current_season_started_at,
+            )
+            shared_archive_path = self._archive_current_schedule_shared_export(
+                self.current_season_no,
+                self.current_season_started_at,
+                archive_reason="before_shared_load",
+            )
         backed_up_current = False
         if create_restore_history:
             backed_up_current = self._append_schedule_delete_history_entry(
@@ -27244,7 +29298,7 @@ class BossTimerApp:
         previous_cache_suspended = bool(getattr(self, "schedule_github_version_cache_suspended", False))
         self.schedule_github_version_cache_suspended = True
         try:
-            self._save_schedule_state()
+            self._save_schedule_state(sync_shared_export=sync_shared_export)
         finally:
             self.schedule_github_version_cache_suspended = previous_cache_suspended
         self._save_schedule_delete_history(prune=not backed_up_current)
@@ -28366,11 +30420,8 @@ class BossTimerApp:
         lead_limit = reference_value + timedelta(seconds=max(1, int(lead_seconds)))
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         candidates: list[tuple[datetime, tuple[str, str, str, str]]] = []
-        for item in self.schedule_events:
-            scheduled_at = item.get("scheduled_at")
+        for item, scheduled_at in self._iter_schedule_alarm_events_between(reference_value, lead_limit):
             created_at = item.get("created_at")
-            if not isinstance(scheduled_at, datetime):
-                continue
             scheduled_value = scheduled_at.replace(microsecond=0)
             if scheduled_value <= reference_value or scheduled_value > lead_limit:
                 continue
@@ -28453,11 +30504,8 @@ class BossTimerApp:
             return []
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         started_targets: list[tuple[tuple[str, str, str, str], datetime]] = []
-        for item in self.schedule_events:
-            scheduled_at = item.get("scheduled_at")
+        for item, scheduled_at in self._iter_schedule_alarm_events_between(previous_value, current_value):
             created_at = item.get("created_at")
-            if not isinstance(scheduled_at, datetime):
-                continue
             if scheduled_at <= previous_value or scheduled_at > current_value:
                 continue
             if not self._is_schedule_event_visible(
@@ -28489,11 +30537,8 @@ class BossTimerApp:
         lower_bound = reference_value - timedelta(seconds=max(1, int(seconds)))
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         targets: list[tuple[tuple[str, str, str, str], datetime]] = []
-        for item in self.schedule_events:
-            scheduled_at = item.get("scheduled_at")
+        for item, scheduled_at in self._iter_schedule_alarm_events_between(lower_bound, reference_value):
             created_at = item.get("created_at")
-            if not isinstance(scheduled_at, datetime):
-                continue
             scheduled_value = scheduled_at.replace(microsecond=0)
             if scheduled_value < lower_bound or scheduled_value > reference_value:
                 continue
@@ -28551,11 +30596,11 @@ class BossTimerApp:
         reference_value = reference_now.replace(microsecond=0)
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         candidate_times: list[datetime] = []
-        for item in self.schedule_events:
-            next_time = item.get("scheduled_at")
+        scan_end = cutoff_datetime if isinstance(cutoff_datetime, datetime) else reference_value + timedelta(days=14)
+        if scan_end < reference_value:
+            scan_end = reference_value
+        for item, next_time in self._iter_schedule_alarm_events_between(reference_value, scan_end):
             created_at = item.get("created_at")
-            if not isinstance(next_time, datetime):
-                continue
             next_value = next_time.replace(microsecond=0)
             if next_value <= scheduled_value or next_value <= reference_value:
                 continue
@@ -28568,6 +30613,7 @@ class BossTimerApp:
             ):
                 continue
             candidate_times.append(next_value)
+            break
         for next_time, boss_text, *_rest in self._get_fixed_boss_schedule_rows():
             next_value = next_time.replace(microsecond=0)
             if next_value <= scheduled_value or next_value <= reference_value:
@@ -30289,11 +32335,16 @@ class BossTimerApp:
                 window_start = view_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
                 window_end = window_start + timedelta(days=2)
                 visible_rows: list[tuple[datetime, str, str, str, str, str, str, str, str, dict[str, object], dict[str, object]]] = []
-                for item in self.schedule_events:
-                    scheduled_at = item.get("scheduled_at")
+                has_schedule_data_for_fixed_rows = bool(
+                    self.schedule_events
+                    or self.schedule_active_entries
+                    or self.schedule_control_events
+                )
+                for item, scheduled_at in self._iter_schedule_alarm_events_between(
+                    window_start,
+                    window_end - timedelta(microseconds=1),
+                ):
                     created_at = item.get("created_at")
-                    if not isinstance(scheduled_at, datetime):
-                        continue
                     if scheduled_at < window_start or scheduled_at >= window_end:
                         continue
                     if not self._is_schedule_event_visible(
@@ -30355,33 +32406,34 @@ class BossTimerApp:
                         )
                     )
                     continue
-                for scheduled_at, boss_text, state_text, alarm_text, result_text, note_text, text_color, bg_color in self._get_fixed_boss_schedule_rows():
-                    if scheduled_at < window_start or scheduled_at >= window_end:
-                        continue
-                    visible_rows.append(
-                        (
-                            scheduled_at,
-                            boss_text,
-                            state_text,
-                            alarm_text,
-                            "",
-                            "",
-                            self._get_schedule_average_cut_text(boss_text, average_map=average_cut_map),
-                            note_text,
-                            "fixed",
-                            {
-                                "display_name": boss_text,
-                                "scheduled_at": scheduled_at,
-                                "text_color": text_color,
-                                "bg_color": bg_color,
-                            },
-                            {
-                                "cut_available": False,
-                                "cut_disabled_reason": "",
-                                "cut_anchor_datetime": None,
-                            },
+                if has_schedule_data_for_fixed_rows:
+                    for scheduled_at, boss_text, state_text, alarm_text, result_text, note_text, text_color, bg_color in self._get_fixed_boss_schedule_rows():
+                        if scheduled_at < window_start or scheduled_at >= window_end:
+                            continue
+                        visible_rows.append(
+                            (
+                                scheduled_at,
+                                boss_text,
+                                state_text,
+                                alarm_text,
+                                "",
+                                "",
+                                self._get_schedule_average_cut_text(boss_text, average_map=average_cut_map),
+                                note_text,
+                                "fixed",
+                                {
+                                    "display_name": boss_text,
+                                    "scheduled_at": scheduled_at,
+                                    "text_color": text_color,
+                                    "bg_color": bg_color,
+                                },
+                                {
+                                    "cut_available": False,
+                                    "cut_disabled_reason": "",
+                                    "cut_anchor_datetime": None,
+                                },
+                            )
                         )
-                    )
                 for item in self.schedule_control_events:
                     scheduled_at = item.get("scheduled_at")
                     if not isinstance(scheduled_at, datetime):
@@ -30590,7 +32642,7 @@ class BossTimerApp:
             state_changed = True
         if state_changed:
             self._save_schedule_state()
-        self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
+        self._normalize_schedule_events_if_needed()
         self.schedule_active_entries = self._normalize_schedule_active_items(self.schedule_active_entries)
         self._refresh_schedule_navigation_controls()
         self._update_schedule_next_boss_summary()
@@ -30601,7 +32653,7 @@ class BossTimerApp:
         self._update_schedule_refresh_scope_keys()
 
     def _refresh_schedule_tree_scope(self) -> None:
-        self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
+        self._normalize_schedule_events_if_needed()
         self._refresh_schedule_navigation_controls()
         self._update_schedule_next_boss_summary()
         self._refresh_schedule_tree_only()
@@ -31249,6 +33301,15 @@ class BossTimerApp:
         resource_init_dir = os.path.join(get_resource_root(), "init")
         if not os.path.isdir(resource_init_dir):
             return
+        marker_path = os.path.join(INIT_DIR, ".seed_version")
+        try:
+            if os.path.exists(marker_path):
+                with open(marker_path, "r", encoding="utf-8") as marker_file:
+                    seeded_version = marker_file.read().strip()
+                if seeded_version == str(APP_VERSION or "").strip():
+                    return
+        except OSError:
+            pass
         for root_dir, _, filenames in os.walk(resource_init_dir):
             relative_dir = os.path.relpath(root_dir, resource_init_dir)
             target_dir = INIT_DIR if relative_dir == "." else os.path.join(INIT_DIR, relative_dir)
@@ -31262,6 +33323,11 @@ class BossTimerApp:
                     shutil.copy2(source_path, target_path)
                 except OSError:
                     continue
+        try:
+            with open(marker_path, "w", encoding="utf-8") as marker_file:
+                marker_file.write(str(APP_VERSION or "").strip())
+        except OSError:
+            pass
 
     def _seed_runtime_default_files_from_resource_init(self) -> None:
         resource_init_dir = os.path.join(get_resource_root(), "init")
@@ -31288,6 +33354,15 @@ class BossTimerApp:
         runtime_assets_dir = os.path.join(get_app_root(), "assets")
         if not os.path.isdir(resource_assets_dir):
             return
+        marker_path = os.path.join(runtime_assets_dir, ".seed_version")
+        try:
+            if os.path.isdir(runtime_assets_dir) and os.path.exists(marker_path):
+                with open(marker_path, "r", encoding="utf-8") as marker_file:
+                    seeded_version = marker_file.read().strip()
+                if seeded_version == str(APP_VERSION or "").strip():
+                    return
+        except OSError:
+            pass
         for root_dir, _, filenames in os.walk(resource_assets_dir):
             relative_dir = os.path.relpath(root_dir, resource_assets_dir)
             target_dir = runtime_assets_dir if relative_dir == "." else os.path.join(runtime_assets_dir, relative_dir)
@@ -31304,6 +33379,12 @@ class BossTimerApp:
                     shutil.copy2(source_path, target_path)
                 except OSError:
                     continue
+        try:
+            os.makedirs(runtime_assets_dir, exist_ok=True)
+            with open(marker_path, "w", encoding="utf-8") as marker_file:
+                marker_file.write(str(APP_VERSION or "").strip())
+        except OSError:
+            pass
 
     def _seed_init_file_from_resource(self, filename: str) -> None:
         self._ensure_init_dir()
@@ -33427,9 +35508,9 @@ class BossTimerApp:
         folder_path = ""
         if self._has_active_season():
             try:
-                folder_path = os.path.normcase(os.path.abspath(self._get_logs_dir()))
+                folder_path = os.path.normcase(os.path.abspath(self._get_logs_dir(create=False)))
             except OSError:
-                folder_path = str(self._get_logs_dir() or "").strip()
+                folder_path = str(self._get_logs_dir(create=False) or "").strip()
         exclude_extremes, include_unconfirmed = self._get_log_stats_filter_options()
         return (
             folder_path,
@@ -33726,7 +35807,7 @@ class BossTimerApp:
         return moved_count
 
     def _read_log_records(self, boss_name: str) -> list[dict]:
-        return self._read_log_records_for_boss_from_folder(self._get_logs_dir(), boss_name)
+        return self._read_log_records_for_boss_from_folder(self._get_logs_dir(create=False), boss_name)
 
     def _write_log_records(self, boss_name: str, records: list[dict]) -> None:
         grouped_records: dict[tuple[str, str], list[dict]] = {}
@@ -34025,15 +36106,23 @@ class BossTimerApp:
         if normalized_scope == self._get_log_stats_scope_all_label():
             return self._get_log_archive_dir()
         if normalized_scope == self._get_log_stats_scope_current_label():
-            return self._get_logs_dir()
+            return self._get_logs_dir(create=False)
+        clean_scope = re.sub(r"\s*\((?:현|전)\)\s*$", "", normalized_scope).strip()
+        if clean_scope:
+            archive_candidate = os.path.join(self._get_log_archive_dir(), clean_scope)
+            if os.path.isdir(archive_candidate):
+                return archive_candidate
+            current_candidate = self._get_logs_dir(create=False)
+            if os.path.basename(os.path.normpath(current_candidate)) == clean_scope:
+                return current_candidate
         season_match = re.fullmatch(r"(\d+)차 시즌", normalized_scope)
         if not season_match:
             season_no_text = re.sub(r"[^0-9]", "", normalized_scope)
             if season_no_text:
-                return self._get_archive_season_dir(season_no_text)
+                return self._get_archive_season_dir(season_no_text, create=False)
         else:
-            return self._get_archive_season_dir(season_match.group(1))
-        return self._get_logs_dir()
+            return self._get_archive_season_dir(season_match.group(1), create=False)
+        return self._get_logs_dir(create=False)
 
     def _get_scope_value_from_folder_path(self, folder_path: str | None = None) -> str:
         candidate_path = str(folder_path or "").strip()
@@ -34041,7 +36130,7 @@ class BossTimerApp:
             return ""
         try:
             normalized_candidate = os.path.normcase(os.path.abspath(candidate_path))
-            normalized_logs_dir = os.path.normcase(os.path.abspath(self._get_logs_dir()))
+            normalized_logs_dir = os.path.normcase(os.path.abspath(self._get_logs_dir(create=False)))
             normalized_archive_dir = os.path.normcase(os.path.abspath(self._get_log_archive_dir()))
         except OSError:
             return ""
@@ -34049,17 +36138,28 @@ class BossTimerApp:
             return self._get_log_stats_scope_current_label()
         if normalized_candidate == normalized_archive_dir:
             return self._get_log_stats_scope_all_label()
-        season_match = re.fullmatch(r"(\d+)차 시즌", os.path.basename(candidate_path))
+        folder_name = os.path.basename(os.path.normpath(candidate_path))
+        if not folder_name:
+            return ""
+        if normalized_candidate.startswith(normalized_archive_dir + os.sep):
+            return self._normalize_log_stats_scope_value(folder_name)
+        season_match = re.fullmatch(r"(\d+)차 시즌", folder_name)
         if season_match:
             return self._normalize_log_stats_scope_value(season_match.group(0))
-        return ""
+        return folder_name
 
     def _get_log_stats_scope_folder_path(self) -> str:
         return self._get_scope_folder_path_from_value(self._get_log_stats_scope_value())
 
     def _get_log_stats_scope_current_label(self) -> str:
         if self._has_active_season():
-            return f"{int(self.current_season_no)}차 시즌 (현)"
+            folder_name = ""
+            try:
+                folder_name = os.path.basename(os.path.normpath(self._get_logs_dir(create=False)))
+            except OSError:
+                folder_name = ""
+            season_label = folder_name or self._get_archive_season_label(self.current_season_no)
+            return f"{season_label} (현)"
         return "현재시즌"
 
     def _get_log_stats_scope_all_label(self) -> str:
@@ -36367,7 +38467,10 @@ class BossTimerApp:
         y = 62
         for label_text, value_text in info_lines:
             tk.Label(dialog, text=label_text, font=label_font, bg="#eff6ff", fg="#1e3a8a", anchor="w").place(x=22, y=y, width=116, height=24)
-            tk.Label(dialog, text=value_text, font=value_font, bg="#f8fafc", fg="#0f172a", anchor="w", justify="left", relief="solid", bd=1, padx=8).place(x=142, y=y, width=196, height=24)
+            value_label = tk.Label(dialog, text=value_text, font=value_font, bg="#f8fafc", fg="#0f172a", anchor="w", justify="left", relief="solid", bd=1, padx=8)
+            value_label.place(x=142, y=y, width=196, height=24)
+            if label_text == "작성자":
+                value_label.bind("<Button-3>", self._on_author_label_right_click)
             y += 34
 
         tk.Button(
@@ -36389,6 +38492,7 @@ class BossTimerApp:
         dialog.focus_force()
 
     def close_version_info_window(self) -> None:
+        self._reset_master_developer_author_clicks()
         if self.version_info_window is not None and self.version_info_window.winfo_exists():
             self.version_info_window.destroy()
         self.version_info_window = None
@@ -36438,11 +38542,13 @@ class BossTimerApp:
         self.apply_button = tk.Button(self.settings_window, text="저장", font=self.button_font, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_settings, cursor="hand2")
         self.apply_button.place(x=304, y=414, width=98, height=30)
         self.save_notice_label = tk.Label(self.settings_window, text="", font=self.button_font, bg="#f8f1df", fg="#b45309")
-        tk.Label(self.settings_window, text=f"Made by {AUTHOR_NAME}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309").place(x=18, y=404)
+        author_label = tk.Label(self.settings_window, text=f"Made by {AUTHOR_NAME}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309")
+        author_label.place(x=18, y=404)
         tk.Label(self.settings_window, text=APP_VERSION, font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309").place(x=132, y=404)
         tk.Label(self.settings_window, text=f"마지막 작업일자: {LAST_UPDATED}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#7c3aed").place(x=18, y=422)
 
     def close_settings_window(self) -> None:
+        self._reset_master_developer_author_clicks()
         if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
             self.settings_window.update_idletasks()
             self.settings_window_x = self.settings_window.winfo_x()
@@ -37237,7 +39343,41 @@ class BossTimerApp:
         self._refresh_schedule_alarm_window()
         self._refresh_schedule_tree_scope()
 
-    def _apply_schedule_alarm_global_options(self, *, show_status: bool = True) -> None:
+    def _get_schedule_alarm_global_options_snapshot(self) -> dict[str, object]:
+        countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
+        second_precision_expire_hours = max(0, self._parse_int(self.schedule_second_precision_expire_hours_var.get(), 0))
+        return {
+            "countdown_start_seconds": countdown_start,
+            "second_precision_expire_hours": second_precision_expire_hours,
+            "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_var.get()),
+            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_var.get()),
+            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_var.get()),
+            "fixed_boss_enabled": bool(self.schedule_fixed_boss_alarm_enabled_var.get()),
+        }
+
+    def _get_schedule_alarm_global_defaults_snapshot(self) -> dict[str, object]:
+        return {
+            "countdown_start_seconds": int(self.schedule_alarm_countdown_start_default),
+            "second_precision_expire_hours": int(self.schedule_second_precision_expire_hours_default),
+            "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_default),
+            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_enabled_default),
+            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_enabled_default),
+            "fixed_boss_enabled": bool(self.schedule_fixed_boss_alarm_enabled_default),
+        }
+
+    def _schedule_alarm_global_option_text_is_normalized(self, snapshot: dict[str, object]) -> bool:
+        return (
+            str(self.schedule_alarm_countdown_start_var.get()).strip() == str(snapshot.get("countdown_start_seconds"))
+            and str(self.schedule_second_precision_expire_hours_var.get()).strip() == str(snapshot.get("second_precision_expire_hours"))
+        )
+
+    def _apply_schedule_alarm_global_options(self, *, show_status: bool = True) -> bool:
+        snapshot = self._get_schedule_alarm_global_options_snapshot()
+        if (
+            snapshot == self._get_schedule_alarm_global_defaults_snapshot()
+            and self._schedule_alarm_global_option_text_is_normalized(snapshot)
+        ):
+            return False
         countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
         self.schedule_alarm_countdown_start_var.set(str(countdown_start))
         second_precision_expire_hours = max(0, self._parse_int(self.schedule_second_precision_expire_hours_var.get(), 0))
@@ -37273,6 +39413,7 @@ class BossTimerApp:
             self._refresh_schedule_tree_scope()
         else:
             self._refresh_schedule_view(refresh_active_rows=False)
+        return True
 
     def _on_schedule_alarm_boss_tree_select(self, _event=None) -> None:
         if self.schedule_alarm_boss_tree is None or not self._widget_available(self.schedule_alarm_boss_tree):
@@ -38838,6 +40979,7 @@ class BossTimerApp:
         payload = {
             "search_terms": self._normalize_background_music_terms(terms),
             "video_ids": safe_video_ids[:30],
+            "min_duration_seconds": BACKGROUND_MUSIC_MIN_VIDEO_SECONDS,
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         self.background_music_video_cache = payload
@@ -38856,22 +40998,56 @@ class BossTimerApp:
 
     def _refresh_background_music_video_cache_async(self, terms: list[str], status_setter=None) -> None:
         search_terms = self._normalize_background_music_terms(terms)
+        if bool(getattr(self, "background_music_cache_refresh_running", False)):
+            return
+        self.background_music_cache_refresh_running = True
 
         def worker() -> None:
-            video_ids = self._build_background_music_video_ids(search_terms, 30)
-            if video_ids:
-                self._save_background_music_video_cache(search_terms, video_ids)
-                message = f"검색 캐시 {len(video_ids)}개를 갱신했습니다."
-            else:
-                self._clear_background_music_video_cache()
-                message = "검색 캐시를 만들지 못했습니다."
-            if status_setter is not None:
+            message = ""
+            try:
+                video_ids = self._build_background_music_video_ids(search_terms, 30, throttle_seconds=0.5)
+                if video_ids:
+                    self._save_background_music_video_cache(search_terms, video_ids)
+                    message = f"검색 캐시 {len(video_ids)}개를 갱신했습니다."
+                else:
+                    self._clear_background_music_video_cache()
+                    message = "검색 캐시를 만들지 못했습니다."
+            finally:
+                self.background_music_cache_refresh_running = False
+            if status_setter is not None and message:
                 try:
                     self.root.after(0, lambda: status_setter(message))
                 except tk.TclError:
                     pass
 
         threading.Thread(target=worker, name="background-music-cache-refresh", daemon=True).start()
+
+    def _schedule_background_music_cache_prewarm(self) -> None:
+        try:
+            self.root.after(8000, self._prewarm_background_music_video_cache)
+        except tk.TclError:
+            pass
+
+    def _prewarm_background_music_video_cache(self) -> None:
+        terms = self._get_background_music_search_terms()
+        if self._get_cached_background_music_video_ids(terms):
+            return
+        self._refresh_background_music_video_cache_async(terms)
+
+    def _schedule_background_music_cache_refresh_later(self, delay_ms: int = 60000) -> None:
+        try:
+            self.root.after(int(delay_ms), self._prewarm_background_music_video_cache)
+        except tk.TclError:
+            pass
+
+    def _fetch_background_music_quick_start_video_ids(self, terms: list[str]) -> list[str]:
+        search_terms = self._normalize_background_music_terms(terms)
+        for term in search_terms:
+            video_ids = self._fetch_background_music_video_ids(term, 1)
+            if video_ids:
+                return video_ids[:1]
+            time.sleep(0.1)
+        return []
 
     def _get_background_music_search_terms(self) -> list[str]:
         terms = self._normalize_background_music_terms(getattr(self, "background_music_search_terms", []))
@@ -38886,6 +41062,8 @@ class BossTimerApp:
         if self._background_music_terms_look_corrupted(cached_terms):
             return []
         if cached_terms != self._normalize_background_music_terms(terms):
+            return []
+        if int(cache.get("min_duration_seconds") or 0) < BACKGROUND_MUSIC_MIN_VIDEO_SECONDS:
             return []
         video_ids = cache.get("video_ids")
         if not isinstance(video_ids, list):
@@ -38902,6 +41080,54 @@ class BossTimerApp:
         if remainder:
             limits[-1] += remainder
         return limits
+
+    def _parse_background_music_duration_seconds(self, text: object) -> int | None:
+        raw_text = re.sub(r"\s+", " ", str(text or "").strip())
+        if not raw_text:
+            return None
+        lowered = raw_text.lower()
+        if ":" in lowered and re.fullmatch(r"\d{1,3}(?::\d{1,2}){1,2}", lowered):
+            parts = [int(part) for part in lowered.split(":")]
+            if len(parts) == 2:
+                return parts[0] * 60 + parts[1]
+            if len(parts) == 3:
+                return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        total = 0
+        matched = False
+        for number_text, unit_text in re.findall(r"(\d+)\s*(시간|시|분|초|hour|hours|hr|hrs|minute|minutes|min|mins|second|seconds|sec|secs)", lowered):
+            value = int(number_text)
+            unit = unit_text.lower()
+            if unit in {"시간", "시", "hour", "hours", "hr", "hrs"}:
+                total += value * 3600
+            elif unit in {"분", "minute", "minutes", "min", "mins"}:
+                total += value * 60
+            elif unit in {"초", "second", "seconds", "sec", "secs"}:
+                total += value
+            matched = True
+        return total if matched else None
+
+    def _extract_background_music_search_item_duration(self, html: str, start_index: int, end_index: int) -> int | None:
+        nearby = html[max(0, start_index - 1200):min(len(html), end_index + 1600)]
+        length_seconds_match = re.search(r'"lengthSeconds"\s*:\s*"?(?P<seconds>\d+)"?', nearby)
+        if length_seconds_match:
+            return int(length_seconds_match.group("seconds"))
+        duration_texts: list[str] = []
+        for pattern in (
+            r'"lengthText"\s*:\s*\{.*?"text"\s*:\s*"([^"]+)"',
+            r'"lengthText"\s*:\s*\{.*?"label"\s*:\s*"([^"]+)"',
+            r'"accessibilityData"\s*:\s*\{.*?"label"\s*:\s*"([^"]+)"',
+        ):
+            for match in re.finditer(pattern, nearby, re.DOTALL):
+                duration_texts.append(match.group(1))
+        for text in duration_texts:
+            try:
+                text = json.loads(f'"{str(text)}"')
+            except (TypeError, ValueError, json.JSONDecodeError):
+                text = str(text)
+            duration = self._parse_background_music_duration_seconds(text)
+            if duration is not None:
+                return duration
+        return None
 
     def _fetch_background_music_video_ids(self, query: str = "배경음악", limit: int = 20) -> list[str]:
         search_url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query}) + "&sp=EgIQAQ%253D%253D"
@@ -38927,18 +41153,29 @@ class BossTimerApp:
             nearby = html[max(0, match.start() - 500):match.end() + 500].lower()
             if "/shorts/" in nearby or "shortslockup" in nearby or "reel" in nearby:
                 continue
+            duration_seconds = self._extract_background_music_search_item_duration(html, match.start(), match.end())
+            if duration_seconds is None or duration_seconds < BACKGROUND_MUSIC_MIN_VIDEO_SECONDS:
+                continue
             seen.add(video_id)
             video_ids.append(video_id)
             if len(video_ids) >= int(limit):
                 break
         return video_ids
 
-    def _build_background_music_video_ids(self, terms: list[str], total: int = 30) -> list[str]:
+    def _build_background_music_video_ids(
+        self,
+        terms: list[str],
+        total: int = 30,
+        *,
+        throttle_seconds: float = 0.0,
+    ) -> list[str]:
         search_terms = self._normalize_background_music_terms(terms)
         limits = self._get_background_music_fetch_limits(search_terms, total)
         seen: set[str] = set()
         video_ids: list[str] = []
         for term, limit in zip(search_terms, limits):
+            if throttle_seconds > 0:
+                time.sleep(float(throttle_seconds))
             for video_id in self._fetch_background_music_video_ids(term, max(int(limit) + 8, int(limit))):
                 if video_id in seen:
                     continue
@@ -38948,6 +41185,8 @@ class BossTimerApp:
                     return video_ids[: int(total)]
         if len(video_ids) < int(total):
             for term in search_terms:
+                if throttle_seconds > 0:
+                    time.sleep(float(throttle_seconds))
                 for video_id in self._fetch_background_music_video_ids(term, int(total)):
                     if video_id in seen:
                         continue
@@ -38960,7 +41199,9 @@ class BossTimerApp:
     def _build_background_music_url(self, video_ids: list[str]) -> str:
         safe_ids = [video_id for video_id in video_ids if re.fullmatch(r"[0-9A-Za-z_-]{11}", str(video_id or ""))]
         if safe_ids:
-            return "https://www.youtube.com/watch_videos?" + urllib.parse.urlencode({"video_ids": ",".join(safe_ids)})
+            if len(safe_ids) > 1:
+                return "https://www.youtube.com/watch_videos?" + urllib.parse.urlencode({"video_ids": ",".join(safe_ids[:30])})
+            return "https://www.youtube.com/watch?" + urllib.parse.urlencode({"v": safe_ids[0]})
         terms = self._get_background_music_search_terms()
         return "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": terms[0] if terms else "배경음악"})
 
@@ -38968,9 +41209,14 @@ class BossTimerApp:
         process = self.background_music_process
         if process is not None and process.poll() is None:
             return True
-        return bool(self._background_music_cdp_targets())
+        return False
 
     def _get_background_music_process_ids(self) -> set[int]:
+        now = time.monotonic()
+        cached_until = float(getattr(self, "background_music_process_ids_cache_until", 0.0) or 0.0)
+        cached_ids = set(getattr(self, "background_music_process_ids_cache", set()) or set())
+        if cached_ids and now < cached_until:
+            return cached_ids
         process_ids: set[int] = set()
         process = self.background_music_process
         if process is not None and process.poll() is None:
@@ -39001,6 +41247,8 @@ class BossTimerApp:
                     process_ids.add(int(token))
         except (OSError, subprocess.TimeoutExpired, ValueError):
             pass
+        self.background_music_process_ids_cache = set(process_ids)
+        self.background_music_process_ids_cache_until = now + 5.0
         return process_ids
 
     def _get_window_title_text(self, hwnd: int) -> str:
@@ -39049,7 +41297,58 @@ class BossTimerApp:
             pass
 
     def _minimize_background_music_windows(self) -> None:
-        self._set_background_music_windows_show_state(self.SW_SHOWMINNOACTIVE)
+        self._close_background_music_blank_targets()
+        self._close_background_music_blank_windows()
+        remembered_hwnds = set(getattr(self, "background_music_window_hwnds", set()) or set())
+        if remembered_hwnds:
+            music_hwnds: set[int] = set()
+            stale_hwnds: set[int] = set()
+            for hwnd in remembered_hwnds:
+                title = self._get_window_title_text(int(hwnd))
+                if self._is_background_music_window_title(title):
+                    music_hwnds.add(int(hwnd))
+                else:
+                    stale_hwnds.add(int(hwnd))
+            if stale_hwnds:
+                self._close_background_music_hwnds(stale_hwnds)
+            if music_hwnds:
+                minimized = self._minimize_background_music_hwnds(music_hwnds)
+                if minimized:
+                    self.background_music_window_hwnds = minimized
+                return
+            self.background_music_window_hwnds = set()
+        process_ids = self._get_background_music_process_ids()
+        if not process_ids:
+            return
+        try:
+            user32 = ctypes.windll.user32
+        except Exception:
+            return
+        candidates: set[int] = set()
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_proc(hwnd, _lparam):
+            try:
+                if user32.GetWindow(hwnd, self.GW_OWNER) or not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value) not in process_ids:
+                    return True
+                title = self._get_window_title_text(int(hwnd))
+                if self._is_background_music_window_title(title):
+                    candidates.add(int(hwnd))
+            except Exception:
+                pass
+            return True
+
+        try:
+            user32.EnumWindows(enum_proc, 0)
+        except Exception:
+            return
+        minimized = self._minimize_background_music_hwnds(candidates)
+        if minimized:
+            self.background_music_window_hwnds = minimized
 
     def _get_background_music_edge_window_geometry(self) -> tuple[int, int, int, int]:
         try:
@@ -39078,6 +41377,41 @@ class BossTimerApp:
         x = max(left, right - width - margin)
         y = max(top, bottom - height - margin)
         return x, y, width, height
+
+    def _get_background_music_offscreen_window_geometry(self) -> tuple[int, int, int, int]:
+        x, y, width, height = self._get_background_music_edge_window_geometry()
+        try:
+            user32 = ctypes.windll.user32
+            right = int(user32.GetSystemMetrics(0))
+            bottom = int(user32.GetSystemMetrics(1))
+        except Exception:
+            right = x + width
+            bottom = y + height
+        return max(right + 80, x + width + 80), max(0, min(y, bottom - 80)), width, height
+
+    def _place_background_music_hwnds_offscreen(self, hwnds: set[int]) -> set[int]:
+        active_hwnds: set[int] = set()
+        if not hwnds:
+            return active_hwnds
+        try:
+            user32 = ctypes.windll.user32
+        except Exception:
+            return active_hwnds
+        x, y, width, height = self._get_background_music_offscreen_window_geometry()
+        flags = self.SWP_NOZORDER | self.SWP_NOACTIVATE | self.SWP_SHOWWINDOW
+        for hwnd in list(hwnds):
+            try:
+                if not user32.IsWindow(int(hwnd)):
+                    continue
+                title = self._get_window_title_text(int(hwnd))
+                if not self._is_background_music_window_title(title):
+                    continue
+                user32.ShowWindow(int(hwnd), self.SW_SHOWNOACTIVATE)
+                user32.SetWindowPos(int(hwnd), 0, int(x), int(y), int(width), int(height), int(flags))
+                active_hwnds.add(int(hwnd))
+            except Exception:
+                continue
+        return active_hwnds
 
     def _snapshot_top_level_window_hwnds(self, *, visible_only: bool = False) -> set[int]:
         hwnds: set[int] = set()
@@ -39121,7 +41455,7 @@ class BossTimerApp:
                 if not user32.IsWindowVisible(int(hwnd)):
                     continue
                 title = self._get_window_title_text(int(hwnd))
-                if title and not self._is_background_music_window_title(title):
+                if not self._is_background_music_window_title(title):
                     continue
                 user32.ShowWindow(int(hwnd), self.SW_SHOWNOACTIVATE)
                 user32.SetWindowPos(int(hwnd), 0, int(x), int(y), int(width), int(height), int(flags))
@@ -39173,6 +41507,7 @@ class BossTimerApp:
         blank_titles = {"", "about:blank", "new tab", "새 탭"}
         closed_hwnds: set[int] = set()
         visible_hwnds: list[int] = []
+        youtube_like_hwnds: set[int] = set()
 
         @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         def enum_proc(hwnd, _lparam):
@@ -39186,7 +41521,11 @@ class BossTimerApp:
                 visible_hwnds.append(int(hwnd))
                 title = self._get_window_title_text(int(hwnd)).strip()
                 normalized_title = title.lower()
-                if normalized_title in blank_titles or not self._is_background_music_window_title(title):
+                is_music_title = self._is_background_music_window_title(title)
+                if is_music_title:
+                    youtube_like_hwnds.add(int(hwnd))
+                    return True
+                if normalized_title in blank_titles or not is_music_title:
                     user32.PostMessageW(int(hwnd), self.WM_CLOSE, 0, 0)
                     closed_hwnds.add(int(hwnd))
             except Exception:
@@ -39199,6 +41538,8 @@ class BossTimerApp:
             return
         if closed_hwnds:
             self.background_music_window_hwnds = set(getattr(self, "background_music_window_hwnds", set()) or set()) - closed_hwnds
+        if youtube_like_hwnds:
+            self.background_music_window_hwnds = youtube_like_hwnds
 
     def _schedule_background_music_blank_window_cleanup(self, attempts: int = 6, delay_ms: int = 700) -> None:
         if attempts <= 0 or not bool(self.background_music_enabled_var.get()):
@@ -39245,6 +41586,79 @@ class BossTimerApp:
             self.background_music_window_hwnds = remembered_hwnds
             return
         self.background_music_window_hwnds = set()
+
+    def _place_background_music_windows_offscreen(self) -> None:
+        remembered_hwnds = self._place_background_music_hwnds_offscreen(
+            set(getattr(self, "background_music_window_hwnds", set()) or set())
+        )
+        if remembered_hwnds:
+            self.background_music_window_hwnds = remembered_hwnds
+            return
+        process_ids = self._get_background_music_process_ids()
+        if not process_ids:
+            return
+        try:
+            user32 = ctypes.windll.user32
+        except Exception:
+            return
+        candidates: set[int] = set()
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_proc(hwnd, _lparam):
+            try:
+                if user32.GetWindow(hwnd, self.GW_OWNER):
+                    return True
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value) in process_ids:
+                    candidates.add(int(hwnd))
+            except Exception:
+                pass
+            return True
+
+        try:
+            user32.EnumWindows(enum_proc, 0)
+        except Exception:
+            return
+        placed = self._place_background_music_hwnds_offscreen(candidates)
+        if placed:
+            self.background_music_window_hwnds = placed
+
+    def _place_background_music_process_windows_at_right_edge(self) -> set[int]:
+        process_ids = self._get_background_music_process_ids()
+        if not process_ids:
+            return set()
+        try:
+            user32 = ctypes.windll.user32
+        except Exception:
+            return set()
+        x, y, width, height = self._get_background_music_edge_window_geometry()
+        flags = self.SWP_NOZORDER | self.SWP_NOACTIVATE | self.SWP_SHOWWINDOW
+        placed_hwnds: set[int] = set()
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def enum_proc(hwnd, _lparam):
+            try:
+                if user32.GetWindow(hwnd, self.GW_OWNER):
+                    return True
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value) not in process_ids:
+                    return True
+                user32.ShowWindow(int(hwnd), self.SW_SHOWNOACTIVATE)
+                user32.SetWindowPos(int(hwnd), 0, int(x), int(y), int(width), int(height), int(flags))
+                placed_hwnds.add(int(hwnd))
+            except Exception:
+                pass
+            return True
+
+        try:
+            user32.EnumWindows(enum_proc, 0)
+        except Exception:
+            return set()
+        if placed_hwnds:
+            self.background_music_window_hwnds = placed_hwnds
+        return placed_hwnds
 
     def _schedule_background_music_edge_placement_retries(
         self,
@@ -39360,6 +41774,39 @@ class BossTimerApp:
         if keep_id:
             self.background_music_target_ids = {keep_id}
 
+    def _close_background_music_blank_targets(self) -> None:
+        targets = [target for target in self._background_music_cdp_targets() if isinstance(target, dict)]
+        music_targets = [target for target in targets if self._is_background_music_youtube_target(target)]
+        if music_targets:
+            preferred_id = str(music_targets[0].get("id") or "").strip()
+            if preferred_id:
+                self.background_music_target_ids = {preferred_id}
+        for target in targets:
+            target_id = str(target.get("id") or "").strip()
+            if not target_id:
+                continue
+            if any(target_id == str(item.get("id") or "").strip() for item in music_targets):
+                continue
+            target_url = str(target.get("url") or "").strip().lower()
+            target_title = str(target.get("title") or "").strip().lower()
+            if target_url in {"", "about:blank", "chrome://newtab/"} or target_title in {"", "new tab", "새 탭"}:
+                self._close_background_music_target(target_id)
+
+    def _schedule_background_music_startup_cleanup(self, attempts: int = 10, delay_ms: int = 500) -> None:
+        if attempts <= 0 or not bool(self.background_music_enabled_var.get()):
+            return
+        self._refresh_background_music_target_ids()
+        self._close_background_music_blank_targets()
+        self._cleanup_background_music_extra_targets()
+        self._close_background_music_blank_windows()
+        try:
+            self.root.after(
+                int(delay_ms),
+                lambda: self._schedule_background_music_startup_cleanup(attempts - 1, delay_ms),
+            )
+        except tk.TclError:
+            pass
+
     def _schedule_background_music_extra_target_cleanup(self, attempts: int = 4, delay_ms: int = 700) -> None:
         if attempts <= 0 or not bool(self.background_music_enabled_var.get()):
             return
@@ -39395,10 +41842,70 @@ class BossTimerApp:
         *,
         require_youtube: bool = True,
     ) -> bool:
+        return bool(self._send_background_music_cdp_command_results(method, params, require_youtube=require_youtube))
+
+    def _read_background_music_websocket_json(self, sock: socket.socket, *, timeout: float = 0.8, expected_id: int = 1) -> dict[str, object] | None:
+        sock.settimeout(max(0.05, float(timeout)))
+        deadline = time.monotonic() + max(0.05, float(timeout))
+        buffer = bytearray()
+        while time.monotonic() < deadline:
+            try:
+                first = sock.recv(2)
+            except socket.timeout:
+                break
+            if len(first) < 2:
+                break
+            opcode = first[0] & 0x0F
+            masked = bool(first[1] & 0x80)
+            length = first[1] & 0x7F
+            if length == 126:
+                ext = sock.recv(2)
+                if len(ext) < 2:
+                    break
+                length = struct.unpack("!H", ext)[0]
+            elif length == 127:
+                ext = sock.recv(8)
+                if len(ext) < 8:
+                    break
+                length = struct.unpack("!Q", ext)[0]
+            mask_key = sock.recv(4) if masked else b""
+            payload = bytearray()
+            while len(payload) < length:
+                chunk = sock.recv(min(4096, length - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+            if len(payload) < length:
+                break
+            if masked and len(mask_key) == 4:
+                payload = bytearray(byte ^ mask_key[index % 4] for index, byte in enumerate(payload))
+            if opcode == 0x8:
+                break
+            if opcode not in {0x1, 0x0}:
+                continue
+            buffer.extend(payload)
+            try:
+                decoded = buffer.decode("utf-8")
+                parsed = json.loads(decoded)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(parsed, dict):
+                if expected_id <= 0 or parsed.get("id") == expected_id:
+                    return parsed
+                buffer.clear()
+        return None
+
+    def _send_background_music_cdp_command_results(
+        self,
+        method: str,
+        params: dict[str, object] | None = None,
+        *,
+        require_youtube: bool = True,
+    ) -> list[dict[str, object]]:
         websocket_urls = self._get_background_music_target_websocket_urls(require_youtube=require_youtube)
         if not websocket_urls:
-            return False
-        sent = False
+            return []
+        results: list[dict[str, object]] = []
         for websocket_url in websocket_urls:
             match = re.fullmatch(r"ws://([^/:]+):(\d+)(/.+)", websocket_url)
             if match is None:
@@ -39443,25 +41950,16 @@ class BossTimerApp:
                     sock.sendall(bytes(header) + masked)
                     sock.settimeout(0.2)
                     try:
-                        sock.recv(4096)
+                        parsed = self._read_background_music_websocket_json(sock, expected_id=1)
+                        if isinstance(parsed, dict):
+                            results.append(parsed)
                     except socket.timeout:
                         pass
-                sent = True
                 if not require_youtube:
-                    return True
+                    return results or [{"ok": True}]
             except OSError:
                 continue
-        return sent
-
-    def _send_background_music_cdp_expression(self, expression: str) -> bool:
-        return self._send_background_music_cdp_command(
-            "Runtime.evaluate",
-            {
-                "expression": expression,
-                "returnByValue": True,
-            },
-            require_youtube=True,
-        )
+        return results
 
     def _navigate_background_music_url(self, url: str) -> bool:
         target_url = str(url or "").strip()
@@ -39477,10 +41975,9 @@ class BossTimerApp:
         target_url = str(url or "").strip()
         if self._is_background_music_browser_alive():
             if self._navigate_background_music_url(target_url):
-                self._refresh_background_music_target_ids()
+                self._place_background_music_process_windows_at_right_edge()
                 return True
         x, y, width, height = self._get_background_music_edge_window_geometry()
-        baseline_hwnds = self._snapshot_top_level_window_hwnds()
         args = [
             str(browser_path),
             f"--remote-debugging-port={int(self.background_music_debug_port)}",
@@ -39491,7 +41988,6 @@ class BossTimerApp:
             "--autoplay-policy=no-user-gesture-required",
             f"--window-position={int(x)},{int(y)}",
             f"--window-size={int(width)},{int(height)}",
-            "--new-window",
             target_url,
         ]
         try:
@@ -39507,9 +42003,8 @@ class BossTimerApp:
                 creationflags=creationflags,
                 startupinfo=startupinfo,
             )
-            self._remember_new_background_music_windows(baseline_hwnds)
-            self._place_background_music_windows_at_right_edge()
-            self._refresh_background_music_target_ids()
+            self.background_music_process_ids_cache = {int(self.background_music_process.pid)}
+            self.background_music_process_ids_cache_until = time.monotonic() + 1.5
             return True
         except OSError:
             return False
@@ -39534,212 +42029,31 @@ class BossTimerApp:
         except (OSError, subprocess.TimeoutExpired):
             pass
 
-    def _apply_background_music_volume(self) -> None:
+    def _apply_background_music_volume(self) -> bool:
         try:
             raw_volume = float(getattr(self, "background_music_volume", 0.35))
         except (TypeError, ValueError):
             raw_volume = 0.35
         volume = max(0.0, min(1.0, raw_volume))
         self.background_music_volume = volume
-        self._refresh_background_music_target_ids()
         expression = (
             "(() => {"
             f"const volume = {volume:.3f};"
             "let applied = 0;"
             "for (const video of document.querySelectorAll('video')) {"
-            "video.muted = volume <= 0; video.volume = volume; video.play().catch(() => {}); applied += 1;"
+            "video.muted = volume <= 0; video.volume = volume; applied += 1;"
             "}"
-            f"document.title = 'BossTimer BGM {int(round(volume * 100))}%';"
-            "return applied;"
+            "return applied > 0;"
             "})()"
         )
-        applied = self._send_background_music_cdp_expression(expression)
-        self._set_background_music_status(f"재생 {int(round(volume * 100))}%" if applied else "볼륨 대상 없음")
-
-    def _schedule_background_music_volume_apply_retries(
-        self,
-        attempts: int = 8,
-        delay_ms: int = 1200,
-        *,
-        initial_delay_ms: int = 0,
-    ) -> None:
-        if attempts <= 0 or not bool(self.background_music_enabled_var.get()):
-            return
-        if int(initial_delay_ms or 0) > 0:
-            try:
-                self.root.after(
-                    int(initial_delay_ms),
-                    lambda: self._schedule_background_music_volume_apply_retries(attempts, delay_ms),
-                )
-            except tk.TclError:
-                pass
-            return
-        self._apply_background_music_volume()
-        try:
-            self.root.after(delay_ms, lambda: self._schedule_background_music_volume_apply_retries(attempts - 1, delay_ms))
-        except tk.TclError:
-            pass
-
-    def _mark_background_music_ad_state(self) -> None:
-        expression = (
-            "(() => {"
-            "const player = document.querySelector('#movie_player');"
-            "const visible = (el) => {"
-            "if (!el) return false;"
-            "const style = getComputedStyle(el);"
-            "const rect = el.getBoundingClientRect();"
-            "return style.display !== 'none' && style.visibility !== 'hidden' && "
-            "style.opacity !== '0' && rect.width > 1 && rect.height > 1;"
-            "};"
-            "const playerAd = !!(player && player.classList && player.classList.contains('ad-showing'));"
-            "const visibleAdUi = ["
-            "'.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-ad-text', "
-            "'.ytp-ad-preview-container', '.ytp-ad-player-overlay'"
-            "].some((selector) => Array.from(document.querySelectorAll(selector)).some(visible));"
-            "const video = document.querySelector('video');"
-            "const playing = !!(video && !video.paused && !video.ended);"
-            "const adShowing = !!(playing && (playerAd || visibleAdUi));"
-            "if (adShowing) { document.title = 'BossTimer BGM AD'; }"
-            "else if (document.title.includes('BossTimer BGM AD')) { document.title = 'BossTimer BGM'; }"
-            "return adShowing;"
-            "})()"
+        return self._send_background_music_cdp_command(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "returnByValue": True,
+            },
+            require_youtube=True,
         )
-        self._send_background_music_cdp_expression(expression)
-
-    def _is_background_music_ad_marked(self) -> bool:
-        for target in self._background_music_cdp_targets():
-            if not isinstance(target, dict):
-                continue
-            title_text = str(target.get("title") or "")
-            if "BossTimer BGM AD" in title_text:
-                return True
-        return False
-
-    def _cancel_background_music_ad_monitor(self) -> None:
-        after_id = getattr(self, "background_music_ad_monitor_after_id", None)
-        if after_id is not None:
-            try:
-                self.root.after_cancel(after_id)
-            except tk.TclError:
-                pass
-            self.background_music_ad_monitor_after_id = None
-
-    def _schedule_background_music_ad_monitor(self, delay_ms: int = 3000) -> None:
-        if not bool(self.background_music_enabled_var.get()):
-            return
-        self._cancel_background_music_ad_monitor()
-        try:
-            self.background_music_ad_monitor_after_id = self.root.after(int(delay_ms), self._check_background_music_ad_state)
-        except tk.TclError:
-            self.background_music_ad_monitor_after_id = None
-
-    def _check_background_music_ad_state(self) -> None:
-        self.background_music_ad_monitor_after_id = None
-        if not bool(self.background_music_enabled_var.get()):
-            return
-        if bool(getattr(self, "background_music_ad_restarting", False)):
-            return
-        if bool(getattr(self, "background_music_ad_check_running", False)):
-            self._schedule_background_music_ad_monitor(delay_ms=3000)
-            return
-        cooldown_until = float(getattr(self, "background_music_ad_restart_cooldown_until", 0.0) or 0.0)
-        if time.monotonic() < cooldown_until:
-            self._schedule_background_music_ad_monitor(delay_ms=3000)
-            return
-        self.background_music_ad_check_running = True
-
-        def worker() -> None:
-            marked = False
-            try:
-                self._mark_background_music_ad_state()
-                marked = self._is_background_music_ad_marked()
-            finally:
-                pass
-            try:
-                self.root.after(0, lambda: self._finish_background_music_ad_check(marked))
-            except tk.TclError:
-                self.background_music_ad_check_running = False
-                pass
-
-        threading.Thread(target=worker, name="background-music-ad-check", daemon=True).start()
-
-    def _finish_background_music_ad_check(self, marked: bool) -> None:
-        self.background_music_ad_check_running = False
-        if not bool(self.background_music_enabled_var.get()):
-            return
-        if bool(marked):
-            self.background_music_ad_detect_count = int(getattr(self, "background_music_ad_detect_count", 0) or 0) + 1
-            if self.background_music_ad_detect_count >= 2:
-                self._restart_background_music_for_ad()
-            else:
-                self._schedule_background_music_ad_monitor(delay_ms=600)
-            return
-        self.background_music_ad_detect_count = 0
-        self._schedule_background_music_ad_monitor(delay_ms=3000)
-
-    def _restart_background_music_for_ad(self) -> None:
-        if bool(getattr(self, "background_music_ad_restarting", False)):
-            return
-        self.background_music_ad_restarting = True
-        self.background_music_ad_detect_count = 0
-        self.background_music_ad_restart_cooldown_until = time.monotonic() + 8.0
-        self._set_background_music_status("광고스킵중")
-
-        def worker() -> None:
-            video_ids = list(getattr(self, "background_music_video_ids", []) or [])
-            if video_ids:
-                random.shuffle(video_ids)
-            else:
-                terms = self._get_background_music_search_terms()
-                video_ids = self._get_cached_background_music_video_ids(terms)
-                if video_ids:
-                    random.shuffle(video_ids)
-            url = self._build_background_music_url(video_ids)
-            navigated = self._navigate_background_music_url(url)
-
-            def finish() -> None:
-                self.background_music_ad_restarting = False
-                if not bool(self.background_music_enabled_var.get()):
-                    return
-                if navigated:
-                    if video_ids:
-                        self.background_music_video_ids = video_ids
-                    self._set_background_music_status("재생 준비")
-                    self._schedule_background_music_volume_apply_retries(attempts=1, delay_ms=900, initial_delay_ms=300)
-                    self._schedule_background_music_ad_monitor(delay_ms=3000)
-                else:
-                    self._set_background_music_status("재생 유지")
-                    self._schedule_background_music_ad_monitor(delay_ms=3000)
-
-            try:
-                self.root.after(0, finish)
-            except tk.TclError:
-                pass
-
-        threading.Thread(target=worker, name="background-music-ad-restart", daemon=True).start()
-
-    def _restart_background_music_browser_for_ad(self) -> None:
-        if bool(getattr(self, "background_music_ad_restarting", False)):
-            return
-        self.background_music_ad_restarting = True
-        self.background_music_ad_detect_count = 0
-        self.background_music_ad_restart_cooldown_until = time.monotonic() + 12.0
-        self._set_background_music_status("광고스킵중")
-        self._stop_background_music(update_status=False)
-        if not bool(self.background_music_enabled_var.get()):
-            self.background_music_ad_restarting = False
-            return
-
-        def restart() -> None:
-            self.background_music_ad_restarting = False
-            if bool(self.background_music_enabled_var.get()):
-                self._set_background_music_status("광고스킵중")
-                self._start_background_music()
-
-        try:
-            self.root.after(350, restart)
-        except tk.TclError:
-            restart()
 
     def _show_background_music_after_load(self, delay_ms: int = 4500) -> None:
         if not bool(self.background_music_enabled_var.get()):
@@ -39748,7 +42062,14 @@ class BossTimerApp:
         def show_at_edge() -> None:
             if not bool(self.background_music_enabled_var.get()):
                 return
-            self._set_background_music_status(f"재생 {int(round(float(self.background_music_volume) * 100))}%")
+            forced_hwnds = self._place_background_music_process_windows_at_right_edge()
+            if forced_hwnds:
+                minimized = self._minimize_background_music_hwnds(forced_hwnds)
+                if minimized:
+                    self.background_music_window_hwnds = minimized
+            else:
+                self._minimize_background_music_windows()
+            self._set_background_music_status("재생")
 
         try:
             self.root.after(int(delay_ms), show_at_edge)
@@ -39775,9 +42096,7 @@ class BossTimerApp:
             video_ids = self._get_cached_background_music_video_ids(terms)
             cache_used = bool(video_ids)
             if not video_ids:
-                video_ids = self._build_background_music_video_ids(terms, 30)
-                if video_ids:
-                    self._save_background_music_video_cache(terms, video_ids)
+                video_ids = self._fetch_background_music_quick_start_video_ids(terms)
             random.shuffle(video_ids)
             error_text = ""
             if not video_ids:
@@ -39790,8 +42109,7 @@ class BossTimerApp:
                     fallback_url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": terms[0] if terms else "배경음악"})
                     if self._launch_or_reuse_background_music_browser(browser_path, fallback_url):
                         self._set_background_music_status("재생 대기")
-                        self._show_background_music_after_load()
-                        self._schedule_background_music_ad_monitor(delay_ms=9000)
+                        self._show_background_music_after_load(delay_ms=5000)
                     else:
                         self.background_music_enabled_var.set(False)
                         self._set_background_music_status("실행 실패")
@@ -39802,9 +42120,9 @@ class BossTimerApp:
                     self._set_background_music_status("이동 실패")
                     return
                 self._set_background_music_status("캐시 재생" if cache_used else "재생 준비")
-                self._apply_background_music_volume()
-                self._show_background_music_after_load()
-                self._schedule_background_music_ad_monitor(delay_ms=9000)
+                self._show_background_music_after_load(delay_ms=5000)
+                if not cache_used:
+                    self._schedule_background_music_cache_refresh_later()
 
             try:
                 self.root.after(0, finish)
@@ -39815,7 +42133,8 @@ class BossTimerApp:
 
     def _stop_background_music(self, *, update_status: bool = True) -> None:
         self.background_music_starting = False
-        self._cancel_background_music_ad_monitor()
+        self.background_music_process_ids_cache = set()
+        self.background_music_process_ids_cache_until = 0.0
         start_after_id = getattr(self, "background_music_start_after_id", None)
         if start_after_id is not None:
             try:
@@ -39830,8 +42149,6 @@ class BossTimerApp:
         self.background_music_process = None
         self.background_music_window_hwnds = set()
         self.background_music_target_ids = set()
-        self.background_music_ad_check_running = False
-        self.background_music_ad_detect_count = 0
         if process is not None and process.poll() is None:
             try:
                 process.terminate()
@@ -39899,7 +42216,8 @@ class BossTimerApp:
             current_volume = 0.35
         self.background_music_volume = max(0.0, min(1.0, round(current_volume + float(delta), 2)))
         if bool(self.background_music_enabled_var.get()):
-            self._apply_background_music_volume()
+            applied = self._apply_background_music_volume()
+            self._set_background_music_status(f"음량 {int(round(self.background_music_volume * 100))}%" if applied else "볼륨 대기")
         else:
             self._set_background_music_status(f"음량 {int(round(self.background_music_volume * 100))}%")
 
@@ -40117,6 +42435,7 @@ class BossTimerApp:
             ("내PC에 저장", "#16a34a", "#ffffff", self._save_current_schedule_shared_archive, 18, 80, 102),
             ("PC에서 불러오기", "#2563eb", "#ffffff", self._load_schedule_from_shared_archive, 128, 80, 132),
             ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 268, 80, 84),
+            ("서버 추가/삭제", "#0ea5e9", "#ffffff", self._open_github_server_manage_dialog, 672, 10, 112),
             ("고정 보스", "#f8f1df", "#7c2d12", self.open_fixed_boss_window, 794, 46, 110),
             ("보스 설정", "#f59e0b", "#ffffff", self.open_schedule_boss_config_window, 914, 46, 110),
             ("아군/적군 막타", "#7c3aed", "#ffffff", self.open_record_book_window, 1034, 46, 128),
@@ -40165,6 +42484,17 @@ class BossTimerApp:
             state="readonly",
         )
         self.schedule_github_server_combo.place(x=128, y=46, width=94, height=30)
+        self.schedule_github_server_combo.bind("<<ComboboxSelected>>", self._on_github_server_selected)
+        cached_server_values = [
+            self._format_github_server_combo_text(str(item.get("name") or item.get("id") or ""))
+            for item in self.schedule_github_server_entries
+        ]
+        if cached_server_values:
+            self.schedule_github_server_combo.configure(values=cached_server_values)
+            current_server_text = str(self.schedule_github_server_var.get() or "").strip()
+            cached_names = [value.strip() for value in cached_server_values]
+            if not self._sync_github_server_combo_to_loaded_meta() and current_server_text not in cached_names:
+                self.schedule_github_server_var.set(cached_server_values[0])
         self._bind_hover_button(schedule_metrics_button, "#0f766e", "#115e59", "#ffffff", "#ffffff")
         self._bind_hover_button(schedule_break_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
         tk.Frame(self.schedule_window, bg="#cbd5e1").place(x=0, y=118, width=SCHEDULE_WINDOW_WIDTH, height=1)
@@ -45350,7 +47680,7 @@ class BossTimerApp:
             section_name = str(metadata.get("display_area") or "기타")
             display_name = self._get_record_book_display_name(str(metadata.get("boss_name") or boss_name)) or boss_name
             for season_no_text, season_label in season_targets:
-                folder_path = self._get_archive_season_dir(season_no_text)
+                folder_path = self._get_archive_season_dir(season_no_text, create=False)
                 boss_bucket = self._build_log_stats_boss_bucket_for_folder(folder_path, boss_name)
                 summary = self._build_log_stats_row_summary(
                     boss_name,
@@ -45378,7 +47708,7 @@ class BossTimerApp:
                     "group": f"{season_label}  |  {self._format_log_stats_section_label(section_name)}",
                 }
             )
-            folder_path = self._get_archive_season_dir(season_no_text)
+            folder_path = self._get_archive_season_dir(season_no_text, create=False)
             for section_boss_name in section_bosses:
                 boss_bucket = self._build_log_stats_boss_bucket_for_folder(folder_path, section_boss_name)
                 summary = self._build_log_stats_row_summary(
@@ -46761,7 +49091,7 @@ class BossTimerApp:
     def _get_log_history_folder_path(self) -> str:
         folder_path = (self.log_history_folder_path_var.get() or "").strip()
         if not folder_path:
-            folder_path = self._get_logs_dir()
+            folder_path = self._get_logs_dir(create=False)
             self.log_history_folder_path_var.set(folder_path)
         return folder_path
 
@@ -47182,8 +49512,6 @@ class BossTimerApp:
                 for name in files:
                     if name.lower().endswith(".json"):
                         json_paths.append(os.path.join(current_root, name))
-            if not json_paths:
-                continue
             latest_timestamp = 0.0
             total_record_count = 0
             for file_path in json_paths:
@@ -47318,6 +49646,7 @@ class BossTimerApp:
         guild_name_var = tk.StringVar(value=current_guild)
         started_at_var = tk.StringVar(value=current_started_at)
         status_var = tk.StringVar(value="시즌명 변경 시 보관 폴더 이름도 함께 변경됩니다.")
+        auto_season_name_updating = {"active": False}
 
         def add_row(label_text: str, variable: tk.StringVar, y: int, width: int = 296) -> tk.Entry:
             tk.Label(dialog, text=label_text, font=self.label_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=y + 4, width=78, height=22)
@@ -47370,6 +49699,32 @@ class BossTimerApp:
                 return parsed.strftime("%Y-%m-%d %H:%M:%S")
             return None
 
+        def build_auto_season_label() -> str:
+            if not season_no_text:
+                return str(season_name_var.get() or "").strip()
+            return self._build_archive_season_default_label(
+                season_no_text,
+                server_name=server_name_var.get(),
+                guild_name=guild_name_var.get(),
+            )
+
+        def update_auto_season_label(*_args) -> None:
+            if auto_season_name_updating["active"]:
+                return
+            auto_label = build_auto_season_label()
+            if not auto_label:
+                return
+            try:
+                auto_season_name_updating["active"] = True
+                if season_name_var.get() != auto_label:
+                    season_name_var.set(auto_label)
+                    status_var.set("서버/길드 변경에 맞춰 시즌이름을 자동 갱신했습니다.")
+            finally:
+                auto_season_name_updating["active"] = False
+
+        server_name_var.trace_add("write", update_auto_season_label)
+        guild_name_var.trace_add("write", update_auto_season_label)
+
         def apply_rename() -> None:
             new_label = str(season_name_var.get() or "").strip()
             server_text = self._sanitize_season_metadata_text(server_name_var.get())
@@ -47384,6 +49739,8 @@ class BossTimerApp:
             if re.search(r'[<>:\"/\\\\|?*]', new_label):
                 status_var.set("Windows 폴더 이름에 사용할 수 없는 문자가 포함되어 있습니다.")
                 return
+            old_github_entry = self._build_github_server_entry_from_metadata(current_server, current_guild)
+            new_github_entry = self._build_github_server_entry_from_metadata(server_text, guild_text)
             old_dir = os.path.join(self._get_log_archive_dir(), current_label)
             new_dir = os.path.join(self._get_log_archive_dir(), new_label)
             if new_label != current_label:
@@ -47414,8 +49771,68 @@ class BossTimerApp:
                 if season_no_text == re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip()):
                     self.current_season_started_at = str(started_at_text or "").strip()
                     self._save_settings()
+                    old_server_id = str(old_github_entry.get("id") or "").strip()
+                    new_server_id = str(new_github_entry.get("id") or "").strip()
+                    old_server_name = str(old_github_entry.get("name") or old_server_id).strip()
+                    new_server_name = str(new_github_entry.get("name") or new_server_id).strip()
+                    current_loaded_entry = self._get_current_loaded_github_server_entry_from_meta()
+                    current_loaded_server_id = str((current_loaded_entry or {}).get("id") or "").strip()
+                    schedule_version, boss_config_version = self._get_github_cached_versions_for_entry(old_github_entry)
+                    copied_local_cache = False
+                    if old_server_id and old_server_id != new_server_id:
+                        copied_local_cache = self._copy_github_local_cache_between_entries(
+                            old_github_entry,
+                            new_github_entry,
+                            season_label=new_label,
+                            server_name=server_text,
+                            guild_name=guild_text,
+                        )
+                        self._remove_github_server_entry_locally(old_server_id)
+                    self._upsert_github_server_entry_locally(new_github_entry)
+                    if schedule_version or boss_config_version:
+                        self._set_github_cached_versions(
+                            new_server_id,
+                            schedule_version,
+                            boss_config_version,
+                            server_name=new_server_name,
+                            schedule_path=str(new_github_entry.get("schedule") or "").strip(),
+                        )
+                    if copied_local_cache:
+                        self._select_github_server_entry(new_github_entry, force=True)
+                    else:
+                        self._update_github_import_meta(
+                            server_id=new_server_id,
+                            server_name=new_server_name,
+                            schedule_path=str(new_github_entry.get("schedule") or "").strip(),
+                            schedule_version=schedule_version,
+                            boss_config_path=str(new_github_entry.get("bosses") or "").strip(),
+                            boss_config_version=boss_config_version,
+                        )
+                        if current_loaded_server_id in {"", old_server_id, new_server_id}:
+                            self._save_current_schedule_to_github_local_cache(new_github_entry)
+                    if hasattr(self, "log_history_folder_path_var") and self.log_history_folder_path_var is not None:
+                        self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
                     self._update_log_stats_header_info()
                     self._update_log_stats_scope_options()
+                    self._set_schedule_github_controls_state(True)
+                    if old_server_id and (old_server_id != new_server_id or old_server_name != new_server_name):
+                        self.github_data_token = self._load_github_data_token_from_user_config()
+                        if self.github_data_token:
+                            def rename_remote_worker() -> None:
+                                success, remote_message = self._rename_github_server_entry_remote(old_github_entry, new_github_entry)
+
+                                def finish_remote() -> None:
+                                    if success:
+                                        self.schedule_status_var.set(remote_message)
+                                    else:
+                                        self.schedule_status_var.set(f"GitHub 서버 이름 갱신 실패: {remote_message}")
+
+                                try:
+                                    self.root.after(0, finish_remote)
+                                except tk.TclError:
+                                    pass
+
+                            threading.Thread(target=rename_remote_worker, daemon=True).start()
             self.log_archive_selected_season_var.set(new_label)
             self.log_archive_status_var.set(f"보관 시즌 '{new_label}' 정보를 수정했습니다.")
             self._refresh_archive_management_view()
@@ -48368,7 +50785,7 @@ class BossTimerApp:
                         activebackground="#bfdbfe",
                         activeforeground="#1d4ed8",
                     )
-                    self.log_history_folder_path_var.set(self._get_logs_dir())
+                    self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
                     if previous_mode == "archive" and not self._sanitize_boss_name(self.log_boss_name_var.get()) and self.log_non_archive_boss_name:
                         self.log_boss_name_var.set(self.log_non_archive_boss_name)
                     self.show_log_file_list()
@@ -48781,6 +51198,7 @@ class BossTimerApp:
         self.load_current_boss_log()
 
     def on_close(self) -> None:
+        self._reset_master_developer_author_clicks()
         self.running = False
         self._cancel_update()
         if self.main_clock_after_id is not None:
@@ -48812,6 +51230,7 @@ class BossTimerApp:
         self._update_window_positions()
         self._save_record_book_average_cache()
         self._clear_schedule_ocr_session_cache()
+        self._cancel_schedule_main_save_after()
         self._save_schedule_state(mark_github_dirty=False)
         self._save_schedule_alarm_settings()
         if bool(getattr(self, "schedule_alarm_voice_duration_cache_dirty", False)):

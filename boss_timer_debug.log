@@ -29,3 +29,13 @@
 [2026-05-10 15:03:52] ocr_capture_prewarm took 1361.4ms ok=1 output=11
 [2026-05-13 18:58:46] ocr_capture_prewarm took 2337.4ms ok=1 output=11
 [2026-05-13 18:58:48] ocr_capture_memory took 367.0ms ok=1 output=1852301
+[2026-05-15 13:51:30] ocr_capture_prewarm took 1142.3ms ok=1 output=11
+[2026-05-15 21:49:13] ocr_capture_prewarm took 1241.5ms ok=1 output=11
+[2026-05-16 00:39:15] ocr_capture_prewarm took 1746.6ms ok=1 output=11
+[2026-05-16 01:47:21] ocr_capture_memory took 400.9ms ok=1 output=1870833
+[2026-05-16 10:18:25] ocr_capture_prewarm took 1701.0ms ok=1 output=11
+[2026-05-16 11:23:57] ocr_capture_prewarm took 1259.2ms ok=1 output=11
+[2026-05-16 12:13:25] ocr_capture_prewarm took 1804.2ms ok=1 output=11
+[2026-05-16 13:08:04] ocr_capture_prewarm took 2342.8ms ok=1 output=11
+[2026-05-16 14:00:56] ocr_capture_memory took 963.5ms ok=1 output=2015685
+[2026-05-19 11:36:24] ocr_capture_prewarm took 1318.9ms ok=1 output=11
