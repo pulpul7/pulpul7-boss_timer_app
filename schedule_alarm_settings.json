@@ -1,5 +1,5 @@
 {
-  "version": "v3.2.1.beta",
+  "version": "v3.3.1",
   "master_enabled": true,
   "common_offsets": [
     300,
@@ -9,9 +9,15 @@
   "countdown_ai_voice_enabled": true,
   "boss_ai_voice_enabled": true,
   "countdown_start_seconds": 15,
-  "second_precision_expire_hours": 24,
+  "second_precision_expire_hours": 36,
   "fixed_boss_enabled": true,
   "voice_name": "Microsoft Heami Desktop - Korean",
+  "chime_settings": {
+    "skip_countdown": true,
+    "general": "wave/안내방송_비행기1.wav",
+    "fixed": "wave/안내방송_비행기3.wav",
+    "rapid_chain": "wave/안내방송_비행기2.wav"
+  },
   "boss_overrides": {
     "10층": {
       "enabled": true,
