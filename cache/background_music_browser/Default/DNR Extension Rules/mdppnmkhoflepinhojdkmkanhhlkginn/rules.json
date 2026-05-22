@@ -1,1 +1,0 @@
-[{"action":{"requestHeaders":[{"header":"Referer","operation":"set","value":"https://whale.naver.com/ntp"}],"type":"modifyHeaders"},"condition":{"regexFilter":"apis.naver.com/whale/(like|cbox)","resourceTypes":["script","xmlhttprequest"]},"id":1,"priority":2}]

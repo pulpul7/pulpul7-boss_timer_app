@@ -1,1 +1,0 @@
-[{"action":{"requestHeaders":[{"header":"Referer","operation":"set","value":"https://www.pixiv.net/"}],"type":"modifyHeaders"},"condition":{"resourceTypes":["xmlhttprequest"],"urlFilter":"||i.pximg.net"},"id":1,"priority":2}]

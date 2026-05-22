@@ -39,3 +39,5 @@
 [2026-05-16 13:08:04] ocr_capture_prewarm took 2342.8ms ok=1 output=11
 [2026-05-16 14:00:56] ocr_capture_memory took 963.5ms ok=1 output=2015685
 [2026-05-19 11:36:24] ocr_capture_prewarm took 1318.9ms ok=1 output=11
+[2026-05-21 21:26:54] ocr_capture_prewarm took 1075.0ms ok=1 output=11
+[2026-05-22 02:55:17] ocr_capture_prewarm took 1043.4ms ok=1 output=11

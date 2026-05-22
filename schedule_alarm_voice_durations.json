@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-10 17:16:15",
+  "updated_at": "2026-05-21 21:25:08",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1324,6 +1324,27 @@
         2855724
       ],
       "duration_ms": 16189
+    },
+    "c:\\mycode\\bosstimer\\wave\\안내방송_비행기1.wav": {
+      "signature": [
+        1779363088895228600,
+        175004
+      ],
+      "duration_ms": 992
+    },
+    "c:\\mycode\\bosstimer\\wave\\안내방송_비행기3.wav": {
+      "signature": [
+        1779362600033548900,
+        347940
+      ],
+      "duration_ms": 1973
+    },
+    "c:\\mycode\\bosstimer\\wave\\안내방송_비행기2.wav": {
+      "signature": [
+        1779362957250690500,
+        185084
+      ],
+      "duration_ms": 1049
     }
   }
 }

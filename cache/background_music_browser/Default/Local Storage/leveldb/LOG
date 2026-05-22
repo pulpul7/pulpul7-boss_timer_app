@@ -1,6 +1,0 @@
-2026/05/19-12:31:13.066 1cefc Reusing MANIFEST C:\MyCode\BossTimer\cache\background_music_browser\Default\Local Storage\leveldb/MANIFEST-000001
-2026/05/19-12:31:13.070 1cefc Recovering log #376
-2026/05/19-12:31:13.072 1cefc Reusing old log C:\MyCode\BossTimer\cache\background_music_browser\Default\Local Storage\leveldb/000376.log 
-2026/05/19-12:31:49.507 1e7d4 Level-0 table #380: started
-2026/05/19-12:31:49.513 1e7d4 Level-0 table #380: 20018 bytes OK
-2026/05/19-12:31:49.515 1e7d4 Delete type=0 #376
