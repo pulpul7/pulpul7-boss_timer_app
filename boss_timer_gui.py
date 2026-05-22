@@ -25876,7 +25876,7 @@ class BossTimerApp:
         next_offset_clip = self._get_schedule_alarm_offset_audio_path(next_remaining)
         if current_clip_paths and next_intro_clip and next_boss_clip and next_offset_clip:
             return list(current_clip_paths) + [next_intro_clip, next_boss_clip, next_offset_clip]
-        return []
+        return current_clip_paths
 
     def _get_schedule_alarm_event_time_index(self) -> list[datetime]:
         first_time = self.schedule_events[0].get("scheduled_at") if self.schedule_events else None
@@ -26470,15 +26470,6 @@ class BossTimerApp:
                         continue
                     played_fixed_audio = False
                     if fixed_clip_paths:
-                        played_fixed_audio = self._play_or_queue_schedule_alarm_audio_sequence(
-                            fixed_clip_paths,
-                            fixed_message,
-                            beep=True,
-                            category="fixed",
-                            rate=1,
-                            force_audio=True,
-                        )
-                    elif fixed_clip_paths:
                         played_fixed_audio = self._play_or_queue_schedule_alarm_audio_sequence(
                             fixed_clip_paths,
                             fixed_message,
