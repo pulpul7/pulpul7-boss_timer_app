@@ -31,6 +31,7 @@ import winsound
 from ctypes import wintypes
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox
 from tkinter import font as tkfont
 from tkinter import ttk
@@ -220,7 +221,11 @@ SCHEDULE_INPUT_OCR_ADDON_CAPTURE_DEBOUNCE_SECONDS = 0.25
 SCHEDULE_INPUT_OCR_ADDON_CAPTURE_HIDE_DELAY_SECONDS = 0.10
 SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS = 0.00
 SCHEDULE_ALARM_COUNTDOWN_COMPLETION_ADVANCE_MS = 100
-SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS = 360
+SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS = 660
+SCHEDULE_FIXED_BOSS_SOON_MESSAGE_THRESHOLD_SECONDS = 40
+SCHEDULE_VOICE_PARALLEL_NEAR_EVENT_SUPPRESS_SECONDS = 5
+SCHEDULE_INVASION_SIDE_CHANNEL_VOLUME = 0.8
+SCHEDULE_SECOND_PRECISION_GEN_GAP_MS = 420
 SCHEDULE_TREE_SELECTION_PULSE_INTERVAL_MS = 420
 SCHEDULE_TREE_SELECTION_PULSE_COLORS = (
     "#22c55e",  # 녹색
@@ -1166,6 +1171,8 @@ class BossTimerApp:
         self.log_stats_cached_boss_data: dict[str, dict[str, object]] = {}
         self.schedule_avg_cut_cache_key: tuple[str, bool, bool] | None = None
         self.schedule_avg_cut_cache: dict[str, str] = {}
+        self.schedule_avg_cut_cache_revision = 0
+        self.schedule_avg_cut_cache_loading = False
 
         self.blink_90_active = False
         self.blink_90_end_time = 0.0
@@ -1373,6 +1380,7 @@ class BossTimerApp:
         self.schedule_alarm_boss_enabled_var = tk.BooleanVar(value=False)
         self.schedule_alarm_voice_label_var = tk.StringVar(value=self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME)
         self.schedule_alarm_chime_window = None
+        self.schedule_alarm_voice_rule_window = None
         self.schedule_alarm_chime_status_var = tk.StringVar(value="")
         self.background_music_enabled_var = tk.BooleanVar(value=False)
         self.background_music_status_var = tk.StringVar(value="음악 OFF")
@@ -1603,6 +1611,7 @@ class BossTimerApp:
         self.schedule_next_day_button = None
         self.schedule_summary_after_id = None
         self.schedule_summary_last_reference_second: datetime | None = None
+        self.schedule_summary_last_precise_reference: datetime | None = None
         self.schedule_alarm_after_id = None
         self.schedule_alarm_last_tick_second: datetime | None = None
         self.schedule_alarm_cached_cutoff_second: datetime | None = None
@@ -1615,6 +1624,18 @@ class BossTimerApp:
         self.schedule_alarm_tts_stop_event = threading.Event()
         self.schedule_alarm_tts_process: subprocess.Popen | None = None
         self.schedule_alarm_tts_process_voice_name = ""
+        self.schedule_voice_broker_queue: queue.Queue[dict[str, object] | None] = queue.Queue()
+        self.schedule_voice_broker_stop_event = threading.Event()
+        self.schedule_voice_broker_generation = 0
+        self.schedule_voice_broker_revision = 0
+        self.schedule_voice_broker_busy_until = 0.0
+        self.schedule_voice_broker_protect_central_until = 0.0
+        self.schedule_voice_broker_lane_busy_until: dict[str, float] = {"center": 0.0, "right": 0.0, "left": 0.0}
+        self.schedule_voice_broker_lane_locks: dict[str, threading.Lock] = {
+            "center": threading.Lock(),
+            "right": threading.Lock(),
+            "left": threading.Lock(),
+        }
         self.schedule_alarm_countdown_audio_request_id = 0
         self.schedule_alarm_countdown_audio_thread: threading.Thread | None = None
         self.schedule_alarm_countdown_audio_process: subprocess.Popen | None = None
@@ -1631,11 +1652,8 @@ class BossTimerApp:
         self.schedule_ocr_powershell_host_lock = threading.Lock()
         self.schedule_alarm_tts_thread = threading.Thread(target=self._schedule_alarm_tts_worker_loop, daemon=True)
         self.schedule_alarm_tts_thread.start()
-        if self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_countdown_ai_voice_enabled_default:
-            self._ensure_schedule_alarm_countdown_audio_host_process()
-        self._ensure_schedule_alarm_boss_audio_host_process()
-        self._ensure_schedule_alarm_near_boss_audio_host_process()
-        self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
+        self.schedule_voice_broker_thread = threading.Thread(target=self._schedule_voice_broker_worker_loop, daemon=True)
+        self.schedule_voice_broker_thread.start()
         self._preload_schedule_alarm_voice_duration_cache_async()
         self.fixed_boss_time_var.trace_add("write", self._on_fixed_boss_form_changed)
         self.fixed_boss_repeat_mode_var.trace_add("write", self._on_fixed_boss_form_changed)
@@ -1766,6 +1784,9 @@ class BossTimerApp:
         self.schedule_github_server_switch_in_progress = False
         self.schedule_main_save_after_id = None
         self.schedule_delete_active_cutoff_datetime: datetime | None = None
+        self.schedule_input_custom_server_open_datetime: datetime | None = None
+        self.schedule_input_custom_server_open_expires_at: datetime | None = None
+        self.schedule_input_custom_server_open_saved_at: datetime | None = None
         self.schedule_second_precision_startup_cleared = False
         self._load_schedule_state()
         self._restore_github_cache_from_import_meta()
@@ -1817,6 +1838,7 @@ class BossTimerApp:
         self._schedule_main_clock_tick()
         self._schedule_alarm_tick()
         self._schedule_time_sync_periodic_check(initial=True)
+        self._schedule_startup_deferred_tasks()
         self._apply_background(self.background_path, update_setting_var=False)
         self._draw_progress_graph(None)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -3036,8 +3058,47 @@ class BossTimerApp:
             if not had_ready_season:
                 self._refresh_schedule_view()
         self._ensure_startup_schedule_archive_seed()
-        self._normalize_existing_schedule_shared_archive_names()
         self._update_archive_keep_seasons_description()
+
+    def _schedule_startup_deferred_tasks(self) -> None:
+        def schedule(delay_ms: int, callback) -> None:
+            try:
+                self.root.after(max(0, int(delay_ms)), callback)
+            except tk.TclError:
+                pass
+
+        def prewarm_boss_host() -> None:
+            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_boss_ai_voice_var.get()):
+                self._ensure_schedule_alarm_boss_audio_host_process()
+
+        def prewarm_near_host() -> None:
+            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_boss_ai_voice_var.get()):
+                self._ensure_schedule_alarm_near_boss_audio_host_process()
+
+        def prewarm_gen_host() -> None:
+            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_boss_ai_voice_var.get()):
+                self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
+
+        def prewarm_countdown_host() -> None:
+            if (
+                bool(self.schedule_alarm_master_var.get())
+                and bool(self.schedule_alarm_countdown_enabled_var.get())
+                and bool(self.schedule_alarm_countdown_ai_voice_var.get())
+            ):
+                self._ensure_schedule_alarm_countdown_audio_host_process()
+
+        schedule(3500, self._normalize_existing_schedule_shared_archive_names)
+        if not bool(getattr(self, "schedule_alarm_master_enabled_default", False)):
+            return
+        if bool(getattr(self, "schedule_alarm_boss_ai_voice_enabled_default", False)):
+            schedule(600, prewarm_boss_host)
+            schedule(1200, prewarm_near_host)
+            schedule(1800, prewarm_gen_host)
+        if (
+            bool(getattr(self, "schedule_alarm_countdown_enabled_default", False))
+            and bool(getattr(self, "schedule_alarm_countdown_ai_voice_enabled_default", False))
+        ):
+            schedule(2400, prewarm_countdown_host)
 
     def _bind_record_subtab_hover(self, button: tk.Button, mode: str, hover_bg: str, hover_fg: str) -> None:
         def on_enter(_event=None) -> None:
@@ -4906,7 +4967,6 @@ class BossTimerApp:
         )
 
     def _cache_github_server_entries_from_index(self, entries: list[dict[str, object]]) -> None:
-        changed = False
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -4914,28 +4974,6 @@ class BossTimerApp:
             if not server_id:
                 continue
             self.schedule_github_deleted_server_ids.discard(server_id)
-            schedule_version = str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip()
-            boss_config_version = str(entry.get("bossConfigVersion") or "").strip()
-            if not schedule_version and not boss_config_version:
-                continue
-            server_name = str(entry.get("name") or server_id).strip()
-            schedule_path = str(entry.get("schedule") or "").strip()
-            for key in self._get_github_cache_keys_for_entry(
-                {"id": server_id, "name": server_name, "schedule": schedule_path}
-            ):
-                previous = dict(self.schedule_github_version_cache.get(key, {}))
-                next_item = dict(previous)
-                if schedule_version:
-                    next_item["scheduleVersion"] = schedule_version
-                if boss_config_version:
-                    next_item["bossConfigVersion"] = boss_config_version
-                next_item["scheduleDirty"] = ""
-                next_item["bossConfigDirty"] = ""
-                if next_item != previous:
-                    self.schedule_github_version_cache[key] = next_item
-                    changed = True
-        if changed:
-            self._save_github_version_cache()
 
     def _upsert_github_server_entry_locally(self, entry: dict[str, object] | None, *, select_entry: bool = False) -> None:
         if not isinstance(entry, dict):
@@ -5205,21 +5243,50 @@ class BossTimerApp:
         ).strip()
         existing_schedule_hash = str((existing_entry or {}).get("scheduleHash") or "").strip()
         existing_boss_config_hash = str((existing_entry or {}).get("bossConfigHash") or "").strip()
-        local_cache_item = self._get_github_cached_item_for_entry(
-            {"id": server_id, "name": server_name, "schedule": schedule_path}
-        )
-        local_schedule_version = str(local_cache_item.get("scheduleVersion") or existing_schedule_version).strip()
-        local_boss_config_version = str(local_cache_item.get("bossConfigVersion") or existing_boss_config_version).strip()
+        target_version_entry = {"id": server_id, "name": server_name, "schedule": schedule_path}
+        local_cache_item = self._get_github_cached_item_for_entry(target_version_entry)
         schedule_dirty = str(local_cache_item.get("scheduleDirty") or "") == "1"
         boss_config_dirty = str(local_cache_item.get("bossConfigDirty") or "") == "1"
+        cached_schedule_payload, _cached_schedule_path = self._load_github_local_schedule_payload(target_version_entry)
+        file_schedule_version = ""
+        file_boss_config_version = ""
+        if isinstance(cached_schedule_payload, dict):
+            file_schedule_version = str(cached_schedule_payload.get("_githubScheduleVersion") or "").strip()
+            file_boss_config_version = str(cached_schedule_payload.get("_githubBossConfigVersion") or "").strip()
+        meta_schedule_version, meta_boss_config_version = self._get_github_import_meta_versions_for_entry(target_version_entry)
+        local_schedule_version = str(
+            (local_cache_item.get("scheduleVersion") if schedule_dirty else "")
+            or file_schedule_version
+            or meta_schedule_version
+            or ""
+        ).strip()
+        local_boss_config_version = str(
+            (local_cache_item.get("bossConfigVersion") if boss_config_dirty else "")
+            or file_boss_config_version
+            or meta_boss_config_version
+            or ""
+        ).strip()
         schedule_version_compare = self._compare_github_data_versions(local_schedule_version, existing_schedule_version)
         boss_config_version_compare = self._compare_github_data_versions(local_boss_config_version, existing_boss_config_version)
+        remote_schedule_newer = bool(existing_schedule_version and local_schedule_version and schedule_version_compare < 0)
+        remote_boss_config_newer = bool(existing_boss_config_version and local_boss_config_version and boss_config_version_compare < 0)
         schedule_changed = is_new_server_entry or schedule_version_compare > 0 or (schedule_dirty and not existing_schedule_version)
         boss_config_changed = is_new_server_entry or boss_config_version_compare > 0 or (boss_config_dirty and not existing_boss_config_version)
         if schedule_dirty and existing_schedule_version and schedule_version_compare <= 0:
             schedule_changed = False
         if boss_config_dirty and existing_boss_config_version and boss_config_version_compare <= 0:
             boss_config_changed = False
+        if remote_schedule_newer or remote_boss_config_newer:
+            newer_parts: list[str] = []
+            if remote_schedule_newer:
+                newer_parts.append(f"스케쥴 서버={existing_schedule_version}, PC={local_schedule_version}")
+            if remote_boss_config_newer:
+                newer_parts.append(f"보스설정 서버={existing_boss_config_version}, PC={local_boss_config_version}")
+            return (
+                True,
+                f"{server_name}: 서버에 더 최신 버전이 있어 업로드하지 않았습니다. 먼저 동기화하세요. ({', '.join(newer_parts)})",
+                existing_entry,
+            )
         if not schedule_changed and not boss_config_changed:
             if schedule_dirty or boss_config_dirty:
                 self._set_github_cached_versions(
@@ -5249,19 +5316,23 @@ class BossTimerApp:
         except ValueError as exc:
             return False, str(exc), None
         schedule_payload["dataVersion"] = schedule_version
-        schedule_payload["contentHash"] = existing_schedule_hash
+        computed_schedule_hash = self._get_github_schedule_content_hash(schedule_payload)
+        computed_boss_config_hash = self._get_github_boss_config_content_hash(boss_config_payload)
+        schedule_hash_for_index = computed_schedule_hash if schedule_changed else (existing_schedule_hash or computed_schedule_hash)
+        boss_config_hash_for_index = computed_boss_config_hash if boss_config_changed else (existing_boss_config_hash or computed_boss_config_hash)
+        schedule_payload["contentHash"] = computed_schedule_hash
         boss_config_payload["dataVersion"] = boss_config_version
-        boss_config_payload["contentHash"] = existing_boss_config_hash
+        boss_config_payload["contentHash"] = computed_boss_config_hash
         index_payload = self._build_github_server_index_payload(
             index_payload,
             server_id=server_id,
             server_name=server_name,
             schedule_path=schedule_path,
             schedule_version=schedule_version,
-            schedule_hash=existing_schedule_hash,
+            schedule_hash=schedule_hash_for_index,
             boss_config_path=boss_config_path,
             boss_config_version=boss_config_version,
-            boss_config_hash=existing_boss_config_hash,
+            boss_config_hash=boss_config_hash_for_index,
         )
         if schedule_changed:
             if schedule_sha is None:
@@ -5676,6 +5747,9 @@ class BossTimerApp:
             "maintenance_hour": str(payload.get("maintenance_hour") or self.schedule_maintenance_hour_var.get()).strip(),
             "maintenance_minute": str(payload.get("maintenance_minute") or self.schedule_maintenance_minute_var.get()).strip(),
             "schedule_input_past_enabled": bool(payload.get("schedule_input_past_enabled", self.schedule_input_past_enabled)),
+            "schedule_input_custom_server_open_datetime": payload.get("schedule_input_custom_server_open_datetime"),
+            "schedule_input_custom_server_open_expires_at": payload.get("schedule_input_custom_server_open_expires_at"),
+            "schedule_input_custom_server_open_saved_at": payload.get("schedule_input_custom_server_open_saved_at"),
             "schedule_delete_active_cutoff_datetime": None,
             "schedule_events": [dict(item) for item in payload.get("schedule_events", []) if isinstance(item, dict)],
             "schedule_active_entries": [dict(item) for item in payload.get("schedule_active_entries", []) if isinstance(item, dict)],
@@ -6945,6 +7019,24 @@ class BossTimerApp:
             self.schedule_maintenance_minute_var.set(f"{int(maintenance_minute_digits):02d}분")
         self.schedule_input_past_enabled = bool(restored.get("schedule_input_past_enabled", self.schedule_input_past_enabled))
         self.schedule_input_past_var.set(self.schedule_input_past_enabled)
+        custom_server_open_datetime = restored.get("schedule_input_custom_server_open_datetime")
+        custom_server_open_expires_at = restored.get("schedule_input_custom_server_open_expires_at")
+        custom_server_open_saved_at = restored.get("schedule_input_custom_server_open_saved_at")
+        self.schedule_input_custom_server_open_datetime = (
+            custom_server_open_datetime.replace(second=0, microsecond=0)
+            if isinstance(custom_server_open_datetime, datetime)
+            else None
+        )
+        self.schedule_input_custom_server_open_expires_at = (
+            custom_server_open_expires_at.replace(microsecond=0)
+            if isinstance(custom_server_open_expires_at, datetime)
+            else None
+        )
+        self.schedule_input_custom_server_open_saved_at = (
+            custom_server_open_saved_at.replace(microsecond=0)
+            if isinstance(custom_server_open_saved_at, datetime)
+            else None
+        )
 
         schedule_events = restored.get("schedule_events")
         if isinstance(schedule_events, list):
@@ -6957,6 +7049,7 @@ class BossTimerApp:
         schedule_control_events = restored.get("schedule_control_events")
         if isinstance(schedule_control_events, list):
             self.schedule_control_events = [item for item in schedule_control_events if isinstance(item, dict)]
+        self._get_schedule_input_server_open_datetime()
 
         second_precision_offsets = restored.get("schedule_second_precision_offsets")
         if isinstance(second_precision_offsets, dict):
@@ -7173,7 +7266,17 @@ class BossTimerApp:
             or before_active_count != len(self.schedule_active_quick_cut_history)
         )
 
-    def _save_schedule_state(self, *, mark_github_dirty: bool = False, sync_shared_export: bool = True) -> None:
+    def _save_schedule_state(
+        self,
+        *,
+        mark_github_dirty: bool = False,
+        sync_shared_export: bool = True,
+        reset_voice_queue: bool | None = None,
+    ) -> None:
+        if reset_voice_queue is None:
+            reset_voice_queue = bool(mark_github_dirty)
+        if reset_voice_queue and hasattr(self, "schedule_voice_broker_generation"):
+            self._bump_schedule_voice_broker_generation()
         payload = {
             "base_datetime": self._get_schedule_base_datetime(),
             "view_date": self._get_schedule_view_datetime(),
@@ -7181,6 +7284,9 @@ class BossTimerApp:
             "maintenance_hour": self.schedule_maintenance_hour_var.get(),
             "maintenance_minute": self.schedule_maintenance_minute_var.get(),
             "schedule_input_past_enabled": bool(self.schedule_input_past_enabled),
+            "schedule_input_custom_server_open_datetime": getattr(self, "schedule_input_custom_server_open_datetime", None),
+            "schedule_input_custom_server_open_expires_at": getattr(self, "schedule_input_custom_server_open_expires_at", None),
+            "schedule_input_custom_server_open_saved_at": getattr(self, "schedule_input_custom_server_open_saved_at", None),
             "schedule_events": self.schedule_events,
             "schedule_active_entries": self.schedule_active_entries,
             "schedule_control_events": self.schedule_control_events,
@@ -7832,6 +7938,74 @@ class BossTimerApp:
             candidate -= timedelta(days=7)
         return candidate
 
+    def _get_schedule_next_reset_datetime_for_custom_server_open(self, reference_datetime: datetime | None = None) -> datetime | None:
+        reference_value = (
+            reference_datetime.replace(microsecond=0)
+            if isinstance(reference_datetime, datetime)
+            else self._get_schedule_reference_datetime().replace(microsecond=0)
+        )
+        candidates: list[datetime] = []
+        regular_maintenance = self._get_schedule_maintenance_cutoff_datetime(reference_value)
+        if isinstance(regular_maintenance, datetime) and regular_maintenance > reference_value:
+            candidates.append(regular_maintenance.replace(microsecond=0))
+        temporary_maintenance = self._get_schedule_next_temporary_maintenance_datetime(reference_value)
+        if isinstance(temporary_maintenance, datetime) and temporary_maintenance > reference_value:
+            candidates.append(temporary_maintenance.replace(microsecond=0))
+        return min(candidates) if candidates else None
+
+    def _clear_schedule_input_custom_server_open_datetime(self) -> None:
+        self.schedule_input_custom_server_open_datetime = None
+        self.schedule_input_custom_server_open_expires_at = None
+        self.schedule_input_custom_server_open_saved_at = None
+
+    def _has_schedule_input_custom_server_open_expired_by_maintenance(self, reference_datetime: datetime) -> bool:
+        saved_at = self.schedule_input_custom_server_open_saved_at
+        if not isinstance(saved_at, datetime):
+            return False
+        saved_value = saved_at.replace(microsecond=0)
+        reference_value = reference_datetime.replace(microsecond=0)
+        previous_regular_maintenance = self._get_schedule_previous_maintenance_datetime(reference_value)
+        if isinstance(previous_regular_maintenance, datetime) and saved_value < previous_regular_maintenance <= reference_value:
+            return True
+        for item in self.schedule_control_events:
+            if not isinstance(item, dict) or bool(item.get("historical_only")):
+                continue
+            if str(item.get("control_type") or "") != "temporary_maintenance":
+                continue
+            scheduled_at = item.get("scheduled_at")
+            if isinstance(scheduled_at, datetime) and saved_value < scheduled_at.replace(microsecond=0) <= reference_value:
+                return True
+        return False
+
+    def _get_schedule_input_server_open_datetime(self, reference_datetime: datetime | None = None) -> datetime:
+        reference_value = (
+            reference_datetime.replace(microsecond=0)
+            if isinstance(reference_datetime, datetime)
+            else self._get_schedule_reference_datetime().replace(microsecond=0)
+        )
+        custom_datetime = self.schedule_input_custom_server_open_datetime
+        expires_at = self.schedule_input_custom_server_open_expires_at
+        if isinstance(custom_datetime, datetime) and isinstance(expires_at, datetime):
+            if reference_value < expires_at.replace(microsecond=0) and not self._has_schedule_input_custom_server_open_expired_by_maintenance(reference_value):
+                return custom_datetime.replace(second=0, microsecond=0)
+            self._clear_schedule_input_custom_server_open_datetime()
+        return self._get_schedule_default_server_open_datetime(reference_value)
+
+    def _remember_schedule_input_server_open_datetime(self, selected_datetime: datetime, reference_datetime: datetime) -> None:
+        selected_value = selected_datetime.replace(second=0, microsecond=0)
+        reference_value = reference_datetime.replace(microsecond=0)
+        default_value = self._get_schedule_default_server_open_datetime(reference_value).replace(second=0, microsecond=0)
+        if selected_value == default_value:
+            self._clear_schedule_input_custom_server_open_datetime()
+            return
+        expires_at = self._get_schedule_next_reset_datetime_for_custom_server_open(reference_value)
+        if not isinstance(expires_at, datetime) or reference_value >= expires_at:
+            self._clear_schedule_input_custom_server_open_datetime()
+            return
+        self.schedule_input_custom_server_open_datetime = selected_value
+        self.schedule_input_custom_server_open_expires_at = expires_at
+        self.schedule_input_custom_server_open_saved_at = reference_value
+
     def _get_schedule_last_imported_at(self) -> datetime | None:
         if isinstance(self.schedule_last_import_meta, dict):
             imported_at = self.schedule_last_import_meta.get("imported_at")
@@ -7930,6 +8104,22 @@ class BossTimerApp:
                 return True
             return isinstance(created_at, datetime) and created_at > control_time
         return True
+
+    def _is_schedule_alarm_event_visible(
+        self,
+        item: dict[str, object],
+        scheduled_at: datetime,
+        reference_datetime: datetime,
+        cutoff_datetime: datetime | None = None,
+    ) -> bool:
+        created_at = item.get("created_at")
+        return self._is_schedule_event_visible(
+            scheduled_at,
+            created_at if isinstance(created_at, datetime) else None,
+            reference_datetime,
+            cutoff_datetime if cutoff_datetime is not None else self._get_schedule_visible_cutoff_datetime(),
+            is_invasion=self._is_schedule_invasion_item(item),
+        )
 
     def _get_schedule_stale_cutoff_datetime(self, reference_datetime: datetime) -> datetime | None:
         previous_maintenance = self._get_schedule_previous_maintenance_datetime(reference_datetime)
@@ -8080,11 +8270,15 @@ class BossTimerApp:
         expire_hours = self._get_schedule_second_precision_expire_hours()
         if expire_hours <= 0:
             return "second"
-        created_at = item.get("created_at")
-        if not isinstance(created_at, datetime):
+        precision_origin_at = item.get("second_precision_origin_at")
+        if not isinstance(precision_origin_at, datetime):
+            precision_origin_at = self._get_schedule_event_cut_datetime(item)
+        if not isinstance(precision_origin_at, datetime):
+            precision_origin_at = item.get("created_at")
+        if not isinstance(precision_origin_at, datetime):
             return "second"
         reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
-        if reference_now >= created_at.replace(microsecond=0) + timedelta(hours=expire_hours):
+        if reference_now >= precision_origin_at.replace(microsecond=0) + timedelta(hours=expire_hours):
             return "minute"
         return "second"
 
@@ -8141,9 +8335,15 @@ class BossTimerApp:
         cleaned_events: list[dict[str, object]] = []
         changed = False
         for item in self.schedule_events:
-            if isinstance(item, dict) and "second_precision_offset_key" in item:
+            if isinstance(item, dict) and (
+                "second_precision_offset_key" in item
+                or "second_precision_offset_base_at" in item
+                or "second_precision_offset_ticks" in item
+            ):
                 cleaned_item = dict(item)
                 cleaned_item.pop("second_precision_offset_key", None)
+                cleaned_item.pop("second_precision_offset_base_at", None)
+                cleaned_item.pop("second_precision_offset_ticks", None)
                 cleaned_events.append(cleaned_item)
                 changed = True
             else:
@@ -8309,6 +8509,8 @@ class BossTimerApp:
                     updated_item["scheduled_at"] = item_scheduled_at - stored_offset_delta
                     if self._get_schedule_second_precision_offset_key(item) == offset_key:
                         updated_item.pop("second_precision_offset_key", None)
+                        updated_item.pop("second_precision_offset_base_at", None)
+                        updated_item.pop("second_precision_offset_ticks", None)
                     reverted_events.append(updated_item)
                 else:
                     reverted_events.append(item)
@@ -8365,6 +8567,15 @@ class BossTimerApp:
         offset_ticks = self._schedule_second_precision_offset_ticks(offset_seconds, limit_ticks=100)
         if offset_ticks == 0:
             return scheduled_at
+        stored_scheduled_at = item.get("scheduled_at")
+        applied_ticks = item.get("second_precision_offset_ticks")
+        if (
+            isinstance(stored_scheduled_at, datetime)
+            and scheduled_at == stored_scheduled_at
+            and isinstance(applied_ticks, int)
+            and int(applied_ticks) == offset_ticks
+        ):
+            return scheduled_at
         return scheduled_at + timedelta(milliseconds=offset_ticks * 100)
 
     def _format_schedule_clock_text_for_input(self, scheduled_at: datetime | None, precision: object) -> str:
@@ -8399,7 +8610,7 @@ class BossTimerApp:
         if hasattr(self, "schedule_input_past_var") and self.schedule_input_past_var is not None:
             self.schedule_input_past_var.set(self.schedule_input_past_enabled)
         if self.schedule_input_past_enabled and reset_to_now:
-            self._set_schedule_base_datetime_fields(self._get_schedule_default_server_open_datetime())
+            self._set_schedule_base_datetime_fields(self._get_schedule_input_server_open_datetime())
         for widget, place_kwargs in self.schedule_input_base_widget_places:
             if widget is None:
                 continue
@@ -9954,6 +10165,7 @@ class BossTimerApp:
         self.schedule_last_edit_backup = None
         self.schedule_last_import_backup = None
         self.schedule_input_undo_edit_context = False
+        self._clear_schedule_input_custom_server_open_datetime()
         self.schedule_input_ocr_items = []
         self.schedule_input_ocr_saved_items = []
         self.schedule_input_ocr_saved_results = []
@@ -9975,6 +10187,9 @@ class BossTimerApp:
             "maintenance_hour": self.schedule_maintenance_hour_var.get(),
             "maintenance_minute": self.schedule_maintenance_minute_var.get(),
             "schedule_input_past_enabled": bool(self.schedule_input_past_enabled),
+            "schedule_input_custom_server_open_datetime": self.schedule_input_custom_server_open_datetime,
+            "schedule_input_custom_server_open_expires_at": self.schedule_input_custom_server_open_expires_at,
+            "schedule_input_custom_server_open_saved_at": self.schedule_input_custom_server_open_saved_at,
             "schedule_delete_active_cutoff_datetime": self.schedule_delete_active_cutoff_datetime,
             "schedule_events": [dict(item) for item in self.schedule_events],
             "schedule_active_entries": [dict(item) for item in self.schedule_active_entries],
@@ -10011,6 +10226,12 @@ class BossTimerApp:
             self.schedule_maintenance_minute_var.set(f"{int(maintenance_minute_digits):02d}분")
         self.schedule_input_past_enabled = bool(snapshot.get("schedule_input_past_enabled", self.schedule_input_past_enabled))
         self.schedule_input_past_var.set(self.schedule_input_past_enabled)
+        custom_server_open_datetime = snapshot.get("schedule_input_custom_server_open_datetime")
+        custom_server_open_expires_at = snapshot.get("schedule_input_custom_server_open_expires_at")
+        custom_server_open_saved_at = snapshot.get("schedule_input_custom_server_open_saved_at")
+        self.schedule_input_custom_server_open_datetime = custom_server_open_datetime.replace(second=0, microsecond=0) if isinstance(custom_server_open_datetime, datetime) else None
+        self.schedule_input_custom_server_open_expires_at = custom_server_open_expires_at.replace(microsecond=0) if isinstance(custom_server_open_expires_at, datetime) else None
+        self.schedule_input_custom_server_open_saved_at = custom_server_open_saved_at.replace(microsecond=0) if isinstance(custom_server_open_saved_at, datetime) else None
         schedule_delete_active_cutoff_datetime = snapshot.get("schedule_delete_active_cutoff_datetime")
         if isinstance(schedule_delete_active_cutoff_datetime, datetime):
             self.schedule_delete_active_cutoff_datetime = schedule_delete_active_cutoff_datetime.replace(microsecond=0)
@@ -10027,6 +10248,7 @@ class BossTimerApp:
         schedule_control_events = snapshot.get("schedule_control_events")
         if isinstance(schedule_control_events, list):
             self.schedule_control_events = [item for item in schedule_control_events if isinstance(item, dict)]
+        self._get_schedule_input_server_open_datetime()
         self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(snapshot.get("schedule_second_precision_offsets"))
         self._prune_expired_schedule_second_precision_offsets()
         schedule_last_import_meta = snapshot.get("schedule_last_import_meta")
@@ -11383,7 +11605,11 @@ class BossTimerApp:
         return success
 
     def _update_schedule_next_boss_summary(self) -> None:
-        reference_now = self._get_schedule_reference_datetime()
+        reference_now = (
+            self.schedule_summary_last_precise_reference
+            if isinstance(self.schedule_summary_last_precise_reference, datetime)
+            else self._get_schedule_reference_datetime()
+        )
         self.schedule_current_time_var.set(reference_now.strftime("%H:%M:%S"))
         cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         next_maintenance_datetime = self._get_schedule_maintenance_cutoff_datetime(reference_now)
@@ -11392,7 +11618,9 @@ class BossTimerApp:
         previous_scan_start = reference_now - timedelta(days=14)
         for item, scheduled_at in self._iter_schedule_alarm_events_between_reverse(previous_scan_start, reference_now):
             display_scheduled_at = self._get_schedule_preview_scheduled_at(item, scheduled_at)
-            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(display_scheduled_at):
+            if not self._is_schedule_alarm_event_visible(item, scheduled_at, reference_now, cutoff_datetime):
+                continue
+            if cutoff_datetime is not None and display_scheduled_at >= cutoff_datetime:
                 continue
             if display_scheduled_at >= reference_now:
                 continue
@@ -11404,7 +11632,7 @@ class BossTimerApp:
             future_scan_end = reference_now
         for item, scheduled_at in self._iter_schedule_alarm_events_between(reference_now, future_scan_end):
             display_scheduled_at = self._get_schedule_preview_scheduled_at(item, scheduled_at)
-            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(display_scheduled_at):
+            if not self._is_schedule_alarm_event_visible(item, scheduled_at, reference_now, cutoff_datetime):
                 continue
             if display_scheduled_at < reference_now:
                 continue
@@ -12840,18 +13068,21 @@ class BossTimerApp:
         preview_ticks = self._schedule_second_precision_offset_ticks(preview_delta, limit_ticks=10)
         preview_scheduled_at = scheduled_at + timedelta(milliseconds=preview_ticks * 100)
         reference_now = (
-            self.schedule_summary_last_reference_second
-            if isinstance(self.schedule_summary_last_reference_second, datetime)
+            self.schedule_summary_last_precise_reference
+            if isinstance(self.schedule_summary_last_precise_reference, datetime)
             else self._get_schedule_reference_datetime()
         )
         remaining_seconds = (preview_scheduled_at - reference_now).total_seconds()
-        total_seconds = max(0, int(remaining_seconds))
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
         if second_precision is None:
             second_precision = self._is_schedule_second_precision(item)
         if second_precision:
+            total_seconds = max(0, int(remaining_seconds))
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
             return f"{hours:02d}시 {minutes:02d}분 {seconds:02d}초", ""
+        total_seconds = max(0, int(remaining_seconds))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
         return f"{hours:02d}시 {minutes:02d}분", " 00초"
 
     def _format_schedule_second_precision_selected_seconds_text(
@@ -13180,19 +13411,19 @@ class BossTimerApp:
         except (tk.TclError, TypeError, ValueError):
             delta = 0.0
         delta_ticks = self._schedule_second_precision_offset_ticks(delta, limit_ticks=10)
-        delta = delta_ticks / 10.0
-        delta_duration = timedelta(milliseconds=delta_ticks * 100)
-        new_offset_ticks = (
-            self._schedule_second_precision_offset_ticks(old_offset, limit_ticks=100)
-            + delta_ticks
-        )
-        new_offset = max(-100, min(100, new_offset_ticks)) / 10.0
+        old_offset_ticks = self._schedule_second_precision_offset_ticks(old_offset, limit_ticks=100)
+        new_offset_ticks = old_offset_ticks + delta_ticks
+        new_offset_ticks = max(-100, min(100, new_offset_ticks))
+        effective_delta_ticks = new_offset_ticks - old_offset_ticks
+        delta = effective_delta_ticks / 10.0
+        delta_duration = timedelta(milliseconds=effective_delta_ticks * 100)
+        new_offset = new_offset_ticks / 10.0
         adjusted_count = 0
         previous_identity = self.schedule_second_precision_offset_target_identity
         restored_identity = None
         first_before_at = None
         first_after_at = None
-        if abs(delta) >= 0.05:
+        if effective_delta_ticks != 0:
             adjusted_events: list[dict[str, object]] = []
             for item in self.schedule_events:
                 item_scheduled_at = item.get("scheduled_at") if isinstance(item, dict) else None
@@ -13204,10 +13435,17 @@ class BossTimerApp:
                     and item_scheduled_at >= target_scheduled_at
                 ):
                     updated_item = dict(item)
-                    if self._get_schedule_second_precision_offset_key(item) == raw_key:
+                    base_scheduled_at = item.get("second_precision_offset_base_at")
+                    if not isinstance(base_scheduled_at, datetime):
+                        base_scheduled_at = item_scheduled_at - timedelta(milliseconds=old_offset_ticks * 100)
+                    if new_offset_ticks != 0:
                         updated_item["second_precision_offset_key"] = raw_key
+                        updated_item["second_precision_offset_base_at"] = base_scheduled_at
+                        updated_item["second_precision_offset_ticks"] = new_offset_ticks
                     else:
                         updated_item.pop("second_precision_offset_key", None)
+                        updated_item.pop("second_precision_offset_base_at", None)
+                        updated_item.pop("second_precision_offset_ticks", None)
                     updated_item["scheduled_at"] = item_scheduled_at + delta_duration
                     if first_before_at is None:
                         first_before_at = item_scheduled_at
@@ -13232,7 +13470,7 @@ class BossTimerApp:
         self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
         self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
         self._save_schedule_state(mark_github_dirty=True)
-        self._refresh_schedule_view()
+        self._refresh_schedule_tree_scope()
         self.schedule_second_precision_offset_target_key = raw_key
         self.schedule_second_precision_offset_target_identity = restored_identity if isinstance(restored_identity, tuple) else previous_identity
         self._restore_schedule_second_precision_offset_target_selection(ensure_visible=True)
@@ -13287,7 +13525,7 @@ class BossTimerApp:
         self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
         self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
         self._save_schedule_state(mark_github_dirty=True)
-        self._refresh_schedule_view()
+        self._refresh_schedule_tree_scope()
         self.schedule_second_precision_offset_target_key = raw_key
         self.schedule_second_precision_offset_target_identity = restored_identity if isinstance(restored_identity, tuple) else previous_identity
         self._restore_schedule_second_precision_offset_target_selection(ensure_visible=True)
@@ -18889,6 +19127,12 @@ class BossTimerApp:
             return self._get_schedule_ocr_default_window_rect(image_width, image_height)
         height_estimates: list[float] = []
 
+        def middle_value(values: list[float]) -> float:
+            ordered = sorted(float(value) for value in values)
+            if not ordered:
+                return 0.0
+            return ordered[len(ordered) // 2]
+
         def add_height_estimate(anchor_top: int, anchor_ratio: float, signal_top: int | None, signal_ratio: float) -> None:
             if signal_top is None or signal_ratio <= anchor_ratio:
                 return
@@ -19044,12 +19288,6 @@ class BossTimerApp:
             }
         if title_item is None and not schedule_signal_items:
             return None
-
-        def middle_value(values: list[float]) -> float:
-            ordered = sorted(float(value) for value in values)
-            if not ordered:
-                return 0.0
-            return ordered[len(ordered) // 2]
 
         if title_item is not None and (current_label_item is not None or current_time_item is not None):
             title_center_x = int(title_item.get("left") or 0) + (int(title_item.get("width") or 0) / 2)
@@ -20060,11 +20298,11 @@ class BossTimerApp:
 
         if len(numbers) >= 3:
             first, second, third = numbers[:3]
-            if second < 24 and third < 60:
+            if first <= 6 and second < 24 and third < 60:
                 add_candidate("day_hour_minute", (first * 86400) + (second * 3600) + (third * 60), "minute", 78)
-            if second < 60 and third < 60:
+            if first < 24 and second < 60 and third < 60:
                 add_candidate("hour_minute_second", (first * 3600) + (second * 60) + third, "second", 68)
-            if first == 0 and has_day and has_hour and not has_minute and not has_second and second < 32 and third < 24:
+            if first == 0 and has_day and has_hour and not has_minute and not has_second and second <= 6 and third < 24:
                 scored_candidates.append(
                     {
                         "score": 118,
@@ -20084,10 +20322,11 @@ class BossTimerApp:
                 )
         elif len(numbers) == 2:
             first, second = numbers
-            if second < 24:
+            if first <= 6 and second < 24:
                 add_candidate("day_hour", (first * 86400) + (second * 3600), "hour", 74)
-            if second < 60:
+            if first < 24 and second < 60:
                 add_candidate("hour_minute", (first * 3600) + (second * 60), "minute", 66)
+            if first < 60 and second < 60:
                 add_candidate("minute_second", (first * 60) + second, "second", 56)
             if first == 0 and second < 60:
                 scored_candidates.append(
@@ -20100,16 +20339,16 @@ class BossTimerApp:
                 )
         else:
             value = numbers[0]
-            if has_day:
+            if has_day and value <= 6:
                 add_candidate("day_only", value * 86400, "hour", 80)
-            if has_hour:
+            if has_hour and value < 24:
                 add_candidate("hour_only", value * 3600, "hour", 74)
-            if has_minute:
+            if has_minute and value < 60:
                 add_candidate("minute_only", value * 60, "minute", 68)
-            if has_second:
+            if has_second and value < 60:
                 add_candidate("second_only", value, "second", 64)
             if not has_explicit_unit:
-                if value <= 72:
+                if value < 24:
                     hour_score = 44
                     if respawn_seconds >= 86400 and value < 60:
                         hour_score = 24
@@ -20158,6 +20397,21 @@ class BossTimerApp:
             if minute_value < 60 and second_value < 60:
                 return (minute_value * 60) + second_value, "second", f"compact_mmss='{cleaned}'"
         return None
+
+    def _is_schedule_ocr_duration_unit_value_allowed(self, value: object, unit: str) -> bool:
+        try:
+            number = int(str(value or "").strip())
+        except ValueError:
+            return False
+        if number < 0:
+            return False
+        if unit == "일":
+            return number <= 6
+        if unit == "시간":
+            return number <= 23
+        if unit in {"분", "초"}:
+            return number <= 59
+        return False
 
     def _infer_schedule_ocr_duration_units(self, text: str) -> tuple[str, str]:
         cleaned = self._normalize_schedule_ocr_text(text)
@@ -20211,6 +20465,19 @@ class BossTimerApp:
                 next_entry = entries[merge_index + 1]
                 next_unit = str(next_entry.get("unit") or "")
                 next_value = str(next_entry.get("value") or "")
+                merged_second_value = current_value + next_value
+                if (
+                    next_unit == "초"
+                    and re.fullmatch(r"\d", next_value)
+                    and self._is_schedule_ocr_duration_unit_value_allowed(merged_second_value, "초")
+                ):
+                    current_entry["value"] = merged_second_value
+                    current_entry["unit"] = next_unit
+                    current_entry["explicit"] = True
+                    debug_parts.append(f"merge_split_seconds:{current_value}+{next_value}->{current_entry['value']}초")
+                    merged_entries.append(current_entry)
+                    merge_index += 2
+                    continue
                 if not next_unit and re.fullmatch(r"\d", next_value):
                     previous_unit = ""
                     for previous_entry in reversed(merged_entries):
@@ -20243,18 +20510,25 @@ class BossTimerApp:
             if not current_unit or next_unit:
                 continue
             if current_unit == "일":
-                next_entry["unit"] = "시간"
-                debug_parts.append(f"repair_pair:{current_entry.get('value')}일->{next_entry.get('value')}시간")
+                if self._is_schedule_ocr_duration_unit_value_allowed(next_entry.get("value"), "시간"):
+                    next_entry["unit"] = "시간"
+                    debug_parts.append(f"repair_pair:{current_entry.get('value')}일->{next_entry.get('value')}시간")
             elif current_unit == "시간":
-                next_entry["unit"] = "분"
-                debug_parts.append(f"repair_pair:{current_entry.get('value')}시간->{next_entry.get('value')}분")
+                if self._is_schedule_ocr_duration_unit_value_allowed(next_entry.get("value"), "분"):
+                    next_entry["unit"] = "분"
+                    debug_parts.append(f"repair_pair:{current_entry.get('value')}시간->{next_entry.get('value')}분")
             elif current_unit == "분":
-                next_entry["unit"] = "초"
-                debug_parts.append(f"repair_pair:{current_entry.get('value')}분->{next_entry.get('value')}초")
+                if self._is_schedule_ocr_duration_unit_value_allowed(next_entry.get("value"), "초"):
+                    next_entry["unit"] = "초"
+                    debug_parts.append(f"repair_pair:{current_entry.get('value')}분->{next_entry.get('value')}초")
             elif current_unit == "초":
-                current_entry["unit"] = "분"
-                next_entry["unit"] = "초"
-                debug_parts.append(f"repair_second_chain:{current_entry.get('value')}분->{next_entry.get('value')}초")
+                if (
+                    self._is_schedule_ocr_duration_unit_value_allowed(current_entry.get("value"), "분")
+                    and self._is_schedule_ocr_duration_unit_value_allowed(next_entry.get("value"), "초")
+                ):
+                    current_entry["unit"] = "분"
+                    next_entry["unit"] = "초"
+                    debug_parts.append(f"repair_second_chain:{current_entry.get('value')}분->{next_entry.get('value')}초")
 
         for current_index, entry in enumerate(entries):
             if str(entry.get("unit") or ""):
@@ -20269,7 +20543,7 @@ class BossTimerApp:
                     break
             if previous_unit:
                 inferred_unit = next_unit_map.get(previous_unit, "")
-                if inferred_unit:
+                if inferred_unit and self._is_schedule_ocr_duration_unit_value_allowed(entry.get("value"), inferred_unit):
                     entry["unit"] = inferred_unit
                     debug_parts.append(f"forward:{entry.get('value')}->{inferred_unit}")
 
@@ -20286,7 +20560,7 @@ class BossTimerApp:
                     break
             if next_unit:
                 inferred_unit = prev_unit_map.get(next_unit, "")
-                if inferred_unit:
+                if inferred_unit and self._is_schedule_ocr_duration_unit_value_allowed(entry.get("value"), inferred_unit):
                     entry["unit"] = inferred_unit
                     debug_parts.append(f"backward:{entry.get('value')}->{inferred_unit}")
 
@@ -21091,7 +21365,10 @@ class BossTimerApp:
                         number = int(number_text)
                     except ValueError:
                         continue
-                    if unit == "시간" and number > 23:
+                    if unit == "일" and number > 6:
+                        issues.append(f"일 범위 오류 ({number}일)")
+                        severity = "error"
+                    elif unit == "시간" and number > 23:
                         issues.append(f"시간 범위 오류 ({number}시간)")
                         severity = "error"
                     elif unit == "분" and number > 59:
@@ -23328,6 +23605,7 @@ class BossTimerApp:
             self._stop_schedule_alarm_countdown_audio(close_host=True)
             self._stop_schedule_alarm_boss_audio(close_host=True)
             self._stop_schedule_alarm_near_boss_audio_host()
+            self._stop_schedule_alarm_second_precision_gen_audio_host()
         self._save_schedule_alarm_settings()
         if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
             self._refresh_schedule_tree_scope()
@@ -24263,6 +24541,10 @@ class BossTimerApp:
             process = self.schedule_alarm_boss_audio_process
             if close_host:
                 self.schedule_alarm_boss_audio_process = None
+        if not close_host:
+            protected_until = float(getattr(self, "schedule_voice_broker_protect_central_until", 0.0) or 0.0)
+            if protected_until > time.monotonic():
+                return request_id
         if process is None or process.poll() is not None:
             return request_id
         if process.stdin is None:
@@ -24748,12 +25030,14 @@ class BossTimerApp:
         *,
         request_id: int,
         expires_at: datetime | None,
+        interrupt_existing: bool = True,
     ) -> bool:
         valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
         if not valid_clip_paths:
             return False
         _ = request_id, expires_at
-        self._stop_schedule_alarm_boss_audio(close_host=False)
+        if interrupt_existing:
+            self._stop_schedule_alarm_boss_audio(close_host=False)
         process = self._ensure_schedule_alarm_boss_audio_host_process()
         if process is not None and process.stdin is not None:
             payload_text = json.dumps(valid_clip_paths, ensure_ascii=False)
@@ -24995,6 +25279,11 @@ class BossTimerApp:
     def _shutdown_schedule_alarm_tts_worker(self) -> None:
         if self.schedule_alarm_tts_stop_event.is_set():
             return
+        self.schedule_voice_broker_stop_event.set()
+        try:
+            self.schedule_voice_broker_queue.put_nowait(None)
+        except queue.Full:
+            pass
         self._stop_schedule_alarm_countdown_audio(close_host=True)
         self._stop_schedule_alarm_boss_audio(close_host=True)
         self._stop_schedule_alarm_near_boss_audio_host()
@@ -25026,6 +25315,9 @@ class BossTimerApp:
         self.schedule_alarm_boss_audio_thread = None
         if self.schedule_alarm_tts_thread.is_alive():
             self.schedule_alarm_tts_thread.join(timeout=0.8)
+        voice_broker_thread = getattr(self, "schedule_voice_broker_thread", None)
+        if voice_broker_thread is not None and voice_broker_thread.is_alive():
+            voice_broker_thread.join(timeout=0.8)
 
     def _queue_schedule_alarm_speech(
         self,
@@ -25110,9 +25402,7 @@ class BossTimerApp:
             scheduled_at = item.get("scheduled_at")
             if not isinstance(scheduled_at, datetime) or scheduled_at <= after_datetime or scheduled_at < reference_now:
                 continue
-            if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
-                continue
-            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(scheduled_at):
+            if not self._is_schedule_alarm_event_visible(item, scheduled_at, reference_now, cutoff_datetime):
                 continue
             candidates.append((scheduled_at, self._get_schedule_boss_display_name(item, prefer_alias=True)))
         for scheduled_at, boss_name, *_rest in self._get_fixed_boss_schedule_rows_for_alarm(reference_now):
@@ -25216,10 +25506,13 @@ class BossTimerApp:
                     control_type,
                     include_minute=True,
                 )
-                self._play_or_queue_schedule_alarm_audio_sequence(
-                    clip_paths,
-                    f"{display_name} 1분 전입니다.",
-                    beep=True,
+                self._submit_schedule_voice_request(
+                    phase="PRE_ALERT",
+                    boss_id=f"{control_type}:{display_name}",
+                    target_time=scheduled_at,
+                    offset_sec=60,
+                    clip_paths=clip_paths,
+                    fallback_text=f"{display_name} 1분 전입니다.",
                     category="maintenance",
                     rate=1,
                     force_audio=True,
@@ -25238,10 +25531,13 @@ class BossTimerApp:
                     control_type,
                     include_due_suffix=True,
                 )
-                self._play_or_queue_schedule_alarm_audio_sequence(
-                    clip_paths,
-                    f"{display_name} 타임입니다.",
-                    beep=True,
+                self._submit_schedule_voice_request(
+                    phase="SPAWN_SOON",
+                    boss_id=f"{control_type}:{display_name}",
+                    target_time=scheduled_at,
+                    offset_sec=0,
+                    clip_paths=clip_paths,
+                    fallback_text=f"{display_name} 타임입니다.",
                     category="maintenance",
                     rate=1,
                     force_audio=True,
@@ -25252,7 +25548,7 @@ class BossTimerApp:
             return ""
         raw_key = str(item.get("raw_key") or self._get_schedule_panel_dedupe_key(item) or item.get("boss_name") or "").strip()
         scheduled_at = item.get("scheduled_at")
-        scheduled_key = scheduled_at.replace(microsecond=0).isoformat() if isinstance(scheduled_at, datetime) else ""
+        scheduled_key = scheduled_at.isoformat() if isinstance(scheduled_at, datetime) else ""
         return f"{raw_key}|{scheduled_key}"
 
     def _build_schedule_alarm_event_group_identity(self, items: list[dict[str, object]]) -> str:
@@ -25440,12 +25736,37 @@ class BossTimerApp:
             clip_paths.append(time_clip)
         return clip_paths
 
+    def _build_schedule_alarm_invasion_due_time_group_audio_paths(self, items: list[dict[str, object]]) -> list[str]:
+        clip_paths: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
+            if invasion_clip:
+                clip_paths.append(invasion_clip)
+            boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
+            boss_name = str(item.get("boss_name") or "").strip()
+            if not boss_clip and boss_name:
+                boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
+            if boss_clip:
+                clip_paths.append(boss_clip)
+        time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
+        if not time_clip:
+            time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
+        if time_clip:
+            clip_paths.append(time_clip)
+        return clip_paths
+
     def _build_schedule_alarm_second_precision_gen_audio_paths(
         self,
         item: dict[str, object],
         boss_name: str,
     ) -> list[str]:
         clip_paths: list[str] = []
+        if self._is_schedule_alarm_audio_invasion(item=item):
+            invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
+            if invasion_clip:
+                clip_paths.append(invasion_clip)
         boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
         if not boss_clip:
             boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
@@ -25456,15 +25777,19 @@ class BossTimerApp:
             gen_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "젠")
         if gen_clip:
             clip_paths.append(gen_clip)
-        return clip_paths
+        return self._with_schedule_alarm_chime_paths(clip_paths, "general")
 
     def _get_schedule_alarm_second_precision_gen_lead_ms(self, clip_paths: list[str]) -> int:
         if len(clip_paths) < 2:
             return 1400
-        boss_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_paths[0])
-        if not isinstance(boss_duration_ms, int) or boss_duration_ms <= 0:
-            return 1400
-        return max(0, int(boss_duration_ms))
+        lead_duration_ms = 0
+        for clip_path in clip_paths[:-1]:
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
+            if isinstance(clip_duration_ms, int) and clip_duration_ms > 0:
+                lead_duration_ms += max(120, clip_duration_ms)
+            else:
+                lead_duration_ms += 700
+        return max(0, int(lead_duration_ms + SCHEDULE_SECOND_PRECISION_GEN_GAP_MS))
 
     def _get_schedule_alarm_due_time_lead_ms(self, clip_paths: list[str]) -> int:
         valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
@@ -25478,6 +25803,79 @@ class BossTimerApp:
             else:
                 lead_duration_ms += 900
         return max(0, int(lead_duration_ms))
+
+    def _is_schedule_voice_broker_busy(self, *, grace_ms: int = 200) -> bool:
+        busy_until = float(getattr(self, "schedule_voice_broker_busy_until", 0.0) or 0.0)
+        return (busy_until - time.monotonic()) > (max(0, int(grace_ms)) / 1000.0)
+
+    def _normalize_schedule_voice_lane(self, lane: object) -> str:
+        normalized = str(lane or "center").strip().lower()
+        if normalized in {"1", "center", "central", "중앙"}:
+            return "center"
+        if normalized in {"2", "right", "우측"}:
+            return "right"
+        if normalized in {"3", "left", "좌측"}:
+            return "left"
+        return "center"
+
+    def _get_schedule_voice_lane_balance(self, lane: object) -> float:
+        normalized = self._normalize_schedule_voice_lane(lane)
+        if normalized == "right":
+            return 1.0
+        if normalized == "left":
+            return -1.0
+        return 0.0
+
+    def _get_schedule_voice_lane_lock(self, lane: object) -> threading.Lock:
+        normalized = self._normalize_schedule_voice_lane(lane)
+        locks = getattr(self, "schedule_voice_broker_lane_locks", None)
+        if not isinstance(locks, dict):
+            locks = {}
+            self.schedule_voice_broker_lane_locks = locks
+        lock = locks.get(normalized)
+        if lock is None:
+            lock = threading.Lock()
+            locks[normalized] = lock
+        return lock
+
+    def _get_schedule_voice_lane_busy_until(self, lane: object) -> float:
+        normalized = self._normalize_schedule_voice_lane(lane)
+        if normalized == "center":
+            return float(getattr(self, "schedule_voice_broker_busy_until", 0.0) or 0.0)
+        busy_map = getattr(self, "schedule_voice_broker_lane_busy_until", None)
+        if not isinstance(busy_map, dict):
+            busy_map = {"center": float(getattr(self, "schedule_voice_broker_busy_until", 0.0) or 0.0)}
+            self.schedule_voice_broker_lane_busy_until = busy_map
+        return float(busy_map.get(normalized, 0.0) or 0.0)
+
+    def _set_schedule_voice_lane_busy_until(self, lane: object, busy_until: float, *, protect_central: bool = False) -> None:
+        normalized = self._normalize_schedule_voice_lane(lane)
+        safe_busy_until = float(busy_until or 0.0)
+        busy_map = getattr(self, "schedule_voice_broker_lane_busy_until", None)
+        if not isinstance(busy_map, dict):
+            busy_map = {}
+            self.schedule_voice_broker_lane_busy_until = busy_map
+        busy_map[normalized] = max(float(busy_map.get(normalized, 0.0) or 0.0), safe_busy_until)
+        if normalized == "center":
+            self.schedule_voice_broker_busy_until = max(
+                float(getattr(self, "schedule_voice_broker_busy_until", 0.0) or 0.0),
+                safe_busy_until,
+            )
+            if protect_central:
+                self.schedule_voice_broker_protect_central_until = max(
+                    float(getattr(self, "schedule_voice_broker_protect_central_until", 0.0) or 0.0),
+                    safe_busy_until,
+                )
+
+    def _is_schedule_voice_center_channel_active(self) -> bool:
+        now_monotonic = time.monotonic()
+        protected_until = float(getattr(self, "schedule_voice_broker_protect_central_until", 0.0) or 0.0)
+        return self._get_schedule_voice_lane_busy_until("center") > now_monotonic or protected_until > now_monotonic
+
+    def _get_schedule_invasion_voice_route(self, *, force_side: bool = False) -> tuple[str, float]:
+        if force_side or self._is_schedule_voice_center_channel_active():
+            return "right", float(SCHEDULE_INVASION_SIDE_CHANNEL_VOLUME)
+        return "center", 1.0
 
     def _schedule_second_precision_gen_audio_notice(
         self,
@@ -25503,8 +25901,12 @@ class BossTimerApp:
             )
             return
 
+        scheduled_revision = int(getattr(self, "schedule_voice_broker_revision", 0))
+
         def _play_clip(single_clip_paths: list[str], *, release_pending: bool = False) -> None:
             try:
+                if int(getattr(self, "schedule_voice_broker_revision", 0)) != scheduled_revision:
+                    return
                 if bool(self.schedule_alarm_countdown_enabled_var.get()):
                     return
                 played_audio = False
@@ -25552,17 +25954,19 @@ class BossTimerApp:
         safe_delay_ms = max(0, int(delay_ms))
         safe_gen_delay_ms = max(0, int(gen_delay_ms)) if isinstance(gen_delay_ms, int) else None
         if safe_gen_delay_ms is not None and len(valid_clip_paths) >= 2:
-            boss_clip_path = valid_clip_paths[0]
+            lead_clip_paths = valid_clip_paths[:-1]
             gen_clip_path = valid_clip_paths[-1]
-            gen_latency_compensation_ms = 60
+            gen_latency_compensation_ms = 0
+
+            def _play_lead_clips(prefer_near_host: bool = False) -> None:
+                if prefer_near_host and len(lead_clip_paths) == 1 and self._play_schedule_alarm_near_boss_audio_file(lead_clip_paths[0]):
+                    return
+                _play_clip(lead_clip_paths, release_pending=False)
+
             if safe_gen_delay_ms - safe_delay_ms <= 2200:
-                _schedule_timer(
-                    safe_delay_ms,
-                    lambda: self._play_schedule_alarm_near_boss_audio_file(boss_clip_path)
-                    or _play_clip([boss_clip_path], release_pending=False),
-                )
+                _schedule_timer(safe_delay_ms, lambda: _play_lead_clips(prefer_near_host=True))
             else:
-                _schedule_timer(safe_delay_ms, lambda: _play_clip([boss_clip_path], release_pending=False))
+                _schedule_timer(safe_delay_ms, lambda: _play_lead_clips(prefer_near_host=False))
             _schedule_timer(max(0, safe_gen_delay_ms - gen_latency_compensation_ms), lambda: _play_clip([gen_clip_path], release_pending=True))
             return
         _schedule_timer(safe_delay_ms, lambda: _play_clip(valid_clip_paths, release_pending=True))
@@ -25575,20 +25979,21 @@ class BossTimerApp:
         *,
         countdown_enabled: bool,
     ) -> None:
-        if countdown_enabled:
-            return
         pending_keys = getattr(self, "schedule_alarm_second_precision_gen_pending_keys", set())
         if not isinstance(pending_keys, set):
             pending_keys = set()
             self.schedule_alarm_second_precision_gen_pending_keys = pending_keys
         precision_window_end = precise_reference_now + timedelta(seconds=90)
         previous_event_at: datetime | None = None
+        main_countdown_active = self._has_active_main_schedule_countdown_window(current_second) if countdown_enabled else False
         for item, scheduled_at in self._iter_schedule_alarm_events_between(current_second, precision_window_end):
             if not self._is_schedule_second_precision(item):
                 continue
-            if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
+            if not self._is_schedule_alarm_event_visible(item, scheduled_at, current_second, cutoff_datetime):
                 continue
-            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(scheduled_at):
+            is_invasion = self._is_schedule_invasion_item(item)
+            invasion_side_route = bool(is_invasion and (main_countdown_active or self._is_schedule_voice_center_channel_active()))
+            if countdown_enabled and not invasion_side_route:
                 continue
             boss_name = str(item.get("boss_name") or "").strip()
             if not boss_name:
@@ -25620,6 +26025,25 @@ class BossTimerApp:
                 if 0 < gap_seconds <= 2:
                     notice_start_at = scheduled_at - timedelta(milliseconds=max(120, lead_ms + 120))
             previous_event_at = scheduled_at
+            if is_invasion:
+                invasion_lane, invasion_volume = self._get_schedule_invasion_voice_route(force_side=invasion_side_route)
+                self._submit_schedule_voice_request(
+                    phase="SPAWN_CONFIRMED",
+                    boss_id=identity,
+                    target_time=scheduled_at,
+                    offset_sec=0,
+                    clip_paths=clip_paths,
+                    fallback_text=f"{display_name} 젠",
+                    category="general",
+                    rate=1,
+                    force_audio=True,
+                    chime_key="general",
+                    earliest_play_at=notice_start_at,
+                    lane=invasion_lane,
+                    volume=invasion_volume,
+                    is_invasion=True,
+                )
+                continue
             self._schedule_second_precision_gen_audio_notice(
                 clip_paths=clip_paths,
                 fallback_text=f"{display_name} 젠",
@@ -25697,6 +26121,481 @@ class BossTimerApp:
             rate=rate,
         )
         return False
+
+    def _submit_schedule_voice_request(
+        self,
+        *,
+        phase: str,
+        boss_id: str,
+        target_time: datetime,
+        offset_sec: int,
+        clip_paths: list[str] | None = None,
+        fallback_text: str = "",
+        category: str = "general",
+        rate: int = 1,
+        force_audio: bool = False,
+        expires_at: datetime | None = None,
+        merge_items: list[dict[str, object]] | None = None,
+        chime_key: str = "general",
+        no_auto_merge: bool = False,
+        earliest_play_at: datetime | None = None,
+        lane: str = "center",
+        volume: float = 1.0,
+        is_invasion: bool = False,
+    ) -> None:
+        if self.schedule_voice_broker_stop_event.is_set():
+            return
+        if not isinstance(target_time, datetime):
+            return
+        self._ensure_schedule_voice_broker_thread()
+        normalized_phase = str(phase or "GENERAL").strip() or "GENERAL"
+        normalized_boss_id = str(boss_id or "").strip()
+        dedupe_key = f"{normalized_phase}:{normalized_boss_id}:{target_time.isoformat()}:{int(offset_sec)}"
+        self.schedule_voice_broker_queue.put(
+            {
+                "phase": normalized_phase,
+                "boss_id": normalized_boss_id,
+                "target_time": target_time,
+                "offset_sec": int(offset_sec),
+                "clip_paths": [str(path).strip() for path in (clip_paths or []) if str(path).strip()],
+                "fallback_text": str(fallback_text or "").strip(),
+                "category": str(category or "general").strip() or "general",
+                "rate": int(rate),
+                "force_audio": bool(force_audio),
+                "expires_at": expires_at if isinstance(expires_at, datetime) else None,
+                "merge_items": [dict(item) for item in (merge_items or []) if isinstance(item, dict)],
+                "chime_key": str(chime_key or "general").strip() or "general",
+                "no_auto_merge": bool(no_auto_merge),
+                "earliest_play_at": earliest_play_at if isinstance(earliest_play_at, datetime) else None,
+                "lane": self._normalize_schedule_voice_lane(lane),
+                "volume": max(0.0, min(1.0, float(volume))) if isinstance(volume, (int, float)) else 1.0,
+                "is_invasion": bool(is_invasion),
+                "dedupe_key": dedupe_key,
+                "created_at": datetime.now(),
+                "generation": int(getattr(self, "schedule_voice_broker_generation", 0)),
+            }
+        )
+
+    def _ensure_schedule_voice_broker_thread(self) -> None:
+        thread = getattr(self, "schedule_voice_broker_thread", None)
+        if isinstance(thread, threading.Thread) and thread.is_alive():
+            return
+        if self.schedule_voice_broker_stop_event.is_set():
+            return
+        try:
+            self.schedule_voice_broker_thread = threading.Thread(target=self._schedule_voice_broker_worker_loop, daemon=True)
+            self.schedule_voice_broker_thread.start()
+            self._append_debug_log("voice_broker_thread_restarted")
+        except RuntimeError as exc:
+            self._append_debug_log(f"voice_broker_thread_restart_failed {type(exc).__name__}: {exc}")
+
+    def _submit_schedule_voice_request_later(self, delay_ms: int, request_kwargs: dict[str, object]) -> None:
+        safe_delay_ms = max(0, int(delay_ms))
+        revision = int(getattr(self, "schedule_voice_broker_revision", 0))
+
+        def _submit_later() -> None:
+            if int(getattr(self, "schedule_voice_broker_revision", 0)) != revision:
+                return
+            try:
+                self._submit_schedule_voice_request(**request_kwargs)
+            except Exception:
+                pass
+
+        if safe_delay_ms <= 0:
+            _submit_later()
+            return
+        try:
+            timer = threading.Timer(safe_delay_ms / 1000.0, _submit_later)
+            timer.daemon = True
+            timer.start()
+        except RuntimeError:
+            try:
+                self.root.after(safe_delay_ms, _submit_later)
+            except Exception:
+                _submit_later()
+
+    def _bump_schedule_voice_broker_generation(self, *, clear_queue: bool = True) -> None:
+        self.schedule_voice_broker_generation = int(getattr(self, "schedule_voice_broker_generation", 0)) + 1
+        self.schedule_voice_broker_revision = int(getattr(self, "schedule_voice_broker_revision", 0)) + 1
+        self.schedule_voice_broker_busy_until = 0.0
+        self.schedule_voice_broker_protect_central_until = 0.0
+        self.schedule_voice_broker_lane_busy_until = {"center": 0.0, "right": 0.0, "left": 0.0}
+        pending_keys = getattr(self, "schedule_alarm_second_precision_gen_pending_keys", None)
+        if isinstance(pending_keys, set):
+            pending_keys.clear()
+        if not clear_queue:
+            return
+        try:
+            with self.schedule_voice_broker_queue.mutex:
+                self.schedule_voice_broker_queue.queue.clear()
+        except Exception:
+            pass
+
+    def _get_schedule_voice_request_expire_seconds(self, phase: str) -> int:
+        normalized_phase = str(phase or "").strip()
+        if normalized_phase == "PRE_ALERT":
+            return 20
+        if normalized_phase == "SPAWN_SOON":
+            return 10
+        if normalized_phase == "SPAWN_CONFIRMED":
+            return 15
+        if normalized_phase == "FIXED_PRE_ALERT":
+            return 65
+        return 20
+
+    def _schedule_voice_broker_request_is_stale(self, request: dict[str, object], now_value: datetime) -> bool:
+        if int(request.get("generation") or -1) != int(getattr(self, "schedule_voice_broker_generation", 0)):
+            return True
+        phase = str(request.get("phase") or "")
+        target_time = request.get("target_time")
+        offset_sec = int(request.get("offset_sec") or 0)
+        speak_time = target_time - timedelta(seconds=max(0, offset_sec)) if isinstance(target_time, datetime) else request.get("created_at")
+        earliest_play_at = request.get("earliest_play_at")
+        if isinstance(earliest_play_at, datetime) and isinstance(speak_time, datetime) and earliest_play_at > speak_time:
+            speak_time = earliest_play_at
+        if not isinstance(speak_time, datetime):
+            return False
+        stale = now_value > speak_time + timedelta(seconds=self._get_schedule_voice_request_expire_seconds(phase))
+        return stale
+
+    def _build_schedule_voice_broker_merged_pre_alert(self, requests: list[dict[str, object]]) -> dict[str, object]:
+        base_request = dict(requests[0])
+        offset_sec = int(base_request.get("offset_sec") or 0)
+        merged_items: list[dict[str, object]] = []
+        for request in requests:
+            for item in request.get("merge_items") or []:
+                if isinstance(item, dict):
+                    merged_items.append(item)
+        if not merged_items:
+            return base_request
+        merged_items = merged_items[:4]
+        clip_paths = self._build_schedule_alarm_custom_audio_paths(
+            boss_items=merged_items,
+            minute_seconds=offset_sec,
+        )
+        clip_paths = self._with_schedule_alarm_chime_paths(
+            clip_paths,
+            str(base_request.get("chime_key") or "general"),
+        )
+        joined_names = " ".join(self._get_schedule_alarm_group_display_names(merged_items)).strip()
+        base_request["clip_paths"] = clip_paths
+        base_request["fallback_text"] = f"{joined_names} {self._format_schedule_alarm_remaining_speech(offset_sec)} 남았습니다.".strip()
+        base_request["boss_id"] = self._build_schedule_alarm_event_group_identity(merged_items)
+        base_request["dedupe_key"] = f"PRE_ALERT_GROUP:{base_request['boss_id']}:{offset_sec}"
+        base_request["is_invasion"] = any(bool(request.get("is_invasion")) for request in requests)
+        base_request["volume"] = min(float(request.get("volume") or 1.0) for request in requests)
+        return base_request
+
+    def _build_schedule_voice_broker_pre_alert_sequence(self, requests: list[dict[str, object]]) -> dict[str, object]:
+        base_request = dict(requests[0])
+        clip_paths: list[str] = []
+        fallback_parts: list[str] = []
+        identity_parts: list[str] = []
+        for index, request in enumerate(requests):
+            request_clip_paths = [
+                str(path).strip()
+                for path in (request.get("clip_paths") or [])
+                if str(path).strip()
+            ]
+            if index > 0:
+                request_clip_paths = [
+                    path for path in request_clip_paths if not self._is_schedule_alarm_chime_clip_path(path)
+                ]
+            clip_paths.extend(request_clip_paths)
+            fallback_text = str(request.get("fallback_text") or "").strip()
+            if fallback_text:
+                fallback_parts.append(fallback_text)
+            request_identity = str(request.get("boss_id") or request.get("dedupe_key") or "").strip()
+            if request_identity:
+                identity_parts.append(request_identity)
+        base_request["clip_paths"] = clip_paths
+        base_request["fallback_text"] = ", ".join(fallback_parts)
+        base_request["boss_id"] = "|".join(identity_parts)
+        base_request["dedupe_key"] = f"PRE_ALERT_SEQUENCE:{base_request['boss_id']}"
+        base_request["merge_items"] = []
+        base_request["no_auto_merge"] = True
+        base_request["force_audio"] = any(bool(request.get("force_audio")) for request in requests)
+        base_request["lane"] = self._normalize_schedule_voice_lane(base_request.get("lane"))
+        base_request["is_invasion"] = any(bool(request.get("is_invasion")) for request in requests)
+        base_request["volume"] = min(float(request.get("volume") or 1.0) for request in requests)
+        return base_request
+
+    def _schedule_voice_broker_prepare_requests(self, requests: list[dict[str, object]]) -> list[dict[str, object]]:
+        now_value = datetime.now()
+        deduped: list[dict[str, object]] = []
+        seen_keys: set[str] = set()
+        for request in requests:
+            if not isinstance(request, dict):
+                continue
+            if self._schedule_voice_broker_request_is_stale(request, now_value):
+                continue
+            if bool(request.get("no_auto_merge")):
+                dedupe_key = str(request.get("dedupe_key") or "").strip()
+                if dedupe_key and dedupe_key in seen_keys:
+                    continue
+                if dedupe_key:
+                    seen_keys.add(dedupe_key)
+                deduped.append(request)
+                continue
+            dedupe_key = str(request.get("dedupe_key") or "").strip()
+            if dedupe_key and dedupe_key in seen_keys:
+                continue
+            if dedupe_key:
+                seen_keys.add(dedupe_key)
+            deduped.append(request)
+        pre_alerts = [
+            request
+            for request in deduped
+            if str(request.get("phase") or "") == "PRE_ALERT"
+            and request.get("merge_items")
+            and not bool(request.get("no_auto_merge"))
+        ]
+        consumed_ids: set[int] = set()
+        prepared: list[dict[str, object]] = []
+        merge_window_seconds = 60
+        max_merge_count = 4
+        pre_alerts.sort(
+            key=lambda request: (
+                int(request.get("offset_sec") or 0),
+                request.get("target_time") if isinstance(request.get("target_time"), datetime) else datetime.max,
+                str(request.get("boss_id") or ""),
+            )
+        )
+        for request in pre_alerts:
+            request_id = id(request)
+            if request_id in consumed_ids:
+                continue
+            offset_sec = int(request.get("offset_sec") or 0)
+            target_time = request.get("target_time")
+            group = [request]
+            consumed_ids.add(request_id)
+            if isinstance(target_time, datetime):
+                for other in pre_alerts:
+                    other_id = id(other)
+                    if other_id in consumed_ids or int(other.get("offset_sec") or 0) != offset_sec:
+                        continue
+                    other_target_time = other.get("target_time")
+                    if not isinstance(other_target_time, datetime):
+                        continue
+                    if abs((other_target_time - target_time).total_seconds()) <= merge_window_seconds:
+                        group.append(other)
+                        consumed_ids.add(other_id)
+                        if len(group) >= max_merge_count:
+                            break
+            prepared.append(self._build_schedule_voice_broker_merged_pre_alert(group) if len(group) > 1 else request)
+        for request in deduped:
+            if id(request) in consumed_ids:
+                continue
+            prepared.append(request)
+        priority = {
+            "SPAWN_SOON": 10,
+            "SPAWN_CONFIRMED": 20,
+            "PRE_ALERT": 30,
+            "FIXED_PRE_ALERT": 40,
+        }
+        prepared.sort(
+            key=lambda request: (
+                priority.get(str(request.get("phase") or ""), 50),
+                request.get("target_time") if isinstance(request.get("target_time"), datetime) else datetime.max,
+                int(request.get("offset_sec") or 0),
+            )
+        )
+        sequence_ready: list[dict[str, object]] = []
+        combined_pre_alerts: list[dict[str, object]] = []
+        for request in prepared:
+            if str(request.get("phase") or "") == "PRE_ALERT":
+                combined_pre_alerts.append(request)
+                continue
+            sequence_ready.append(request)
+        if combined_pre_alerts:
+            sequence_ready.append(
+                self._build_schedule_voice_broker_pre_alert_sequence(combined_pre_alerts)
+                if len(combined_pre_alerts) > 1
+                else combined_pre_alerts[0]
+            )
+        center_has_main_request = any(
+            self._normalize_schedule_voice_lane(request.get("lane")) == "center"
+            and not bool(request.get("is_invasion"))
+            for request in sequence_ready
+        )
+        if center_has_main_request:
+            for request in sequence_ready:
+                if bool(request.get("is_invasion")) and self._normalize_schedule_voice_lane(request.get("lane")) == "center":
+                    request["lane"] = "right"
+                    request["volume"] = min(
+                        float(request.get("volume") or 1.0),
+                        float(SCHEDULE_INVASION_SIDE_CHANNEL_VOLUME),
+                    )
+        sequence_ready.sort(
+            key=lambda request: (
+                priority.get(str(request.get("phase") or ""), 50),
+                request.get("target_time") if isinstance(request.get("target_time"), datetime) else datetime.max,
+                int(request.get("offset_sec") or 0),
+            )
+        )
+        lane_counts: dict[str, int] = {}
+        for request in sequence_ready:
+            lane = self._normalize_schedule_voice_lane(request.get("lane"))
+            lane_index = lane_counts.get(lane, 0)
+            request["lane"] = lane
+            request["suppress_chime"] = lane_index > 0
+            lane_counts[lane] = lane_index + 1
+        return sequence_ready
+
+    def _estimate_schedule_voice_broker_request_duration_ms(
+        self,
+        request: dict[str, object],
+        clip_paths: list[str],
+    ) -> int:
+        valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if valid_clip_paths:
+            phase = str(request.get("phase") or "")
+            duration_ms = self._get_schedule_alarm_clip_sequence_duration_ms(valid_clip_paths, fallback_ms=950)
+            if phase == "SPAWN_SOON":
+                minimum_per_clip_ms = 850
+                extra_tail_ms = 1400
+            elif phase == "FIXED_PRE_ALERT":
+                minimum_per_clip_ms = 850
+                extra_tail_ms = 650
+            else:
+                minimum_per_clip_ms = 650
+                extra_tail_ms = 0
+            return max(duration_ms + extra_tail_ms, len(valid_clip_paths) * minimum_per_clip_ms)
+        fallback_text = str(request.get("fallback_text") or "").strip()
+        if not fallback_text:
+            return 900
+        return max(1400, min(12000, 700 + len(fallback_text) * 95))
+
+    def _play_schedule_voice_broker_request(self, request: dict[str, object]) -> None:
+        fallback_text = str(request.get("fallback_text") or "").strip()
+        if not fallback_text and not request.get("clip_paths"):
+            return
+        lane = self._normalize_schedule_voice_lane(request.get("lane"))
+        lane_lock = self._get_schedule_voice_lane_lock(lane)
+        with lane_lock:
+            now_value = datetime.now()
+            if self._schedule_voice_broker_request_is_stale(request, now_value):
+                return
+            earliest_play_at = request.get("earliest_play_at")
+            if isinstance(earliest_play_at, datetime):
+                while True:
+                    now_value = datetime.now()
+                    delay_seconds = (earliest_play_at - now_value).total_seconds()
+                    if delay_seconds <= 0:
+                        break
+                    if self._schedule_voice_broker_request_is_stale(request, now_value):
+                        return
+                    time.sleep(min(5.0, delay_seconds))
+            wait_seconds = self._get_schedule_voice_lane_busy_until(lane) - time.monotonic()
+            if wait_seconds > 0:
+                time.sleep(min(15.0, wait_seconds))
+                now_value = datetime.now()
+                if self._schedule_voice_broker_request_is_stale(request, now_value):
+                    return
+            if str(request.get("phase") or "") == "FIXED_PRE_ALERT":
+                if not self._adjust_schedule_fixed_voice_request_for_playback(request):
+                    return
+            clip_paths = [str(path).strip() for path in (request.get("clip_paths") or []) if str(path).strip()]
+            if bool(request.get("suppress_chime")):
+                clip_paths = [path for path in clip_paths if not self._is_schedule_alarm_chime_clip_path(path)]
+            played_audio = False
+            if bool(request.get("force_audio")) and clip_paths:
+                duration_ms = self._estimate_schedule_voice_broker_request_duration_ms(request, clip_paths)
+                protect_seconds = min(15.0, max(0.45, duration_ms / 1000.0 + 0.55))
+                self._set_schedule_voice_lane_busy_until(
+                    lane,
+                    time.monotonic() + protect_seconds,
+                    protect_central=(lane == "center"),
+                )
+                if lane == "center":
+                    played_audio = self._play_schedule_alarm_boss_audio_paths(
+                        clip_paths,
+                        request_id=self.schedule_alarm_boss_audio_request_id,
+                        expires_at=None,
+                        interrupt_existing=False,
+                    )
+                else:
+                    process = self._start_schedule_alarm_audio_sequence_process(
+                        clip_paths,
+                        volume=float(request.get("volume") or 1.0),
+                        balance=self._get_schedule_voice_lane_balance(lane),
+                    )
+                    played_audio = process is not None
+            if played_audio:
+                sleep_seconds = min(15.0, max(0.45, duration_ms / 1000.0 + 0.35))
+                self._set_schedule_voice_lane_busy_until(
+                    lane,
+                    time.monotonic() + sleep_seconds,
+                    protect_central=(lane == "center"),
+                )
+                time.sleep(sleep_seconds)
+                return
+            self._queue_schedule_alarm_speech(
+                fallback_text,
+                beep=not bool(request.get("suppress_chime")),
+                category=str(request.get("category") or "general"),
+                rate=int(request.get("rate") or 1),
+            )
+            duration_ms = self._estimate_schedule_voice_broker_request_duration_ms(request, [])
+            sleep_seconds = min(15.0, max(0.8, duration_ms / 1000.0 + 0.25))
+            self._set_schedule_voice_lane_busy_until(lane, time.monotonic() + sleep_seconds)
+            time.sleep(sleep_seconds)
+
+    def _schedule_voice_broker_worker_loop(self) -> None:
+        collect_window_seconds = 0.7
+        while not self.schedule_voice_broker_stop_event.is_set():
+            try:
+                first_request = self.schedule_voice_broker_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                if first_request is None:
+                    break
+                batch = [first_request] if isinstance(first_request, dict) else []
+                deadline = time.monotonic() + collect_window_seconds
+                while time.monotonic() < deadline:
+                    timeout = max(0.0, deadline - time.monotonic())
+                    try:
+                        request = self.schedule_voice_broker_queue.get(timeout=min(0.05, timeout))
+                    except queue.Empty:
+                        continue
+                    if request is None:
+                        self.schedule_voice_broker_queue.task_done()
+                        self.schedule_voice_broker_stop_event.set()
+                        break
+                    if isinstance(request, dict):
+                        batch.append(request)
+                    self.schedule_voice_broker_queue.task_done()
+                prepared_requests = self._schedule_voice_broker_prepare_requests(batch)
+                lane_batches: dict[str, list[dict[str, object]]] = {}
+                for request in prepared_requests:
+                    lane_batches.setdefault(self._normalize_schedule_voice_lane(request.get("lane")), []).append(request)
+
+                def _play_lane_requests(lane_requests: list[dict[str, object]]) -> None:
+                    for lane_request in lane_requests:
+                        if self.schedule_voice_broker_stop_event.is_set():
+                            break
+                        try:
+                            self._play_schedule_voice_broker_request(lane_request)
+                        except Exception as exc:
+                            self._append_debug_log(f"voice_broker_play_exception {type(exc).__name__}: {exc}")
+
+                for lane_requests in lane_batches.values():
+                    if self.schedule_voice_broker_stop_event.is_set():
+                        break
+                    try:
+                        playback_thread = threading.Thread(
+                            target=_play_lane_requests,
+                            args=(lane_requests,),
+                            daemon=True,
+                        )
+                        playback_thread.start()
+                    except RuntimeError:
+                        _play_lane_requests(lane_requests)
+            except Exception as exc:
+                self._append_debug_log(f"voice_broker_loop_exception {type(exc).__name__}: {exc}")
+            finally:
+                self.schedule_voice_broker_queue.task_done()
 
     def _get_schedule_alarm_group_display_names(self, items: list[dict[str, object]]) -> list[str]:
         names: list[str] = []
@@ -25878,6 +26777,42 @@ class BossTimerApp:
             return list(current_clip_paths) + [next_intro_clip, next_boss_clip, next_offset_clip]
         return current_clip_paths
 
+    def _build_schedule_fixed_alarm_soon_message(self, boss_name: str) -> str:
+        return f"곧 {str(boss_name or '').strip()} 타임입니다.".strip()
+
+    def _build_schedule_fixed_alarm_soon_audio_paths(self, boss_name: str) -> list[str]:
+        clip_paths: list[str] = []
+        soon_clip = self._get_schedule_alarm_info_audio_path("곧")
+        if not soon_clip:
+            soon_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "곧")
+        boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
+        time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
+        if not time_clip:
+            time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
+        for clip_path in (soon_clip, boss_clip, time_clip):
+            if clip_path and clip_path not in clip_paths:
+                clip_paths.append(clip_path)
+        return clip_paths
+
+    def _adjust_schedule_fixed_voice_request_for_playback(self, request: dict[str, object]) -> bool:
+        target_time = request.get("target_time")
+        if not isinstance(target_time, datetime):
+            return True
+        now_value = self._get_schedule_reference_datetime()
+        remaining_seconds = (target_time - now_value).total_seconds()
+        if remaining_seconds < 1.0:
+            return False
+        if remaining_seconds > SCHEDULE_FIXED_BOSS_SOON_MESSAGE_THRESHOLD_SECONDS:
+            return True
+        boss_name = str(request.get("boss_id") or "").strip()
+        soon_message = self._build_schedule_fixed_alarm_soon_message(boss_name)
+        request["fallback_text"] = soon_message
+        if request.get("clip_paths"):
+            clip_paths = self._build_schedule_fixed_alarm_soon_audio_paths(boss_name)
+            request["clip_paths"] = self._with_schedule_alarm_chime_paths(clip_paths, str(request.get("chime_key") or "fixed"))
+            request["force_audio"] = bool(request["clip_paths"])
+        return True
+
     def _get_schedule_alarm_event_time_index(self) -> list[datetime]:
         first_time = self.schedule_events[0].get("scheduled_at") if self.schedule_events else None
         last_time = self.schedule_events[-1].get("scheduled_at") if self.schedule_events else None
@@ -25970,9 +26905,7 @@ class BossTimerApp:
         for item, scheduled_at in self._iter_schedule_alarm_events_between(current_second, scan_until):
             if not self._is_schedule_second_precision(item):
                 continue
-            if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
-                continue
-            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(scheduled_at):
+            if not self._is_schedule_alarm_event_visible(item, scheduled_at, current_second, cutoff_datetime):
                 continue
             boss_name = str(item.get("boss_name") or "").strip()
             if not boss_name:
@@ -26009,6 +26942,17 @@ class BossTimerApp:
             )
         )
 
+    def _has_active_main_schedule_countdown_window(self, reference_now: datetime) -> bool:
+        countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
+        for entry in self._collect_schedule_countdown_alarm_items(reference_now, max_remaining_seconds=countdown_start):
+            item = entry.get("item")
+            if isinstance(item, dict) and self._is_schedule_invasion_item(item):
+                continue
+            remaining_seconds = int(entry.get("remaining_seconds") or -1)
+            if 0 <= remaining_seconds <= countdown_start:
+                return True
+        return False
+
     def _process_schedule_alarm_tick(self, reference_now: datetime) -> None:
         if not bool(self.schedule_alarm_master_var.get()):
             return
@@ -26031,7 +26975,6 @@ class BossTimerApp:
         self._prune_schedule_alarm_fired_keys(current_second)
         self._process_schedule_maintenance_alarm_tick(current_second)
         countdown_candidates: list[tuple[datetime, str, int, str]] = []
-        played_ai_boss_offsets: set[int] = set()
         boss_ai_enabled = bool(self.schedule_alarm_boss_ai_voice_var.get())
         countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
         countdown_start_notice_seconds = countdown_start + 5
@@ -26065,9 +27008,7 @@ class BossTimerApp:
             due_grace_seconds = 2 if not second_precision else 0
             if scheduled_at < current_second - timedelta(seconds=due_grace_seconds):
                 continue
-            if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
-                continue
-            if self._is_schedule_invasion_item(item) and not self._is_schedule_invasion_datetime_visible(scheduled_at):
+            if not self._is_schedule_alarm_event_visible(item, scheduled_at, current_second, cutoff_datetime):
                 continue
             remaining_until_event_seconds = int((scheduled_at - current_second).total_seconds())
             boss_name = str(item.get("boss_name") or "").strip()
@@ -26125,42 +27066,130 @@ class BossTimerApp:
             if not boss_name:
                 continue
             rough_remaining_ms = int(round((scheduled_at - precise_reference_now).total_seconds() * 1000.0))
-            if 0 <= rough_remaining_ms <= 30000:
+            if -5000 <= rough_remaining_ms <= 90000:
                 due_time_candidates.append(alarm_entry)
-        due_time_groups_by_second: dict[datetime, list[dict[str, object]]] = {}
-        for alarm_entry in due_time_candidates:
-            scheduled_at = alarm_entry.get("scheduled_at")
-            if isinstance(scheduled_at, datetime):
-                due_time_groups_by_second.setdefault(scheduled_at.replace(microsecond=0), []).append(alarm_entry)
-        for scheduled_second, group_entries in sorted(due_time_groups_by_second.items(), key=lambda row: row[0]):
+        due_time_candidates.sort(
+            key=lambda entry: (
+                entry.get("scheduled_at") if isinstance(entry.get("scheduled_at"), datetime) else datetime.max,
+                str(entry.get("display_name") or entry.get("boss_name") or ""),
+            )
+        )
+        second_precision_due_seconds = [
+            entry.get("scheduled_at").replace(microsecond=0)
+            for entry in dynamic_alarm_items
+            if bool(entry.get("second_precision")) and isinstance(entry.get("scheduled_at"), datetime)
+        ]
+        consumed_due_identities: set[str] = set()
+        due_merge_window_seconds = 60
+        for leader_entry in due_time_candidates:
+            leader_scheduled_at = leader_entry.get("scheduled_at")
+            if not isinstance(leader_scheduled_at, datetime):
+                continue
+            leader_second = leader_scheduled_at.replace(microsecond=0)
+            leader_identity = str(leader_entry.get("identity") or "")
+            if leader_identity and leader_identity in consumed_due_identities:
+                continue
+            leader_precise_remaining_ms = int(round((leader_second - precise_reference_now).total_seconds() * 1000.0))
+            group_entries: list[dict[str, object]] = []
+            for candidate_entry in due_time_candidates:
+                candidate_scheduled_at = candidate_entry.get("scheduled_at")
+                if not isinstance(candidate_scheduled_at, datetime):
+                    continue
+                candidate_second = candidate_scheduled_at.replace(microsecond=0)
+                if candidate_second < leader_second:
+                    continue
+                if (candidate_second - leader_second).total_seconds() > due_merge_window_seconds:
+                    continue
+                candidate_identity = str(candidate_entry.get("identity") or "")
+                if candidate_identity and candidate_identity in consumed_due_identities:
+                    continue
+                group_entries.append(candidate_entry)
+            if not group_entries:
+                continue
             group_entries = sorted(
                 group_entries,
-                key=lambda entry: str(entry.get("display_name") or entry.get("boss_name") or ""),
+                key=lambda entry: (
+                    entry.get("scheduled_at") if isinstance(entry.get("scheduled_at"), datetime) else datetime.max,
+                    str(entry.get("display_name") or entry.get("boss_name") or ""),
+                ),
             )
             group_items = [entry.get("item") for entry in group_entries if isinstance(entry.get("item"), dict)]
             if not group_items:
                 continue
-            clip_paths = self._build_schedule_alarm_due_time_group_audio_paths(group_items)
+            group_is_invasion = all(self._is_schedule_invasion_item(item) for item in group_items)
+            clip_paths = (
+                self._build_schedule_alarm_invasion_due_time_group_audio_paths(group_items)
+                if group_is_invasion
+                else self._build_schedule_alarm_due_time_group_audio_paths(group_items)
+            )
             clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general")
             lead_ms = self._get_schedule_alarm_due_time_lead_ms(clip_paths)
-            precise_remaining_ms = int(round((scheduled_second - precise_reference_now).total_seconds() * 1000.0))
             schedule_window_ms = max(2500, lead_ms + 300)
-            if precise_remaining_ms < 0 or precise_remaining_ms > schedule_window_ms:
+            if leader_precise_remaining_ms < -5000 or leader_precise_remaining_ms > schedule_window_ms:
                 continue
             alert_key = self._build_schedule_alarm_due_key(
                 "non_second_due_time_group",
                 self._build_schedule_alarm_event_group_identity(group_items),
-                scheduled_second,
+                leader_second,
                 0,
             )
             if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                 continue
             joined_names = ", ".join(self._get_schedule_alarm_group_display_names(group_items)).strip()
-            self._schedule_second_precision_gen_audio_notice(
-                clip_paths=clip_paths,
-                fallback_text=f"곧 {joined_names} 타임입니다." if joined_names else "곧 타임입니다.",
-                delay_ms=max(0, precise_remaining_ms - lead_ms),
+            invasion_lane = "center"
+            invasion_volume = 1.0
+            if group_is_invasion:
+                invasion_lane, invasion_volume = self._get_schedule_invasion_voice_route()
+            due_overlap_window_seconds = max(
+                8,
+                int(math.ceil((lead_ms + 700) / 1000.0)) + 2,
             )
+            near_second_precision_gen_times = [
+                second_precision_second
+                for second_precision_second in second_precision_due_seconds
+                if 0 <= (second_precision_second - leader_second).total_seconds() <= due_overlap_window_seconds
+            ]
+            suppress_parallel_lane = any(
+                abs((second_precision_second - leader_second).total_seconds()) <= SCHEDULE_VOICE_PARALLEL_NEAR_EVENT_SUPPRESS_SECONDS
+                for second_precision_second in second_precision_due_seconds
+            )
+            earliest_play_at = (
+                max(near_second_precision_gen_times) + timedelta(seconds=2)
+                if near_second_precision_gen_times
+                else None
+            )
+            request_kwargs = {
+                "phase": "SPAWN_SOON",
+                "boss_id": self._build_schedule_alarm_event_group_identity(group_items),
+                "target_time": leader_second,
+                "offset_sec": 0,
+                "clip_paths": clip_paths,
+                "fallback_text": f"곧 {joined_names} 타임입니다." if joined_names else "곧 타임입니다.",
+                "category": "general",
+                "rate": 1,
+                "force_audio": bool(clip_paths),
+                "chime_key": "general",
+                "earliest_play_at": earliest_play_at,
+                "lane": invasion_lane if group_is_invasion else "center",
+                "volume": invasion_volume,
+                "is_invasion": group_is_invasion,
+            }
+            if group_is_invasion:
+                request_kwargs["fallback_text"] = f"침공 {joined_names} 타임입니다." if joined_names else "침공 타임입니다."
+            self._submit_schedule_voice_request(**request_kwargs)
+            for grouped_entry in group_entries:
+                grouped_identity = str(grouped_entry.get("identity") or "")
+                if grouped_identity:
+                    consumed_due_identities.add(grouped_identity)
+                grouped_scheduled_at = grouped_entry.get("scheduled_at")
+                if isinstance(grouped_scheduled_at, datetime):
+                    member_key = self._build_schedule_alarm_due_key(
+                        "non_second_due_time_group",
+                        grouped_identity,
+                        grouped_scheduled_at.replace(microsecond=0),
+                        0,
+                    )
+                    self.schedule_alarm_fired_keys[member_key] = current_second
         for trigger_seconds, spoken_offset_seconds, spoken_offset_token in rapid_chain_warning_specs:
             for group in rapid_chain_groups:
                 leader_item = group[0] if group else None
@@ -26185,12 +27214,17 @@ class BossTimerApp:
                     minute_info_token=spoken_offset_token,
                 )
                 clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "rapid_chain")
-                self._play_or_queue_schedule_alarm_audio_sequence(
-                    clip_paths,
-                    f"연속보스 감지 {spoken_offset_token}, 축 작업 하세요.",
-                    beep=True,
+                self._submit_schedule_voice_request(
+                    phase="PRE_ALERT",
+                    boss_id=self._build_schedule_alarm_event_group_identity(group),
+                    target_time=leader_scheduled_at if isinstance(leader_scheduled_at, datetime) else current_second + timedelta(seconds=trigger_seconds),
+                    offset_sec=trigger_seconds,
+                    clip_paths=clip_paths,
+                    fallback_text=f"연속보스 감지 {spoken_offset_token}, 축 작업 하세요.",
                     category="general",
                     rate=1,
+                    force_audio=True,
+                    chime_key="rapid_chain",
                 )
 
         if countdown_enabled:
@@ -26204,6 +27238,15 @@ class BossTimerApp:
                 boss_name = str(countdown_entry.get("boss_name") or "").strip()
                 display_name = str(countdown_entry.get("display_name") or boss_name).strip()
                 item = countdown_entry.get("item")
+                if isinstance(item, dict) and self._is_schedule_invasion_item(item):
+                    main_countdown_active = any(
+                        isinstance(other_entry.get("item"), dict)
+                        and not self._is_schedule_invasion_item(other_entry.get("item"))
+                        and 0 <= int(other_entry.get("remaining_seconds") or -1) <= countdown_start
+                        for other_entry in countdown_alarm_items
+                    )
+                    if main_countdown_active or self._is_schedule_voice_center_channel_active():
+                        continue
                 overlap_countdown_active = any(
                     isinstance(other_entry.get("scheduled_at"), datetime)
                     and other_entry.get("scheduled_at") < scheduled_at
@@ -26263,21 +27306,25 @@ class BossTimerApp:
                     leader_info = dynamic_alarm_item_map.get(leader_identity)
                     if not isinstance(leader_info, dict):
                         continue
-                    if offset_seconds == 60:
+                    joined_names = " ".join(self._get_schedule_alarm_group_display_names(same_time_group)).strip()
+                    no_auto_merge = False
+                    if int(offset_seconds) == 60:
                         clip_paths = self._build_schedule_alarm_custom_audio_paths(
-                            boss_items=[leader_item] if isinstance(leader_item, dict) else None,
+                            boss_items=list(same_time_group),
                             info_tokens=["연타임보스"],
-                            minute_seconds=offset_seconds,
                         )
+                        minute_clip = self._get_schedule_alarm_offset_audio_path(60, preferred_info_token="1분전")
+                        if minute_clip:
+                            clip_paths.append(minute_clip)
                         clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general")
-                        alert_message = f"{display_name} 연타임보스 1분 전입니다."
+                        alert_message = f"{joined_names} 연타임보스 1분전".strip()
+                        no_auto_merge = True
                     else:
                         clip_paths = self._build_schedule_alarm_custom_audio_paths(
                             boss_items=list(same_time_group),
                             minute_seconds=offset_seconds,
                         )
                         clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general")
-                        joined_names = " ".join(self._get_schedule_alarm_group_display_names(same_time_group)).strip()
                         alert_message = f"{joined_names} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.".strip()
                     target_remaining_seconds = offset_seconds
                     if boss_ai_enabled:
@@ -26293,15 +27340,28 @@ class BossTimerApp:
                     )
                     if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                         continue
-                    played_audio = self._play_or_queue_schedule_alarm_audio_sequence(
-                        clip_paths,
-                        alert_message,
-                        beep=True,
+                    group_has_invasion = any(self._is_schedule_invasion_item(group_item) for group_item in same_time_group)
+                    group_lane = "center"
+                    group_volume = 1.0
+                    if group_has_invasion:
+                        group_lane, group_volume = self._get_schedule_invasion_voice_route()
+                    self._submit_schedule_voice_request(
+                        phase="PRE_ALERT",
+                        boss_id=self._build_schedule_alarm_event_group_identity(same_time_group),
+                        target_time=leader_scheduled_at if isinstance(leader_scheduled_at, datetime) else scheduled_at,
+                        offset_sec=offset_seconds,
+                        clip_paths=clip_paths,
+                        fallback_text=alert_message,
                         category="general",
                         rate=1,
+                        force_audio=boss_ai_enabled,
+                        merge_items=list(same_time_group),
+                        chime_key="general",
+                        no_auto_merge=no_auto_merge,
+                        lane=group_lane,
+                        volume=group_volume,
+                        is_invasion=group_has_invasion,
                     )
-                    if boss_ai_enabled and played_audio:
-                        played_ai_boss_offsets.add(offset_seconds)
                     fired_phrase_this_second = True
                     continue
                 alert_message = f"{display_name} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다."
@@ -26321,35 +27381,52 @@ class BossTimerApp:
                 alert_key = self._build_schedule_alarm_due_key("event", boss_name, scheduled_at, offset_seconds)
                 if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                     continue
+                item_is_invasion = self._is_schedule_invasion_item(item)
+                item_lane = "center"
+                item_volume = 1.0
+                if item_is_invasion:
+                    item_lane, item_volume = self._get_schedule_invasion_voice_route()
                 if boss_ai_enabled:
-                    if offset_seconds in played_ai_boss_offsets:
-                        fired_phrase_this_second = True
-                        continue
-                    if self._play_or_queue_schedule_alarm_audio_sequence(
-                        clip_paths,
-                        alert_message,
-                        beep=True,
+                    self._submit_schedule_voice_request(
+                        phase="PRE_ALERT",
+                        boss_id=identity or boss_name,
+                        target_time=scheduled_at,
+                        offset_sec=offset_seconds,
+                        clip_paths=clip_paths,
+                        fallback_text=alert_message,
                         category="general",
                         rate=1,
                         force_audio=True,
-                    ):
-                        played_ai_boss_offsets.add(offset_seconds)
-                    else:
-                        self._queue_schedule_alarm_speech(
-                            alert_message,
-                            beep=True,
-                            category="general",
-                            rate=1,
-                        )
+                        merge_items=[item],
+                        chime_key="general",
+                        lane=item_lane,
+                        volume=item_volume,
+                        is_invasion=item_is_invasion,
+                    )
                 else:
-                    self._queue_schedule_alarm_speech(
-                        alert_message,
-                        beep=True,
+                    self._submit_schedule_voice_request(
+                        phase="PRE_ALERT",
+                        boss_id=identity or boss_name,
+                        target_time=scheduled_at,
+                        offset_sec=offset_seconds,
+                        clip_paths=[],
+                        fallback_text=alert_message,
                         category="general",
                         rate=1,
+                        merge_items=[item],
+                        chime_key="general",
+                        lane=item_lane,
+                        volume=item_volume,
+                        is_invasion=item_is_invasion,
                     )
                 fired_phrase_this_second = True
         if countdown_enabled:
+            main_countdown_active = any(
+                isinstance(entry.get("item"), dict)
+                and not self._is_schedule_invasion_item(entry.get("item"))
+                and 0 <= int(entry.get("remaining_seconds") or -1) <= countdown_start
+                for entry in countdown_alarm_items
+            )
             countdown_candidates = [
                 (
                     entry.get("scheduled_at"),
@@ -26359,6 +27436,11 @@ class BossTimerApp:
                 )
                 for entry in countdown_alarm_items
                 if 0 <= int(entry.get("remaining_seconds") or -1) <= countdown_start
+                and not (
+                    isinstance(entry.get("item"), dict)
+                    and self._is_schedule_invasion_item(entry.get("item"))
+                    and (main_countdown_active or self._is_schedule_voice_center_channel_active())
+                )
             ]
 
         if countdown_candidates:
@@ -26465,23 +27547,57 @@ class BossTimerApp:
                 )
                 if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                     continue
+                near_second_precision_gen_times = [
+                    second_precision_second
+                    for second_precision_second in second_precision_due_seconds
+                    if 0 <= (second_precision_second - current_second).total_seconds() <= SCHEDULE_VOICE_PARALLEL_NEAR_EVENT_SUPPRESS_SECONDS
+                ]
+                active_countdown_end_times = [
+                    countdown_scheduled_at
+                    for countdown_scheduled_at, _countdown_boss_name, countdown_remaining_seconds, _countdown_display_name in countdown_candidates
+                    if isinstance(countdown_scheduled_at, datetime)
+                    and 0 <= int(countdown_remaining_seconds) <= countdown_start
+                ]
+                countdown_block_until = max(active_countdown_end_times) + timedelta(seconds=1) if active_countdown_end_times else None
+                earliest_play_at = (
+                    max(near_second_precision_gen_times) + timedelta(seconds=2)
+                    if near_second_precision_gen_times
+                    else None
+                )
+                if isinstance(countdown_block_until, datetime):
+                    earliest_play_at = max(earliest_play_at, countdown_block_until) if isinstance(earliest_play_at, datetime) else countdown_block_until
                 if boss_ai_enabled:
-                    if SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS in played_ai_boss_offsets:
-                        continue
-                    played_fixed_audio = False
                     if fixed_clip_paths:
-                        played_fixed_audio = self._play_or_queue_schedule_alarm_audio_sequence(
-                            fixed_clip_paths,
-                            fixed_message,
-                            beep=True,
-                            category="fixed",
-                            rate=1,
-                            force_audio=True,
-                        )
-                    if played_fixed_audio:
-                        played_ai_boss_offsets.add(SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS)
+                        fixed_request_kwargs = {
+                            "phase": "FIXED_PRE_ALERT",
+                            "boss_id": boss_name,
+                            "target_time": scheduled_at,
+                            "offset_sec": SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS,
+                            "clip_paths": fixed_clip_paths,
+                            "fallback_text": fixed_message,
+                            "category": "fixed",
+                            "rate": 1,
+                            "force_audio": True,
+                            "chime_key": "fixed",
+                            "earliest_play_at": earliest_play_at,
+                            "lane": "center",
+                        }
+                        self._submit_schedule_voice_request(**fixed_request_kwargs)
                         continue
-                self._queue_schedule_alarm_speech(fixed_message, beep=True, category="fixed", rate=1)
+                fixed_request_kwargs = {
+                    "phase": "FIXED_PRE_ALERT",
+                    "boss_id": boss_name,
+                    "target_time": scheduled_at,
+                    "offset_sec": SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS,
+                    "clip_paths": [],
+                    "fallback_text": fixed_message,
+                    "category": "fixed",
+                    "rate": 1,
+                    "chime_key": "fixed",
+                    "earliest_play_at": earliest_play_at,
+                    "lane": "center",
+                }
+                self._submit_schedule_voice_request(**fixed_request_kwargs)
 
     def _blend_hex_color(self, base_color: str, target_color: str, ratio: float) -> str:
         normalized_base = self._normalize_hex_color(base_color, "#FFFFFF")
@@ -26960,6 +28076,9 @@ class BossTimerApp:
             if isinstance(tree_quick_cut_entry, dict)
             else active_quick_cut_entry
         )
+        pending_cut_time_text = str(meta.get("pending_cut_time_text") or "").strip()
+        if pending_cut_time_text and not isinstance(quick_cut_entry, dict):
+            return "cooldown", pending_cut_time_text
         cut_time_text = (
             str(quick_cut_entry.get("cut_time_text") or "")
             if isinstance(quick_cut_entry, dict)
@@ -27470,6 +28589,7 @@ class BossTimerApp:
             if isinstance(target_meta, dict):
                 target_meta["cut_available"] = inline_visible
                 target_meta["cut_inline_visible"] = inline_visible
+                target_meta["pending_cut_time_text"] = str(cut_time_text or "").strip()
                 if isinstance(current_item, dict):
                     target_meta["item"] = dict(current_item)
             values[4] = ""
@@ -27557,14 +28677,30 @@ class BossTimerApp:
             # Preserve the selected row's scheduled_at, and rebuild the future chain
             # from the actual cut time instead of shifting the original schedule.
             overwrite_start = anchor_datetime.replace(microsecond=0) if isinstance(anchor_datetime, datetime) else None
-            self._apply_schedule_quick_cut_with_history(
-                dict(item),
-                identity,
-                cut_token=cut_token,
-                overwrite_start_datetime=overwrite_start,
-                cut_preserve_scheduled_at=anchor_datetime if isinstance(anchor_datetime, datetime) else None,
-                source_label="스케쥴 컷 적용",
-            )
+            cut_time_text = self._get_schedule_cut_display_time(item, cut_token)
+            self._apply_schedule_tree_quick_cut_visual_state(identity, cut_time_text=cut_time_text)
+            try:
+                if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
+                    self.schedule_tree.update_idletasks()
+            except tk.TclError:
+                pass
+
+            def apply_cut_after_paint() -> None:
+                success = self._apply_schedule_quick_cut_with_history(
+                    dict(item),
+                    identity,
+                    cut_token=cut_token,
+                    overwrite_start_datetime=overwrite_start,
+                    cut_preserve_scheduled_at=anchor_datetime if isinstance(anchor_datetime, datetime) else None,
+                    source_label="스케쥴 컷 적용",
+                )
+                if not success:
+                    self._restore_schedule_tree_quick_cut_visual_state(identity)
+
+            try:
+                self.root.after_idle(apply_cut_after_paint)
+            except Exception:
+                apply_cut_after_paint()
         finally:
             self._end_schedule_cut_interaction(interaction_key)
 
@@ -29560,6 +30696,7 @@ class BossTimerApp:
             self.schedule_delete_history = []
             self.schedule_delete_active_cutoff_datetime = None
             self.schedule_delete_default_cutoff_datetime = self._get_schedule_default_server_open_datetime(reference_now)
+            self._clear_schedule_input_custom_server_open_datetime()
             self.schedule_tree_quick_cut_history = []
             self.schedule_active_quick_cut_history = []
             self.schedule_alarm_fired_keys = {}
@@ -29624,43 +30761,12 @@ class BossTimerApp:
         meta_schedule_version, meta_boss_config_version = self._get_github_import_meta_versions_for_entry(entry)
         cached_schedule_payload, _cached_schedule_path = self._load_github_local_schedule_payload(entry)
         local_schedule_file_ready = isinstance(cached_schedule_payload, dict) and self._is_github_local_schedule_cache_trusted(entry, cached_schedule_payload)
-        local_schedule_hash_current = self._is_github_local_schedule_hash_current(entry, cached_schedule_payload)
         cached_schedule_version, cached_boss_config_version = self._get_github_local_cache_versions(entry)
         cached_version_item = self._get_github_cached_item_for_entry(entry)
         schedule_dirty = str(cached_version_item.get("scheduleDirty") or "").strip() == "1"
         boss_config_dirty = str(cached_version_item.get("bossConfigDirty") or "").strip() == "1"
         local_schedule_version = cached_schedule_version if schedule_dirty and cached_schedule_version else (meta_schedule_version or cached_schedule_version)
         local_boss_config_version = cached_boss_config_version if boss_config_dirty and cached_boss_config_version else (meta_boss_config_version or cached_boss_config_version)
-        schedule_same_from_index = bool(not schedule_dirty and local_schedule_file_ready and local_schedule_hash_current and schedule_version_from_index and schedule_version_from_index == local_schedule_version)
-        boss_config_available_from_index = bool(boss_config_path and boss_config_version_from_index)
-        boss_same_from_index = bool(not boss_config_dirty and boss_config_version_from_index and boss_config_version_from_index == local_boss_config_version)
-        if schedule_same_from_index and (not boss_config_available_from_index or boss_same_from_index):
-            progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
-                server_name,
-                dialog_title="동기화 확인",
-                title_text="동기화 확인 중",
-                initial_status="서버와 PC의 버전을 비교하는 중입니다.",
-                footer_text="같은 버전이면 다운로드하지 않습니다.",
-            )
-            if progress_status_var is not None:
-                try:
-                    progress_status_var.set("같은 버전입니다. 업데이트하지 않습니다.")
-                except tk.TclError:
-                    pass
-            self._set_github_cached_versions(
-                server_id,
-                schedule_version_from_index,
-                boss_config_version_from_index or local_boss_config_version,
-                server_name=server_name,
-                schedule_path=schedule_path,
-            )
-            self._start_schedule_github_sync_cooldown()
-            self.schedule_status_var.set(f"{server_name}: 스케쥴/보스설정이 같은 버전입니다. 업데이트하지 않았습니다.")
-            try:
-                self.root.after(450, lambda: self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar))
-            except tk.TclError:
-                self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
-            return
         self._set_schedule_github_controls_state(False)
         self.schedule_status_var.set(f"{server_name} 스케쥴/보스설정을 GitHub에서 확인 중입니다.")
         progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(server_name)
@@ -29688,11 +30794,17 @@ class BossTimerApp:
             schedule_raw_payload = None
             schedule_payload = None
             schedule_error = ""
+            active_entry = dict(entry)
+            active_server_id = server_id
+            active_server_name = server_name
+            active_schedule_path = schedule_path
+            active_boss_config_path = boss_config_path
             schedule_version = schedule_version_from_index
             boss_raw_payload = None
             boss_payload = None
             boss_error = ""
             boss_config_version = boss_config_version_from_index
+            fresh_index_entries = None
 
             def describe_payload_shape(value: object) -> str:
                 if not isinstance(value, dict):
@@ -29704,31 +30816,62 @@ class BossTimerApp:
                     return f"keys=[{keys}], payload.keys=[{payload_keys}]"
                 return f"keys=[{keys}]"
 
-            schedule_same_version = bool(not schedule_dirty and local_schedule_file_ready and local_schedule_hash_current and schedule_version and schedule_version == local_schedule_version)
-            boss_config_available = bool(boss_config_path and boss_config_version)
+            post_progress_status("서버 목록 버전을 확인하는 중입니다.")
+            index_payload, _index_sha, index_error = self._github_get_json_file("data/server_index.json")
+            if index_error:
+                schedule_error = f"GitHub 서버 목록 확인 실패: {index_error}"
+            else:
+                fresh_index_entries = self._extract_github_server_entries(index_payload)
+                fresh_entry = self._find_github_server_entry(fresh_index_entries, active_server_id)
+                if isinstance(fresh_entry, dict):
+                    active_entry = dict(fresh_entry)
+                    active_server_id = str(active_entry.get("id") or active_server_id).strip()
+                    active_server_name = str(active_entry.get("name") or active_server_id or active_server_name).strip() or active_server_name
+                    active_schedule_path = str(active_entry.get("schedule") or active_schedule_path).strip()
+                    active_boss_config_path = str(active_entry.get("bosses") or active_boss_config_path).strip()
+                    schedule_version = str(active_entry.get("scheduleVersion") or active_entry.get("dataVersion") or schedule_version).strip()
+                    boss_config_version = str(active_entry.get("bossConfigVersion") or boss_config_version).strip()
+
+            schedule_same_version = bool(not schedule_dirty and local_schedule_file_ready and schedule_version and schedule_version == local_schedule_version)
+            boss_config_available = bool(active_boss_config_path and boss_config_version)
             boss_same_version = bool(not boss_config_dirty and boss_config_version and boss_config_version == local_boss_config_version)
 
-            if not schedule_same_version:
+            if not schedule_error and not schedule_same_version:
                 post_progress_status("스케쥴 JSON을 다운로드하는 중입니다.")
-                schedule_raw_payload, _schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
+                schedule_raw_payload, _schedule_sha, schedule_error = self._github_get_json_file(active_schedule_path)
                 post_progress_status("스케쥴 JSON을 해석하는 중입니다.")
                 schedule_payload = None if schedule_error else self._unwrap_github_schedule_payload(schedule_raw_payload)
                 if isinstance(schedule_raw_payload, dict):
                     schedule_version = str(schedule_raw_payload.get("dataVersion") or schedule_version).strip()
-                schedule_same_version = bool(not schedule_dirty and local_schedule_file_ready and local_schedule_hash_current and schedule_version and schedule_version == local_schedule_version)
+                schedule_same_version = bool(not schedule_dirty and local_schedule_file_ready and schedule_version and schedule_version == local_schedule_version)
 
-            if boss_config_path and not boss_same_version:
+            boss_config_available = bool(active_boss_config_path and boss_config_version)
+            boss_same_version = bool(not boss_config_dirty and boss_config_version and boss_config_version == local_boss_config_version)
+            if active_boss_config_path and not boss_same_version:
                 post_progress_status("보스설정 JSON을 다운로드하는 중입니다.")
-                boss_raw_payload, _boss_sha, boss_error = self._github_get_json_file(boss_config_path)
+                boss_raw_payload, _boss_sha, boss_error = self._github_get_json_file(active_boss_config_path)
                 post_progress_status("보스설정 JSON을 해석하는 중입니다.")
                 boss_payload = None if boss_error else self._unwrap_github_boss_config_payload(boss_raw_payload)
                 if isinstance(boss_raw_payload, dict):
                     boss_config_version = str(boss_raw_payload.get("dataVersion") or boss_config_version).strip()
-                boss_config_available = bool(boss_config_path and (boss_config_version or isinstance(boss_payload, dict)))
+                boss_config_available = bool(active_boss_config_path and (boss_config_version or isinstance(boss_payload, dict)))
                 boss_same_version = bool(not boss_config_dirty and boss_config_version and boss_config_version == local_boss_config_version)
 
             def finish() -> None:
                 self._set_schedule_github_controls_state(True)
+                if isinstance(fresh_index_entries, list):
+                    self.schedule_github_server_entries = self._merge_local_github_server_entries(fresh_index_entries)
+                    self._cache_github_server_entries_from_index(fresh_index_entries)
+                    self._save_github_server_entries_cache(self.schedule_github_server_entries)
+                    if self.schedule_github_server_combo is not None:
+                        try:
+                            values = [
+                                self._format_github_server_combo_text(str(item.get("name") or item.get("id") or ""))
+                                for item in self.schedule_github_server_entries
+                            ]
+                            self.schedule_github_server_combo.configure(values=values)
+                        except tk.TclError:
+                            pass
                 if schedule_error:
                     close_progress_dialog()
                     self.schedule_status_var.set(f"GitHub 스케쥴 다운로드 실패: {schedule_error}")
@@ -29767,8 +30910,8 @@ class BossTimerApp:
                             set_progress_status("스케쥴을 적용하는 중입니다.")
                             if not self._apply_loaded_schedule_shared_payload(
                                 schedule_payload,
-                                source_label=f"{server_name} GitHub",
-                                source_path=schedule_path,
+                                source_label=f"{active_server_name} GitHub",
+                                source_path=active_schedule_path,
                                 create_restore_history=False,
                                 create_backups=False,
                                 sync_shared_export=False,
@@ -29790,15 +30933,15 @@ class BossTimerApp:
 
                         set_progress_status("동기화 버전을 기록하는 중입니다.")
                         self._update_github_import_meta(
-                            server_id=server_id,
-                            server_name=server_name,
-                            schedule_path=schedule_path,
+                            server_id=active_server_id,
+                            server_name=active_server_name,
+                            schedule_path=active_schedule_path,
                             schedule_version=schedule_version or local_schedule_version,
-                            boss_config_path=boss_config_path,
+                            boss_config_path=active_boss_config_path,
                             boss_config_version=boss_config_version or local_boss_config_version,
                         )
                         self._save_github_local_payload_cache(
-                            entry,
+                            active_entry,
                             schedule_payload=schedule_payload if isinstance(schedule_payload, dict) else None,
                             boss_payload=boss_payload if isinstance(boss_payload, dict) else None,
                         )
@@ -29810,13 +30953,13 @@ class BossTimerApp:
                             self.schedule_github_version_cache_suspended = previous_cache_suspended
                         if applied_parts and skipped_parts:
                             self._start_schedule_github_sync_cooldown()
-                            self.schedule_status_var.set(f"{server_name}: {', '.join(applied_parts)}을(를) 동기화했습니다. {', '.join(skipped_parts)}은(는) 같은 버전이라 건너뛰었습니다.")
+                            self.schedule_status_var.set(f"{active_server_name}: {', '.join(applied_parts)}을(를) 동기화했습니다. {', '.join(skipped_parts)}은(는) 같은 버전이라 건너뛰었습니다.")
                         elif applied_parts:
                             self._start_schedule_github_sync_cooldown()
-                            self.schedule_status_var.set(f"{server_name}: {', '.join(applied_parts)}을(를) 동기화했습니다.")
+                            self.schedule_status_var.set(f"{active_server_name}: {', '.join(applied_parts)}을(를) 동기화했습니다.")
                         else:
                             self._start_schedule_github_sync_cooldown()
-                            self.schedule_status_var.set(f"{server_name}: 같은 버전입니다. 업데이트하지 않았습니다.")
+                            self.schedule_status_var.set(f"{active_server_name}: 같은 버전입니다. 업데이트하지 않았습니다.")
                     finally:
                         close_progress_dialog()
 
@@ -30883,6 +32026,7 @@ class BossTimerApp:
             self.schedule_summary_after_id = None
         if self.schedule_window is None or not self.schedule_window_open or not self.schedule_window.winfo_exists():
             self.schedule_summary_last_reference_second = None
+            self.schedule_summary_last_precise_reference = None
             self._trace_periodic_callback_duration(
                 "schedule_summary_tick",
                 callback_started_at,
@@ -30891,6 +32035,7 @@ class BossTimerApp:
             )
             return
         precise_reference_now = datetime.now()
+        self.schedule_summary_last_precise_reference = precise_reference_now
         reference_now = precise_reference_now.replace(microsecond=0)
         second_changed = reference_now != self.schedule_summary_last_reference_second
         callback_detail = f"second_changed={int(second_changed)} blink={len(self.schedule_tree_recently_elapsed_blink_until)}"
@@ -30902,7 +32047,8 @@ class BossTimerApp:
         blink_active = bool(self.schedule_tree_recently_elapsed_blink_until)
         blink_phase_changed = self._update_schedule_recently_elapsed_blink_phase() if blink_active else False
         expired_blink_identities = self._get_schedule_recently_elapsed_blink_expired_identities(reference_now)
-        if second_changed:
+        precise_display_active = bool(str(getattr(self, "schedule_second_precision_offset_target_key", "") or "").strip())
+        if second_changed or precise_display_active:
             self._update_schedule_next_boss_summary()
             self._update_schedule_second_precision_selected_seconds_label()
         if second_changed and not blink_active and self._run_schedule_pre_event_today_focus_if_needed(reference_now):
@@ -30922,6 +32068,8 @@ class BossTimerApp:
         elif blink_active:
             pass
         delay_ms = self._get_wall_clock_aligned_delay_ms(1000, offset_ms=220, min_delay_ms=50)
+        if precise_display_active:
+            delay_ms = 100
         if blink_active:
             delay_ms = min(delay_ms, 200)
         if blink_active and self.schedule_tree_recently_elapsed_blink_next_toggle_at > 0:
@@ -32746,6 +33894,8 @@ class BossTimerApp:
             "source_text": f"{source_label}: {scheduled_value.strftime('%Y-%m-%d %H:%M:%S')}",
         }
         self._merge_schedule_control_events([control_entry], reference_now)
+        self.schedule_alarm_cached_cutoff_second = None
+        self.schedule_alarm_cached_cutoff_datetime = None
         self._save_schedule_state(mark_github_dirty=True)
         self._refresh_schedule_view()
         self.schedule_status_var.set(f"임시점검 {scheduled_value.strftime('%Y-%m-%d %H:%M:%S')}을 추가했습니다.")
@@ -32857,6 +34007,9 @@ class BossTimerApp:
         first_time = self._resolve_schedule_seed_datetime(item, reference_datetime)
         if first_time is None:
             return [], []
+        second_precision_base_at = item.get("second_precision_offset_base_at")
+        if self._is_schedule_second_precision(item) and isinstance(second_precision_base_at, datetime):
+            first_time = second_precision_base_at
         if is_invasion:
             invasion_end = self._get_schedule_invasion_generation_end_datetime(reference_datetime)
             if first_time > invasion_end:
@@ -32941,6 +34094,8 @@ class BossTimerApp:
                 "result": "",
                 "note": "",
             }
+            if is_cut_applied and precision == "second" and first_time_value <= reference_datetime:
+                schedule_entry["second_precision_origin_at"] = first_time_value
             if is_cut_applied and is_seed_row and first_time_value <= reference_datetime:
                 schedule_entry["cut_at"] = first_time_value
             if (preserve_past_seed or bool(item.get("historical_past_seed_source"))) and is_seed_row and scheduled_at <= reference_datetime:
@@ -33016,7 +34171,12 @@ class BossTimerApp:
         weekday = self._get_weekday_label(schedule_time)
         return schedule_time.strftime(f"%m-%d ({weekday}) %H:%M:%S")
 
-    def _refresh_schedule_tree_only(self) -> None:
+    def _format_schedule_tree_clock_text(self, schedule_time: datetime, item: dict[str, object] | None = None) -> str:
+        if not isinstance(schedule_time, datetime):
+            return ""
+        return schedule_time.strftime("%H:%M:%S")
+
+    def _refresh_schedule_tree_only(self, *, allow_average_load: bool = True) -> None:
         reference_now = self._get_schedule_reference_datetime()
         self.schedule_tree_next_refresh_at = self._compute_schedule_tree_next_refresh_datetime(reference_now)
         stale_cutoff_datetime = self._get_schedule_stale_cutoff_datetime(reference_now)
@@ -33044,7 +34204,11 @@ class BossTimerApp:
                 self.schedule_tree_item_meta = {}
                 for item_id in self.schedule_tree.get_children():
                     self.schedule_tree.delete(item_id)
-                average_cut_map = self._get_schedule_average_cut_map()
+                average_cut_map = (
+                    self._get_schedule_average_cut_map()
+                    if allow_average_load
+                    else self._get_cached_schedule_average_cut_map()
+                )
                 cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
                 previous_maintenance_datetime = self._get_schedule_previous_maintenance_datetime(reference_now)
                 next_maintenance_datetime = self._get_schedule_maintenance_cutoff_datetime(reference_now)
@@ -33258,7 +34422,7 @@ class BossTimerApp:
                     elapsed_overlay_bg_color = DEFAULT_SCHEDULE_BG_COLOR
                     if state_text == "경과" and row_kind not in {"control", "maintenance"} and not recently_elapsed_blink:
                         elapsed_overlay_values = (
-                            scheduled_at.strftime("%H:%M:%S"),
+                            self._format_schedule_tree_clock_text(scheduled_at, row_item),
                             boss_text,
                             state_text,
                             alarm_text,
@@ -33299,7 +34463,7 @@ class BossTimerApp:
                     else:
                         row_tags = ()
                     row_values = (
-                        scheduled_at.strftime("%H:%M:%S"),
+                        self._format_schedule_tree_clock_text(scheduled_at, row_item),
                         boss_text,
                         state_text,
                         alarm_text,
@@ -33345,7 +34509,12 @@ class BossTimerApp:
             except tk.TclError:
                 pass
 
-    def _refresh_schedule_view(self, *, refresh_active_rows: bool = True) -> None:
+    def _refresh_schedule_view(
+        self,
+        *,
+        refresh_active_rows: bool = True,
+        allow_average_load: bool = True,
+    ) -> None:
         state_changed = self._prune_schedule_quick_cut_histories(self._get_schedule_reference_datetime())
         if self._clear_schedule_active_entries_for_active_control():
             state_changed = True
@@ -33359,7 +34528,7 @@ class BossTimerApp:
         self._update_schedule_next_boss_summary()
         if refresh_active_rows:
             self._refresh_schedule_active_rows()
-        self._refresh_schedule_tree_only()
+        self._refresh_schedule_tree_only(allow_average_load=allow_average_load)
         self._update_schedule_alarm_master_button()
         self._update_schedule_refresh_scope_keys()
 
@@ -33803,6 +34972,7 @@ class BossTimerApp:
                 str(item.get("raw_key") or "").strip()
                 for item in parsed_items
                 if str(item.get("state") or "") != "control"
+                and not bool(item.get("cut_applied"))
                 and str(item.get("raw_key") or "").strip() in existing_past_raw_keys
             }
         preserve_past_seed_overwrite_cutoff_by_raw_key: dict[str, datetime] = {}
@@ -33863,6 +35033,17 @@ class BossTimerApp:
         )
         if not applied:
             return
+        if self.schedule_input_past_enabled and not self.schedule_input_edit_mode:
+            previous_custom_datetime = self.schedule_input_custom_server_open_datetime
+            previous_custom_expires_at = self.schedule_input_custom_server_open_expires_at
+            previous_custom_saved_at = self.schedule_input_custom_server_open_saved_at
+            self._remember_schedule_input_server_open_datetime(start_datetime, reference_datetime)
+            if (
+                self.schedule_input_custom_server_open_datetime != previous_custom_datetime
+                or self.schedule_input_custom_server_open_expires_at != previous_custom_expires_at
+                or self.schedule_input_custom_server_open_saved_at != previous_custom_saved_at
+            ):
+                self._save_schedule_state(mark_github_dirty=False, reset_voice_queue=False)
         focused_cut_target = False
         for raw_key, cut_datetime in input_cut_focus_targets:
             target_identity = self._find_schedule_event_identity_by_raw_key_and_scheduled_at(raw_key, cut_datetime)
@@ -36344,6 +37525,8 @@ class BossTimerApp:
         self.log_stats_cached_boss_data = {}
         self.schedule_avg_cut_cache_key = None
         self.schedule_avg_cut_cache = {}
+        self.schedule_avg_cut_cache_revision += 1
+        self.schedule_avg_cut_cache_loading = False
         self.schedule_boss_metric_average_cache_key = None
         self.schedule_boss_metric_average_seconds_map = {}
         if self.schedule_window is not None and self.schedule_window.winfo_exists() and self.schedule_window_open:
@@ -36373,6 +37556,60 @@ class BossTimerApp:
             bool(include_unconfirmed),
         )
 
+    def _get_cached_schedule_average_cut_map(self) -> dict[str, str]:
+        cache_key = self._get_schedule_average_cut_cache_key()
+        if self.schedule_avg_cut_cache_key != cache_key:
+            return {}
+        return dict(self.schedule_avg_cut_cache)
+
+    def _build_schedule_average_cut_map(self, cache_key: tuple[str, bool, bool]) -> dict[str, str]:
+        if not cache_key[0]:
+            return {}
+        boss_data = self._collect_log_stats_boss_data_from_folder(cache_key[0])
+        average_map: dict[str, str] = {}
+        for boss_name, boss_bucket in boss_data.items():
+            dataset = self._build_log_analysis_dataset(
+                list(boss_bucket.get("records", [])),
+                fallback_boss_name=str(boss_name),
+                filter_options=(cache_key[1], cache_key[2]),
+            )
+            avg_cut_seconds = dataset.get("avg_cut_seconds")
+            average_map[str(boss_name)] = (
+                format_seconds(avg_cut_seconds, show_centiseconds=True)
+                if avg_cut_seconds is not None
+                else "-"
+            )
+        return average_map
+
+    def _warm_schedule_average_cut_cache_async(self) -> None:
+        cache_key = self._get_schedule_average_cut_cache_key()
+        if self.schedule_avg_cut_cache_key == cache_key or self.schedule_avg_cut_cache_loading:
+            return
+        cache_revision = self.schedule_avg_cut_cache_revision
+        self.schedule_avg_cut_cache_loading = True
+
+        def worker() -> None:
+            try:
+                average_map = self._build_schedule_average_cut_map(cache_key)
+            except Exception:
+                average_map = {}
+
+            def finish() -> None:
+                if cache_revision != self.schedule_avg_cut_cache_revision:
+                    return
+                self.schedule_avg_cut_cache_loading = False
+                self.schedule_avg_cut_cache_key = cache_key
+                self.schedule_avg_cut_cache = dict(average_map)
+                if self._widget_available(self.schedule_window) and self.schedule_window_open:
+                    self._refresh_schedule_tree_only(allow_average_load=False)
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                self.schedule_avg_cut_cache_loading = False
+
+        threading.Thread(target=worker, name="schedule-average-cut-load", daemon=True).start()
+
     def _get_schedule_average_cut_map(self) -> dict[str, str]:
         cache_key = self._get_schedule_average_cut_cache_key()
         if self.schedule_avg_cut_cache_key == cache_key:
@@ -36381,12 +37618,7 @@ class BossTimerApp:
             self.schedule_avg_cut_cache_key = cache_key
             self.schedule_avg_cut_cache = {}
             return {}
-        boss_data = self._collect_log_stats_boss_data_from_folder(cache_key[0])
-        average_map: dict[str, str] = {}
-        for boss_name, boss_bucket in boss_data.items():
-            dataset = self._build_log_analysis_dataset(list(boss_bucket.get("records", [])), fallback_boss_name=str(boss_name))
-            avg_cut_seconds = dataset.get("avg_cut_seconds")
-            average_map[str(boss_name)] = format_seconds(avg_cut_seconds, show_centiseconds=True) if avg_cut_seconds is not None else "-"
+        average_map = self._build_schedule_average_cut_map(cache_key)
         self.schedule_avg_cut_cache_key = cache_key
         self.schedule_avg_cut_cache = dict(average_map)
         return average_map
@@ -37112,8 +38344,13 @@ class BossTimerApp:
         *,
         fallback_boss_name: str = "",
         limit: int | None = None,
+        filter_options: tuple[bool, bool] | None = None,
     ) -> dict[str, object]:
-        exclude_extremes, include_unconfirmed = self._get_log_stats_filter_options()
+        exclude_extremes, include_unconfirmed = (
+            filter_options
+            if filter_options is not None
+            else self._get_log_stats_filter_options()
+        )
         normalized_records, skipped = self._normalize_log_records(
             records,
             fallback_boss_name=fallback_boss_name,
@@ -39417,6 +40654,7 @@ class BossTimerApp:
             return
         self.schedule_window_busy = True
         try:
+            first_open = not self._widget_available(self.schedule_window)
             self._update_schedule_base_label()
             self._ensure_schedule_window()
             if self.schedule_window_open and self.schedule_window is not None and self.schedule_window.winfo_exists():
@@ -39427,7 +40665,25 @@ class BossTimerApp:
             self._position_schedule_window()
             self.schedule_window.deiconify()
             self.schedule_window.lift()
-            self._move_schedule_view_to_today()
+            if first_open:
+                self._set_schedule_view_datetime_fields(self._get_schedule_reference_datetime())
+                self.schedule_window.update_idletasks()
+
+                def finish_first_open() -> None:
+                    if not self._widget_available(self.schedule_window) or not self.schedule_window_open:
+                        return
+                    self._refresh_schedule_view(allow_average_load=False)
+                    self._select_schedule_tree_next_event(ensure_visible=False)
+                    self._scroll_schedule_tree_to_focus_next_event(previous_schedule_count=2)
+                    self._warm_schedule_average_cut_cache_async()
+                    try:
+                        self.root.after(500, self._refresh_github_server_list)
+                    except tk.TclError:
+                        pass
+
+                self.root.after(10, finish_first_open)
+            else:
+                self._move_schedule_view_to_today()
             self._schedule_schedule_summary_tick()
         except tk.TclError:
             return
@@ -39538,7 +40794,7 @@ class BossTimerApp:
         self.schedule_input_undo_edit_context = False
         self.schedule_input_past_enabled = True
         self.schedule_input_invasion_var.set(False)
-        self._set_schedule_base_datetime_fields(self._get_schedule_default_server_open_datetime())
+        self._set_schedule_base_datetime_fields(self._get_schedule_input_server_open_datetime())
         self.schedule_input_ocr_items = []
         self._clear_schedule_input_ocr_results(clear_rendered_text=True)
         self.open_schedule_input_window()
@@ -40105,6 +41361,242 @@ class BossTimerApp:
         tk.Button(dialog, text="저장", font=self.button_font, bg="#16a34a", fg="#ffffff", activebackground="#15803d", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=save_settings, cursor="hand2").place(x=356, y=238, width=82, height=32)
         tk.Button(dialog, text="닫기", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=close_dialog, cursor="hand2").place(x=450, y=238, width=82, height=32)
         self.schedule_alarm_chime_status_var.set("이벤트 옆 파일명을 눌러 wave 폴더에서 차임벨을 선택하세요.")
+
+    def _get_schedule_alarm_voice_rule_rows(self) -> list[tuple[str, str, str, str, str]]:
+        return [
+            (
+                "초확정 젠시간 알림",
+                "초 단위로 확정된 스케쥴이 젠 시각에 가까워지고, 초읽기 사용이 꺼져 있을 때",
+                "중앙 큐",
+                "차임벨 + 보스이름 + 젠, 침공이면 차임벨 + 침공 + 보스이름 + 젠",
+                "구현",
+            ),
+            (
+                "침공 초확정 젠시간 알림",
+                "침공이 초 단위 확정 스케쥴이고 젠 시각 안내가 필요할 때. 초읽기 OFF면 이 안내만 사용",
+                "기본 중앙 큐",
+                "차임벨 + 침공 + 보스이름 + 젠",
+                "구현",
+            ),
+            (
+                "침공 초확정 겹침 처리",
+                "침공 초확정이 본섭 중앙 안내 재생 중이거나 본섭 초읽기 진행 중일 때. 침공 초읽기는 하지 않음",
+                "우측 채널, 볼륨 -2단계",
+                "차임벨 + 침공 + 보스이름 + 젠",
+                "구현",
+            ),
+            (
+                "초확정 초읽기 시작",
+                "초읽기 사용 ON, 남은 시간이 시작 초+5초와 같고 겹치는 이전 초읽기가 없을 때",
+                "중앙",
+                "차임벨(초읽기 설정 반영) + 보스이름 + 초읽기시작",
+                "구현",
+            ),
+            (
+                "초확정 초읽기",
+                "초읽기 사용 ON, 남은 시간이 시작 초 이하일 때 매초",
+                "중앙",
+                "n초 음성 또는 TTS 숫자",
+                "구현",
+            ),
+            (
+                "초확정 젠 완료",
+                "초읽기 0초 또는 1초 후 예약된 젠 완료 시점",
+                "중앙",
+                "젠",
+                "구현",
+            ),
+            (
+                "초미확정 젠시간 알림",
+                "분 단위 스케쥴이 젠 시각에 가까워졌고, 젠시간 안내 음성 파일을 만들 수 있을 때",
+                "중앙 큐",
+                "차임벨 + 곧 + 보스이름들 + 타임입니다",
+                "구현",
+            ),
+            (
+                "침공 초미확정 젠시간 알림",
+                "침공이 초확정이 아니고 젠 시각에 가까워졌을 때. 초읽기는 없고 젠시간 안내만 사용",
+                "기본 중앙 큐, 본섭 중앙 안내와 겹치면 우측 채널 볼륨 -2단계",
+                "차임벨 + 침공 + 보스이름 + 타임입니다",
+                "구현",
+            ),
+            (
+                "침공 n분전 알림",
+                "침공 보스에 일반 알람 시간이 설정되어 있고 남은 시간이 알람 시간과 맞을 때",
+                "기본 중앙 큐, 본섭 중앙 안내와 겹치면 우측 채널 볼륨 -2단계",
+                "차임벨 + 침공 + 보스이름 + n분전",
+                "구현",
+            ),
+            (
+                "일반 보스 n분전",
+                "보스별 알람 ON이고 공통/개별 알람 시간과 남은 시간이 맞을 때",
+                "중앙 큐",
+                "차임벨 + 보스이름 + n분전",
+                "구현",
+            ),
+            (
+                "동시간 보스 n분전",
+                "같은 알람 시간에 여러 보스가 25초 안에 묶일 때",
+                "중앙 큐",
+                "차임벨 + 보스이름들 + n분전",
+                "구현",
+            ),
+            (
+                "연타임보스 1분전",
+                "동시간 보스 그룹이 1분전 알람에 걸릴 때",
+                "중앙 큐",
+                "차임벨 + 보스이름들 + 연타임보스 + 1분전",
+                "구현",
+            ),
+            (
+                "연속보스 감지",
+                "연속 보스 그룹이 감지되고 첫 보스가 10분10초 남았을 때",
+                "중앙 큐",
+                "연속보스감지 + 10분전 + 축작업하세요",
+                "구현",
+            ),
+            (
+                "고정보스 1분전",
+                "고정보스 1분 전 안내 ON이고 고정보스 종료 1분 전일 때",
+                "중앙 큐",
+                "차임벨 + 고정보스이름 + 1분전",
+                "구현",
+            ),
+            (
+                "고정보스 초읽기 겹침",
+                "고정보스 1분전 알림 시점에 초읽기가 진행 중이면",
+                "중앙 큐",
+                "초읽기가 끝난 뒤 고정보스 알림 재생",
+                "구현",
+            ),
+            (
+                "고정보스 초확정 근접",
+                "고정보스 1분전 알림이 초확정/초읽기 이벤트와 5초 이하로 가까우면",
+                "중앙 큐",
+                "보조 채널로 겹쳐 말하지 않고 중앙 큐 순서대로 재생",
+                "구현",
+            ),
+            (
+                "고정보스 재생 직전 보정",
+                "고정보스 알림이 큐에서 실제 재생될 때 남은 시간 기준",
+                "중앙 큐",
+                "41초 이상: 기존 1분전 / 1~40초: 곧 고정보스이름 타임입니다 / 1초 미만: 폐기",
+                "구현",
+            ),
+            (
+                "점검/서버오픈 1분전",
+                "정기점검, 임시점검, 서버오픈 이벤트가 1분 남았을 때",
+                "중앙 큐",
+                "이벤트이름 + 1분전",
+                "구현",
+            ),
+            (
+                "점검/서버오픈 타임",
+                "정기점검, 임시점검, 서버오픈 이벤트 시각이 되었을 때",
+                "중앙 큐",
+                "이벤트이름 + 타임입니다",
+                "구현",
+            ),
+            (
+                "다음 보스 후속 안내",
+                "초읽기 마지막 3,2,1초 중 다음 초확정 보스가 1~2초 뒤에 이어질 때",
+                "중앙",
+                "다음 보스이름",
+                "구현",
+            ),
+            (
+                "차임벨",
+                "일반/고정보스/연속보스/초읽기 상황별로 설정된 차임벨이 있을 때",
+                "해당 음성 채널",
+                "차임벨 + 본문 음성",
+                "구현",
+            ),
+            (
+                "좌측 채널",
+                "중앙/우측으로 해결하기 어려운 추가 병렬 안내가 필요할 때",
+                "좌측",
+                "미정",
+                "기반 구현, 자동 배정 미구현",
+            ),
+            (
+                "음성 규칙 편집",
+                "이 표에서 조건과 음성 조합을 직접 추가/수정/삭제",
+                "-",
+                "미정",
+                "미구현",
+            ),
+        ]
+
+    def _open_schedule_alarm_voice_rule_window(self) -> None:
+        if self.schedule_alarm_voice_rule_window is not None and self.schedule_alarm_voice_rule_window.winfo_exists():
+            self.schedule_alarm_voice_rule_window.lift()
+            self.schedule_alarm_voice_rule_window.focus_force()
+            return
+        parent = self.schedule_alarm_window if self._widget_available(self.schedule_alarm_window) else self.root
+        dialog = tk.Toplevel(parent)
+        self.schedule_alarm_voice_rule_window = dialog
+        dialog.title("음성 설정")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#eef2ff")
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.transient(parent)
+        self._center_window_over_parent(dialog, parent, 1040, 620)
+
+        tk.Label(dialog, text="음성 설정", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=1040, height=40)
+        tk.Label(
+            dialog,
+            text="현재 구현된 음성 출력 조건과 조립 순서입니다. 나중에 이 표를 기준으로 음성을 붙이거나 빼고, 새 조건을 추가하면 됩니다.",
+            font=self.percent_font,
+            bg="#eef2ff",
+            fg="#475569",
+            anchor="w",
+        ).place(x=18, y=50, width=1000, height=22)
+
+        frame = tk.Frame(dialog, bg="#eff6ff", bd=1, relief="solid")
+        frame.place(x=18, y=82, width=1004, height=486)
+        columns = ("case", "condition", "lane", "message", "state")
+        tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        tree.heading("case", text="경우")
+        tree.heading("condition", text="조건")
+        tree.heading("lane", text="채널")
+        tree.heading("message", text="음성메세지")
+        tree.heading("state", text="상태")
+        tree.column("case", width=150, anchor="w", stretch=False)
+        tree.column("condition", width=350, anchor="w", stretch=False)
+        tree.column("lane", width=132, anchor="center", stretch=False)
+        tree.column("message", width=280, anchor="w", stretch=False)
+        tree.column("state", width=74, anchor="center", stretch=False)
+        tree.place(x=0, y=0, width=984, height=484)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.place(x=984, y=0, width=18, height=484)
+        for row in self._get_schedule_alarm_voice_rule_rows():
+            tree.insert("", "end", values=row)
+
+        tk.Label(
+            dialog,
+            text=f"채널 기준: 중앙=기존 우선 큐, 우측=겹침 보조 채널, 좌측=예비. 침공은 기본 중앙 큐이며 본섭 중앙 안내/초읽기와 겹치면 우측 채널에서 볼륨 -2로 재생합니다.",
+            font=self.percent_font,
+            bg="#eef2ff",
+            fg="#1e3a8a",
+            anchor="w",
+        ).place(x=18, y=578, width=842, height=22)
+        close_button = tk.Button(
+            dialog,
+            text="닫기",
+            font=self.button_font,
+            bg="#334155",
+            fg="#ffffff",
+            activebackground="#1e293b",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=dialog.destroy,
+            cursor="hand2",
+        )
+        close_button.place(x=914, y=574, width=88, height=30)
+        self._bind_hover_button(close_button, "#334155", "#1e293b", "#ffffff", "#ffffff")
 
     def _refresh_schedule_alarm_common_listbox(self) -> None:
         listbox = self.schedule_alarm_common_listbox
@@ -44249,12 +45741,6 @@ class BossTimerApp:
         self.schedule_tree_footer_label.place(x=14, y=SCHEDULE_WINDOW_HEIGHT - 354, width=760, height=18)
         self._layout_schedule_active_panel(0)
         self._set_schedule_view_datetime_fields(self._get_schedule_reference_datetime())
-        self._refresh_schedule_view()
-        self._scroll_schedule_tree_to_focus_next_event()
-        try:
-            self.root.after(250, self._refresh_github_server_list)
-        except tk.TclError:
-            pass
 
     def _ensure_schedule_input_window(self) -> None:
         if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
@@ -45307,6 +46793,22 @@ class BossTimerApp:
         self._position_schedule_alarm_window()
 
         tk.Label(self.schedule_alarm_window, text="알람 설정", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=SCHEDULE_ALARM_WINDOW_WIDTH, height=40)
+        voice_rule_button = tk.Button(
+            self.schedule_alarm_window,
+            text="음성 설정",
+            font=self.percent_font,
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._open_schedule_alarm_voice_rule_window,
+            cursor="hand2",
+        )
+        voice_rule_button.place(x=SCHEDULE_ALARM_WINDOW_WIDTH - 112, y=7, width=96, height=26)
+        self._bind_hover_button(voice_rule_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
 
         left_frame = tk.Frame(self.schedule_alarm_window, bg="#eff6ff", bd=1, relief="solid")
         left_frame.place(x=18, y=58, width=430, height=584)
