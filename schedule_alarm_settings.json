@@ -1,15 +1,15 @@
 {
-  "version": "v3.4.1",
+  "version": "v4.0.0",
   "master_enabled": true,
   "common_offsets": [
     300,
     60
   ],
   "countdown_enabled": false,
-  "countdown_ai_voice_enabled": true,
-  "boss_ai_voice_enabled": true,
+  "countdown_ai_voice_enabled": false,
+  "boss_ai_voice_enabled": false,
   "countdown_start_seconds": 15,
-  "second_precision_expire_hours": 48,
+  "second_precision_expire_hours": 24,
   "fixed_boss_enabled": true,
   "voice_name": "Microsoft Heami Desktop - Korean",
   "chime_settings": {

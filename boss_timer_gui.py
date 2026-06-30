@@ -1796,6 +1796,7 @@ class BossTimerApp:
         self.schedule_github_version_cache: dict[str, dict[str, str]] = self._load_github_version_cache()
         self.schedule_github_version_cache_suspended = False
         self.schedule_github_server_switch_in_progress = False
+        self.schedule_startup_remote_sync_entry: dict[str, object] | None = None
         self.schedule_main_save_after_id = None
         self.schedule_delete_active_cutoff_datetime: datetime | None = None
         self.schedule_input_custom_server_open_datetime: datetime | None = None
@@ -1846,6 +1847,7 @@ class BossTimerApp:
         self._sync_github_server_combo_to_loaded_meta()
         try:
             self.root.after(150, self._sync_github_server_combo_to_loaded_meta)
+            self.root.after(350, self._sync_startup_remote_schedule_if_needed)
             self.root.after(1200, self._sync_github_server_combo_to_loaded_meta)
         except tk.TclError:
             pass
@@ -3076,10 +3078,25 @@ class BossTimerApp:
                         boss_config_path=str(startup_entry.get("bosses") or "").strip(),
                         boss_config_version="",
                     )
+                    self.schedule_startup_remote_sync_entry = dict(startup_entry)
             if not had_ready_season:
                 self._refresh_schedule_view()
         self._ensure_startup_schedule_archive_seed()
         self._update_archive_keep_seasons_description()
+
+    def _sync_startup_remote_schedule_if_needed(self) -> None:
+        entry = getattr(self, "schedule_startup_remote_sync_entry", None)
+        self.schedule_startup_remote_sync_entry = None
+        if not isinstance(entry, dict) or self._current_schedule_has_data():
+            return
+        server_id = str(entry.get("id") or "").strip()
+        server_name = str(entry.get("name") or server_id).strip()
+        if not server_id or not server_name:
+            return
+        self._upsert_github_server_entry_locally(entry)
+        self.schedule_github_server_var.set(self._format_github_server_combo_text(server_name))
+        self.schedule_status_var.set(f"{server_name}: 저장된 스케쥴을 GitHub에서 확인합니다.")
+        self._sync_selected_github_schedule()
 
     def _schedule_startup_deferred_tasks(self) -> None:
         def schedule(delay_ms: int, callback) -> None:
@@ -5517,33 +5534,47 @@ class BossTimerApp:
             merged["bosses"] = str(merged.get("bosses") or f"data/bosses/{server_id}.json").strip()
             merged["config"] = str(merged.get("config") or f"data/config/{server_id}.json").strip()
             merged["notices"] = str(merged.get("notices") or f"data/notices/{server_id}.json").strip()
+            merged.pop("localOnly", None)
+            merged.pop("pendingAdd", None)
             if server_id in add_ids:
                 data_version = self._get_next_github_data_version()
-                merged["scheduleVersion"] = data_version
-                merged["dataVersion"] = data_version
-                merged["scheduleHash"] = ""
                 server_name_text = str(merged.get("name") or server_id).strip() or server_id
-                schedule_payload = self._build_empty_github_schedule_payload_for_server(server_id, server_name_text)
-                schedule_wrapper = {
-                    "appMinVersion": self._get_app_version_for_data(),
-                    "schemaVersion": "1.0.0",
-                    "dataVersion": data_version,
-                    "kind": "schedule",
-                    "payload": self._serialize_schedule_state_value(schedule_payload),
-                }
                 schedule_path = str(merged.get("schedule") or f"data/schedules/{server_id}.json").strip()
-                _existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
+                existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
                 if schedule_error:
                     return False, f"{server_name_text}: 기존 스케쥴 파일 확인 실패 - {schedule_error}", existing_entries
-                ok, error = self._github_put_json_file(
-                    schedule_path,
-                    schedule_wrapper,
-                    message=f"Create empty schedule {server_id} {data_version}",
-                    sha=schedule_sha,
-                )
-                if not ok:
-                    return False, f"{server_name_text}: 빈 스케쥴 파일 생성 실패 - {error}", existing_entries
-                self._save_github_local_payload_cache(merged, schedule_payload=schedule_payload)
+                if schedule_sha is not None and isinstance(existing_schedule, dict):
+                    existing_payload = self._unwrap_github_schedule_payload(existing_schedule)
+                    existing_version = str(existing_schedule.get("dataVersion") or "").strip()
+                    existing_hash = str(existing_schedule.get("contentHash") or "").strip()
+                    merged["scheduleVersion"] = existing_version
+                    merged["dataVersion"] = existing_version
+                    merged["scheduleHash"] = existing_hash or self._get_github_schedule_content_hash(existing_schedule)
+                    if isinstance(existing_payload, dict):
+                        cached_payload = dict(existing_payload)
+                        cached_payload["_githubScheduleVersion"] = existing_version
+                        cached_payload["_githubCacheComplete"] = True
+                        self._save_github_local_payload_cache(merged, schedule_payload=cached_payload)
+                else:
+                    merged["scheduleVersion"] = data_version
+                    merged["dataVersion"] = data_version
+                    merged["scheduleHash"] = ""
+                    schedule_payload = self._build_empty_github_schedule_payload_for_server(server_id, server_name_text)
+                    schedule_wrapper = {
+                        "appMinVersion": self._get_app_version_for_data(),
+                        "schemaVersion": "1.0.0",
+                        "dataVersion": data_version,
+                        "kind": "schedule",
+                        "payload": self._serialize_schedule_state_value(schedule_payload),
+                    }
+                    ok, error = self._github_put_json_file(
+                        schedule_path,
+                        schedule_wrapper,
+                        message=f"Create empty schedule {server_id} {data_version}",
+                    )
+                    if not ok:
+                        return False, f"{server_name_text}: 빈 스케쥴 파일 생성 실패 - {error}", existing_entries
+                    self._save_github_local_payload_cache(merged, schedule_payload=schedule_payload)
             next_entries.append(merged)
         for server_id in delete_ids:
             entry = existing_by_id.get(server_id, {})
