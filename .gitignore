@@ -9,7 +9,14 @@ venv/
 # build output
 dist/
 build/
+build_current/
+dist_current/
+dist_current_clean/
 *.exe
+
+# runtime logs and generated archives
+*.log
+archive_logs/
 
 # vscode 설정
 .vscode/
