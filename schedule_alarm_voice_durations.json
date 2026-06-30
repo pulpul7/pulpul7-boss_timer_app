@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-21 21:25:08",
+  "updated_at": "2026-06-30 22:50:29",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1345,6 +1345,111 @@
         185084
       ],
       "duration_ms": 1049
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\감길드 쟁탈전 신청마감.wav": {
+      "signature": [
+        1782644710024398600,
+        369988
+      ],
+      "duration_ms": 2098
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\고정이벤트.wav": {
+      "signature": [
+        1782644772218478700,
+        209504
+      ],
+      "duration_ms": 1188
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공성전 신청.wav": {
+      "signature": [
+        1782645346702762500,
+        210616
+      ],
+      "duration_ms": 1194
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공성전 신청마감.wav": {
+      "signature": [
+        1782645293618857600,
+        289784
+      ],
+      "duration_ms": 1643
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\방어전 신청.wav": {
+      "signature": [
+        1782645034444754400,
+        224180
+      ],
+      "duration_ms": 1271
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\방어전 신청마감.wav": {
+      "signature": [
+        1782644825565007200,
+        283220
+      ],
+      "duration_ms": 1606
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\방어전.wav": {
+      "signature": [
+        1782644991423680800,
+        142928
+      ],
+      "duration_ms": 810
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\점령전 신청.wav": {
+      "signature": [
+        1782644953992069800,
+        255144
+      ],
+      "duration_ms": 1447
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\점령전 신청마감.wav": {
+      "signature": [
+        1782644856301484200,
+        305600
+      ],
+      "duration_ms": 1733
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\점령전.wav": {
+      "signature": [
+        1782644893905637600,
+        195136
+      ],
+      "duration_ms": 1106
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공선전 입찰시작.wav": {
+      "signature": [
+        1782647095922625500,
+        277004
+      ],
+      "duration_ms": 1571
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공성전 공격대상 선택.wav": {
+      "signature": [
+        1782647524080888300,
+        370000
+      ],
+      "duration_ms": 2098
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공성전 입찰마감.wav": {
+      "signature": [
+        1782647418736624600,
+        276876
+      ],
+      "duration_ms": 1570
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\길드 쟁탈전 신청마감.wav": {
+      "signature": [
+        1782644710024398600,
+        369988
+      ],
+      "duration_ms": 2098
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\공성전 입찰시작.wav": {
+      "signature": [
+        1782647095922625500,
+        277004
+      ],
+      "duration_ms": 1571
     }
   }
 }

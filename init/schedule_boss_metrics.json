@@ -269,30 +269,6 @@
     "score": 100,
     "war_score": 200
   },
-  "최하층굴베": {
-    "source_mode": "user_first",
-    "user_duration_seconds": 40,
-    "score": 30,
-    "war_score": 60
-  },
-  "최하층스네르": {
-    "source_mode": "user_first",
-    "user_duration_seconds": 180,
-    "score": 50,
-    "war_score": 100
-  },
-  "7층": {
-    "source_mode": "user_first",
-    "user_duration_seconds": 1,
-    "score": 0,
-    "war_score": 10
-  },
-  "최하층강글": {
-    "source_mode": "user_first",
-    "user_duration_seconds": 45,
-    "score": 30,
-    "war_score": 60
-  },
   "4층": {
     "source_mode": "user_first",
     "user_duration_seconds": 0,
@@ -305,9 +281,45 @@
     "score": 10,
     "war_score": 20
   },
-  "월드보스": {
+  "최하층강글": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 45,
+    "score": 30,
+    "war_score": 60
+  },
+  "7층": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 1,
+    "score": 0,
+    "war_score": 10
+  },
+  "최하층굴베": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 40,
+    "score": 30,
+    "war_score": 60
+  },
+  "최하층스네르": {
     "source_mode": "user_first",
     "user_duration_seconds": 180,
+    "score": 50,
+    "war_score": 100
+  },
+  "방어전 신청": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
+  "월드보스": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
+  "점령전 신청": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
@@ -329,6 +341,18 @@
     "score": null,
     "war_score": null
   },
+  "방어전 신청마감": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
+  "점령전 신청마감": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
   "닻": {
     "source_mode": "user_first",
     "user_duration_seconds": 0,
@@ -341,9 +365,21 @@
     "score": null,
     "war_score": null
   },
+  "공성전 공격대상 선택": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
   "공성전": {
     "source_mode": "user_first",
     "user_duration_seconds": 3600,
+    "score": null,
+    "war_score": null
+  },
+  "공성전 입찰시작": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
@@ -359,6 +395,18 @@
     "score": null,
     "war_score": null
   },
+  "방어전": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
+  "점령전": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
   "지옥 성채": {
     "source_mode": "user_first",
     "user_duration_seconds": 1800,
@@ -366,6 +414,12 @@
     "war_score": null
   },
   "트리니티 리그": {
+    "source_mode": "user_first",
+    "user_duration_seconds": 0,
+    "score": null,
+    "war_score": null
+  },
+  "길드 쟁탈전 신청마감": {
     "source_mode": "user_first",
     "user_duration_seconds": 0,
     "score": null,

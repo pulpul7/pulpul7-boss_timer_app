@@ -65,10 +65,6 @@
       "value": null,
       "signature": {}
     },
-    "그로아|*|*": {
-      "value": null,
-      "signature": {}
-    },
     "노트|*|*": {
       "value": null,
       "signature": {}
@@ -106,10 +102,6 @@
       "signature": {}
     },
     "헤이드|*|*": {
-      "value": null,
-      "signature": {}
-    },
-    "호드|*|*": {
       "value": null,
       "signature": {}
     },
@@ -204,6 +196,19 @@
     "드라우그|*|*": {
       "value": null,
       "signature": {}
+    },
+    "그로아|*|*": {
+      "value": 20.455,
+      "signature": {
+        "그로아": {
+          "mtime_ns": 1782575492018031100,
+          "size": 1141
+        },
+        "화신 그로아": {
+          "mtime_ns": 1782575492018031100,
+          "size": 1141
+        }
+      }
     }
   }
 }
