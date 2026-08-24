@@ -1,13 +1,14 @@
 {
-  "version": "v4.0.0",
+  "version": "v4.0.2",
+  "voice_rule_version": "2026-08-24.16",
   "master_enabled": true,
   "common_offsets": [
     300,
     60
   ],
   "countdown_enabled": false,
-  "countdown_ai_voice_enabled": false,
-  "boss_ai_voice_enabled": false,
+  "countdown_ai_voice_enabled": true,
+  "boss_ai_voice_enabled": true,
   "countdown_start_seconds": 15,
   "second_precision_expire_hours": 24,
   "fixed_boss_enabled": true,
@@ -373,6 +374,136 @@
       "enabled": true,
       "offsets": [
         300,
+        60
+      ]
+    }
+  },
+  "fixed_boss_overrides": {
+    "공성전": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "공성전 공격대상 선택": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "공성전 입찰시작": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "길드 쟁탈전 신청마감": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "닻": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "발할라 대전": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "방어전": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "방어전 신청": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "방어전 신청마감": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "성채": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "월드보스": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "쟁탈전": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "점령전": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "점령전 신청": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "점령전 신청마감": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "지옥 성채": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "지옥성채 정예": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "트리니티 리그": {
+      "enabled": true,
+      "offsets": [
+        300,
+        60
+      ]
+    },
+    "핏빛고블린": {
+      "enabled": true,
+      "offsets": [
+        60
+      ]
+    },
+    "황금고블린": {
+      "enabled": true,
+      "offsets": [
         60
       ]
     }

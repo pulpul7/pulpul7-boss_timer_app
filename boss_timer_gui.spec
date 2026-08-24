@@ -36,6 +36,13 @@ tcl_root = python_root / "tcl"
 project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
 BUILD_VERSION = "v3.0.0"
 BUILD_LAST_UPDATED = "2026-04-17"
+DISTRIBUTION_DEFAULT_SETTING_OVERRIDES = {
+    "schedule_share_exclude_elapsed": "True",
+}
+DISTRIBUTION_DEFAULT_ALARM_OVERRIDES = {
+    "countdown_ai_voice_enabled": True,
+    "boss_ai_voice_enabled": True,
+}
 
 
 def read_distribution_default_setting_keys() -> tuple[str, ...]:
@@ -79,6 +86,7 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
                 for key in setting_keys
                 if key in runtime_settings
             }
+            seed_config["settings"].update(DISTRIBUTION_DEFAULT_SETTING_OVERRIDES)
             background_path = str(seed_config["settings"].get("background_path", "") or "").strip()
             if background_path:
                 try:
@@ -99,6 +107,7 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
         except (OSError, ValueError, TypeError):
             alarm_payload = None
         if isinstance(alarm_payload, dict):
+            alarm_payload.update(DISTRIBUTION_DEFAULT_ALARM_OVERRIDES)
             alarm_seed_path = staging_dir / "default_schedule_alarm_settings.json"
             alarm_seed_path.write_text(
                 json.dumps(alarm_payload, ensure_ascii=False, indent=2),
