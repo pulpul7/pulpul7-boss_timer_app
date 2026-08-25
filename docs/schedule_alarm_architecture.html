@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>BossTimer 알람 구조 문서</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Malgun Gothic", "Segoe UI", Arial, sans-serif;
+      color: #172033;
+      background: #f8fafc;
+      line-height: 1.48;
+    }
+    .page {
+      min-height: 100vh;
+      padding: 18px 22px;
+      background: #ffffff;
+    }
+    h1 { margin: 0 0 8px; font-size: 26px; color: #0f172a; }
+    h2 {
+      margin: 24px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #dbeafe;
+      font-size: 18px;
+      color: #1e3a8a;
+    }
+    p { margin: 6px 0; }
+    .goal {
+      margin: 10px 0 18px;
+      padding: 10px 12px;
+      border-left: 4px solid #2563eb;
+      background: #eff6ff;
+      font-weight: 600;
+    }
+    .diagram {
+      margin: 14px 0;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+    svg text {
+      font-family: "Malgun Gothic", "Segoe UI", Arial, sans-serif;
+      fill: #0f172a;
+      font-size: 13px;
+    }
+    .responsibility {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 0;
+      margin: 10px 0;
+      border: 1px solid #d7dee8;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .responsibility div { padding: 9px 11px; border-bottom: 1px solid #e5e7eb; }
+    .responsibility div:nth-child(odd) {
+      background: #f1f5f9;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .responsibility div:nth-last-child(-n+2) { border-bottom: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 16px;
+      font-size: 11px;
+    }
+    th, td {
+      border: 1px solid #d7dee8;
+      padding: 6px 7px;
+      vertical-align: top;
+    }
+    th { background: #e0f2fe; color: #0f172a; text-align: left; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .catalog-table {
+      font-size: 10px;
+    }
+    .catalog-table th,
+    .catalog-table td {
+      padding: 3px 5px;
+      line-height: 1.22;
+    }
+    ol { margin: 8px 0 12px 22px; padding: 0; }
+    li { margin: 5px 0; }
+    .conditions {
+      columns: 2;
+      column-gap: 28px;
+      font-size: 12px;
+    }
+    .conditions li { break-inside: avoid; margin-bottom: 8px; }
+    .page-start {
+      break-before: page;
+      page-break-before: always;
+    }
+    .priority-note {
+      margin: 10px 0 12px;
+      padding: 10px 12px;
+      border-left: 4px solid #f59e0b;
+      background: #fffbeb;
+    }
+    .warning {
+      margin: 12px 0;
+      padding: 10px 12px;
+      border-left: 4px solid #dc2626;
+      background: #fef2f2;
+    }
+    .footer {
+      margin-top: 24px;
+      padding-top: 10px;
+      border-top: 1px solid #cbd5e1;
+      font-size: 11px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>BossTimer 알람 구조 리뉴얼 스토리보드</h1>
+    <div class="goal">
+      목표 : 원본 이벤트부터 음성 요청까지 계층별로 판단, 24번 규칙 엔진은 기반만 남겨두고 실제 구현 여부는 마지막에 결정
+    </div>
+
+    <h2>1. 전체 흐름</h2>
+    <div class="diagram">
+      <svg width="100%" height="210" viewBox="0 0 930 210" role="img" aria-label="알람 처리 계층도">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#2563eb"></path>
+          </marker>
+        </defs>
+        <rect x="18" y="40" width="145" height="74" rx="6" fill="#dbeafe" stroke="#60a5fa"></rect>
+        <text x="90" y="69" text-anchor="middle">원본 이벤트</text>
+        <text x="90" y="92" text-anchor="middle">일반/침공/고정</text>
+        <line x1="163" y1="77" x2="218" y2="77" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"></line>
+        <rect x="220" y="40" width="145" height="74" rx="6" fill="#dcfce7" stroke="#22c55e"></rect>
+        <text x="292" y="69" text-anchor="middle">표준 이벤트</text>
+        <text x="292" y="92" text-anchor="middle">source/precision</text>
+        <line x1="365" y1="77" x2="420" y2="77" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"></line>
+        <rect x="422" y="40" width="145" height="74" rx="6" fill="#fef9c3" stroke="#eab308"></rect>
+        <text x="494" y="69" text-anchor="middle">알람 후보</text>
+        <text x="494" y="92" text-anchor="middle">젠/n분전/초읽기</text>
+        <line x1="567" y1="77" x2="622" y2="77" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"></line>
+        <rect x="624" y="40" width="145" height="74" rx="6" fill="#fee2e2" stroke="#f87171"></rect>
+        <text x="696" y="69" text-anchor="middle">충돌 정리</text>
+        <text x="696" y="92" text-anchor="middle">우선순위/대기</text>
+        <line x1="769" y1="77" x2="824" y2="77" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"></line>
+        <rect x="826" y="40" width="86" height="74" rx="6" fill="#ede9fe" stroke="#8b5cf6"></rect>
+        <text x="869" y="69" text-anchor="middle">음성 요청</text>
+        <text x="869" y="92" text-anchor="middle">완료 후 다음</text>
+      </svg>
+    </div>
+
+    <h2>2. 계층별 책임</h2>
+    <div class="responsibility">
+      <div>Source</div><div>일반 / 침공 / 고정보스 / 자가 이벤트를 구분한다.</div>
+      <div>Precision</div><div>초확정 / 분확정 / 시각고정 / 초보정을 구분한다.</div>
+      <div>Purpose</div><div>즉시젠 / n분전 / 초읽기 / 젠완료 / 연속안내를 구분한다.</div>
+      <div>Conflict</div><div>동시간 / 연속 / 고정보스 겹침 / 채널 / 대기를 판단한다.</div>
+      <div>Voice Request</div><div>재생 파일 / TTS / 채널 / 우선순위만 담는다.</div>
+      <div>Playback</div><div>실제 재생 완료 신호를 받은 뒤 다음 요청을 실행한다.</div>
+    </div>
+
+    <h2 class="page-start">3. 규칙 카탈로그 요약</h2>
+    <table class="catalog-table">
+      <thead>
+        <tr><th>No</th><th>규칙</th><th>Source</th><th>Precision</th><th>Purpose</th><th>상태</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>초확정 즉시젠</td><td>일반</td><td>초확정</td><td>즉시젠</td><td>구현</td></tr>
+        <tr><td>2</td><td>침공 초확정 즉시젠</td><td>침공</td><td>초확정</td><td>즉시젠</td><td>구현</td></tr>
+        <tr><td>3</td><td>침공 초확정 겹침</td><td>침공</td><td>초확정</td><td>충돌</td><td>구현</td></tr>
+        <tr><td>4</td><td>초읽기 시작</td><td>일반</td><td>초확정</td><td>초읽기</td><td>구현</td></tr>
+        <tr><td>5</td><td>초읽기 본문</td><td>일반</td><td>초확정</td><td>초읽기</td><td>구현</td></tr>
+        <tr><td>6</td><td>초확정 젠 완료</td><td>일반</td><td>초확정</td><td>젠완료</td><td>구현</td></tr>
+        <tr><td>7</td><td>초보정 즉시젠</td><td>일반</td><td>분확정</td><td>즉시젠</td><td>구현</td></tr>
+        <tr><td>8</td><td>침공 초보정</td><td>침공</td><td>분확정</td><td>즉시젠</td><td>구현</td></tr>
+        <tr><td>9</td><td>침공 n분전</td><td>침공</td><td>전체</td><td>n분전</td><td>구현</td></tr>
+        <tr><td>10</td><td>일반 n분전</td><td>일반</td><td>전체</td><td>n분전</td><td>구현</td></tr>
+        <tr><td>11</td><td>n분전 초읽기 겹침</td><td>일반</td><td>전체</td><td>충돌</td><td>구현</td></tr>
+        <tr><td>12</td><td>동시간 보스 n분전</td><td>일반</td><td>전체</td><td>묶음</td><td>구현</td></tr>
+        <tr><td>13</td><td>곧 소멸될 1분전</td><td>일반</td><td>전체</td><td>특수</td><td>구현</td></tr>
+        <tr><td>14</td><td>연속보스 감지</td><td>일반</td><td>전체</td><td>특수</td><td>구현</td></tr>
+        <tr><td>15</td><td>고정보스 알람</td><td>고정</td><td>시각고정</td><td>n분전</td><td>구현</td></tr>
+        <tr><td>16</td><td>고정보스 초읽기 겹침</td><td>고정</td><td>시각고정</td><td>충돌</td><td>구현</td></tr>
+        <tr><td>17</td><td>고정보스 초확정 근접</td><td>고정</td><td>시각고정</td><td>충돌</td><td>구현</td></tr>
+        <tr><td>18</td><td>고정보스 재생 직전 보정</td><td>고정</td><td>시각고정</td><td>보정</td><td>구현</td></tr>
+        <tr><td>19</td><td>자가 1분전</td><td>제어</td><td>시각고정</td><td>n분전</td><td>구현</td></tr>
+        <tr><td>20</td><td>자가 도달</td><td>제어</td><td>시각고정</td><td>즉시젠</td><td>구현</td></tr>
+        <tr><td>21</td><td>다음 보스 연속 안내</td><td>일반</td><td>초확정</td><td>연속</td><td>구현</td></tr>
+        <tr><td>22</td><td>차임벨</td><td>공통</td><td>전체</td><td>공통</td><td>구현</td></tr>
+        <tr><td>23</td><td>좌측 채널</td><td>공통</td><td>전체</td><td>채널</td><td>기반</td></tr>
+        <tr><td>24</td><td>음성 규칙 엔진</td><td>공통</td><td>전체</td><td>관리</td><td>보류</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="page-start">4. 실제 구현 조건 상세 목록</h2>
+    <ol class="conditions">
+      <li>현재 실행 모드가 일반 운용인지 테스트인지 먼저 분리한다.</li>
+      <li>원본 스케쥴을 일반, 침공, 고정보스, 자가 이벤트로 분류한다.</li>
+      <li>보스 이름과 표시명을 정규화해서 중복 판단 기준을 하나로 맞춘다.</li>
+      <li>시간 기준을 초확정, 분확정, 시각고정, 초보정으로 분류한다.</li>
+      <li>초보정은 분확정 이벤트에 초 단위 보정이 붙은 것으로 다룬다.</li>
+      <li>보스별 알람 설정에서 일반보스와 고정보스의 n분전 목록을 각각 읽는다.</li>
+      <li>고정보스는 5분과 1분처럼 여러 값을 설정하면 각각 독립 후보를 만든다.</li>
+      <li>초확정이고 초읽기 OFF이면 해당 시각에 즉시젠 후보를 만든다.</li>
+      <li>초확정이고 초읽기 ON이면 시작 안내, 숫자 초읽기, 젠 완료 후보를 만든다.</li>
+      <li>분확정 또는 초보정 이벤트는 도달 시각에 즉시젠 후보를 만든다.</li>
+      <li>침공 이벤트는 일반 이벤트와 같은 구조를 쓰되 침공 전용 문구와 채널을 적용한다.</li>
+      <li>동시간 보스는 같은 알람 시각의 후보를 묶어서 한 문장으로 만든다.</li>
+      <li>동시간 묶음에는 차임벨을 한 번만 붙이고 보스명은 순서대로 이어 붙인다.</li>
+      <li>연속보스는 현재 젠 안내 직후 다음 보스가 가까울 때 별도 안내 후보를 만든다.</li>
+      <li>고정보스가 초읽기 또는 초확정 안내와 가까우면 중앙 큐 대기 후보로 분리한다.</li>
+      <li>고정보스 재생 직전 보정은 너무 늦은 n분전 안내를 현재 상태에 맞게 바꾼다.</li>
+      <li>곧 소멸될 1분전 안내는 일반 n분전보다 특수 후보로 먼저 식별한다.</li>
+      <li>자가 이벤트는 보스 이벤트와 섞지 않고 시스템 제어용 후보로 별도 생성한다.</li>
+      <li>후보 생성 이후에만 우선순위를 정하고, 원본 스케쥴 단계에서는 재생 순서를 정하지 않는다.</li>
+      <li>우선순위는 즉시젠, 초읽기, 일반 n분전, 고정보스 n분전, 제어 이벤트를 한 곳에서 비교한다.</li>
+      <li>같은 후보가 여러 tick에서 반복 생성되지 않도록 고유 키를 만든다.</li>
+      <li>VoiceRequest에는 파일 경로, TTS 대체 문구, 채널, earliest_play_at, priority만 넣는다.</li>
+      <li>음성 파일이 없으면 같은 VoiceRequest 안에서 TTS로 대체한다.</li>
+      <li>중앙 채널은 실제 재생 완료 신호를 받은 뒤 다음 요청을 재생한다.</li>
+      <li>좌측 채널은 중앙 채널을 막지 않는 보조 안내에만 사용한다.</li>
+      <li>테스트 모드는 선택한 경우 하나만 생성하고 기존 스케쥴 복원 경로를 항상 보존한다.</li>
+      <li>테스트 종료, 중지, 창 닫기에서는 스케쥴 복원 후 오늘 버튼 트리거를 거친다.</li>
+      <li>로그는 경우별 1개 파일만 유지하고 48시간 또는 0.5MB 기준으로 정리한다.</li>
+      <li>24번 규칙 엔진은 tick 내부 조건 추가를 막기 위한 기반으로만 남긴다.</li>
+    </ol>
+
+    <h2 class="page-start">5. 침공 포함 전체 조건 우선순위</h2>
+    <div class="priority-note">
+      침공은 별도 예외 덩어리가 아니라 source가 침공인 이벤트로 본다. 즉시젠, n분전, 겹침 규칙은 공통 우선순위 안에서 비교하고, 침공 전용 문구와 채널만 마지막 VoiceRequest 단계에서 다르게 적용한다.
+    </div>
+    <table>
+      <thead>
+        <tr><th style="width:42px">순위</th><th style="width:150px">대상</th><th>처리 기준</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>재생 중인 중앙 음성</td><td>이미 시작된 음성은 끊지 않는다. 다음 요청은 완료 신호 뒤에만 진행한다.</td></tr>
+        <tr><td>2</td><td>테스트 제어</td><td>테스트 시작, 중지, 복원, 오늘 버튼 트리거는 실제 스케쥴보다 먼저 처리한다.</td></tr>
+        <tr><td>3</td><td>초읽기 숫자</td><td>초확정 초읽기가 진행 중이면 숫자 흐름을 유지한다. 침공 포함 다른 안내는 큐에 대기한다.</td></tr>
+        <tr><td>4</td><td>초확정 젠 완료</td><td>0초 도달 또는 보정된 젠 완료 안내는 n분전 안내보다 앞선다.</td></tr>
+        <tr><td>5</td><td>침공 초확정 즉시젠</td><td>침공이 초확정으로 들어오면 침공 전용 문구를 쓰고 일반 즉시젠과 같은 급으로 처리한다.</td></tr>
+        <tr><td>6</td><td>일반 초확정 즉시젠</td><td>초읽기 OFF인 초확정 일반 이벤트의 즉시젠 안내를 처리한다.</td></tr>
+        <tr><td>7</td><td>침공 초보정 즉시젠</td><td>침공 분확정에 초 보정이 붙은 경우 즉시젠 후보로 처리하되 침공 문구를 유지한다.</td></tr>
+        <tr><td>8</td><td>일반 초보정 / 분확정 즉시젠</td><td>분확정 또는 초보정 일반 이벤트의 도달 안내를 처리한다.</td></tr>
+        <tr><td>9</td><td>동시간 묶음 안내</td><td>같은 알람 시각의 보스들은 하나의 문장으로 묶고 차임벨은 한 번만 사용한다.</td></tr>
+        <tr><td>10</td><td>고정보스 재생 직전 보정</td><td>고정보스 n분전이 너무 늦게 잡혔으면 현재 시점에 맞는 문구로 보정한다.</td></tr>
+        <tr><td>11</td><td>고정보스 n분전</td><td>사용자가 설정한 5분, 1분 같은 모든 고정보스 알람을 각각 독립 후보로 처리한다.</td></tr>
+        <tr><td>12</td><td>침공 n분전</td><td>침공도 보스별 n분전 설정이 있으면 일반 n분전과 같은 방식으로 후보를 만든다.</td></tr>
+        <tr><td>13</td><td>일반 n분전</td><td>일반보스의 보스별 알람 설정에 따라 n분전 안내를 처리한다.</td></tr>
+        <tr><td>14</td><td>고정보스 겹침 대기</td><td>초읽기나 초확정 안내와 가까운 고정보스는 중앙 큐에서 대기시킨다.</td></tr>
+        <tr><td>15</td><td>연속보스 안내</td><td>현재 젠 안내 직후 다음 보스가 가까울 때 추가 안내를 붙인다.</td></tr>
+        <tr><td>16</td><td>좌측 채널 보조 안내</td><td>중앙 음성을 방해하지 않아도 되는 침공 예측 등 보조 안내만 좌측으로 보낸다.</td></tr>
+        <tr><td>17</td><td>중복 후보 제거</td><td>같은 이벤트와 같은 offset에서 나온 후보는 한 번만 큐에 넣는다.</td></tr>
+        <tr><td>18</td><td>TTS 대체</td><td>음성 파일이 없을 때만 같은 우선순위 안에서 TTS로 대체한다.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="warning">
+      주의: 새 조건은 tick 함수 내부에 직접 붙이지 않는다. 후보 생성, 충돌 정리, VoiceRequest 생성 중 어느 단계인지 먼저 정한 뒤 구현한다.
+    </div>
+
+    <div class="footer">
+      BossTimer 알람 구조 문서. 음성 설정 창의 알람구조 문서 버튼에서 열린다.
+    </div>
+  </main>
+</body>
+</html>

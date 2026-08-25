@@ -1,6 +1,6 @@
 {
-  "version": "v4.0.2",
-  "voice_rule_version": "2026-08-24.16",
+  "version": "v4.1.1",
+  "voice_rule_version": "2026-08-26.15",
   "master_enabled": true,
   "common_offsets": [
     300,
@@ -12,6 +12,7 @@
   "countdown_start_seconds": 15,
   "second_precision_expire_hours": 24,
   "fixed_boss_enabled": true,
+  "fixed_boss_skip_due_time": true,
   "voice_name": "Microsoft Heami Desktop - Korean",
   "chime_settings": {
     "skip_countdown": true,
@@ -382,7 +383,6 @@
     "공성전": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
@@ -401,7 +401,6 @@
     "길드 쟁탈전 신청마감": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
@@ -432,7 +431,6 @@
     "방어전 신청마감": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
@@ -451,14 +449,12 @@
     "쟁탈전": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
     "점령전": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
@@ -471,14 +467,12 @@
     "점령전 신청마감": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
     "지옥 성채": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
@@ -491,7 +485,6 @@
     "트리니티 리그": {
       "enabled": true,
       "offsets": [
-        300,
         60
       ]
     },
