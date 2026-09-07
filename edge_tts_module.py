@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -98,8 +99,17 @@ def install_edge_tts_module(
     backup_dir = target.with_name(f"{target.name}.previous")
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "BossTimer-TTS-Module"})
-        with urlopen(request, timeout=90) as response, archive_path.open("wb") as stream:
-            shutil.copyfileobj(response, stream)
+        try:
+            with urlopen(request, timeout=90) as response, archive_path.open("wb") as stream:
+                shutil.copyfileobj(response, stream)
+        except urllib.error.HTTPError as exc:
+            if int(getattr(exc, "code", 0) or 0) == 404:
+                raise RuntimeError(
+                    "GitHub Release 파일을 찾을 수 없습니다. "
+                    f"태그 tts-module-v{EDGE_TTS_MODULE_VERSION}에 "
+                    f"{EDGE_TTS_MODULE_ASSET_NAME} 파일이 공개 상태로 첨부되어 있는지 확인해주세요."
+                ) from exc
+            raise
         if not zipfile.is_zipfile(archive_path):
             raise RuntimeError("다운로드한 TTS 모듈 파일이 ZIP 형식이 아닙니다.")
         extracted_dir.mkdir(parents=True, exist_ok=True)
@@ -132,4 +142,3 @@ def install_edge_tts_module(
         raise
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
-

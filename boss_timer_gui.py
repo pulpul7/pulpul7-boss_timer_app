@@ -2074,6 +2074,10 @@ class BossTimerApp:
             EDGE_TTS_MODULE_DIR,
             allow_development_fallback=not bool(getattr(sys, "frozen", False)),
         )
+        self.edge_tts_module_installing = False
+        self.edge_tts_module_install_prompt_open = False
+        self.edge_tts_module_install_prompt_suppressed = False
+        self.edge_tts_module_install_ready_callbacks: list[object] = []
         self.edge_tts_settings = load_edge_tts_settings(EDGE_TTS_CONFIG_PATH)
         self.edge_tts_cache = EdgeTtsCache(
             self.edge_tts_settings,
@@ -29061,23 +29065,38 @@ class BossTimerApp:
             except tk.TclError:
                 pass
             return False
-        if bool(getattr(self, "edge_tts_module_installing", False)):
+        if bool(getattr(self, "edge_tts_module_install_prompt_open", False)) or bool(
+            getattr(self, "edge_tts_module_installing", False)
+        ):
+            if callable(on_ready):
+                callbacks = getattr(self, "edge_tts_module_install_ready_callbacks", None)
+                if not isinstance(callbacks, list):
+                    callbacks = []
+                    self.edge_tts_module_install_ready_callbacks = callbacks
+                callbacks.append(on_ready)
             return False
         if bool(getattr(self, "edge_tts_module_install_prompt_suppressed", False)) and not force_prompt:
             return False
         dialog_parent = parent if parent is not None and self._widget_available(parent) else self.root
         module_status = get_edge_tts_module_status(EDGE_TTS_MODULE_DIR)
         detail = module_status.reason or get_edge_tts_module_error()
-        should_install = self._ask_centered_yesno(
-            "TTS 모듈 설치",
-            "edge-tts 온라인 음성 모듈이 설치되어 있지 않습니다.\n\n"
-            "GitHub Releases에서 별도 TTS 모듈을 내려받아 설치할까요?\n"
-            "설치 후 현재 캐시 생성 작업을 자동으로 다시 시도합니다.\n\n"
-            f"상태: {detail}",
-            parent=dialog_parent,
-        )
+        if callable(on_ready):
+            self.edge_tts_module_install_ready_callbacks = [on_ready]
+        self.edge_tts_module_install_prompt_open = True
+        try:
+            should_install = self._ask_centered_yesno(
+                "TTS 모듈 설치",
+                "edge-tts 온라인 음성 모듈이 설치되어 있지 않습니다.\n\n"
+                "GitHub Releases에서 별도 TTS 모듈을 내려받아 설치할까요?\n"
+                "설치 후 현재 캐시 생성 작업을 자동으로 다시 시도합니다.\n\n"
+                f"상태: {detail}",
+                parent=dialog_parent,
+            )
+        finally:
+            self.edge_tts_module_install_prompt_open = False
         if not should_install:
             self.edge_tts_module_install_prompt_suppressed = True
+            self.edge_tts_module_install_ready_callbacks = []
             return False
         self.edge_tts_module_install_prompt_suppressed = False
         self.edge_tts_module_installing = True
@@ -29100,6 +29119,8 @@ class BossTimerApp:
 
             def finish() -> None:
                 self.edge_tts_module_installing = False
+                callbacks = list(getattr(self, "edge_tts_module_install_ready_callbacks", []))
+                self.edge_tts_module_install_ready_callbacks = []
                 if error_text:
                     messagebox.showerror(
                         "TTS 모듈 설치 실패",
@@ -29112,8 +29133,11 @@ class BossTimerApp:
                 if hasattr(self, "schedule_alarm_status_var"):
                     self.schedule_alarm_status_var.set(f"TTS 모듈 {version_text} 설치를 완료했습니다.")
                 self._refresh_schedule_alarm_voice_label()
-                if callable(on_ready):
-                    on_ready()
+                for callback in callbacks:
+                    try:
+                        callback()
+                    except Exception as exc:
+                        self._append_debug_log(f"edge_tts_module_ready_callback_failed {type(exc).__name__}: {exc}")
 
             try:
                 self.root.after(0, finish)
@@ -29243,14 +29267,10 @@ class BossTimerApp:
         if cache is None:
             return False
         if cache.settings.enabled and not edge_tts_available():
-            self._request_edge_tts_module_install(
-                on_ready=lambda: self._prefetch_edge_tts_text(
-                    text,
-                    rate=rate,
-                    volume_steps=volume_steps,
-                    persistent_relpath=persistent_relpath,
-                )
-            )
+            # 설치 성공 뒤 _prepare_schedule_alarm_voice_output()가 공통 문장을
+            # 다시 선캐시한다. 개별 prefetch 콜백을 누적하면 설치창이 열려 있는
+            # 동안 수백 건이 쌓일 수 있으므로 여기서는 설치 요청만 보낸다.
+            self._request_edge_tts_module_install()
             return False
         return bool(
             cache.prefetch(
