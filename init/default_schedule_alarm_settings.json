@@ -1,16 +1,16 @@
 {
-  "version": "v4.1.1",
-  "voice_rule_version": "2026-08-26.15",
+  "version": "v4.2.0",
+  "voice_rule_version": "2026-09-07.68",
   "master_enabled": true,
+  "local_audio_enabled": true,
   "common_offsets": [
     300,
     60
   ],
   "countdown_enabled": false,
-  "countdown_ai_voice_enabled": true,
-  "boss_ai_voice_enabled": true,
+  "ai_recording_preferred": true,
   "countdown_start_seconds": 15,
-  "second_precision_expire_hours": 24,
+  "second_precision_expire_hours": 49,
   "fixed_boss_enabled": true,
   "fixed_boss_skip_due_time": true,
   "voice_name": "Microsoft Heami Desktop - Korean",

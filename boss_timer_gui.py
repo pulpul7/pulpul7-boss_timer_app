@@ -36,6 +36,25 @@ from tkinter import colorchooser, filedialog, messagebox
 from tkinter import font as tkfont
 from tkinter import ttk
 
+from edge_tts_voice import (
+    DEFAULT_EDGE_TTS_VOICE,
+    EDGE_TTS_KOREAN_VOICES,
+    EdgeTtsCache,
+    EdgeTtsSettings,
+    configure_edge_tts_module,
+    edge_tts_available,
+    get_edge_tts_module_error,
+    list_edge_tts_voices,
+    load_edge_tts_settings,
+    save_edge_tts_settings,
+)
+from edge_tts_module import (
+    EDGE_TTS_MODULE_VERSION,
+    get_default_edge_tts_module_dir,
+    get_edge_tts_module_status,
+    install_edge_tts_module,
+)
+
 
 WINDOW_WIDTH = 470
 WINDOW_HEIGHT = 450
@@ -45,8 +64,8 @@ ALERT_TAG = "alert_overlay"
 GRAPH_AREA_X = 29
 GRAPH_AREA_Y = 330
 GRAPH_TAG = "graph_overlay"
-DEFAULT_APP_VERSION = "v3.0.0"
-DEFAULT_LAST_UPDATED = "2026-04-17"
+DEFAULT_APP_VERSION = "v5.0.0"
+DEFAULT_LAST_UPDATED = "2026-09-02"
 DEFAULT_AUTHOR_NAME = "나츠"
 DEFAULT_BUILD_DETAIL_VERSION = "unknown"
 DEFAULT_BUILD_TIMESTAMP = ""
@@ -188,6 +207,17 @@ SCHEDULE_ARCHIVE_DIRNAME = "schedule_archives"
 SCHEDULE_SHARED_EXPORT_DIRNAME = "shared_schedules"
 SCHEDULE_SHARED_MAIN_DIRNAME = "main"
 SCHEDULE_SHARED_ARCHIVE_DIRNAME = "shared_schedule_archives"
+SCHEDULE_SHARE_LATEST_IMAGE_FILENAME = "schedule_share_latest.png"
+SCHEDULE_SHARE_DISCORD_IMAGE_REQUEST_FILENAME = "schedule_share_discord_request.json"
+SCHEDULE_SHARE_DISCORD_IMAGE_RESPONSE_PREFIX = "schedule_share_discord_response_"
+DISCORD_SCHEDULE_REQUEST_DIRNAME = "discord_schedule_requests"
+DISCORD_VOICE_COMMAND_MEDIA_DIRNAME = "user_voice"
+DISCORD_VOICE_COMMAND_MEDIA_EXTENSIONS = (".wav", ".wave", ".mp4")
+DISCORD_BUILTIN_VOICE_COMMAND_PHRASES = (
+    "광역 체크해주세요.",
+    "집결지 모여주세요.",
+    "하하하..",
+)
 SCHEDULE_ARCHIVE_MAX_FILES = 3
 SEASON_PRESTART_ARCHIVE_DIRNAME = "season_prestart_logs"
 LOG_VALIDATION_TOLERANCE_SECONDS = 1.0
@@ -222,13 +252,20 @@ SCHEDULE_INPUT_OCR_ADDON_CAPTURE_HIDE_DELAY_SECONDS = 0.10
 SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS = 0.00
 SCHEDULE_ALARM_COUNTDOWN_COMPLETION_ADVANCE_MS = 100
 SCHEDULE_ALARM_COUNTDOWN_TICK_OFFSET_MS = 5
+SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS = 100
 SCHEDULE_SUMMARY_TICK_OFFSET_MS = 30
 SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS = 660
 SCHEDULE_FIXED_BOSS_SOON_MESSAGE_THRESHOLD_SECONDS = 40
+SCHEDULE_VALHALLA_BATTLE_DURATION_SECONDS = 20 * 60
+SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS = 60
 SCHEDULE_VOICE_PARALLEL_NEAR_EVENT_SUPPRESS_SECONDS = 3
 SCHEDULE_INVASION_SIDE_CHANNEL_VOLUME = 0.8
 SCHEDULE_SECOND_PRECISION_GEN_GAP_MS = 420
 SCHEDULE_SECOND_PRECISION_GEN_PLAYBACK_LATENCY_MS = 1700
+SCHEDULE_SECOND_PRECISION_NEAR_CLUSTER_SECONDS = 10
+SCHEDULE_SECOND_PRECISION_COMBINED_SECONDS = 1
+SCHEDULE_SECOND_PRECISION_NEAR_CHIME_LEAD_MS = 3000
+SCHEDULE_SECOND_PRECISION_NEAR_BRIDGE_PRESEND_MS = 400
 SCHEDULE_TREE_SELECTION_PULSE_INTERVAL_MS = 420
 SCHEDULE_TREE_SELECTION_PULSE_COLORS = (
     "#22c55e",  # 녹색
@@ -265,13 +302,17 @@ SCHEDULE_GENERATION_DAYS = 7
 SCHEDULE_STATE_RETENTION_DAYS = 21
 SCHEDULE_STATE_FILENAME = "schedule_state.json"
 SCHEDULE_DELETE_HISTORY_FILENAME = "schedule_delete_history.json"
+SCHEDULE_SERVER_PROFILE_DIRNAME = "server_profiles"
+SCHEDULE_SERVER_PROFILE_SELECTION_FILENAME = "active_server_profile.json"
 SCHEDULE_RESTORE_HISTORY_RETENTION_DAYS = 14
 SCHEDULE_RESTORE_HISTORY_MAX_ENTRIES = 5
 SCHEDULE_ALARM_SETTINGS_FILENAME = "schedule_alarm_settings.json"
 SCHEDULE_ALARM_VOICE_LOG_DIRNAME = "음성로그"
 SCHEDULE_ALARM_VOICE_LOG_MAX_AGE_HOURS = 48
 SCHEDULE_ALARM_VOICE_LOG_MAX_BYTES = 512 * 1024
-SCHEDULE_ALARM_VOICE_RULE_VERSION = "2026-08-26.15"
+SCHEDULE_ALARM_VOICE_RULE_VERSION = "2026-09-07.68"
+SCHEDULE_ALARM_EDGE_TTS_COUNTDOWN_VOLUME_STEPS = {10: 20}
+SCHEDULE_ALARM_AUDIO_WARMUP_DURATION_MS = 900
 SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
     {
         "title": "초확정 젠시간 알림",
@@ -282,7 +323,7 @@ SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
         "lane": "중앙 큐",
         "message": "차임벨 + 보스이름 + 젠, 침공이면 차임벨 + 침공 + 보스이름 + 젠",
         "status": "구현",
-        "detail": "초까지 확정된 일반 보스 스케쥴의 젠 시각 안내입니다. 초읽기 기능이 꺼져 있으면 젠 시점에 차임벨, 보스이름, 젠 음성을 한 번 재생합니다. 침공 데이터라면 앞에 침공 음성을 붙입니다.",
+        "detail": "초까지 확정된 일반 보스 스케쥴의 젠 시각 안내입니다. 초읽기 기능이 꺼져 있으면 녹음 차임벨과 보스이름을 먼저 안내하고, 녹음파일이 없더라도 edge-tts의 젠 음성은 0초 시점에 분리 재생합니다. 침공 데이터라면 앞에 침공 음성을 붙입니다.",
     },
     {
         "title": "침공 초확정 젠시간 알림",
@@ -326,7 +367,7 @@ SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
         "lane": "중앙",
         "message": "n초 음성 또는 TTS 숫자",
         "status": "구현",
-        "detail": "초확정 보스 초읽기 본문입니다. 시작값 이하로 들어오면 매초 숫자 음성 또는 TTS 숫자를 재생하고, 카운트다운 음성 큐를 우선 처리합니다.",
+        "detail": "초확정 보스 초읽기 본문입니다. 시작값 이하로 들어오면 매초 숫자 음성 또는 TTS 숫자를 재생합니다. edge-tts 숫자는 +30% 속도로 미리 캐싱하고 초읽기 전용 비차단 호스트에 선로딩한 뒤 기준 시각보다 0.1초 먼저 재생해 지연과 숫자 누락을 방지합니다. 디스코드 봇도 AI 녹음파일 우선 사용 설정을 동일하게 적용합니다.",
     },
     {
         "title": "초확정 젠 완료",
@@ -337,7 +378,7 @@ SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
         "lane": "중앙",
         "message": "젠",
         "status": "구현",
-        "detail": "초확정 보스의 젠 완료 안내입니다. 0초 시점 또는 1초 후 예약 보정 시점에 젠 음성을 재생합니다. 초읽기 마지막 재생과 중복되지 않도록 별도 키로 한 번만 처리합니다.",
+        "detail": "초확정 보스의 젠 완료 안내입니다. 녹음 젠은 기존 로컬 보정값을 사용하고, edge-tts 젠은 재생 지연을 고려해 0초보다 0.1초 먼저 요청합니다. 초읽기 마지막 재생과 중복되지 않도록 별도 키로 한 번만 처리합니다.",
     },
     {
         "title": "초미확정 젠시간 알림",
@@ -367,10 +408,58 @@ SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
         "precision": "분확정/초확정",
         "purpose": "n분전",
         "condition": "침공 보스에 일반 알람 시간이 설정되어 있고 남은 시간이 알람 시간과 맞을 때",
-        "lane": "기본 중앙 큐, 본섭 중앙 안내와 겹치면 우측 채널 볼륨 -2단계",
+        "lane": "중앙 큐",
         "message": "차임벨 + 침공 + 보스이름 + n분전",
         "status": "구현",
-        "detail": "침공 보스에도 일반 알람 시간이 설정되어 있을 때 쓰는 n분전 안내입니다. 침공임을 먼저 말하고 보스이름과 n분전 음성을 붙입니다. 본섭 중앙 안내와 겹치면 우측 채널을 사용합니다.",
+        "detail": "침공 보스에도 일반 알람 시간이 설정되어 있을 때 쓰는 n분전 안내입니다. 침공임을 먼저 말하고 보스이름과 n분전 음성을 붙입니다. 일반 보스 젠시간 안내와 겹쳐도 중앙 큐에서 순서대로 재생하며, 우측 채널은 초확정 젠 충돌 처리에서만 사용합니다.",
+    },
+    {
+        "display_no": "9-1",
+        "title": "일반·침공 복합 큐 (초미확정)",
+        "source": "일반이벤트/침공",
+        "precision": "분확정",
+        "purpose": "복합처리 테스트",
+        "condition": "동시간 일반·침공과 1분·5분 간격의 일반·침공이 연달아 예정되어 있을 때",
+        "lane": "중앙 큐",
+        "message": "동시간은 대표 보스 + 외 n개로 묶고, 침공 안내도 중앙 큐 순서대로 재생",
+        "status": "테스트 추가",
+        "detail": "2259~2306 복합 스케쥴을 분확정 상태로 생성합니다. 동시간 일반/침공 묶음, 단일 침공, 5분 간격 일반 보스를 한 번에 검증합니다. 침공 사전 알림은 일반 젠시간 안내와 겹쳐도 우측 병렬 채널로 보내지 않고 중앙 큐에서 순서대로 처리합니다.",
+    },
+    {
+        "display_no": "9-2",
+        "title": "일반·침공 복합 큐 (초확정)",
+        "source": "일반이벤트/침공",
+        "precision": "초확정",
+        "purpose": "복합처리 테스트",
+        "condition": "9-1과 같은 스케쥴이 모두 초 단위 확정 상태일 때",
+        "lane": "중앙/초읽기 보호 큐",
+        "message": "동시간 묶음과 단일 침공 안내를 초확정 큐 규칙으로 순서대로 재생",
+        "status": "테스트 추가",
+        "detail": "9-1과 동일한 2259~2306 스케쥴을 모두 초확정 상태로 생성합니다. 초확정 요청이 같은 구간에 들어올 때도 일반과 침공이 중복 재생되지 않고, 중앙 큐·초읽기 보호 규칙에 따라 처리되는지 확인합니다.",
+    },
+    {
+        "display_no": "9-3",
+        "title": "동시간 묶음 기준 (초확정)",
+        "source": "일반이벤트",
+        "precision": "초확정",
+        "purpose": "묶음 기준 테스트",
+        "condition": "동시에 2개, 동시에 3개, 1분 뒤 단일 보스가 순서대로 예정될 때",
+        "lane": "중앙 큐",
+        "message": "2개=보스이름 둘 다 / 3개 이상=대표 보스 + 외 n개",
+        "status": "테스트 추가",
+        "detail": "06:08 라이노르·브륀힐드, 06:09 니드호그·셀로비아·라타토스크, 06:10 페티를 모두 초확정으로 생성합니다. 2개 그룹은 이름을 모두 읽고, 3개 그룹부터 대표 보스와 외 n개로 재생되는지 확인합니다.",
+    },
+    {
+        "display_no": "9-4",
+        "title": "초확정 근접·동시간 복합 큐",
+        "source": "일반이벤트",
+        "precision": "초확정",
+        "purpose": "근접 시각 큐 테스트",
+        "condition": "2초 간격 단일 보스, 같은 초 3개 보스, 1초 뒤 단일 보스가 이어질 때",
+        "lane": "중앙 큐",
+        "message": "1초 이내는 한 번의 젠 / 2~10초는 차임벨 한 번 뒤 각각 젠",
+        "status": "테스트 추가",
+        "detail": "12:26:01 라이노르, 12:26:03 브륀힐드, 12:27:01 니드호그·셀로비아·페티, 12:27:02 라타토스크를 모두 초확정으로 생성합니다. 1초 이내는 이름을 한 번에 읽고 젠을 한 번만 재생합니다. 2~10초 근접 젠은 차임벨을 한 번만 낸 뒤 각 보스의 젠 안내를 한 큐로 순서대로 재생합니다.",
     },
     {
         "title": "일반 보스 n분전",
@@ -399,22 +488,22 @@ SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
         "source": "일반이벤트",
         "precision": "분확정/초확정",
         "purpose": "묶음",
-        "condition": "같은 알람 시간에 여러 보스가 25초 안에 묶일 때",
+        "condition": "젠 시각이 25초 이내로 가까운 여러 보스가 같은 n분전 알림에 걸릴 때",
         "lane": "중앙 큐",
         "message": "차임벨 + 보스이름들 + n분전",
         "status": "구현",
-        "detail": "여러 일반 보스가 같은 알람 시간에 25초 안으로 붙어 있을 때의 묶음 안내입니다. 개별로 여러 번 말하지 않고 보스이름들을 한 번에 묶은 뒤 n분전 음성을 붙입니다.",
+        "detail": "젠 시각이 25초 이내로 가까운 여러 보스의 묶음 안내입니다. 대표 보스와 외 n개를 한 번 말한 뒤 n분전 음성을 붙입니다. 1분 이상 차이 나는 다음 젠 그룹은 포함하지 않습니다.",
     },
     {
-        "title": "연타임보스 1분전",
+        "title": "동시간 보스 1분전",
         "source": "일반이벤트",
         "precision": "분확정/초확정",
-        "purpose": "특수 n분전",
-        "condition": "동시간 보스 그룹이 1분전 알람에 걸릴 때",
+        "purpose": "묶음",
+        "condition": "젠 시각이 정확히 같은 보스 그룹이 1분전 알람에 걸릴 때",
         "lane": "중앙 큐",
-        "message": "차임벨 + 보스이름들 + 연타임보스 + 1분전",
+        "message": "차임벨 + 대표 보스 + 외 n개 + 1분전",
         "status": "구현",
-        "detail": "동시간 그룹이 1분전 알람에 걸릴 때의 특수 안내입니다. 보스이름들을 묶고 연타임보스 음성을 넣은 뒤 1분전 음성을 재생합니다.",
+        "detail": "동시간 그룹의 대표 보스와 외 n개를 말한 뒤 바로 1분전 음성을 재생합니다. 연타임보스 특수 문구는 사용하지 않습니다.",
     },
     {
         "title": "연속보스 감지",
@@ -543,6 +632,7 @@ SCHEDULE_ALARM_VOICE_RULE_CATALOG = (
 SCHEDULE_ALARM_VOICE_PHASE_PRIORITY = {
     "SPAWN_SOON": 10,
     "SPAWN_CONFIRMED": 20,
+    "SPAWN_CONFIRMED_NEAR_SEQUENCE": 20,
     "PRE_ALERT": 30,
     "FIXED_PRE_ALERT": 40,
 }
@@ -575,6 +665,7 @@ SCHEDULE_BOSS_METRICS_FILENAME = "schedule_boss_metrics.json"
 DEFAULT_SETTINGS_SEED_FILENAME = "default_settings.ini"
 DEFAULT_SCHEDULE_STATE_SEED_FILENAME = "default_schedule_state.json"
 DEFAULT_SCHEDULE_ALARM_SETTINGS_SEED_FILENAME = "default_schedule_alarm_settings.json"
+DEFAULT_EDGE_TTS_SETTINGS_SEED_FILENAME = "default_edge_tts.ini"
 DEFAULT_RECORD_BOOK_SEED_FILENAME = "default_boss_capture_records.json"
 GITHUB_TOKEN_RUNTIME_SETTING_KEYS = ("github_data_token",)
 DEFAULT_SETTINGS_SEED_KEYS = (
@@ -837,6 +928,52 @@ def get_user_config_dir() -> str:
 CONFIG_PATH = os.path.join(get_app_root(), "boss_timer_settings.ini")
 GITHUB_TOKEN_CONFIG_PATH = os.path.join(get_user_config_dir(), "github_token.ini")
 MASTER_DEVELOPER_CONFIG_PATH = os.path.join(get_user_config_dir(), "master_developer.ini")
+DISCORD_BOT_CONFIG_PATH = os.path.join(get_user_config_dir(), "discord_bot.ini")
+EDGE_TTS_CONFIG_PATH = os.path.join(get_user_config_dir(), "edge_tts.ini")
+EDGE_TTS_MODULE_DIR = get_default_edge_tts_module_dir()
+EDGE_TTS_CACHE_DIR = os.path.join(get_app_root(), "tts_캐쉬")
+EDGE_TTS_DISTRIBUTION_CACHE_SEED_MARKER_PATH = os.path.join(
+    get_user_config_dir(),
+    "edge_tts_cache_distribution_v5.seed",
+)
+DISCORD_BOT_DEFAULT_APPLICATION_ID = "1542441650746302505"
+DISCORD_BOT_DEFAULT_INVITE_URL = f"https://discord.com/oauth2/authorize?client_id={DISCORD_BOT_DEFAULT_APPLICATION_ID}"
+DISCORD_BOT_STATUS_PORT = 18765
+DISCORD_BOT_STATUS_URL = f"http://127.0.0.1:{DISCORD_BOT_STATUS_PORT}/status"
+DISCORD_BOT_SHUTDOWN_URL = f"http://127.0.0.1:{DISCORD_BOT_STATUS_PORT}/shutdown"
+DISCORD_BOT_DISCONNECT_RESULT_PATH = os.path.join(get_user_config_dir(), "discord_disconnect_result.json")
+DISCORD_VOICE_BRIDGE_PATH = os.path.join(get_user_config_dir(), "discord_voice_queue.jsonl")
+DISCORD_VOICE_BRIDGE_MAX_BYTES = 1024 * 1024
+DISCORD_VOICE_BRIDGE_LOCAL_SYNC_DELAY_SEC = 0.0
+DISCORD_VOICE_BRIDGE_GENERIC_PRESEND_SEC = 0.18
+DISCORD_VOICE_BRIDGE_HEARTBEAT_INTERVAL_SEC = 6.0
+DISCORD_VOICE_BRIDGE_HEARTBEAT_TIMEOUT_SEC = 9.0
+DISCORD_VOICE_BRIDGE_HEARTBEAT_FAILURE_LIMIT = 2
+DISCORD_BOT_STATUS_FAILURE_LIMIT = 3
+DISCORD_BOT_RECOVERY_GRACE_SEC = 20.0
+DISCORD_COUNTDOWN_START_NOTICE_PRESEND_SECONDS = 8.0
+DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS = 250
+DISCORD_COUNTDOWN_COMPOSITE_PRESEND_SAFETY_MS = 100
+DISCORD_VOICE_BRIDGE_TIME_CRITICAL_PHASES = frozenset({
+    "COUNTDOWN_TICK",
+    "COUNTDOWN_GEN",
+    "SPAWN_CONFIRMED_GEN",
+    "COUNTDOWN_SEQUENCE",
+    "COUNTDOWN_START_NOTICE_SEQUENCE",
+    "SPAWN_CONFIRMED_SEQUENCE",
+})
+DISCORD_COUNTDOWN_TIMED_CLIP_ADVANCE_MS = {
+    14: 30,
+    13: 80,
+    11: 10,
+}
+DISCORD_SPAWN_CONFIRMED_LEAD_SECONDS = 5.0
+DISCORD_INVASION_SPAWN_CONFIRMED_LEAD_SECONDS = 6.5
+DISCORD_GEN_TIMED_CLIP_ADVANCE_MS = 120
+DISCORD_COUNTDOWN_GEN_TIMED_CLIP_ADVANCE_MS = 0
+DISCORD_EDGE_TTS_COUNTDOWN_TIMED_CLIP_ADVANCE_MS = SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS
+DISCORD_EDGE_TTS_GEN_TIMED_CLIP_ADVANCE_MS = SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS
+DISCORD_INVASION_GEN_TIMED_CLIP_ADVANCE_MS = 0
 RECORD_BOOK_PATH = os.path.join(get_app_root(), RECORD_BOOK_FILENAME)
 INIT_DIR = os.path.join(get_app_root(), "init")
 SEASON_HISTORY_PATH = os.path.join(get_app_root(), "season_history.json")
@@ -849,6 +986,14 @@ SCHEDULE_AREA_DEFINITIONS_PATH = os.path.join(INIT_DIR, SCHEDULE_AREA_DEFINITION
 SCHEDULE_FIXED_BOSSES_PATH = os.path.join(INIT_DIR, SCHEDULE_FIXED_BOSSES_FILENAME)
 RECORD_BOOK_AVG_CACHE_PATH = os.path.join(get_app_root(), RECORD_BOOK_AVG_CACHE_FILENAME)
 SCHEDULE_STATE_PATH = os.path.join(get_app_root(), SCHEDULE_STATE_FILENAME)
+SCHEDULE_ALARM_VOICE_TEST_ORIGINAL_PATH = os.path.join(
+    get_app_root(),
+    "schedule_alarm_voice_test_original.json",
+)
+SCHEDULE_ALARM_VOICE_TEST_RUNTIME_PATH = os.path.join(
+    get_app_root(),
+    "schedule_alarm_voice_test_runtime.json",
+)
 SCHEDULE_DELETE_HISTORY_PATH = os.path.join(get_app_root(), SCHEDULE_DELETE_HISTORY_FILENAME)
 SCHEDULE_ALARM_SETTINGS_PATH = os.path.join(get_app_root(), SCHEDULE_ALARM_SETTINGS_FILENAME)
 SCHEDULE_STANDALONE_SCHEDULER_EXE_NAME = "boss_timer_scheduler.exe"
@@ -882,7 +1027,6 @@ SCHEDULE_ALARM_DEFAULT_CHIME_PATHS = {
     "rapid_chain": "wave/안내방송_비행기2.wav",
 }
 SCHEDULE_ALARM_FEMALE_VOICE_NAME = "Microsoft Heami Desktop - Korean"
-SCHEDULE_ALARM_SIGNAL_FREQUENCIES = (1760, 2093)
 SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS = 60
 SCHEDULE_ALARM_COUNTDOWN_AUDIO_ALIAS = "boss_timer_countdown_audio"
 SCHEDULE_ALARM_BOSS_AUDIO_ALIAS = "boss_timer_boss_audio"
@@ -1167,6 +1311,402 @@ class BossTimerApp:
     SWP_NOACTIVATE = 0x0010
     SWP_SHOWWINDOW = 0x0040
 
+    @staticmethod
+    def _normalize_schedule_server_profile_id(server_id: object) -> str:
+        """Return a filesystem-safe, stable server profile key."""
+        raw_value = str(server_id or "").strip()
+        if not raw_value:
+            return ""
+        return re.sub(r"[^0-9A-Za-z_-]", "_", raw_value)[:96].strip("._")
+
+    @staticmethod
+    def _normalize_schedule_server_profile_season_key(season_no: object) -> str:
+        season_text = re.sub(r"[^0-9]", "", str(season_no or "").strip())
+        if not season_text:
+            return "season_unset"
+        try:
+            season_text = str(int(season_text))
+        except ValueError:
+            return "season_unset"
+        return f"season_{season_text}"
+
+    def _load_schedule_server_profile_season_key_from_settings(self) -> str:
+        """Read only the season identity early, before the full UI settings load."""
+        config = configparser.ConfigParser(interpolation=None)
+        try:
+            if not os.path.isfile(CONFIG_PATH):
+                return "season_unset"
+            config.read(CONFIG_PATH, encoding="utf-8")
+            season_no = config.get("settings", "current_season_no", fallback="")
+        except (OSError, configparser.Error):
+            return "season_unset"
+        return self._normalize_schedule_server_profile_season_key(season_no)
+
+    def _get_current_schedule_server_profile_season_key(self) -> str:
+        current_key = self._normalize_schedule_server_profile_season_key(
+            getattr(self, "current_season_no", "")
+        )
+        if current_key != "season_unset":
+            return current_key
+        stored_key = str(getattr(self, "schedule_server_profile_season_key", "") or "").strip()
+        return stored_key or "season_unset"
+
+    def _get_active_schedule_server_profile_season_key(self) -> str:
+        stored_key = str(getattr(self, "schedule_server_profile_season_key", "") or "").strip()
+        if re.fullmatch(r"season_(?:\d+|unset)", stored_key):
+            return stored_key
+        return self._get_current_schedule_server_profile_season_key()
+
+    def _get_schedule_server_profile_selection_path(self) -> str:
+        return os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_SELECTION_FILENAME)
+
+    def _load_schedule_server_profile_selection(self) -> tuple[str, str, str]:
+        try:
+            with open(self._get_schedule_server_profile_selection_path(), "r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            return "", "", "season_unset"
+        if not isinstance(payload, dict):
+            return "", "", "season_unset"
+        profile_id = self._normalize_schedule_server_profile_id(payload.get("server_id"))
+        profile_name = str(payload.get("server_name") or "").strip()
+        season_key = self._normalize_schedule_server_profile_season_key(payload.get("season_no"))
+        if season_key == "season_unset":
+            stored_key = str(payload.get("season_key") or "").strip()
+            if re.fullmatch(r"season_\d+", stored_key):
+                season_key = stored_key
+        return profile_id, profile_name, season_key
+
+    def _save_schedule_server_profile_selection(self) -> None:
+        profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        if not profile_id:
+            return
+        target_path = self._get_schedule_server_profile_selection_path()
+        temporary_path = ""
+        try:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=os.path.dirname(target_path), delete=False, suffix=".tmp") as file:
+                temporary_path = file.name
+                json.dump(
+                    {
+                        "server_id": profile_id,
+                        "server_name": str(getattr(self, "schedule_server_profile_name", "") or "").strip(),
+                        "season_key": self._get_active_schedule_server_profile_season_key(),
+                    },
+                    file,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            os.replace(temporary_path, target_path)
+        except OSError:
+            if temporary_path:
+                try:
+                    os.remove(temporary_path)
+                except OSError:
+                    pass
+
+    def _get_schedule_server_profile_dir(self) -> str:
+        profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        if not profile_id:
+            return ""
+        season_key = self._get_active_schedule_server_profile_season_key()
+        return os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME, season_key, profile_id)
+
+    def _get_schedule_server_profile_init_dir(self) -> str:
+        profile_dir = self._get_schedule_server_profile_dir()
+        return os.path.join(profile_dir, "init") if profile_dir else ""
+
+    def _get_schedule_server_profile_path(self, filename: str, legacy_path: str, *, init_file: bool = False) -> str:
+        profile_dir = self._get_schedule_server_profile_init_dir() if init_file else self._get_schedule_server_profile_dir()
+        return os.path.join(profile_dir, filename) if profile_dir else legacy_path
+
+    def _get_schedule_state_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_STATE_FILENAME, SCHEDULE_STATE_PATH)
+
+    def _get_discord_bot_config_storage_path(self) -> str:
+        """Return the Discord bot settings file for the active game server.
+
+        Discord token/channel settings used to live in one AppData file.  That
+        made changing the schedule server silently reuse another server's
+        channel.  Keep the legacy file only as a one-time migration source.
+        """
+        return self._get_schedule_server_profile_path("discord_bot.ini", DISCORD_BOT_CONFIG_PATH)
+
+    def _get_discord_voice_commands_storage_path(self) -> str:
+        """Return the custom voice-command registry for the active server."""
+        legacy_path = os.path.join(get_user_config_dir(), "discord_voice_commands.json")
+        return self._get_schedule_server_profile_path("discord_voice_commands.json", legacy_path)
+
+    def _migrate_legacy_discord_bot_settings_to_active_profile(self) -> bool:
+        """Move the pre-server-profile bot settings to the current profile once."""
+        profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        target_path = self._get_discord_bot_config_storage_path()
+        if not profile_id or target_path == DISCORD_BOT_CONFIG_PATH or os.path.exists(target_path):
+            return False
+        if not os.path.isfile(DISCORD_BOT_CONFIG_PATH):
+            return False
+        profiles_root = os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME)
+        try:
+            for root_path, _dir_names, file_names in os.walk(profiles_root):
+                if "discord_bot.ini" in file_names:
+                    return False
+        except OSError:
+            return False
+        try:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            shutil.copy2(DISCORD_BOT_CONFIG_PATH, target_path)
+        except OSError:
+            return False
+        self._append_debug_log(f"discord_bot_settings_legacy_migrated server={profile_id}")
+        return True
+
+    def _migrate_legacy_discord_voice_commands_to_active_profile(self) -> bool:
+        """Move the old single custom-command list to its first server once."""
+        profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        legacy_path = os.path.join(get_user_config_dir(), "discord_voice_commands.json")
+        target_path = self._get_discord_voice_commands_storage_path()
+        if not profile_id or target_path == legacy_path or os.path.exists(target_path):
+            return False
+        if not os.path.isfile(legacy_path):
+            return False
+        profiles_root = os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME)
+        try:
+            for _root_path, _dir_names, file_names in os.walk(profiles_root):
+                if "discord_voice_commands.json" in file_names:
+                    return False
+        except OSError:
+            return False
+        try:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            shutil.copy2(legacy_path, target_path)
+        except OSError:
+            return False
+        self._append_debug_log(f"discord_voice_commands_legacy_migrated server={profile_id}")
+        return True
+
+    def _get_schedule_alarm_settings_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_ALARM_SETTINGS_FILENAME, SCHEDULE_ALARM_SETTINGS_PATH)
+
+    def _get_schedule_delete_history_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_DELETE_HISTORY_FILENAME, SCHEDULE_DELETE_HISTORY_PATH)
+
+    def _get_schedule_area_definitions_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_AREA_DEFINITIONS_FILENAME, SCHEDULE_AREA_DEFINITIONS_PATH, init_file=True)
+
+    def _get_schedule_boss_definitions_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_BOSS_DEFINITIONS_FILENAME, SCHEDULE_BOSS_DEFINITIONS_PATH, init_file=True)
+
+    def _get_schedule_fixed_bosses_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_FIXED_BOSSES_FILENAME, SCHEDULE_FIXED_BOSSES_PATH, init_file=True)
+
+    def _get_schedule_boss_metrics_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_BOSS_METRICS_FILENAME, SCHEDULE_BOSS_METRICS_PATH, init_file=True)
+
+    def _get_schedule_break_rules_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_BREAK_RULES_FILENAME, SCHEDULE_BREAK_RULES_PATH, init_file=True)
+
+    def _get_schedule_ocr_corrections_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path(SCHEDULE_OCR_CORRECTIONS_FILENAME, SCHEDULE_OCR_CORRECTIONS_PATH)
+
+    def _get_schedule_alarm_voice_test_original_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path("schedule_alarm_voice_test_original.json", SCHEDULE_ALARM_VOICE_TEST_ORIGINAL_PATH)
+
+    def _get_schedule_alarm_voice_test_runtime_storage_path(self) -> str:
+        return self._get_schedule_server_profile_path("schedule_alarm_voice_test_runtime.json", SCHEDULE_ALARM_VOICE_TEST_RUNTIME_PATH)
+
+    def _apply_schedule_alarm_settings_payload_to_runtime(self, payload: dict[str, object]) -> None:
+        self.schedule_alarm_master_enabled_default = bool(payload.get("master_enabled", True))
+        self.schedule_alarm_countdown_enabled_default = bool(payload.get("countdown_enabled", False))
+        self.schedule_alarm_ai_recording_preferred_default = bool(payload.get("ai_recording_preferred", False))
+        self.schedule_alarm_countdown_start_default = int(payload.get("countdown_start_seconds", 10) or 10)
+        self.schedule_fixed_boss_alarm_enabled_default = bool(payload.get("fixed_boss_enabled", False))
+        self.schedule_fixed_boss_skip_due_time_default = bool(payload.get("fixed_boss_skip_due_time", True))
+        self.schedule_second_precision_expire_hours_default = max(
+            0,
+            self._parse_int(str(payload.get("second_precision_expire_hours") or "24"), 24),
+        )
+        self.schedule_alarm_voice_name = str(payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
+        self.schedule_alarm_chime_settings = self._normalize_schedule_alarm_chime_settings(payload.get("chime_settings", {}))
+        self.schedule_alarm_common_offsets = self._normalize_schedule_alarm_offsets(payload.get("common_offsets", []))
+        self.schedule_boss_alarm_settings = self._normalize_schedule_boss_alarm_settings_map(payload.get("boss_overrides", {}))
+        self.schedule_fixed_boss_alarm_settings = self._normalize_schedule_boss_alarm_settings_map(payload.get("fixed_boss_overrides", {}))
+        self.schedule_fixed_boss_alarm_new_entry_enabled_default = self.schedule_fixed_boss_alarm_enabled_default
+        try:
+            self.schedule_alarm_master_var.set(self.schedule_alarm_master_enabled_default)
+            self.schedule_alarm_countdown_enabled_var.set(self.schedule_alarm_countdown_enabled_default)
+            self.schedule_alarm_ai_recording_preferred_var.set(self.schedule_alarm_ai_recording_preferred_default)
+            self.schedule_alarm_countdown_start_var.set(str(self.schedule_alarm_countdown_start_default))
+            self.schedule_second_precision_expire_hours_var.set(str(self.schedule_second_precision_expire_hours_default))
+            self.schedule_fixed_boss_alarm_enabled_var.set(self.schedule_fixed_boss_alarm_enabled_default)
+            self.schedule_fixed_boss_skip_due_time_var.set(self.schedule_fixed_boss_skip_due_time_default)
+            self.schedule_alarm_voice_label_var.set(self.schedule_alarm_voice_name)
+        except (AttributeError, tk.TclError):
+            pass
+
+    def _migrate_flat_server_profile_to_season_profile(self, profile_id: str) -> bool:
+        """Preserve profiles written before seasons became part of the key."""
+        profile_id = self._normalize_schedule_server_profile_id(profile_id)
+        target_dir = self._get_schedule_server_profile_dir()
+        if not profile_id or not target_dir or os.path.isdir(target_dir):
+            return False
+        legacy_dir = os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME, profile_id)
+        if not os.path.isdir(legacy_dir):
+            return False
+        try:
+            os.makedirs(os.path.dirname(target_dir), exist_ok=True)
+            shutil.copytree(legacy_dir, target_dir, dirs_exist_ok=False)
+        except OSError:
+            return False
+        self._append_debug_log(
+            f"schedule_server_profile_season_migrated season={self._get_current_schedule_server_profile_season_key()} "
+            f"server={profile_id}"
+        )
+        return True
+
+    def _activate_schedule_server_profile(self, server_id: object, server_name: object = "") -> bool:
+        profile_id = self._normalize_schedule_server_profile_id(server_id)
+        if not profile_id:
+            return False
+        target_season_key = self._get_current_schedule_server_profile_season_key()
+        active_season_key = str(getattr(self, "schedule_server_profile_season_key", "") or "").strip() or "season_unset"
+        if (
+            profile_id == self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+            and target_season_key == active_season_key
+        ):
+            self.schedule_server_profile_name = str(server_name or self.schedule_server_profile_name or "").strip()
+            self._save_schedule_server_profile_selection()
+            return False
+        # 서버를 떠나기 전에 현재 서버의 마지막 입력·알람 설정을 모두
+        # 해당 프로필에 저장한다. 이후 다른 서버의 빈 상태가 현재 서버를
+        # 덮어쓰는 일을 막는다.
+        if getattr(self, "schedule_server_profile_id", ""):
+            self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False, reset_voice_queue=False)
+            self._save_schedule_alarm_settings()
+            self._save_schedule_delete_history()
+        self.schedule_server_profile_id = profile_id
+        self.schedule_server_profile_name = str(server_name or "").strip()
+        self.schedule_server_profile_season_key = target_season_key
+        self._save_schedule_server_profile_selection()
+        self._migrate_flat_server_profile_to_season_profile(profile_id)
+        self._ensure_init_dir()
+
+        self.schedule_events = []
+        self.schedule_active_entries = []
+        self.schedule_control_events = []
+        self.schedule_second_precision_offsets = {}
+        self.schedule_last_import_meta = None
+        self.schedule_tree_quick_cut_history = []
+        self.schedule_active_quick_cut_history = []
+        self.schedule_delete_history = []
+        self.schedule_delete_active_cutoff_datetime = None
+        self._load_schedule_state()
+        self.schedule_area_definitions = self._load_schedule_area_definitions()
+        self.schedule_boss_deleted_builtin_names = set()
+        self.schedule_boss_definitions = self._load_schedule_boss_definitions()
+        self.fixed_boss_entries = self._load_fixed_boss_definitions()
+        self._rebuild_boss_name_resolution_maps()
+        self.schedule_boss_metrics = self._load_schedule_boss_metrics()
+        self.schedule_break_entries = self._load_schedule_break_rules()
+        self.schedule_ocr_corrections = self._load_schedule_ocr_corrections()
+        self._apply_schedule_alarm_settings_payload_to_runtime(self._load_schedule_alarm_settings())
+        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+        self._sync_schedule_alarm_settings_with_boss_definitions()
+        self._sync_schedule_fixed_boss_alarm_settings_with_definitions()
+        self._load_schedule_delete_history()
+        self._reset_schedule_alarm_event_index()
+        self._bump_schedule_voice_broker_generation()
+        self._append_debug_log(f"schedule_server_profile_activated server={profile_id}")
+        return True
+
+    def _activate_current_server_profile_for_new_season(self) -> bool:
+        """Switch the currently selected server to a fresh season namespace."""
+        profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        if not profile_id:
+            return False
+        target_season_key = self._get_current_schedule_server_profile_season_key()
+        if target_season_key == self._get_active_schedule_server_profile_season_key():
+            return False
+        profile_name = str(getattr(self, "schedule_server_profile_name", "") or "").strip()
+        was_bot_active = bool(
+            bool(getattr(self, "discord_bot_expected_running", False))
+            or bool(getattr(self, "discord_bot_last_status_payload", {}).get("ok"))
+            or self._is_discord_bot_process_alive()
+        )
+        bot_stopped = True
+        if was_bot_active:
+            self._save_discord_bot_settings()
+            self.discord_bot_expected_running = False
+            bot_stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.5, force_timeout=1.0)
+            self._refresh_discord_bot_status_ui()
+        changed = self._activate_schedule_server_profile(profile_id, profile_name)
+        if not changed:
+            return False
+        try:
+            self._refresh_schedule_view()
+        except (AttributeError, tk.TclError):
+            pass
+        if was_bot_active and bot_stopped:
+            validation_error = self._get_discord_bot_settings_validation_error(
+                token=str(getattr(self, "discord_bot_token", "") or ""),
+                application_id=str(getattr(self, "discord_bot_application_id", "") or ""),
+                server_id=str(getattr(self, "discord_bot_server_id", "") or ""),
+                voice_channel_id=str(getattr(self, "discord_bot_voice_channel_id", "") or ""),
+                text_channel_id=str(getattr(self, "discord_bot_text_channel_id", "") or ""),
+            )
+            if not validation_error:
+                self.discord_bot_expected_running = True
+                try:
+                    self.root.after(3000, self._start_discord_bot_runtime)
+                except tk.TclError:
+                    self.discord_bot_expected_running = False
+        self._append_debug_log(
+            f"schedule_server_profile_season_activated season={target_season_key} server={profile_id}"
+        )
+        return True
+
+    def _migrate_legacy_schedule_runtime_to_server_profile(self, server_id: object) -> bool:
+        """Copy one pre-profile installation into its known current server once."""
+        if self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", "")):
+            return False
+        profile_id = self._normalize_schedule_server_profile_id(server_id)
+        if not profile_id:
+            return False
+        profile_dir = os.path.join(
+            get_user_config_dir(),
+            SCHEDULE_SERVER_PROFILE_DIRNAME,
+            self._get_current_schedule_server_profile_season_key(),
+            profile_id,
+        )
+        profile_state_path = os.path.join(profile_dir, SCHEDULE_STATE_FILENAME)
+        if os.path.exists(profile_state_path):
+            return False
+        legacy_to_profile = (
+            (SCHEDULE_STATE_PATH, profile_state_path),
+            (SCHEDULE_ALARM_SETTINGS_PATH, os.path.join(profile_dir, SCHEDULE_ALARM_SETTINGS_FILENAME)),
+            (SCHEDULE_DELETE_HISTORY_PATH, os.path.join(profile_dir, SCHEDULE_DELETE_HISTORY_FILENAME)),
+            (SCHEDULE_ALARM_VOICE_TEST_ORIGINAL_PATH, os.path.join(profile_dir, "schedule_alarm_voice_test_original.json")),
+            (SCHEDULE_ALARM_VOICE_TEST_RUNTIME_PATH, os.path.join(profile_dir, "schedule_alarm_voice_test_runtime.json")),
+            (SCHEDULE_OCR_CORRECTIONS_PATH, os.path.join(profile_dir, SCHEDULE_OCR_CORRECTIONS_FILENAME)),
+            (SCHEDULE_AREA_DEFINITIONS_PATH, os.path.join(profile_dir, "init", SCHEDULE_AREA_DEFINITIONS_FILENAME)),
+            (SCHEDULE_BOSS_DEFINITIONS_PATH, os.path.join(profile_dir, "init", SCHEDULE_BOSS_DEFINITIONS_FILENAME)),
+            (SCHEDULE_FIXED_BOSSES_PATH, os.path.join(profile_dir, "init", SCHEDULE_FIXED_BOSSES_FILENAME)),
+            (SCHEDULE_BOSS_METRICS_PATH, os.path.join(profile_dir, "init", SCHEDULE_BOSS_METRICS_FILENAME)),
+            (SCHEDULE_BREAK_RULES_PATH, os.path.join(profile_dir, "init", SCHEDULE_BREAK_RULES_FILENAME)),
+        )
+        copied_any = False
+        for source_path, target_path in legacy_to_profile:
+            if not os.path.isfile(source_path) or os.path.exists(target_path):
+                continue
+            try:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                shutil.copy2(source_path, target_path)
+                copied_any = True
+            except OSError:
+                continue
+        if copied_any:
+            self._append_debug_log(f"schedule_server_profile_legacy_migrated server={profile_id}")
+        return copied_any
+
     def __init__(self, root: tk.Tk, *, scheduler_worker: bool = False) -> None:
         self.root = root
         self.root.report_callback_exception = self._report_callback_exception
@@ -1175,6 +1715,17 @@ class BossTimerApp:
         self.scheduler_worker_last_heartbeat_at = 0.0
         self.scheduler_worker_schedule_state_mtime = 0.0
         self.scheduler_worker_alarm_settings_mtime = 0.0
+        (
+            self.schedule_server_profile_id,
+            self.schedule_server_profile_name,
+            self.schedule_server_profile_season_key,
+        ) = self._load_schedule_server_profile_selection()
+        configured_season_key = self._load_schedule_server_profile_season_key_from_settings()
+        if configured_season_key != "season_unset":
+            self.schedule_server_profile_season_key = configured_season_key
+        # 이전 버전의 server_profiles/<서버ID> 자료는 현재 시즌 경로로 한 번
+        # 복사해 두어, 업데이트 직후에도 기존 서버 데이터를 잃지 않는다.
+        self._migrate_flat_server_profile_to_season_profile(self.schedule_server_profile_id)
         self.root.title(
             f"보스전 타이머 스케쥴러{' [관리자]' if self.is_admin_process else ' [일반]'}"
             if self.scheduler_worker_mode
@@ -1241,6 +1792,40 @@ class BossTimerApp:
         self.github_data_repo = "pulpul7-boss_timer_data"
         self.github_data_branch = "main"
         self.github_data_token = self._load_github_data_token_from_user_config()
+        self._migrate_legacy_discord_bot_settings_to_active_profile()
+        self._migrate_legacy_discord_voice_commands_to_active_profile()
+        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+        self.discord_bot_running = False
+        self.discord_bot_process: subprocess.Popen | None = None
+        self.discord_bot_startup_cleanup_failed = False
+        self.discord_bot_shutdown_in_progress = False
+        self.discord_bot_reconnect_in_progress = False
+        self.discord_bot_expected_running = False
+        self.discord_bot_status_failure_count = 0
+        self.discord_bot_voice_bridge_heartbeat_failure_count = 0
+        self.discord_bot_voice_bridge_heartbeat_pending_id = ""
+        self.discord_bot_voice_bridge_heartbeat_pending_offset = 0
+        self.discord_bot_voice_bridge_heartbeat_sent_at = 0.0
+        self.discord_bot_voice_bridge_heartbeat_last_sent_at = 0.0
+        self.discord_bot_voice_bridge_recovery_grace_until = 0.0
+        self.discord_bot_pending_auto_reconnect_notice: dict[str, object] | None = None
+        self.discord_bot_settings_window = None
+        self.discord_bot_invite_window = None
+        self.discord_bot_toggle_button = None
+        self.discord_bot_status_label = None
+        self.discord_bot_status_after_id = None
+        self.discord_bot_status_blink_after_id = None
+        self.discord_bot_status_blink_on = True
+        self.discord_bot_status_poll_inflight = False
+        self.discord_bot_toggle_unlock_after_id = None
+        self.discord_bot_toggle_locked_until = 0.0
+        self.discord_bot_last_status_payload: dict[str, object] = {}
+        self.discord_bot_voice_bridge_status_checked_at = 0.0
+        self.discord_bot_voice_bridge_online = False
+        self.discord_bot_voice_bridge_lock = threading.Lock()
+        self.discord_bot_voice_bridge_seq = 0
+        self.discord_countdown_sequence_bridge_keys: set[str] = set()
+        self.discord_countdown_start_notice_bridge_keys: set[str] = set()
         self.master_developer_mode_enabled = self._load_master_developer_mode_enabled()
         self.master_developer_author_click_times: list[float] = []
         self.master_developer_dialog = None
@@ -1295,11 +1880,13 @@ class BossTimerApp:
         self.settings_window_y = 140
         self._seed_init_directory_from_resources()
         self._seed_runtime_default_files_from_resource_init()
+        self._seed_runtime_edge_tts_cache_from_resources()
         self._seed_runtime_assets_from_resources()
         self._seed_runtime_wave_from_resources()
         if self._reset_outdated_runtime_config_files_for_upgrade():
             self._seed_init_directory_from_resources()
             self._seed_runtime_default_files_from_resource_init()
+            self._seed_runtime_edge_tts_cache_from_resources()
             self._seed_runtime_assets_from_resources()
             self._seed_runtime_wave_from_resources()
         self._load_settings()
@@ -1369,10 +1956,14 @@ class BossTimerApp:
         self.schedule_window_x = None
         self.schedule_window_y = None
         self.schedule_window_busy = False
+        self.discord_schedule_monitor_window = None
+        self.discord_schedule_monitor_text = None
+        self.discord_schedule_monitor_reset_key = self._get_discord_schedule_monitor_reset_key()
         self.schedule_github_server_combo = None
         self.schedule_github_sync_button = None
         self.schedule_github_refresh_button = None
         self.schedule_github_upload_button = None
+        self.schedule_discord_bot_button = None
         self.schedule_github_server_entries: list[dict[str, object]] = []
         self.schedule_github_deleted_server_ids: set[str] = set()
         self.schedule_github_server_loading = False
@@ -1477,11 +2068,22 @@ class BossTimerApp:
         self.schedule_alarm_voice_duration_cache: dict[str, dict[str, object]] = self._load_schedule_alarm_voice_duration_cache()
         self.schedule_alarm_voice_duration_cache_dirty = False
         self.schedule_alarm_voice_duration_cache_lock = threading.Lock()
+        # Release builds keep the online voice engine out of the main EXE and
+        # load it from the optional module installed in AppData instead.
+        configure_edge_tts_module(
+            EDGE_TTS_MODULE_DIR,
+            allow_development_fallback=not bool(getattr(sys, "frozen", False)),
+        )
+        self.edge_tts_settings = load_edge_tts_settings(EDGE_TTS_CONFIG_PATH)
+        self.edge_tts_cache = EdgeTtsCache(
+            self.edge_tts_settings,
+            logger=self._append_debug_log,
+            persistent_dir=EDGE_TTS_CACHE_DIR,
+        )
         schedule_alarm_payload = self._load_schedule_alarm_settings()
-        self.schedule_alarm_master_enabled_default = bool(schedule_alarm_payload.get("master_enabled", False))
+        self.schedule_alarm_master_enabled_default = bool(schedule_alarm_payload.get("master_enabled", True))
         self.schedule_alarm_countdown_enabled_default = bool(schedule_alarm_payload.get("countdown_enabled", False))
-        self.schedule_alarm_countdown_ai_voice_enabled_default = bool(schedule_alarm_payload.get("countdown_ai_voice_enabled", False))
-        self.schedule_alarm_boss_ai_voice_enabled_default = bool(schedule_alarm_payload.get("boss_ai_voice_enabled", False))
+        self.schedule_alarm_ai_recording_preferred_default = bool(schedule_alarm_payload.get("ai_recording_preferred", False))
         self.schedule_alarm_countdown_start_default = int(schedule_alarm_payload.get("countdown_start_seconds", 10) or 10)
         self.schedule_fixed_boss_alarm_enabled_default = bool(schedule_alarm_payload.get("fixed_boss_enabled", False))
         self.schedule_fixed_boss_skip_due_time_default = bool(schedule_alarm_payload.get("fixed_boss_skip_due_time", True))
@@ -1708,8 +2310,7 @@ class BossTimerApp:
         self.schedule_following_boss_seconds_var = tk.StringVar(value=":--")
         self.schedule_alarm_master_var = tk.BooleanVar(value=self.schedule_alarm_master_enabled_default)
         self.schedule_alarm_countdown_enabled_var = tk.BooleanVar(value=self.schedule_alarm_countdown_enabled_default)
-        self.schedule_alarm_countdown_ai_voice_var = tk.BooleanVar(value=self.schedule_alarm_countdown_ai_voice_enabled_default)
-        self.schedule_alarm_boss_ai_voice_var = tk.BooleanVar(value=self.schedule_alarm_boss_ai_voice_enabled_default)
+        self.schedule_alarm_ai_recording_preferred_var = tk.BooleanVar(value=self.schedule_alarm_ai_recording_preferred_default)
         self.schedule_alarm_countdown_start_var = tk.StringVar(value=str(self.schedule_alarm_countdown_start_default))
         self.schedule_second_precision_expire_hours_var = tk.StringVar(value=str(self.schedule_second_precision_expire_hours_default))
         self.schedule_fixed_boss_alarm_enabled_var = tk.BooleanVar(value=self.schedule_fixed_boss_alarm_enabled_default)
@@ -1725,6 +2326,7 @@ class BossTimerApp:
         self.schedule_alarm_voice_label_var = tk.StringVar(value=self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME)
         self.schedule_alarm_voice_test_delay_var = tk.StringVar(value="1")
         self.schedule_alarm_voice_test_status_var = tk.StringVar(value="")
+        self.discord_bot_status_var = tk.StringVar(value=self._get_discord_bot_status_text())
         self.schedule_alarm_chime_window = None
         self.schedule_alarm_voice_rule_window = None
         self.schedule_alarm_voice_rule_tree = None
@@ -1747,6 +2349,7 @@ class BossTimerApp:
         self.schedule_alarm_voice_test_log_lock = threading.Lock()
         self.schedule_alarm_voice_test_backup_snapshot: dict[str, object] | None = None
         self.schedule_alarm_voice_test_backup_version = ""
+        self.schedule_alarm_voice_test_bridge_scope_id = ""
         self.schedule_alarm_chime_status_var = tk.StringVar(value="")
         self.background_music_enabled_var = tk.BooleanVar(value=False)
         self.background_music_status_var = tk.StringVar(value="음악 OFF")
@@ -1821,12 +2424,7 @@ class BossTimerApp:
         self.schedule_alarm_all_off_button = None
         self.schedule_fixed_boss_skip_due_time_check = None
 
-        for variable in (
-            self.schedule_boss_metric_source_mode_var,
-            self.schedule_boss_metric_score_var,
-            self.schedule_boss_metric_war_score_var,
-        ):
-            variable.trace_add("write", self._on_schedule_boss_metric_form_value_changed)
+        self._bind_schedule_boss_metric_form_value_traces()
         self.schedule_boss_text_color_button = None
         self.schedule_boss_bg_color_button = None
         self.schedule_area_text_color_button = None
@@ -1994,6 +2592,9 @@ class BossTimerApp:
         self.schedule_alarm_tts_stop_event = threading.Event()
         self.schedule_alarm_tts_process: subprocess.Popen | None = None
         self.schedule_alarm_tts_process_voice_name = ""
+        self.schedule_alarm_tts_category_generation: dict[str, int] = {}
+        self.schedule_alarm_edge_tts_active_category = ""
+        self.schedule_alarm_edge_tts_active_until = 0.0
         self.schedule_voice_broker_queue: queue.Queue[dict[str, object] | None] = queue.Queue()
         self.schedule_voice_broker_stop_event = threading.Event()
         self.schedule_voice_broker_generation = 0
@@ -2011,6 +2612,7 @@ class BossTimerApp:
         self.schedule_alarm_countdown_audio_thread: threading.Thread | None = None
         self.schedule_alarm_countdown_audio_process: subprocess.Popen | None = None
         self.schedule_alarm_countdown_audio_host_process: subprocess.Popen | None = None
+        self.schedule_alarm_countdown_audio_host_prewarm_inflight = False
         self.schedule_alarm_second_precision_gen_audio_host_process: subprocess.Popen | None = None
         self.schedule_alarm_near_boss_audio_host_process: subprocess.Popen | None = None
         self.schedule_alarm_countdown_audio_lock = threading.Lock()
@@ -2176,6 +2778,8 @@ class BossTimerApp:
         self.schedule_delete_history: list[dict[str, object]] = []
         self.schedule_delete_default_cutoff_datetime: datetime | None = None
         self._load_schedule_delete_history()
+        if not bool(getattr(self, "scheduler_worker_mode", False)):
+            self._recover_schedule_alarm_voice_test_backup_on_startup()
         today_string = datetime.now().strftime(RECORD_BOOK_DATE_FORMAT)
         self.record_book_date_var = tk.StringVar(value=today_string)
         self.record_book_year_var = tk.StringVar(value=today_string.split("-")[0])
@@ -2208,6 +2812,7 @@ class BossTimerApp:
             self._write_scheduler_worker_heartbeat(force=True)
             self._schedule_alarm_tick()
         else:
+            self._cleanup_stale_discord_bot_runtime_at_startup()
             self._build_ui()
             self._ensure_startup_season_configuration()
             self.schedule_github_server_entries = self._merge_local_github_server_entries(self.schedule_github_server_entries)
@@ -2230,6 +2835,9 @@ class BossTimerApp:
             self._draw_progress_graph(None)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         atexit.register(self._stop_background_music)
+        atexit.register(self._shutdown_edge_tts)
+        if not self.scheduler_worker_mode:
+            atexit.register(self._shutdown_discord_bot_at_exit)
 
     def _get_file_mtime(self, path: str) -> float:
         try:
@@ -2349,21 +2957,20 @@ class BossTimerApp:
     def _reload_scheduler_worker_runtime_files_if_needed(self) -> None:
         if not bool(getattr(self, "scheduler_worker_mode", False)):
             return
-        state_mtime = self._get_file_mtime(SCHEDULE_STATE_PATH)
+        state_mtime = self._get_file_mtime(self._get_schedule_state_storage_path())
         if state_mtime and state_mtime != float(getattr(self, "scheduler_worker_schedule_state_mtime", 0.0) or 0.0):
             self.scheduler_worker_schedule_state_mtime = state_mtime
             self._load_schedule_state()
             self._reset_schedule_alarm_event_index()
             self._bump_schedule_voice_broker_generation()
             self._append_debug_log("scheduler_worker_schedule_state_reloaded")
-        settings_mtime = self._get_file_mtime(SCHEDULE_ALARM_SETTINGS_PATH)
+        settings_mtime = self._get_file_mtime(self._get_schedule_alarm_settings_storage_path())
         if settings_mtime and settings_mtime != float(getattr(self, "scheduler_worker_alarm_settings_mtime", 0.0) or 0.0):
             self.scheduler_worker_alarm_settings_mtime = settings_mtime
             payload = self._load_schedule_alarm_settings()
-            self.schedule_alarm_master_var.set(bool(payload.get("master_enabled", False)))
+            self.schedule_alarm_master_var.set(bool(payload.get("master_enabled", True)))
             self.schedule_alarm_countdown_enabled_var.set(bool(payload.get("countdown_enabled", False)))
-            self.schedule_alarm_countdown_ai_voice_var.set(bool(payload.get("countdown_ai_voice_enabled", False)))
-            self.schedule_alarm_boss_ai_voice_var.set(bool(payload.get("boss_ai_voice_enabled", False)))
+            self.schedule_alarm_ai_recording_preferred_var.set(bool(payload.get("ai_recording_preferred", False)))
             self.schedule_alarm_countdown_start_var.set(str(int(payload.get("countdown_start_seconds", 10) or 10)))
             self.schedule_fixed_boss_skip_due_time_var.set(bool(payload.get("fixed_boss_skip_due_time", True)))
             self.schedule_fixed_boss_skip_due_time_default = bool(payload.get("fixed_boss_skip_due_time", True))
@@ -2865,10 +3472,10 @@ class BossTimerApp:
         return {
             "voice_rule_version": SCHEDULE_ALARM_VOICE_RULE_VERSION,
             "master_enabled": True,
+            "local_audio_enabled": True,
             "common_offsets": default_offsets,
             "countdown_enabled": False,
-            "countdown_ai_voice_enabled": True,
-            "boss_ai_voice_enabled": True,
+            "ai_recording_preferred": False,
             "countdown_start_seconds": 15,
             "second_precision_expire_hours": 24,
             "fixed_boss_enabled": True,
@@ -2959,10 +3566,11 @@ class BossTimerApp:
 
     def _load_schedule_alarm_settings(self) -> dict[str, object]:
         payload = self._default_schedule_alarm_settings_payload()
-        if not os.path.exists(SCHEDULE_ALARM_SETTINGS_PATH):
+        settings_path = self._get_schedule_alarm_settings_storage_path()
+        if not os.path.exists(settings_path):
             return payload
         try:
-            with open(SCHEDULE_ALARM_SETTINGS_PATH, "r", encoding="utf-8") as file:
+            with open(settings_path, "r", encoding="utf-8") as file:
                 loaded = json.load(file)
         except (OSError, json.JSONDecodeError):
             return payload
@@ -2970,10 +3578,18 @@ class BossTimerApp:
             return payload
         payload["voice_rule_version"] = str(loaded.get("voice_rule_version") or payload.get("voice_rule_version") or SCHEDULE_ALARM_VOICE_RULE_VERSION).strip() or SCHEDULE_ALARM_VOICE_RULE_VERSION
         payload["master_enabled"] = bool(loaded.get("master_enabled", payload["master_enabled"]))
+        payload["local_audio_enabled"] = True
         payload["common_offsets"] = self._normalize_schedule_alarm_offsets(loaded.get("common_offsets", payload["common_offsets"]))
         payload["countdown_enabled"] = bool(loaded.get("countdown_enabled", payload["countdown_enabled"]))
-        payload["countdown_ai_voice_enabled"] = bool(loaded.get("countdown_ai_voice_enabled", payload["countdown_ai_voice_enabled"]))
-        payload["boss_ai_voice_enabled"] = bool(loaded.get("boss_ai_voice_enabled", payload["boss_ai_voice_enabled"]))
+        if "ai_recording_preferred" in loaded:
+            payload["ai_recording_preferred"] = bool(loaded.get("ai_recording_preferred"))
+        else:
+            # 이전 버전의 두 옵션이 모두 켜진 경우에만 통합 옵션을 켜서
+            # 일부 알람만 녹음 파일로 재생되는 혼합 동작을 방지한다.
+            payload["ai_recording_preferred"] = bool(
+                loaded.get("countdown_ai_voice_enabled", payload["ai_recording_preferred"])
+                and loaded.get("boss_ai_voice_enabled", payload["ai_recording_preferred"])
+            )
         payload["countdown_start_seconds"] = min(60, max(1, self._parse_int(str(loaded.get("countdown_start_seconds") or "10"), 10)))
         payload["second_precision_expire_hours"] = max(0, self._parse_int(str(loaded.get("second_precision_expire_hours") or "24"), 24))
         payload["fixed_boss_enabled"] = bool(loaded.get("fixed_boss_enabled", payload["fixed_boss_enabled"]))
@@ -2984,16 +3600,16 @@ class BossTimerApp:
         payload["fixed_boss_overrides"] = self._normalize_schedule_boss_alarm_settings_map(loaded.get("fixed_boss_overrides", {}))
         return payload
 
-    def _save_schedule_alarm_settings(self) -> None:
+    def _build_schedule_alarm_settings_payload(self) -> dict[str, object]:
         chime_settings = self._normalize_schedule_alarm_chime_settings(getattr(self, "schedule_alarm_chime_settings", {}))
         payload = {
             "version": APP_VERSION,
             "voice_rule_version": SCHEDULE_ALARM_VOICE_RULE_VERSION,
             "master_enabled": bool(self.schedule_alarm_master_var.get()) if hasattr(self, "schedule_alarm_master_var") else bool(self.schedule_alarm_master_enabled_default),
+            "local_audio_enabled": True,
             "common_offsets": self._normalize_schedule_alarm_offsets(getattr(self, "schedule_alarm_common_offsets", [])),
             "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_var.get()) if hasattr(self, "schedule_alarm_countdown_enabled_var") else False,
-            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_var.get()) if hasattr(self, "schedule_alarm_countdown_ai_voice_var") else False,
-            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_var.get()) if hasattr(self, "schedule_alarm_boss_ai_voice_var") else False,
+            "ai_recording_preferred": bool(self.schedule_alarm_ai_recording_preferred_var.get()) if hasattr(self, "schedule_alarm_ai_recording_preferred_var") else bool(self.schedule_alarm_ai_recording_preferred_default),
             "countdown_start_seconds": min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get() if hasattr(self, "schedule_alarm_countdown_start_var") else "10", 10))),
             "second_precision_expire_hours": max(0, self._parse_int(self.schedule_second_precision_expire_hours_var.get() if hasattr(self, "schedule_second_precision_expire_hours_var") else "0", 0)),
             "fixed_boss_enabled": bool(getattr(self, "schedule_fixed_boss_alarm_new_entry_enabled_default", self.schedule_fixed_boss_alarm_enabled_default)),
@@ -3021,12 +3637,31 @@ class BossTimerApp:
                 continue
             normalized_entry = self._normalize_schedule_boss_alarm_entry(entry)
             payload["fixed_boss_overrides"][canonical_name] = normalized_entry
+        return payload
+
+    def _write_schedule_alarm_settings_payload(self, payload: dict[str, object]) -> None:
+        settings_path = self._get_schedule_alarm_settings_storage_path()
         try:
-            with open(SCHEDULE_ALARM_SETTINGS_PATH, "w", encoding="utf-8") as file:
+            os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+            with open(settings_path, "w", encoding="utf-8") as file:
                 json.dump(payload, file, ensure_ascii=False, indent=2)
         except OSError:
             return
         self._save_default_schedule_alarm_settings_seed(payload)
+
+    def _save_schedule_alarm_settings(self) -> None:
+        self._write_schedule_alarm_settings_payload(self._build_schedule_alarm_settings_payload())
+
+    def _save_schedule_alarm_settings_async(self) -> None:
+        payload = self._build_schedule_alarm_settings_payload()
+
+        def worker() -> None:
+            self._write_schedule_alarm_settings_payload(payload)
+
+        try:
+            threading.Thread(target=worker, name="schedule-alarm-settings-save", daemon=True).start()
+        except RuntimeError:
+            self._write_schedule_alarm_settings_payload(payload)
 
     def _save_default_schedule_alarm_settings_seed(self, payload: dict[str, object]) -> None:
         self._ensure_init_dir()
@@ -3561,6 +4196,9 @@ class BossTimerApp:
                 self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
             self._update_archive_keep_seasons_description()
             self._save_settings()
+            # 시즌을 새로 시작하거나 같은 차수를 재시작하면, 같은 서버라도
+            # 이전 시즌의 스케쥴·알림·디스코드 설정을 재사용하지 않는다.
+            self._activate_current_server_profile_for_new_season()
             close_with(True)
 
         def on_write(*_args) -> None:
@@ -3677,38 +4315,30 @@ class BossTimerApp:
                 pass
 
         def prewarm_boss_host() -> None:
-            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_boss_ai_voice_var.get()):
+            if bool(self.schedule_alarm_master_var.get()):
                 self._ensure_schedule_alarm_boss_audio_host_process()
 
         def prewarm_near_host() -> None:
-            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_boss_ai_voice_var.get()):
+            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_ai_recording_preferred_var.get()):
                 self._ensure_schedule_alarm_near_boss_audio_host_process()
 
         def prewarm_gen_host() -> None:
-            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_boss_ai_voice_var.get()):
+            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_ai_recording_preferred_var.get()):
                 self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
 
         def prewarm_countdown_host() -> None:
-            if (
-                bool(self.schedule_alarm_master_var.get())
-                and bool(self.schedule_alarm_countdown_enabled_var.get())
-                and bool(self.schedule_alarm_countdown_ai_voice_var.get())
-                and self._schedule_alarm_countdown_requires_audio_host()
-            ):
+            # 초읽기 테스트와 실제 알림 모두 첫 재생 전에 플레이어/클립을
+            # 준비한다. Open은 볼륨 0으로 처리하므로 음성 조각이 새지 않는다.
+            if bool(self.schedule_alarm_master_var.get()):
                 self._ensure_schedule_alarm_countdown_audio_host_process()
 
         schedule(3500, self._normalize_existing_schedule_shared_archive_names)
-        if not bool(getattr(self, "schedule_alarm_master_enabled_default", False)):
-            return
-        if bool(getattr(self, "schedule_alarm_boss_ai_voice_enabled_default", False)):
-            schedule(600, prewarm_boss_host)
-            schedule(1200, prewarm_near_host)
-            schedule(1800, prewarm_gen_host)
-        if (
-            bool(getattr(self, "schedule_alarm_countdown_enabled_default", False))
-            and bool(getattr(self, "schedule_alarm_countdown_ai_voice_enabled_default", False))
-        ):
-            schedule(2400, prewarm_countdown_host)
+        schedule(600, self._prefetch_schedule_alarm_edge_tts_common_phrases)
+        # 시작 직후 메인/초읽기 호스트를 열어 첫 실제 알림에서 발생하는
+        # 오디오 장치 초기화 잡음을 프로그램 시작 단계로 이동한다.
+        schedule(180, prewarm_boss_host)
+        # 근접/젠 전용 호스트는 메인 워밍업 이후 실제 알림에서만 연다.
+        schedule(420, prewarm_countdown_host)
 
     def _bind_record_subtab_hover(self, button: tk.Button, mode: str, hover_bg: str, hover_fg: str) -> None:
         def on_enter(_event=None) -> None:
@@ -3997,6 +4627,1867 @@ class BossTimerApp:
         except OSError:
             return False
         return True
+
+    def _sanitize_discord_bot_token(self, token: object) -> str:
+        token_text = str(token or "").strip().strip("\"'")
+        return re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", token_text)
+
+    def _sanitize_discord_bot_application_id(self, application_id: object) -> str:
+        return re.sub(r"[^0-9]+", "", str(application_id or "").strip())
+
+    def _build_discord_bot_invite_url(self, application_id: object | None = None) -> str:
+        client_id = self._sanitize_discord_bot_application_id(application_id)
+        if not client_id:
+            return ""
+        return f"https://discord.com/oauth2/authorize?client_id={client_id}"
+
+    def _normalize_discord_bot_invite_url(self, url: object, application_id: object | None = None) -> str:
+        url_text = str(url or "").strip()
+        app_id_source = application_id if application_id is not None else getattr(self, "discord_bot_application_id", "")
+        if not self._sanitize_discord_bot_application_id(app_id_source) and url_text == DISCORD_BOT_DEFAULT_INVITE_URL:
+            return ""
+        if not url_text:
+            return self._build_discord_bot_invite_url(app_id_source)
+        parsed = urllib.parse.urlparse(url_text)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return self._build_discord_bot_invite_url(app_id_source)
+        return url_text
+
+    def _read_discord_bot_invite_links(self, config: configparser.ConfigParser) -> dict[str, str]:
+        invite_links: dict[str, str] = {}
+        if not config.has_section("discord_bot_invite_links"):
+            return invite_links
+        for raw_application_id, raw_url in config.items("discord_bot_invite_links"):
+            application_id = self._sanitize_discord_bot_application_id(raw_application_id)
+            if not application_id:
+                continue
+            invite_url = self._normalize_discord_bot_invite_url(raw_url, application_id)
+            if invite_url:
+                invite_links[application_id] = invite_url
+        return invite_links
+
+    def _get_discord_bot_invite_url_for_application_id(self, application_id: object, fallback_url: object = "") -> str:
+        application_id_text = self._sanitize_discord_bot_application_id(application_id)
+        if not application_id_text:
+            return ""
+        invite_links = getattr(self, "discord_bot_invite_links", {})
+        if not isinstance(invite_links, dict):
+            invite_links = {}
+        mapped_url = str(invite_links.get(application_id_text, "") or "").strip()
+        invite_url = self._normalize_discord_bot_invite_url(mapped_url or fallback_url, application_id_text)
+        if invite_url == DISCORD_BOT_DEFAULT_INVITE_URL:
+            invite_url = self._build_discord_bot_invite_url(application_id_text)
+        return invite_url or self._build_discord_bot_invite_url(application_id_text)
+
+    def _apply_discord_bot_settings_to_runtime(self, settings: object) -> None:
+        """Load one server profile's Discord settings into the live UI state."""
+        payload = settings if isinstance(settings, dict) else {}
+        self.discord_bot_token = self._sanitize_discord_bot_token(payload.get("bot_token", ""))
+        self.discord_bot_application_id = self._sanitize_discord_bot_application_id(payload.get("application_id", ""))
+        self.discord_bot_server_id = str(payload.get("server_id", "") or "").strip()
+        self.discord_bot_voice_channel_id = str(payload.get("voice_channel_id", "") or "").strip()
+        self.discord_bot_text_channel_id = str(payload.get("text_channel_id", "") or "").strip()
+        invite_links = payload.get("invite_links", {})
+        self.discord_bot_invite_links = dict(invite_links) if isinstance(invite_links, dict) else {}
+        self.discord_bot_invite_url = self._normalize_discord_bot_invite_url(
+            payload.get("invite_url", ""),
+            self.discord_bot_application_id,
+        )
+        if self.discord_bot_application_id and self.discord_bot_invite_url == DISCORD_BOT_DEFAULT_INVITE_URL:
+            self.discord_bot_invite_url = self._build_discord_bot_invite_url(self.discord_bot_application_id)
+        self.discord_bot_mute_pc_audio_when_online = bool(payload.get("mute_pc_audio_when_online", True))
+
+    def _load_discord_bot_settings(self) -> dict[str, object]:
+        config_path = self._get_discord_bot_config_storage_path()
+        config = configparser.ConfigParser(interpolation=None)
+        try:
+            if not os.path.exists(config_path):
+                return {}
+            config.read(config_path, encoding="utf-8")
+        except (OSError, configparser.Error):
+            return {}
+        if not config.has_section("discord_bot"):
+            return {}
+        section = config["discord_bot"]
+        application_id = self._sanitize_discord_bot_application_id(section.get("application_id", ""))
+        invite_links = self._read_discord_bot_invite_links(config)
+        invite_url = self._normalize_discord_bot_invite_url(
+            invite_links.get(application_id, "") or section.get("invite_url", ""),
+            application_id,
+        )
+        if application_id and invite_url == DISCORD_BOT_DEFAULT_INVITE_URL:
+            invite_url = self._build_discord_bot_invite_url(application_id)
+        if application_id and invite_url:
+            invite_links[application_id] = invite_url
+        return {
+            "bot_token": self._sanitize_discord_bot_token(section.get("bot_token", "")),
+            "application_id": application_id,
+            "server_id": str(section.get("server_id", "") or "").strip(),
+            "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
+            "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
+            "invite_url": invite_url,
+            "invite_links": invite_links,
+            "voice_bridge_enabled": section.getboolean("voice_bridge_enabled", fallback=True),
+            "mute_pc_audio_when_online": section.getboolean("mute_pc_audio_when_online", fallback=True),
+        }
+
+    def _save_discord_bot_settings(self) -> bool:
+        config_path = self._get_discord_bot_config_storage_path()
+        config = configparser.ConfigParser(interpolation=None)
+        application_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
+        invite_links = getattr(self, "discord_bot_invite_links", {})
+        if not isinstance(invite_links, dict):
+            invite_links = {}
+        else:
+            invite_links = dict(invite_links)
+        invite_url = self._normalize_discord_bot_invite_url(
+            getattr(self, "discord_bot_invite_url", ""),
+            application_id,
+        )
+        if application_id:
+            invite_url = invite_url or self._build_discord_bot_invite_url(application_id)
+            invite_links[application_id] = invite_url
+        else:
+            invite_url = ""
+        self.discord_bot_invite_links = invite_links
+        self.discord_bot_invite_url = invite_url
+        config["discord_bot"] = {
+            "bot_token": self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")),
+            "application_id": application_id,
+            "server_id": str(getattr(self, "discord_bot_server_id", "") or "").strip(),
+            "voice_channel_id": str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip(),
+            "text_channel_id": str(getattr(self, "discord_bot_text_channel_id", "") or "").strip(),
+            "invite_url": invite_url,
+            "voice_bridge_enabled": "1",
+            "mute_pc_audio_when_online": "1" if bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)) else "0",
+        }
+        config["discord_bot_invite_links"] = {
+            key: value for key, value in sorted(invite_links.items()) if key and value
+        }
+        try:
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as file:
+                config.write(file)
+        except OSError:
+            return False
+        return True
+
+    def _get_discord_bot_status_kind(self) -> str:
+        payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+        if bool(payload.get("shutdown_requested")):
+            return "pending"
+        if bool(getattr(self, "discord_bot_voice_bridge_online", False)):
+            return "online"
+        if bool(payload.get("online")) and bool(payload.get("voice_connected")):
+            return "error"
+        if str(payload.get("last_error") or "").strip():
+            return "error"
+        if bool(payload.get("ok")) or self._is_discord_bot_process_alive():
+            return "pending"
+        return "offline"
+
+    def _get_discord_bot_status_text(self) -> str:
+        status_kind = self._get_discord_bot_status_kind()
+        if status_kind == "online":
+            payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+            if not bool(payload.get("text_commands_enabled", True)):
+                return "봇상태: 온라인(채팅꺼짐)"
+            return "봇상태: 온라인"
+        if status_kind == "error":
+            return "봇상태: 오류"
+        if status_kind == "pending":
+            payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+            return "봇상태: 종료중" if bool(payload.get("shutdown_requested")) else "봇상태: 준비중"
+        return "봇상태: 오프라인"
+
+    def _cancel_discord_bot_status_blink(self) -> None:
+        after_id = getattr(self, "discord_bot_status_blink_after_id", None)
+        if after_id is not None:
+            try:
+                self.root.after_cancel(after_id)
+            except tk.TclError:
+                pass
+        self.discord_bot_status_blink_after_id = None
+        self.discord_bot_status_blink_on = True
+
+    def _get_discord_bot_status_active_color(self, status_kind: str) -> str:
+        if status_kind == "online":
+            return "#16a34a"
+        if status_kind == "offline":
+            return "#dc2626"
+        if status_kind == "error":
+            return "#b91c1c"
+        return "#1d4ed8"
+
+    def _apply_discord_bot_status_label_style(self, status_kind: str | None = None) -> None:
+        label = getattr(self, "discord_bot_status_label", None)
+        if not self._widget_available(label):
+            self._cancel_discord_bot_status_blink()
+            return
+        status_kind = status_kind or self._get_discord_bot_status_kind()
+        try:
+            if status_kind in {"online", "offline"}:
+                self._cancel_discord_bot_status_blink()
+                label.configure(
+                    font=self.percent_font,
+                    fg=self._get_discord_bot_status_active_color(status_kind),
+                )
+                return
+            label.configure(
+                font=self.percent_font,
+                fg=self._get_discord_bot_status_active_color(status_kind) if self.discord_bot_status_blink_on else "#dbeafe",
+            )
+        except tk.TclError:
+            self._cancel_discord_bot_status_blink()
+            return
+        if self.discord_bot_status_blink_after_id is None:
+            try:
+                self.discord_bot_status_blink_after_id = self.root.after(
+                    500,
+                    self._blink_discord_bot_status_label,
+                )
+            except tk.TclError:
+                self.discord_bot_status_blink_after_id = None
+
+    def _blink_discord_bot_status_label(self) -> None:
+        self.discord_bot_status_blink_after_id = None
+        if not self._widget_available(self.schedule_window) or not self._widget_available(self.discord_bot_status_label):
+            self.discord_bot_status_blink_on = True
+            return
+        self.discord_bot_status_blink_on = not bool(getattr(self, "discord_bot_status_blink_on", True))
+        self._apply_discord_bot_status_label_style()
+
+    def _is_discord_bot_process_alive(self) -> bool:
+        process = getattr(self, "discord_bot_process", None)
+        if process is not None:
+            try:
+                return process.poll() is None
+            except Exception:
+                return False
+        return bool(getattr(self, "discord_bot_running", False))
+
+    def _query_discord_bot_status_port(self, timeout: float = 0.35) -> dict[str, object]:
+        try:
+            with urllib.request.urlopen(DISCORD_BOT_STATUS_URL, timeout=timeout) as response:
+                raw_payload = response.read(4096).decode("utf-8", errors="replace")
+            payload = json.loads(raw_payload)
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _is_discord_bot_runtime_running(self) -> bool:
+        payload = self._query_discord_bot_status_port()
+        self._set_discord_bot_status_payload(payload)
+        return bool(payload.get("online"))
+
+    def _set_discord_bot_status_payload(self, payload: dict[str, object] | None) -> dict[str, object]:
+        safe_payload = payload if isinstance(payload, dict) else {}
+        self.discord_bot_last_status_payload = safe_payload
+        configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
+        configured_voice_channel_id = str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip()
+        reported_server_id = str(safe_payload.get("guild_id") or "").strip()
+        reported_voice_channel_id = str(safe_payload.get("voice_channel_id") or "").strip()
+        server_matches = not configured_server_id.isdigit() or reported_server_id == configured_server_id
+        voice_channel_matches = (
+            not configured_voice_channel_id.isdigit()
+            or reported_voice_channel_id == configured_voice_channel_id
+        )
+        is_online = (
+            bool(safe_payload.get("online"))
+            and bool(safe_payload.get("voice_connected"))
+            and bool(safe_payload.get("voice_bridge_enabled"))
+            and server_matches
+            and voice_channel_matches
+        )
+        self.discord_bot_voice_bridge_online = is_online
+        self.discord_bot_voice_bridge_status_checked_at = time.monotonic()
+        return safe_payload
+
+    def _is_discord_bot_online_for_voice_bridge(self) -> bool:
+        checked_at = float(getattr(self, "discord_bot_voice_bridge_status_checked_at", 0.0) or 0.0)
+        if not bool(getattr(self, "discord_bot_voice_bridge_online", False)) or time.monotonic() - checked_at > 2.0:
+            payload = self._query_discord_bot_status_port(timeout=0.12)
+            if payload:
+                self._set_discord_bot_status_payload(payload)
+        return bool(getattr(self, "discord_bot_voice_bridge_online", False))
+
+    def _append_discord_voice_bridge_heartbeat(self) -> bool:
+        payload = {
+            "version": 1,
+            "id": "",
+            "created_at": datetime.now().isoformat(timespec="milliseconds"),
+            "action": "heartbeat",
+        }
+        try:
+            with self.discord_bot_voice_bridge_lock:
+                self.discord_bot_voice_bridge_seq = int(getattr(self, "discord_bot_voice_bridge_seq", 0) or 0) + 1
+                payload["id"] = f"heartbeat-{int(time.time() * 1000)}-{self.discord_bot_voice_bridge_seq}"
+                os.makedirs(os.path.dirname(DISCORD_VOICE_BRIDGE_PATH), exist_ok=True)
+                with open(DISCORD_VOICE_BRIDGE_PATH, "a", encoding="utf-8") as bridge_file:
+                    bridge_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                expected_offset = os.path.getsize(DISCORD_VOICE_BRIDGE_PATH)
+        except OSError as exc:
+            self._append_debug_log(f"discord_voice_bridge_heartbeat_write_failed {type(exc).__name__}: {exc}")
+            return False
+        now_monotonic = time.monotonic()
+        self.discord_bot_voice_bridge_heartbeat_pending_id = str(payload["id"])
+        self.discord_bot_voice_bridge_heartbeat_pending_offset = int(expected_offset)
+        self.discord_bot_voice_bridge_heartbeat_sent_at = now_monotonic
+        self.discord_bot_voice_bridge_heartbeat_last_sent_at = now_monotonic
+        return True
+
+    def _reset_discord_voice_bridge_health_tracking(self) -> None:
+        self.discord_bot_status_failure_count = 0
+        self.discord_bot_voice_bridge_heartbeat_failure_count = 0
+        self.discord_bot_voice_bridge_heartbeat_pending_id = ""
+        self.discord_bot_voice_bridge_heartbeat_pending_offset = 0
+        self.discord_bot_voice_bridge_heartbeat_sent_at = 0.0
+        self.discord_bot_voice_bridge_heartbeat_last_sent_at = 0.0
+
+    def _recover_discord_bot_runtime(self, reason: str) -> None:
+        if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
+            return
+        now_monotonic = time.monotonic()
+        if now_monotonic < float(getattr(self, "discord_bot_voice_bridge_recovery_grace_until", 0.0) or 0.0):
+            return
+        self.discord_bot_voice_bridge_recovery_grace_until = now_monotonic + DISCORD_BOT_RECOVERY_GRACE_SEC
+        self._append_debug_log(f"discord_bot_auto_reconnect_requested reason={reason}")
+        success, result_text = self._reconnect_discord_bot_runtime_from_request(
+            {
+                "operation": "discord_reconnect",
+                "server_id": str(getattr(self, "discord_bot_server_id", "") or ""),
+                "voice_channel_id": str(getattr(self, "discord_bot_voice_channel_id", "") or ""),
+                "raw_text": "자동 복구",
+                "automatic_recovery": True,
+                "reconnect_reason": str(reason or "연결 응답 없음"),
+            }
+        )
+        self._append_debug_log(
+            f"discord_bot_auto_reconnect_result success={int(success)} reason={reason} result={result_text}"
+        )
+
+    def _monitor_discord_bot_voice_bridge_health(self, payload: dict[str, object]) -> None:
+        if not bool(getattr(self, "discord_bot_expected_running", False)):
+            self._reset_discord_voice_bridge_health_tracking()
+            return
+        if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
+            return
+        self._maybe_emit_discord_auto_reconnect_notice(payload)
+        now_monotonic = time.monotonic()
+        if now_monotonic < float(getattr(self, "discord_bot_voice_bridge_recovery_grace_until", 0.0) or 0.0):
+            return
+
+        status_healthy = bool(
+            payload.get("ok")
+            and payload.get("online")
+            and payload.get("voice_connected")
+            and payload.get("voice_bridge_enabled")
+        )
+        configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
+        configured_voice_channel_id = str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip()
+        if configured_server_id.isdigit():
+            status_healthy = status_healthy and str(payload.get("guild_id") or "") == configured_server_id
+        if configured_voice_channel_id.isdigit():
+            status_healthy = (
+                status_healthy
+                and str(payload.get("voice_channel_id") or "") == configured_voice_channel_id
+            )
+        if not status_healthy:
+            self.discord_bot_status_failure_count = int(
+                getattr(self, "discord_bot_status_failure_count", 0) or 0
+            ) + 1
+            if self.discord_bot_status_failure_count >= DISCORD_BOT_STATUS_FAILURE_LIMIT:
+                self._recover_discord_bot_runtime("상태 포트 또는 디스코드 음성 연결 응답 끊김")
+            return
+        self.discord_bot_status_failure_count = 0
+
+        pending_id = str(getattr(self, "discord_bot_voice_bridge_heartbeat_pending_id", "") or "")
+        pending_offset = int(getattr(self, "discord_bot_voice_bridge_heartbeat_pending_offset", 0) or 0)
+        try:
+            consumed_offset = int(payload.get("voice_bridge_offset") or 0)
+        except (TypeError, ValueError):
+            consumed_offset = 0
+        if pending_id and pending_offset > 0 and consumed_offset >= pending_offset:
+            self.discord_bot_voice_bridge_heartbeat_pending_id = ""
+            self.discord_bot_voice_bridge_heartbeat_pending_offset = 0
+            self.discord_bot_voice_bridge_heartbeat_sent_at = 0.0
+            self.discord_bot_voice_bridge_heartbeat_failure_count = 0
+            pending_id = ""
+        elif pending_id:
+            sent_at = float(getattr(self, "discord_bot_voice_bridge_heartbeat_sent_at", 0.0) or 0.0)
+            if sent_at > 0 and now_monotonic - sent_at >= DISCORD_VOICE_BRIDGE_HEARTBEAT_TIMEOUT_SEC:
+                self.discord_bot_voice_bridge_heartbeat_failure_count = int(
+                    getattr(self, "discord_bot_voice_bridge_heartbeat_failure_count", 0) or 0
+                ) + 1
+                self.discord_bot_voice_bridge_heartbeat_pending_id = ""
+                self.discord_bot_voice_bridge_heartbeat_pending_offset = 0
+                self.discord_bot_voice_bridge_heartbeat_sent_at = 0.0
+                pending_id = ""
+                if (
+                    self.discord_bot_voice_bridge_heartbeat_failure_count
+                    >= DISCORD_VOICE_BRIDGE_HEARTBEAT_FAILURE_LIMIT
+                ):
+                    self._recover_discord_bot_runtime("로컬 음성 브리지 하트비트 응답 끊김")
+                    return
+
+        last_sent_at = float(getattr(self, "discord_bot_voice_bridge_heartbeat_last_sent_at", 0.0) or 0.0)
+        if not pending_id and now_monotonic - last_sent_at >= DISCORD_VOICE_BRIDGE_HEARTBEAT_INTERVAL_SEC:
+            self._append_discord_voice_bridge_heartbeat()
+
+    def _append_discord_voice_bridge_text_notice(self, message: str) -> bool:
+        message_text = str(message or "").strip()
+        if not message_text:
+            return False
+        payload = {
+            "version": 1,
+            "id": "",
+            "created_at": datetime.now().isoformat(timespec="milliseconds"),
+            "action": "text_notice",
+            "message": message_text,
+        }
+        try:
+            with self.discord_bot_voice_bridge_lock:
+                self.discord_bot_voice_bridge_seq = int(getattr(self, "discord_bot_voice_bridge_seq", 0) or 0) + 1
+                payload["id"] = f"text-{int(time.time() * 1000)}-{self.discord_bot_voice_bridge_seq}"
+                os.makedirs(os.path.dirname(DISCORD_VOICE_BRIDGE_PATH), exist_ok=True)
+                with open(DISCORD_VOICE_BRIDGE_PATH, "a", encoding="utf-8") as bridge_file:
+                    bridge_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            self._append_debug_log(f"discord_text_notice_write_failed {type(exc).__name__}: {exc}")
+            return False
+        return True
+
+    def _maybe_emit_discord_auto_reconnect_notice(self, payload: dict[str, object]) -> bool:
+        pending = getattr(self, "discord_bot_pending_auto_reconnect_notice", None)
+        if not isinstance(pending, dict):
+            return False
+        configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
+        configured_voice_channel_id = str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip()
+        connected = bool(
+            payload.get("ok")
+            and payload.get("online")
+            and payload.get("voice_connected")
+            and payload.get("voice_bridge_enabled")
+        )
+        if configured_server_id.isdigit():
+            connected = connected and str(payload.get("guild_id") or "") == configured_server_id
+        if configured_voice_channel_id.isdigit():
+            connected = connected and str(payload.get("voice_channel_id") or "") == configured_voice_channel_id
+        if not connected:
+            return False
+        reason = str(pending.get("reason") or "연결 응답 없음").strip()
+        message = (
+            "보탐매니저 연결 상태가 좋지 않아 자동 재접속했습니다.\n"
+            f"감지 사유: {reason}"
+        )
+        if not self._append_discord_voice_bridge_text_notice(message):
+            return False
+        self.discord_bot_pending_auto_reconnect_notice = None
+        self._append_debug_log(f"discord_bot_auto_reconnect_notice_queued reason={reason}")
+        self._append_discord_schedule_monitor_entry(
+            {
+                "received_at": datetime.now().isoformat(timespec="seconds"),
+                "author_name": "보탐매니저",
+                "operation": "auto_reconnect",
+                "raw_text": f"자동 재접속 · {reason}",
+            },
+            "디스코드 음성 연결 복구 및 채팅 로그 전송",
+            success=True,
+        )
+        return True
+
+    def _append_discord_voice_bridge_request(
+        self,
+        *,
+        clip_paths: list[str],
+        fallback_text: str = "",
+        phase: str = "AUDIO",
+        category: str = "general",
+        lane: str = "center",
+        volume: float = 1.0,
+        target_time: datetime | None = None,
+        offset_sec: int = 0,
+        timed_clip_paths: list[tuple[datetime, str]] | None = None,
+    ) -> bool:
+        valid_clip_paths = [
+            os.path.abspath(str(path).strip())
+            for path in (clip_paths or [])
+            if str(path).strip() and os.path.isfile(str(path).strip())
+        ]
+        valid_timed_clips: list[dict[str, str]] = []
+        for play_at, clip_path in timed_clip_paths or []:
+            clip_path_text = str(clip_path or "").strip()
+            if not isinstance(play_at, datetime) or not clip_path_text or not os.path.isfile(clip_path_text):
+                continue
+            valid_timed_clips.append({
+                "play_at": play_at.isoformat(timespec="milliseconds"),
+                "path": os.path.abspath(clip_path_text),
+            })
+        if not valid_clip_paths and not valid_timed_clips:
+            return False
+        if not self._is_discord_bot_online_for_voice_bridge():
+            return False
+        if valid_timed_clips:
+            payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+            if not bool(payload.get("voice_bridge_timed_clips")):
+                return False
+        try:
+            playback_volume = max(0.0, min(1.0, float(volume)))
+        except (TypeError, ValueError):
+            playback_volume = 1.0
+        payload = {
+            "version": 1,
+            "id": "",
+            "created_at": datetime.now().isoformat(timespec="milliseconds"),
+            "scope_id": (
+                str(getattr(self, "schedule_alarm_voice_test_bridge_scope_id", "") or "").strip()
+                if bool(getattr(self, "schedule_alarm_voice_test_active", False))
+                else ""
+            ),
+            "phase": str(phase or "AUDIO").strip() or "AUDIO",
+            "category": str(category or "general").strip() or "general",
+            "lane": self._normalize_schedule_voice_lane(lane),
+            "volume": playback_volume,
+            "target_time": target_time.isoformat(timespec="seconds") if isinstance(target_time, datetime) else "",
+            "offset_sec": int(offset_sec),
+            "clip_paths": valid_clip_paths,
+            "timed_clips": valid_timed_clips,
+            "fallback_text": str(fallback_text or "").strip(),
+        }
+        try:
+            with self.discord_bot_voice_bridge_lock:
+                self.discord_bot_voice_bridge_seq = int(getattr(self, "discord_bot_voice_bridge_seq", 0) or 0) + 1
+                payload["id"] = f"{int(time.time() * 1000)}-{self.discord_bot_voice_bridge_seq}"
+                os.makedirs(os.path.dirname(DISCORD_VOICE_BRIDGE_PATH), exist_ok=True)
+                try:
+                    if os.path.exists(DISCORD_VOICE_BRIDGE_PATH) and os.path.getsize(DISCORD_VOICE_BRIDGE_PATH) > DISCORD_VOICE_BRIDGE_MAX_BYTES:
+                        with open(DISCORD_VOICE_BRIDGE_PATH, "w", encoding="utf-8"):
+                            pass
+                except OSError:
+                    pass
+                with open(DISCORD_VOICE_BRIDGE_PATH, "a", encoding="utf-8") as bridge_file:
+                    bridge_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            self._append_debug_log(f"discord_voice_bridge_write_failed {type(exc).__name__}: {exc}")
+            return False
+        self._write_schedule_alarm_voice_test_log(
+            "discord_voice_bridge_emit",
+            bridge_id=payload["id"],
+            phase=payload["phase"],
+            category=payload["category"],
+            lane=payload["lane"],
+            volume=payload["volume"],
+            target_time=payload["target_time"],
+            offset_sec=payload["offset_sec"],
+            clip_paths=valid_clip_paths,
+            timed_clips=valid_timed_clips,
+            fallback_text=payload["fallback_text"],
+        )
+        return True
+
+    def _append_discord_voice_bridge_control_request(self, action: str, scope_id: str) -> bool:
+        action_text = str(action or "").strip().casefold()
+        scope_text = str(scope_id or "").strip()
+        if action_text != "cancel_scope" or not scope_text:
+            return False
+        payload = {
+            "version": 1,
+            "id": "",
+            "created_at": datetime.now().isoformat(timespec="milliseconds"),
+            "action": action_text,
+            "scope_id": scope_text,
+        }
+        try:
+            with self.discord_bot_voice_bridge_lock:
+                self.discord_bot_voice_bridge_seq = int(getattr(self, "discord_bot_voice_bridge_seq", 0) or 0) + 1
+                payload["id"] = f"{int(time.time() * 1000)}-{self.discord_bot_voice_bridge_seq}"
+                os.makedirs(os.path.dirname(DISCORD_VOICE_BRIDGE_PATH), exist_ok=True)
+                with open(DISCORD_VOICE_BRIDGE_PATH, "a", encoding="utf-8") as bridge_file:
+                    bridge_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            self._append_debug_log(f"discord_voice_bridge_control_write_failed {type(exc).__name__}: {exc}")
+            return False
+        self._write_schedule_alarm_voice_test_log(
+            "discord_voice_bridge_control_emit",
+            bridge_id=payload["id"],
+            action=action_text,
+            scope_id=scope_text,
+        )
+        return True
+
+    def _cancel_schedule_alarm_voice_test_discord_bridge(self) -> bool:
+        scope_id = str(getattr(self, "schedule_alarm_voice_test_bridge_scope_id", "") or "").strip()
+        if not scope_id:
+            return False
+        emitted = self._append_discord_voice_bridge_control_request("cancel_scope", scope_id)
+        self.schedule_alarm_voice_test_bridge_scope_id = ""
+        return emitted
+
+    def _append_discord_countdown_sequence_bridge_request(
+        self,
+        *,
+        scheduled_at: datetime,
+        countdown_start_seconds: int,
+        group_identity: str = "",
+        display_text: str = "",
+        lead_clip_paths: list[str] | None = None,
+        lead_start_at: datetime | None = None,
+    ) -> bool:
+        if not isinstance(scheduled_at, datetime):
+            return False
+        start_seconds = max(1, int(countdown_start_seconds))
+        now_value = datetime.now()
+        try:
+            self.discord_countdown_sequence_bridge_keys = {
+                key
+                for key in getattr(self, "discord_countdown_sequence_bridge_keys", set())
+                if not key.startswith("expired:")
+            }
+        except Exception:
+            self.discord_countdown_sequence_bridge_keys = set()
+        target_key = f"{scheduled_at.isoformat(timespec='seconds')}|{str(group_identity or '').strip()}"
+        if target_key in self.discord_countdown_sequence_bridge_keys:
+            return True
+        stale_keys: set[str] = set()
+        for key in self.discord_countdown_sequence_bridge_keys:
+            key_time_text = key.split("|", 1)[0]
+            try:
+                key_time = datetime.fromisoformat(key_time_text)
+            except ValueError:
+                continue
+            if key_time < now_value - timedelta(minutes=2):
+                stale_keys.add(key)
+        if stale_keys:
+            self.discord_countdown_sequence_bridge_keys.difference_update(stale_keys)
+        timed_clip_paths: list[tuple[datetime, str]] = []
+        recording_preferred = self._is_schedule_alarm_ai_recording_preferred()
+        if isinstance(lead_start_at, datetime):
+            prepared_lead_paths = [str(path).strip() for path in lead_clip_paths or [] if str(path).strip()]
+            if not recording_preferred:
+                prepared_lead_paths = self._filter_schedule_alarm_recording_paths(prepared_lead_paths)
+            timed_clip_paths.extend(
+                self._build_discord_timed_voice_sequence_clip_paths(
+                    prepared_lead_paths,
+                    lead_start_at,
+                )
+            )
+        for remaining_seconds in range(start_seconds, 0, -1):
+            play_at = scheduled_at - timedelta(seconds=remaining_seconds)
+            selected_path = ""
+            if recording_preferred:
+                recording_paths = self._get_schedule_alarm_countdown_audio_paths(remaining_seconds)
+                if recording_paths:
+                    selected_path = str(recording_paths[0] or "").strip()
+            if not selected_path:
+                speech_text = self._format_schedule_alarm_countdown_speech(remaining_seconds)
+                volume_steps = self._get_schedule_alarm_countdown_edge_tts_volume_steps(remaining_seconds)
+                selected_path = str(self._get_edge_tts_cached_path(speech_text, rate=3, volume_steps=volume_steps) or "").strip()
+                if not selected_path:
+                    self._prefetch_edge_tts_text(
+                        speech_text,
+                        rate=3,
+                        volume_steps=volume_steps,
+                        persistent_relpath=f"sec/{remaining_seconds}.mp3",
+                    )
+                    return False
+                advance_ms = int(DISCORD_EDGE_TTS_COUNTDOWN_TIMED_CLIP_ADVANCE_MS)
+            else:
+                advance_ms = int(DISCORD_COUNTDOWN_TIMED_CLIP_ADVANCE_MS.get(int(remaining_seconds), 0) or 0)
+            if advance_ms:
+                play_at -= timedelta(milliseconds=advance_ms)
+            minimum_play_at = now_value + timedelta(
+                milliseconds=(
+                    DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS
+                    + DISCORD_COUNTDOWN_COMPOSITE_PRESEND_SAFETY_MS
+                )
+            )
+            if play_at < minimum_play_at:
+                continue
+            timed_clip_paths.append((play_at, selected_path))
+        completion_path = ""
+        completion_advance_ms = int(DISCORD_COUNTDOWN_GEN_TIMED_CLIP_ADVANCE_MS)
+        if recording_preferred:
+            completion_paths = self._get_schedule_alarm_countdown_completion_audio_paths()
+            if completion_paths:
+                completion_path = str(completion_paths[0] or "").strip()
+        if not completion_path:
+            completion_path = str(self._get_edge_tts_cached_path("젠", rate=3) or "").strip()
+            if not completion_path:
+                self._prefetch_edge_tts_text("젠", rate=3)
+                return False
+            completion_advance_ms = int(DISCORD_EDGE_TTS_GEN_TIMED_CLIP_ADVANCE_MS)
+        if completion_path:
+            timed_clip_paths.append((
+                scheduled_at - timedelta(milliseconds=completion_advance_ms),
+                completion_path,
+            ))
+        if not timed_clip_paths:
+            return False
+        emitted = self._append_discord_voice_bridge_request(
+            clip_paths=[],
+            timed_clip_paths=timed_clip_paths,
+            fallback_text=(
+                f"{display_text or group_identity or '초읽기'} 초읽기 시작 및 초읽기"
+                if lead_clip_paths
+                else f"{display_text or group_identity or '초읽기'} 초읽기"
+            ),
+            phase="COUNTDOWN_SEQUENCE",
+            category="countdown",
+            lane="center",
+            volume=1.0,
+            target_time=scheduled_at,
+            offset_sec=start_seconds,
+        )
+        if emitted:
+            self.discord_countdown_sequence_bridge_keys.add(target_key)
+            self._write_schedule_alarm_voice_test_log(
+                "discord_countdown_sequence_bridge_emit",
+                target_time=scheduled_at,
+                countdown_start_seconds=start_seconds,
+                group_identity=group_identity,
+                display_text=display_text,
+                timed_clip_count=len(timed_clip_paths),
+            )
+        return emitted
+
+    def _append_discord_countdown_start_notice_bridge_request(
+        self,
+        *,
+        scheduled_at: datetime,
+        countdown_start_notice_seconds: int,
+        countdown_start_seconds: int,
+        group_identity: str,
+        display_text: str,
+        clip_paths: list[str],
+    ) -> bool:
+        if not isinstance(scheduled_at, datetime):
+            return False
+        notice_seconds = max(1, int(countdown_start_notice_seconds))
+        now_value = datetime.now()
+        notice_at = scheduled_at - timedelta(seconds=notice_seconds)
+        if notice_at < now_value - timedelta(milliseconds=250):
+            return False
+        target_key = f"{notice_at.isoformat(timespec='seconds')}|{scheduled_at.isoformat(timespec='seconds')}|{str(group_identity or '').strip()}"
+        try:
+            stale_keys: set[str] = set()
+            for key in getattr(self, "discord_countdown_start_notice_bridge_keys", set()):
+                key_time_text = str(key).split("|", 1)[0]
+                try:
+                    key_time = datetime.fromisoformat(key_time_text)
+                except ValueError:
+                    continue
+                if key_time < now_value - timedelta(minutes=2):
+                    stale_keys.add(key)
+            if stale_keys:
+                self.discord_countdown_start_notice_bridge_keys.difference_update(stale_keys)
+        except Exception:
+            self.discord_countdown_start_notice_bridge_keys = set()
+        if target_key in self.discord_countdown_start_notice_bridge_keys:
+            return True
+        emitted = self._append_discord_countdown_sequence_bridge_request(
+            scheduled_at=scheduled_at,
+            countdown_start_seconds=countdown_start_seconds,
+            group_identity=group_identity,
+            display_text=display_text,
+            lead_clip_paths=clip_paths,
+            lead_start_at=notice_at,
+        )
+        if emitted:
+            self.discord_countdown_start_notice_bridge_keys.add(target_key)
+            self._write_schedule_alarm_voice_test_log(
+                "discord_countdown_combined_sequence_bridge_emit",
+                target_time=scheduled_at,
+                notice_at=notice_at,
+                countdown_start_notice_seconds=notice_seconds,
+                countdown_start_seconds=countdown_start_seconds,
+                group_identity=group_identity,
+                display_text=display_text,
+                clip_paths=clip_paths,
+            )
+        return emitted
+
+    def _has_discord_countdown_start_notice_bridge_for_target(
+        self,
+        scheduled_at: datetime,
+        countdown_start_notice_seconds: int,
+        group_identity: str,
+    ) -> bool:
+        if not isinstance(scheduled_at, datetime):
+            return False
+        notice_at = scheduled_at - timedelta(seconds=max(1, int(countdown_start_notice_seconds)))
+        target_key = f"{notice_at.isoformat(timespec='seconds')}|{scheduled_at.isoformat(timespec='seconds')}|{str(group_identity or '').strip()}"
+        return target_key in getattr(self, "discord_countdown_start_notice_bridge_keys", set())
+
+    def _has_discord_countdown_sequence_bridge_for_target(self, scheduled_at: datetime | None) -> bool:
+        if not isinstance(scheduled_at, datetime):
+            return False
+        target_prefix = f"{scheduled_at.isoformat(timespec='seconds')}|"
+        return any(
+            str(key).startswith(target_prefix)
+            for key in getattr(self, "discord_countdown_sequence_bridge_keys", set())
+        )
+
+    def _append_discord_second_precision_spawn_bridge_request(
+        self,
+        *,
+        target_time: datetime,
+        lead_clip_paths: list[str],
+        gen_clip_path: str,
+        fallback_text: str = "",
+        category: str = "general",
+        lane: str = "center",
+        volume: float = 1.0,
+    ) -> bool:
+        if not isinstance(target_time, datetime):
+            return False
+        now_value = datetime.now()
+        valid_lead_paths = [str(path).strip() for path in lead_clip_paths if str(path).strip()]
+        valid_gen_path = str(gen_clip_path or "").strip()
+        if not valid_lead_paths or not valid_gen_path:
+            return False
+        timed_clip_paths: list[tuple[datetime, str]] = []
+        lead_seconds = (
+            DISCORD_INVASION_SPAWN_CONFIRMED_LEAD_SECONDS
+            if len(valid_lead_paths) >= 3
+            else DISCORD_SPAWN_CONFIRMED_LEAD_SECONDS
+        )
+        gen_advance_ms = (
+            DISCORD_INVASION_GEN_TIMED_CLIP_ADVANCE_MS
+            if len(valid_lead_paths) >= 3
+            else DISCORD_GEN_TIMED_CLIP_ADVANCE_MS
+        )
+        lead_play_at = max(now_value, target_time - timedelta(seconds=lead_seconds))
+        for clip_path in valid_lead_paths:
+            timed_clip_paths.append((lead_play_at, clip_path))
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
+            if not isinstance(clip_duration_ms, int) or clip_duration_ms <= 0:
+                clip_duration_ms = 900
+            lead_play_at += timedelta(milliseconds=max(120, clip_duration_ms - 180))
+        timed_clip_paths.append((
+            target_time - timedelta(milliseconds=gen_advance_ms),
+            valid_gen_path,
+        ))
+        return self._append_discord_voice_bridge_request(
+            clip_paths=[],
+            timed_clip_paths=timed_clip_paths,
+            fallback_text=fallback_text,
+            phase="SPAWN_CONFIRMED_SEQUENCE",
+            category=category,
+            lane=lane,
+            volume=volume,
+            target_time=target_time,
+            offset_sec=0,
+        )
+
+    def _build_discord_timed_voice_sequence_clip_paths(
+        self,
+        clip_paths: list[str],
+        start_at: datetime,
+    ) -> list[tuple[datetime, str]]:
+        if not isinstance(start_at, datetime):
+            start_at = datetime.now()
+        timed_clip_paths: list[tuple[datetime, str]] = []
+        play_at = start_at
+        for clip_path in [str(path).strip() for path in clip_paths if str(path).strip()]:
+            timed_clip_paths.append((play_at, clip_path))
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
+            if not isinstance(clip_duration_ms, int) or clip_duration_ms <= 0:
+                clip_duration_ms = 900
+            transition_trim_ms = 180 if clip_duration_ms > 900 else 40
+            play_at += timedelta(milliseconds=max(120, clip_duration_ms - transition_trim_ms))
+        return timed_clip_paths
+
+    def _build_discord_near_confirmed_spawn_timed_clip_paths(
+        self,
+        member_clip_groups: list[tuple[datetime, list[str]]],
+        *,
+        chime_paths: list[str],
+    ) -> list[tuple[datetime, str]]:
+        """Build one-chime, per-spawn timing for 2~10-second confirmed spawns."""
+        valid_members = [
+            (target_time, [str(path).strip() for path in paths if str(path).strip()])
+            for target_time, paths in member_clip_groups
+            if isinstance(target_time, datetime) and paths
+        ]
+        if not valid_members:
+            return []
+        valid_members.sort(key=lambda entry: entry[0])
+        first_target_time = valid_members[0][0]
+        timed_clip_paths: list[tuple[datetime, str]] = []
+        # 차임벨은 첫 젠보다 3초 먼저 한 번만 낸다. 보스/젠 클립은 각
+        # 보스의 실제 젠 시각을 기준으로 역산해 배치한다.
+        chime_start_at = first_target_time - timedelta(
+            milliseconds=SCHEDULE_SECOND_PRECISION_NEAR_CHIME_LEAD_MS
+        )
+        for index, chime_path in enumerate([str(path).strip() for path in chime_paths if str(path).strip()]):
+            timed_clip_paths.append((chime_start_at, chime_path))
+            duration_ms = self._get_schedule_alarm_voice_duration_ms(chime_path)
+            if not isinstance(duration_ms, int) or duration_ms <= 0:
+                duration_ms = 900
+            transition_trim_ms = 180 if duration_ms > 900 else 40
+            chime_start_at += timedelta(milliseconds=max(120, duration_ms - transition_trim_ms))
+        for target_time, member_paths in valid_members:
+            if len(member_paths) == 1:
+                timed_clip_paths.append((target_time, member_paths[0]))
+                continue
+            member_lead_ms = self._get_schedule_alarm_timed_sequence_lead_ms(member_paths)
+            member_start_at = target_time - timedelta(milliseconds=member_lead_ms)
+            timed_clip_paths.extend(
+                self._build_discord_timed_voice_sequence_clip_paths(member_paths, member_start_at)
+            )
+        return sorted(timed_clip_paths, key=lambda entry: entry[0])
+
+    def _append_discord_timed_voice_sequence_bridge_request(
+        self,
+        *,
+        clip_paths: list[str],
+        fallback_text: str = "",
+        phase: str = "AUDIO",
+        category: str = "general",
+        lane: str = "center",
+        volume: float = 1.0,
+        target_time: datetime | None = None,
+        offset_sec: int = 0,
+        start_at: datetime | None = None,
+    ) -> tuple[bool, datetime | None]:
+        valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if not valid_clip_paths:
+            return False, None
+        if not isinstance(start_at, datetime):
+            start_at = datetime.now() + timedelta(seconds=max(0.0, float(DISCORD_VOICE_BRIDGE_GENERIC_PRESEND_SEC)))
+        timed_clip_paths = self._build_discord_timed_voice_sequence_clip_paths(valid_clip_paths, start_at)
+        if not timed_clip_paths:
+            return False, None
+        phase_text = str(phase or "AUDIO").strip() or "AUDIO"
+        timed_phase = phase_text if phase_text.endswith("_SEQUENCE") else f"{phase_text}_SEQUENCE"
+        emitted = self._append_discord_voice_bridge_request(
+            clip_paths=[],
+            timed_clip_paths=timed_clip_paths,
+            fallback_text=fallback_text,
+            phase=timed_phase,
+            category=category,
+            lane=lane,
+            volume=volume,
+            target_time=target_time,
+            offset_sec=offset_sec,
+        )
+        if emitted:
+            self._write_schedule_alarm_voice_test_log(
+                "discord_timed_voice_sequence_bridge_emit",
+                phase=phase_text,
+                timed_phase=timed_phase,
+                category=category,
+                lane=lane,
+                start_at=start_at,
+                target_time=target_time,
+                offset_sec=offset_sec,
+                clip_paths=valid_clip_paths,
+                timed_clip_count=len(timed_clip_paths),
+            )
+            return True, start_at
+        return False, None
+
+    def _wait_for_discord_timed_voice_sequence_start(
+        self,
+        bridge_emitted: bool,
+        start_at: datetime | None,
+        *,
+        phase: str = "",
+        clip_paths: list[str] | None = None,
+    ) -> None:
+        if not bool(bridge_emitted) or not isinstance(start_at, datetime):
+            return
+        if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
+            return
+        phase_text = str(phase or "").strip()
+        if phase_text in DISCORD_VOICE_BRIDGE_TIME_CRITICAL_PHASES:
+            return
+        delay_seconds = (start_at - datetime.now()).total_seconds()
+        if delay_seconds <= 0:
+            return
+        self._write_schedule_alarm_voice_test_log(
+            "discord_timed_voice_sequence_local_wait",
+            phase=phase_text,
+            delay_seconds=delay_seconds,
+            start_at=start_at,
+            clip_paths=clip_paths or [],
+        )
+        time.sleep(min(2.0, delay_seconds))
+
+    def _should_mute_local_schedule_audio_for_discord_bot(self, bridge_emitted: bool) -> bool:
+        if hasattr(self, "schedule_alarm_master_var") and not bool(self.schedule_alarm_master_var.get()):
+            return True
+        if not bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)):
+            return False
+        return bool(bridge_emitted)
+
+    def _sync_local_schedule_audio_with_discord_bridge(
+        self,
+        bridge_emitted: bool,
+        *,
+        phase: str = "",
+        clip_paths: list[str] | None = None,
+    ) -> None:
+        if not bool(bridge_emitted):
+            return
+        phase_text = str(phase or "").strip()
+        if phase_text in DISCORD_VOICE_BRIDGE_TIME_CRITICAL_PHASES:
+            return
+        if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
+            return
+        delay_seconds = max(0.0, float(DISCORD_VOICE_BRIDGE_LOCAL_SYNC_DELAY_SEC))
+        if delay_seconds <= 0:
+            return
+        self._write_schedule_alarm_voice_test_log(
+            "discord_voice_bridge_local_sync_delay",
+            phase=phase_text,
+            delay_seconds=delay_seconds,
+            clip_paths=clip_paths or [],
+        )
+        time.sleep(delay_seconds)
+
+    def _refresh_discord_bot_status_ui(self, payload: dict[str, object] | None = None) -> None:
+        if payload is None:
+            payload = self._query_discord_bot_status_port()
+        payload = self._set_discord_bot_status_payload(payload)
+        self._monitor_discord_bot_voice_bridge_health(payload)
+        is_online = bool(payload.get("online"))
+        is_alive = bool(payload.get("ok")) or self._is_discord_bot_process_alive()
+        self.discord_bot_running = is_alive
+        status_var = getattr(self, "discord_bot_status_var", None)
+        if status_var is not None:
+            try:
+                status_var.set(self._get_discord_bot_status_text())
+            except tk.TclError:
+                pass
+        self._apply_discord_bot_status_label_style()
+        button = getattr(self, "discord_bot_toggle_button", None)
+        if self._widget_available(button):
+            try:
+                button.configure(text="디스코드봇 종료" if is_alive else "디스코드봇 실행")
+            except tk.TclError:
+                pass
+        last_error = str(payload.get("last_error") or "").strip()
+        if last_error and self._widget_available(self.schedule_window):
+            try:
+                self.schedule_status_var.set(f"디스코드 봇 오류: {last_error}")
+            except tk.TclError:
+                pass
+        if is_online:
+            if not bool(payload.get("text_commands_enabled", True)) and self._widget_available(self.schedule_window):
+                try:
+                    self.schedule_status_var.set(
+                        "봇은 온라인이지만 일반 채팅 스케쥴 명령은 꺼져 있습니다. Developer Portal에서 Message Content Intent를 켜고 봇을 재시작하세요."
+                    )
+                except tk.TclError:
+                    pass
+            return
+
+    def _refresh_discord_bot_status_ui_async(self) -> None:
+        if bool(getattr(self, "discord_bot_status_poll_inflight", False)):
+            return
+        self.discord_bot_status_poll_inflight = True
+
+        def worker() -> None:
+            payload = self._query_discord_bot_status_port()
+
+            def finish() -> None:
+                self.discord_bot_status_poll_inflight = False
+                self._refresh_discord_bot_status_ui(payload)
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                self.discord_bot_status_poll_inflight = False
+
+        try:
+            threading.Thread(target=worker, name="discord-status-poll", daemon=True).start()
+        except RuntimeError:
+            self.discord_bot_status_poll_inflight = False
+
+    def _set_discord_bot_toggle_locked(self, locked: bool, *, seconds: float = 7.0) -> None:
+        if self.discord_bot_toggle_unlock_after_id is not None:
+            try:
+                self.root.after_cancel(self.discord_bot_toggle_unlock_after_id)
+            except tk.TclError:
+                pass
+            self.discord_bot_toggle_unlock_after_id = None
+        if locked:
+            self.discord_bot_toggle_locked_until = time.monotonic() + max(0.0, float(seconds))
+            button = getattr(self, "discord_bot_toggle_button", None)
+            if self._widget_available(button):
+                try:
+                    button.configure(state="disabled", cursor="arrow")
+                except tk.TclError:
+                    pass
+            try:
+                self.discord_bot_toggle_unlock_after_id = self.root.after(
+                    int(max(0.1, float(seconds)) * 1000),
+                    lambda: self._set_discord_bot_toggle_locked(False),
+                )
+            except tk.TclError:
+                self.discord_bot_toggle_unlock_after_id = None
+            return
+        self.discord_bot_toggle_locked_until = 0.0
+        button = getattr(self, "discord_bot_toggle_button", None)
+        if self._widget_available(button):
+            try:
+                button.configure(state="normal", cursor="hand2")
+            except tk.TclError:
+                pass
+        self._refresh_discord_bot_status_ui_async()
+
+    def _is_discord_bot_toggle_locked(self) -> bool:
+        return float(getattr(self, "discord_bot_toggle_locked_until", 0.0) or 0.0) > time.monotonic()
+
+    def _schedule_discord_bot_status_poll(self) -> None:
+        after_id = getattr(self, "discord_bot_status_after_id", None)
+        if after_id is not None:
+            try:
+                self.root.after_cancel(after_id)
+            except tk.TclError:
+                pass
+        self.discord_bot_status_after_id = None
+        if not self._callbacks_available():
+            return
+        if (
+            not self._widget_available(self.schedule_window)
+            and not bool(getattr(self, "discord_bot_expected_running", False))
+        ):
+            return
+        self._refresh_discord_bot_status_ui_async()
+        try:
+            self.discord_bot_status_after_id = self.root.after(3000, self._schedule_discord_bot_status_poll)
+        except tk.TclError:
+            self.discord_bot_status_after_id = None
+
+    def _request_discord_bot_shutdown(self) -> bool:
+        try:
+            with urllib.request.urlopen(DISCORD_BOT_SHUTDOWN_URL, timeout=0.5) as response:
+                response.read(1024)
+            return True
+        except Exception:
+            return False
+
+    def _wait_discord_bot_status_port_down(self, timeout: float = 8.0) -> bool:
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while time.monotonic() < deadline:
+            if not self._query_discord_bot_status_port(timeout=0.15):
+                self.discord_bot_last_status_payload = {}
+                return True
+            time.sleep(0.15)
+        return not bool(self._query_discord_bot_status_port(timeout=0.15))
+
+    def _terminate_discord_bot_status_process(self, payload: dict[str, object] | None = None) -> bool:
+        payload = payload or getattr(self, "discord_bot_last_status_payload", {}) or {}
+        pid_value = payload.get("pid")
+        try:
+            pid = int(pid_value)
+        except (TypeError, ValueError):
+            return False
+        if pid <= 0 or pid == os.getpid():
+            return False
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=3.0,
+                check=False,
+            )
+            return True
+        except Exception:
+            return False
+
+    def _stop_discord_bot_runtime_core(
+        self,
+        *,
+        graceful_timeout: float = 2.5,
+        force_timeout: float = 1.0,
+    ) -> bool:
+        if bool(getattr(self, "discord_bot_shutdown_in_progress", False)):
+            return not bool(self._query_discord_bot_status_port(timeout=0.15))
+        self.discord_bot_shutdown_in_progress = True
+        try:
+            status_payload = self._query_discord_bot_status_port(timeout=0.35)
+            process = getattr(self, "discord_bot_process", None)
+            process_alive = False
+            if process is not None:
+                try:
+                    process_alive = process.poll() is None
+                except Exception:
+                    process_alive = False
+            if not bool(status_payload.get("ok")) and not process_alive:
+                self.discord_bot_process = None
+                self.discord_bot_running = False
+                self.discord_bot_last_status_payload = {}
+                return True
+
+            if bool(status_payload.get("ok")):
+                self._request_discord_bot_shutdown()
+
+            if process_alive and process is not None:
+                try:
+                    process.wait(timeout=max(0.1, float(graceful_timeout)))
+                except subprocess.TimeoutExpired:
+                    pass
+                except Exception:
+                    pass
+
+            status_port_down = self._wait_discord_bot_status_port_down(timeout=graceful_timeout)
+            if not status_port_down and bool(status_payload.get("ok")):
+                self._terminate_discord_bot_status_process(status_payload)
+                status_port_down = self._wait_discord_bot_status_port_down(timeout=force_timeout)
+
+            process = getattr(self, "discord_bot_process", None)
+            if process is not None:
+                try:
+                    process_alive = process.poll() is None
+                except Exception:
+                    process_alive = False
+                if process_alive:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=max(0.2, float(force_timeout)))
+                    except subprocess.TimeoutExpired:
+                        try:
+                            process.kill()
+                            process.wait(timeout=0.5)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                try:
+                    process_alive = process.poll() is None
+                except Exception:
+                    process_alive = False
+            else:
+                process_alive = False
+
+            if status_port_down and not process_alive:
+                self.discord_bot_process = None
+                self.discord_bot_running = False
+                self.discord_bot_last_status_payload = {}
+                self.discord_bot_voice_bridge_online = False
+                return True
+            self.discord_bot_running = True
+            return False
+        finally:
+            self.discord_bot_shutdown_in_progress = False
+
+    def _run_discord_bot_disconnect_only(self, timeout: float = 7.0) -> bool:
+        token = self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", ""))
+        server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
+        if not token or not server_id.isdigit():
+            return True
+        executable_path = self._get_discord_bot_executable_path()
+        command = [executable_path] if executable_path else self._get_discord_bot_script_command()
+        if not command:
+            return False
+        try:
+            os.remove(DISCORD_BOT_DISCONNECT_RESULT_PATH)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        cleanup_process: subprocess.Popen | None = None
+        try:
+            env = os.environ.copy()
+            env["BOSS_TIMER_DISCORD_CONFIG"] = self._get_discord_bot_config_storage_path()
+            env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
+            env["BOSS_TIMER_APP_ROOT"] = get_app_root()
+            env["BOSS_TIMER_DISCORD_STATUS_PORT"] = str(DISCORD_BOT_STATUS_PORT)
+            env["BOSS_TIMER_DISCORD_VOICE_QUEUE"] = DISCORD_VOICE_BRIDGE_PATH
+            env["BOSS_TIMER_DISCORD_DISCONNECT_ONLY"] = "1"
+            env["BOSS_TIMER_DISCORD_DISCONNECT_RESULT"] = DISCORD_BOT_DISCONNECT_RESULT_PATH
+            cleanup_process = subprocess.Popen(
+                command,
+                cwd=get_app_root(),
+                env=env,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            cleanup_process.wait(timeout=max(1.0, float(timeout)))
+        except subprocess.TimeoutExpired:
+            if cleanup_process is not None:
+                try:
+                    cleanup_process.terminate()
+                    cleanup_process.wait(timeout=0.75)
+                except subprocess.TimeoutExpired:
+                    try:
+                        cleanup_process.kill()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            return False
+        except OSError:
+            return False
+        finally:
+            self._wait_discord_bot_status_port_down(timeout=0.75)
+        result_payload: dict[str, object] = {}
+        try:
+            with open(DISCORD_BOT_DISCONNECT_RESULT_PATH, "r", encoding="utf-8") as result_file:
+                loaded = json.load(result_file)
+            if isinstance(loaded, dict):
+                result_payload = loaded
+        except (OSError, json.JSONDecodeError):
+            result_payload = {}
+        finally:
+            try:
+                os.remove(DISCORD_BOT_DISCONNECT_RESULT_PATH)
+            except OSError:
+                pass
+        return bool(result_payload.get("ok"))
+
+    def _cleanup_stale_discord_bot_runtime_at_startup(self) -> bool:
+        payload = self._query_discord_bot_status_port(timeout=0.25)
+        stopped = True
+        if bool(payload.get("ok")):
+            stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
+        disconnected = self._run_discord_bot_disconnect_only() if stopped else False
+        cleaned = bool(stopped and disconnected)
+        self.discord_bot_startup_cleanup_failed = not cleaned
+        self._append_debug_log(
+            f"discord_startup_stale_cleanup stopped={int(stopped)} "
+            f"disconnect_sent={int(disconnected)} success={int(cleaned)}"
+        )
+        return cleaned
+
+    def _shutdown_discord_bot_at_exit(self) -> None:
+        self.discord_bot_expected_running = False
+        try:
+            self._stop_discord_bot_runtime_core(graceful_timeout=1.5, force_timeout=0.75)
+        except Exception:
+            pass
+
+    def _get_discord_bot_executable_path(self) -> str:
+        candidates = [
+            os.path.join(get_app_root(), "boss_timer_discord_bot.exe"),
+            os.path.join(get_app_root(), "discord_bot.exe"),
+            os.path.join(get_app_root(), "dist", "boss_timer_discord_bot.exe"),
+            os.path.join(get_app_root(), "dist", "discord_bot.exe"),
+        ]
+        for candidate in candidates:
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        return ""
+
+    def _get_discord_bot_script_command(self) -> list[str]:
+        script_path = os.path.join(get_app_root(), "boss_timer_discord_bot.py")
+        if not os.path.isfile(script_path) or getattr(sys, "frozen", False):
+            return []
+        pythonw_path = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        python_path = pythonw_path if os.path.isfile(pythonw_path) else sys.executable
+        return [python_path, script_path]
+
+    def _start_discord_bot_runtime(self) -> bool:
+        # The bot can be moved directly in Discord.  Its process persists that
+        # new channel in the active server profile, so treat the profile file
+        # as authoritative before every launch rather than restoring stale UI
+        # values from a previously opened schedule window.
+        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+        executable_path = self._get_discord_bot_executable_path()
+        command = [executable_path] if executable_path else self._get_discord_bot_script_command()
+        if not command:
+            self.discord_bot_running = False
+            self._refresh_discord_bot_status_ui()
+            self.schedule_status_var.set("디스코드 봇 실행 파일이나 스크립트를 찾지 못했습니다.")
+            return False
+        try:
+            env = os.environ.copy()
+            env["BOSS_TIMER_DISCORD_CONFIG"] = self._get_discord_bot_config_storage_path()
+            env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
+            env["BOSS_TIMER_APP_ROOT"] = get_app_root()
+            env["BOSS_TIMER_DISCORD_STATUS_PORT"] = str(DISCORD_BOT_STATUS_PORT)
+            env["BOSS_TIMER_DISCORD_VOICE_QUEUE"] = DISCORD_VOICE_BRIDGE_PATH
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self.discord_bot_process = subprocess.Popen(
+                command,
+                cwd=get_app_root(),
+                env=env,
+                creationflags=creationflags,
+            )
+        except OSError as exc:
+            self.discord_bot_process = None
+            self.discord_bot_running = False
+            self._refresh_discord_bot_status_ui()
+            self._show_centered_error("디스코드 봇", f"봇 실행에 실패했습니다.\n{exc}", parent=self.schedule_window)
+            return False
+        self.discord_bot_running = True
+        self.discord_bot_expected_running = True
+        self.discord_bot_startup_cleanup_failed = False
+        self._reset_discord_voice_bridge_health_tracking()
+        self.discord_bot_voice_bridge_recovery_grace_until = time.monotonic() + DISCORD_BOT_RECOVERY_GRACE_SEC
+        self._set_discord_bot_toggle_locked(True, seconds=7.0)
+        self._refresh_discord_bot_status_ui_async()
+        self._schedule_discord_bot_status_poll()
+        self.schedule_status_var.set("디스코드 봇을 실행했습니다. 연결 상태는 봇상태 표시로 확인하세요.")
+        return True
+
+    def _toggle_discord_bot_runtime(self) -> None:
+        if self._is_discord_bot_toggle_locked():
+            return
+        self._refresh_discord_bot_status_ui()
+        has_existing_runtime = (
+            bool(getattr(self, "discord_bot_last_status_payload", {}).get("ok"))
+            or self._is_discord_bot_process_alive()
+        )
+        if has_existing_runtime:
+            restart_after_cleanup = bool(getattr(self, "discord_bot_startup_cleanup_failed", False))
+            self.discord_bot_expected_running = bool(restart_after_cleanup)
+            self._set_discord_bot_toggle_locked(True, seconds=10.0 if restart_after_cleanup else 7.0)
+            stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.5, force_timeout=1.0)
+            self._refresh_discord_bot_status_ui()
+            if not stopped:
+                self.discord_bot_expected_running = True
+                self.schedule_status_var.set("디스코드 봇 종료를 확인하지 못했습니다. 잠시 후 다시 시도하세요.")
+                return
+            self.discord_bot_startup_cleanup_failed = False
+            self._refresh_discord_bot_status_ui()
+            if restart_after_cleanup:
+                self.schedule_status_var.set("기존 디스코드 봇을 종료했습니다. 3초 후 다시 연결합니다.")
+                try:
+                    self.root.after(3000, self._start_discord_bot_runtime)
+                except tk.TclError:
+                    pass
+            else:
+                self.schedule_status_var.set("디스코드 봇을 종료했습니다.")
+            return
+        self._start_discord_bot_runtime()
+
+    def _reconnect_discord_bot_runtime_from_request(
+        self,
+        payload: dict[str, object],
+    ) -> tuple[bool, str]:
+        voice_channel_id = str(payload.get("voice_channel_id") or "").strip()
+        requested_server_id = str(payload.get("server_id") or "").strip()
+        configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
+        if not voice_channel_id.isdigit():
+            return False, "재접속할 음성채널 ID가 올바르지 않습니다."
+        if configured_server_id and not configured_server_id.isdigit():
+            return False, "설정에 저장된 서버 ID가 올바르지 않습니다."
+        if requested_server_id and not requested_server_id.isdigit():
+            return False, "재접속할 서버 ID가 올바르지 않습니다."
+        if configured_server_id and requested_server_id and configured_server_id != requested_server_id:
+            self._append_debug_log(
+                f"discord_reconnect_rejected_wrong_guild requested={requested_server_id} "
+                f"configured={configured_server_id}"
+            )
+            return False, "다른 서버에서 들어온 재접속 요청을 차단했습니다."
+        server_id = configured_server_id or requested_server_id
+        if not server_id:
+            return False, "재접속할 서버 ID가 설정되지 않았습니다."
+        if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
+            return True, "이미 디스코드 봇 재접속을 진행하고 있습니다."
+
+        automatic_recovery = bool(payload.get("automatic_recovery"))
+        reconnect_reason = str(payload.get("reconnect_reason") or "연결 응답 없음").strip()
+
+        self.discord_bot_expected_running = True
+        self.discord_bot_voice_channel_id = voice_channel_id
+        if not configured_server_id:
+            self.discord_bot_server_id = server_id
+        if not self._save_discord_bot_settings():
+            return False, "재접속 채널 설정을 저장하지 못했습니다."
+
+        self.discord_bot_reconnect_in_progress = True
+        self._reset_discord_voice_bridge_health_tracking()
+        self.discord_bot_voice_bridge_recovery_grace_until = time.monotonic() + DISCORD_BOT_RECOVERY_GRACE_SEC
+        self._set_discord_bot_toggle_locked(True, seconds=12.0)
+        stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.5, force_timeout=1.0)
+        self._refresh_discord_bot_status_ui()
+        if not stopped:
+            self.discord_bot_reconnect_in_progress = False
+            if automatic_recovery:
+                self.discord_bot_pending_auto_reconnect_notice = None
+            self.schedule_status_var.set("디스코드 봇 종료를 확인하지 못해 재접속을 중단했습니다.")
+            return False, "기존 디스코드 봇 종료를 확인하지 못했습니다."
+
+        self.discord_bot_startup_cleanup_failed = False
+        if automatic_recovery:
+            self.discord_bot_pending_auto_reconnect_notice = {
+                "reason": reconnect_reason,
+                "requested_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        self.schedule_status_var.set("초대 요청으로 기존 봇을 종료했습니다. 3초 후 다시 연결합니다.")
+
+        def restart_runtime() -> None:
+            try:
+                started = self._start_discord_bot_runtime()
+                if started:
+                    self.schedule_status_var.set("초대 요청 채널로 디스코드 봇을 다시 연결하고 있습니다.")
+                else:
+                    if automatic_recovery:
+                        self.discord_bot_pending_auto_reconnect_notice = None
+                    self.schedule_status_var.set("초대 요청에 따른 디스코드 봇 재실행에 실패했습니다.")
+            finally:
+                self.discord_bot_reconnect_in_progress = False
+
+        try:
+            self.root.after(3000, restart_runtime)
+        except tk.TclError:
+            self.discord_bot_reconnect_in_progress = False
+            if automatic_recovery:
+                self.discord_bot_pending_auto_reconnect_notice = None
+            return False, "프로그램 종료 중이라 봇 재접속을 예약하지 못했습니다."
+        return True, "기존 봇을 종료했으며 3초 후 지정 음성채널로 다시 연결합니다."
+
+    def _get_preferred_browser_path(self) -> str:
+        candidates = [
+            os.path.join(os.environ.get("ProgramFiles", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "Naver", "Naver Whale", "Application", "whale.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Naver", "Naver Whale", "Application", "whale.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Naver", "Naver Whale", "Application", "whale.exe"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
+        ]
+        for candidate in candidates:
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        for executable in ("chrome.exe", "whale.exe", "msedge.exe"):
+            resolved = shutil.which(executable)
+            if resolved:
+                return resolved
+        return ""
+
+    def _open_url_in_preferred_browser(self, url: str) -> bool:
+        url_text = self._normalize_discord_bot_invite_url(url)
+        browser_path = self._get_preferred_browser_path()
+        try:
+            if browser_path:
+                subprocess.Popen([browser_path, url_text])
+            else:
+                os.startfile(url_text)
+        except OSError:
+            return False
+        return True
+
+    @staticmethod
+    def _get_discord_bot_settings_validation_error(
+        *,
+        token: str,
+        application_id: str,
+        server_id: str,
+        voice_channel_id: str,
+        text_channel_id: str,
+    ) -> str:
+        if not str(token or "").strip():
+            return "봇 토큰을 입력하세요."
+        if not str(application_id or "").strip().isdigit():
+            return "Application ID 숫자를 입력하세요."
+        if not str(server_id or "").strip().isdigit():
+            return "이 PC가 담당할 서버 ID 숫자를 입력하세요."
+        if not str(voice_channel_id or "").strip().isdigit():
+            return "이 서버의 기본 음성채널 ID 숫자를 입력하세요."
+        text_channel_id = str(text_channel_id or "").strip()
+        if text_channel_id and not text_channel_id.isdigit():
+            return "안내채팅 ID는 숫자로 입력하거나 비워두세요."
+        return ""
+
+    def open_discord_bot_settings_window(self) -> None:
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        existing_dialog = getattr(self, "discord_bot_settings_window", None)
+        if self._widget_available(existing_dialog):
+            try:
+                existing_dialog.lift(parent)
+                existing_dialog.focus_force()
+            except tk.TclError:
+                pass
+            return
+        dialog = tk.Toplevel(parent)
+        self.discord_bot_settings_window = dialog
+        dialog.title("디스코드 봇 설정")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#eef2ff")
+        dialog.transient(parent)
+        self._center_window_over_parent(dialog, parent, 520, 500)
+
+        token_var = tk.StringVar(value=self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")))
+        application_id_var = tk.StringVar(value=self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", "")))
+        server_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_server_id", "") or ""))
+        voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_voice_channel_id", "") or ""))
+        text_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_text_channel_id", "") or ""))
+        mute_pc_audio_var = tk.BooleanVar(value=bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)))
+        status_var = tk.StringVar(value=f"저장 위치: {self._get_discord_bot_config_storage_path()}")
+
+        def close_dialog() -> None:
+            if getattr(self, "discord_bot_settings_window", None) is dialog:
+                self.discord_bot_settings_window = None
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
+
+        def save_settings() -> None:
+            token_text = self._sanitize_discord_bot_token(token_var.get())
+            application_id_text = self._sanitize_discord_bot_application_id(application_id_var.get())
+            server_id_text = str(server_id_var.get() or "").strip()
+            voice_channel_id_text = str(voice_channel_id_var.get() or "").strip()
+            text_channel_id_text = str(text_channel_id_var.get() or "").strip()
+            validation_error = self._get_discord_bot_settings_validation_error(
+                token=token_text,
+                application_id=application_id_text,
+                server_id=server_id_text,
+                voice_channel_id=voice_channel_id_text,
+                text_channel_id=text_channel_id_text,
+            )
+            if validation_error:
+                status_var.set(validation_error)
+                return
+            previous_app_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
+            previous_invite_url = str(getattr(self, "discord_bot_invite_url", "") or "").strip()
+            self.discord_bot_token = token_text
+            self.discord_bot_application_id = application_id_text
+            self.discord_bot_server_id = server_id_text
+            self.discord_bot_voice_channel_id = voice_channel_id_text
+            self.discord_bot_text_channel_id = text_channel_id_text
+            self.discord_bot_mute_pc_audio_when_online = bool(mute_pc_audio_var.get())
+            if self.discord_bot_application_id:
+                matched_invite_url = self._get_discord_bot_invite_url_for_application_id(self.discord_bot_application_id)
+                if self.discord_bot_application_id == previous_app_id and previous_invite_url:
+                    self.discord_bot_invite_url = self._normalize_discord_bot_invite_url(
+                        previous_invite_url,
+                        self.discord_bot_application_id,
+                    )
+                else:
+                    self.discord_bot_invite_url = matched_invite_url
+            else:
+                self.discord_bot_invite_url = ""
+            if self._save_discord_bot_settings():
+                status_var.set("디스코드 봇 설정을 AppData에 저장했습니다.")
+                self.schedule_status_var.set("디스코드 봇 설정을 저장했습니다.")
+                close_dialog()
+            else:
+                status_var.set("디스코드 봇 설정 저장에 실패했습니다.")
+
+        tk.Label(dialog, text="디스코드 봇 설정", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=520, height=42)
+        tk.Label(dialog, text="봇 토큰", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=58, width=100, height=22)
+        tk.Entry(dialog, textvariable=token_var, font=self.button_font, show="*").place(x=134, y=56, width=350, height=26)
+        tk.Label(dialog, text="Application ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=96, width=110, height=22)
+        tk.Entry(dialog, textvariable=application_id_var, font=self.button_font).place(x=134, y=94, width=230, height=26)
+        tk.Label(dialog, text="서버 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=134, width=100, height=22)
+        tk.Entry(dialog, textvariable=server_id_var, font=self.button_font).place(x=134, y=132, width=230, height=26)
+        tk.Label(dialog, text="음성채널 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=172, width=100, height=22)
+        tk.Entry(dialog, textvariable=voice_channel_id_var, font=self.button_font).place(x=134, y=170, width=230, height=26)
+        tk.Label(dialog, text="안내채팅 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=210, width=100, height=22)
+        tk.Entry(dialog, textvariable=text_channel_id_var, font=self.button_font).place(x=134, y=208, width=230, height=26)
+        tk.Label(dialog, text="비워두면 ‘보탐매니저’ 텍스트 채널을 자동으로 찾습니다. /보탐채널로도 지정할 수 있습니다.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=240, width=468, height=20)
+        tk.Label(
+            dialog,
+            text="여러 PC에서 같은 봇 토큰·Application ID를 사용할 수 있습니다.\n서버 ID는 각 PC가 담당할 서로 다른 서버 ID를 입력하세요.",
+            font=self.percent_font,
+            bg="#dbeafe",
+            fg="#1e3a8a",
+            anchor="w",
+            justify="left",
+            padx=7,
+        ).place(x=24, y=264, width=468, height=42)
+        tk.Label(
+            dialog,
+            text="일반 채팅 명령을 받으려면 Discord Developer Portal에서 Message Content Intent를 켜야 합니다.",
+            font=self.percent_font,
+            bg="#fef3c7",
+            fg="#92400e",
+            anchor="w",
+            padx=7,
+        ).place(x=24, y=312, width=468, height=24)
+        tk.Checkbutton(
+            dialog,
+            text="디스코드 봇 음성출력시 PC음성 음소거",
+            variable=mute_pc_audio_var,
+            font=self.button_font,
+            bg="#eef2ff",
+            fg="#0f172a",
+            selectcolor="#ffffff",
+            activebackground="#eef2ff",
+            activeforeground="#0f172a",
+            highlightthickness=0,
+            bd=0,
+            anchor="w",
+            cursor="hand2",
+        ).place(x=134, y=342, width=330, height=26)
+        tk.Label(
+            dialog,
+            textvariable=status_var,
+            font=self.percent_font,
+            bg="#eef2ff",
+            fg="#1e3a8a",
+            anchor="w",
+            justify="left",
+            wraplength=470,
+        ).place(x=24, y=376, width=470, height=54)
+        tk.Button(
+            dialog,
+            text="저장",
+            font=self.button_font,
+            bg="#16a34a",
+            fg="#ffffff",
+            activebackground="#15803d",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=save_settings,
+            cursor="hand2",
+        ).place(x=300, y=452, width=88, height=30)
+        tk.Button(
+            dialog,
+            text="닫기",
+            font=self.button_font,
+            bg="#e2e8f0",
+            fg="#334155",
+            activebackground="#cbd5e1",
+            activeforeground="#334155",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=close_dialog,
+            cursor="hand2",
+        ).place(x=400, y=452, width=88, height=30)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+
+    def open_discord_bot_invite_window(self) -> None:
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        existing_dialog = getattr(self, "discord_bot_invite_window", None)
+        if self._widget_available(existing_dialog):
+            try:
+                existing_dialog.lift(parent)
+                existing_dialog.focus_force()
+            except tk.TclError:
+                pass
+            return
+        dialog = tk.Toplevel(parent)
+        self.discord_bot_invite_window = dialog
+        dialog.title("디스코드 봇 초대링크")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#eef2ff")
+        dialog.transient(parent)
+        self._center_window_over_parent(dialog, parent, 600, 214)
+
+        application_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
+        invite_url_var = tk.StringVar(
+            value=self._get_discord_bot_invite_url_for_application_id(
+                application_id,
+                getattr(self, "discord_bot_invite_url", ""),
+            )
+        )
+        status_var = tk.StringVar(
+            value="초대 링크를 수정한 뒤 열기 또는 복사를 사용할 수 있습니다."
+            if application_id
+            else "Application ID를 먼저 입력하면 초대 링크를 만들 수 있습니다."
+        )
+
+        def close_dialog() -> None:
+            if getattr(self, "discord_bot_invite_window", None) is dialog:
+                self.discord_bot_invite_window = None
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
+
+        def persist_invite_url() -> str:
+            current_application_id = self._sanitize_discord_bot_application_id(
+                getattr(self, "discord_bot_application_id", "")
+            )
+            if not current_application_id:
+                invite_url_var.set("")
+                self.discord_bot_invite_url = ""
+                self._save_discord_bot_settings()
+                return ""
+            invite_url = self._normalize_discord_bot_invite_url(invite_url_var.get(), current_application_id)
+            invite_url = invite_url or self._build_discord_bot_invite_url(current_application_id)
+            invite_url_var.set(invite_url)
+            self.discord_bot_invite_url = invite_url
+            invite_links = getattr(self, "discord_bot_invite_links", {})
+            if not isinstance(invite_links, dict):
+                invite_links = {}
+            invite_links[current_application_id] = invite_url
+            self.discord_bot_invite_links = invite_links
+            self._save_discord_bot_settings()
+            return invite_url
+
+        def open_link() -> None:
+            invite_url = persist_invite_url()
+            if not invite_url:
+                status_var.set("Application ID를 먼저 입력하면 초대 링크를 만들 수 있습니다.")
+                return
+            if self._open_url_in_preferred_browser(invite_url):
+                status_var.set("초대 링크를 브라우저로 열었습니다.")
+            else:
+                status_var.set("브라우저 열기에 실패했습니다. 복사 후 직접 붙여넣어 주세요.")
+            close_dialog()
+
+        def copy_link() -> None:
+            invite_url = persist_invite_url()
+            if not invite_url:
+                status_var.set("Application ID를 먼저 입력하면 초대 링크를 만들 수 있습니다.")
+                return
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(invite_url)
+                status_var.set("초대 링크를 클립보드에 복사했습니다.")
+            except tk.TclError:
+                status_var.set("클립보드 복사에 실패했습니다.")
+            close_dialog()
+
+        tk.Label(dialog, text="디스코드 봇 초대링크", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=600, height=42)
+        tk.Label(dialog, text="링크", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=62, width=56, height=22)
+        tk.Entry(dialog, textvariable=invite_url_var, font=self.button_font).place(x=82, y=60, width=492, height=28)
+        tk.Label(
+            dialog,
+            textvariable=status_var,
+            font=self.percent_font,
+            bg="#eef2ff",
+            fg="#1e3a8a",
+            anchor="w",
+            justify="left",
+            wraplength=550,
+        ).place(x=24, y=108, width=550, height=28)
+        tk.Button(
+            dialog,
+            text="열기",
+            font=self.button_font,
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=open_link,
+            cursor="hand2",
+        ).place(x=298, y=160, width=82, height=30)
+        tk.Button(
+            dialog,
+            text="복사",
+            font=self.button_font,
+            bg="#0f766e",
+            fg="#ffffff",
+            activebackground="#115e59",
+            activeforeground="#ffffff",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=copy_link,
+            cursor="hand2",
+        ).place(x=390, y=160, width=82, height=30)
+        tk.Button(
+            dialog,
+            text="닫기",
+            font=self.button_font,
+            bg="#e2e8f0",
+            fg="#334155",
+            activebackground="#cbd5e1",
+            activeforeground="#334155",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=close_dialog,
+            cursor="hand2",
+        ).place(x=482, y=160, width=82, height=30)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
 
     def _migrate_github_data_token_from_runtime_settings(
         self,
@@ -4997,8 +7488,15 @@ class BossTimerApp:
         cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", str(server_id or "").strip()).strip("._-")
         return cleaned or "default"
 
-    def _get_github_local_cache_path(self, server_id: object, kind: str) -> str:
+    def _get_season_scoped_github_local_cache_id(self, server_id: object) -> str:
         safe_id = self._safe_github_local_cache_server_id(server_id)
+        season_key = self._get_active_schedule_server_profile_season_key()
+        if season_key == "season_unset":
+            return safe_id
+        return f"{season_key}__{safe_id}"
+
+    def _get_github_local_cache_path(self, server_id: object, kind: str) -> str:
+        safe_id = self._get_season_scoped_github_local_cache_id(server_id)
         safe_kind = re.sub(r"[^0-9A-Za-z._-]+", "_", str(kind or "").strip()).strip("._-") or "schedule"
         if safe_kind == "schedule":
             return self._get_schedule_shared_main_path(safe_id)
@@ -5231,6 +7729,10 @@ class BossTimerApp:
         payload = self._load_schedule_shared_payload_from_path(path)
         if isinstance(payload, dict):
             return payload, path
+        # 시즌이 정해진 뒤에는 이전 시즌의 공용 캐시를 자동 이관하지
+        # 않는다. 새 시즌은 빈 프로필에서 시작해야 하기 때문이다.
+        if self._get_active_schedule_server_profile_season_key() != "season_unset":
+            return payload, path
         legacy_path = self._get_github_legacy_local_cache_path(server_id, "schedule")
         if legacy_path != path:
             legacy_payload = self._load_schedule_shared_payload_from_path(legacy_path)
@@ -5361,6 +7863,8 @@ class BossTimerApp:
             payload = None
         if isinstance(payload, dict):
             return payload
+        if self._get_active_schedule_server_profile_season_key() != "season_unset":
+            return None
         legacy_path = self._get_github_legacy_local_cache_path(server_id, "bosses")
         if legacy_path != path:
             try:
@@ -7730,10 +10234,11 @@ class BossTimerApp:
         return normalized_entries
 
     def _load_schedule_state(self) -> None:
-        if not os.path.exists(SCHEDULE_STATE_PATH):
+        state_path = self._get_schedule_state_storage_path()
+        if not os.path.exists(state_path):
             return
         try:
-            with open(SCHEDULE_STATE_PATH, "r", encoding="utf-8") as file:
+            with open(state_path, "r", encoding="utf-8") as file:
                 payload = json.load(file)
         except (OSError, json.JSONDecodeError):
             return
@@ -8192,7 +10697,8 @@ class BossTimerApp:
         }
         temp_path = ""
         try:
-            target_dir = os.path.dirname(os.path.abspath(SCHEDULE_STATE_PATH))
+            state_path = self._get_schedule_state_storage_path()
+            target_dir = os.path.dirname(os.path.abspath(state_path))
             os.makedirs(target_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target_dir, delete=False, suffix=".tmp") as file:
                 temp_path = file.name
@@ -8202,7 +10708,7 @@ class BossTimerApp:
                     ensure_ascii=False,
                     separators=(",", ":"),
                 )
-            os.replace(temp_path, SCHEDULE_STATE_PATH)
+            os.replace(temp_path, state_path)
         except OSError:
             if temp_path:
                 try:
@@ -8789,18 +11295,11 @@ class BossTimerApp:
         return max(int(min_delay_ms), delay_ms)
 
     def _write_lag_log(self, message: str, *, throttle_seconds: float = 0.0) -> None:
-        return
         now = time.perf_counter()
         if throttle_seconds > 0 and now - float(getattr(self, "_lag_log_last_write_at", 0.0) or 0.0) < throttle_seconds:
             return
         self._lag_log_last_write_at = now
-        try:
-            log_path = os.path.join(get_app_root(), "boss_timer_lag.log")
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            with open(log_path, "a", encoding="utf-8") as log_file:
-                log_file.write(f"[{timestamp}] {message}\n")
-        except Exception:
-            pass
+        self._append_debug_log(f"lag {message}")
 
     def _trace_periodic_callback_duration(
         self,
@@ -9940,10 +12439,11 @@ class BossTimerApp:
     def _load_schedule_break_rules(self) -> list[dict[str, object]]:
         self._ensure_init_dir()
         default_entries = self._build_default_schedule_break_entries()
-        if not os.path.exists(SCHEDULE_BREAK_RULES_PATH):
+        break_rules_path = self._get_schedule_break_rules_storage_path()
+        if not os.path.exists(break_rules_path):
             return default_entries
         try:
-            with open(SCHEDULE_BREAK_RULES_PATH, "r", encoding="utf-8") as file:
+            with open(break_rules_path, "r", encoding="utf-8") as file:
                 payload = json.load(file)
         except (OSError, json.JSONDecodeError):
             return default_entries
@@ -9963,7 +12463,9 @@ class BossTimerApp:
             for entry in self.schedule_break_entries
         ]
         payload = [entry for entry in payload if isinstance(entry, dict)]
-        with open(SCHEDULE_BREAK_RULES_PATH, "w", encoding="utf-8") as file:
+        break_rules_path = self._get_schedule_break_rules_storage_path()
+        os.makedirs(os.path.dirname(break_rules_path), exist_ok=True)
+        with open(break_rules_path, "w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
 
     def _schedule_boss_metric_source_mode_options(self) -> dict[str, str]:
@@ -10084,12 +12586,13 @@ class BossTimerApp:
         defaults = self._build_default_schedule_boss_metrics()
         metrics = {boss_name: dict(entry) for boss_name, entry in defaults.items()}
         self._ensure_init_dir()
-        if not os.path.exists(SCHEDULE_BOSS_METRICS_PATH):
+        metrics_path = self._get_schedule_boss_metrics_storage_path()
+        if not os.path.exists(metrics_path):
             self.schedule_boss_metrics = metrics
             self._save_schedule_boss_metrics()
             return metrics
         try:
-            with open(SCHEDULE_BOSS_METRICS_PATH, "r", encoding="utf-8") as file:
+            with open(metrics_path, "r", encoding="utf-8") as file:
                 payload = json.load(file)
         except (OSError, json.JSONDecodeError):
             return metrics
@@ -10116,7 +12619,9 @@ class BossTimerApp:
                 "score": entry.get("score"),
                 "war_score": entry.get("war_score"),
             }
-        with open(SCHEDULE_BOSS_METRICS_PATH, "w", encoding="utf-8") as file:
+        metrics_path = self._get_schedule_boss_metrics_storage_path()
+        os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+        with open(metrics_path, "w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
 
     def _sync_schedule_boss_metrics_with_definitions(self, old_name: str | None = None, new_name: str | None = None) -> None:
@@ -10664,6 +13169,10 @@ class BossTimerApp:
 
     def _get_schedule_break_row_sort_priority(self, row_kind: str) -> int:
         normalized_kind = str(row_kind or "").strip().lower()
+        if normalized_kind == "fixed":
+            # 같은 시각에는 일반 보스/이벤트를 먼저 보여 주고 고정 이벤트를
+            # 뒤에 배치한다. 실제 음성 알림 순서와 화면 순서도 같아진다.
+            return 1
         if normalized_kind == "break":
             return 9
         return 0
@@ -11461,10 +13970,11 @@ class BossTimerApp:
     def _load_schedule_delete_history(self) -> None:
         self.schedule_delete_history = []
         self.schedule_delete_default_cutoff_datetime = self._get_schedule_default_server_open_datetime()
-        if not os.path.exists(SCHEDULE_DELETE_HISTORY_PATH):
+        history_path = self._get_schedule_delete_history_storage_path()
+        if not os.path.exists(history_path):
             return
         try:
-            with open(SCHEDULE_DELETE_HISTORY_PATH, "r", encoding="utf-8") as file:
+            with open(history_path, "r", encoding="utf-8") as file:
                 payload = json.load(file)
         except (OSError, json.JSONDecodeError):
             return
@@ -11494,7 +14004,9 @@ class BossTimerApp:
             "entries": self.schedule_delete_history,
         }
         try:
-            with open(SCHEDULE_DELETE_HISTORY_PATH, "w", encoding="utf-8") as file:
+            history_path = self._get_schedule_delete_history_storage_path()
+            os.makedirs(os.path.dirname(history_path), exist_ok=True)
+            with open(history_path, "w", encoding="utf-8") as file:
                 json.dump(
                     self._serialize_schedule_state_value(payload),
                     file,
@@ -12365,7 +14877,7 @@ class BossTimerApp:
         if not parsed_items:
             self.schedule_status_var.set("추가할 보스 입력을 파싱하지 못했습니다.")
             return
-        self._apply_schedule_parsed_batch(
+        applied = self._apply_schedule_parsed_batch(
             normalized_text,
             parsed_items,
             ignored_count,
@@ -12375,6 +14887,29 @@ class BossTimerApp:
             skip_overwrite_confirm=True,
             ignore_delete_cutoff=True,
         )
+        if applied:
+            known_names = {
+                str(name or "").strip()
+                for name in getattr(self, "schedule_boss_definitions", {})
+                if str(name or "").strip()
+            }
+            known_names.update(
+                str(item.get("boss_name") or "").strip()
+                for item in getattr(self, "fixed_boss_entries", [])
+                if isinstance(item, dict) and str(item.get("boss_name") or "").strip()
+            )
+            added_names = {
+                re.sub(r"^침공\s*", "", str(item.get("boss_name") or item.get("display_name") or "").strip()).strip()
+                for item in parsed_items
+                if isinstance(item, dict)
+            }
+            added_names.discard("")
+            uncatalogued_names = added_names - known_names
+            if uncatalogued_names:
+                self._ensure_edge_tts_cache_for_names(
+                    uncatalogued_names,
+                    parent=self.schedule_window,
+                )
 
     def _delete_schedule_boss_by_name(self, boss_text: str, *, refresh: bool = True) -> int:
         reference_datetime = self._get_schedule_reference_datetime()
@@ -14660,6 +17195,23 @@ class BossTimerApp:
         duration_minutes = max(1, int(getattr(self, "schedule_share_duration_minutes_default", (24 + 8) * 60) or ((24 + 8) * 60)))
         return start_datetime.replace(microsecond=0) + timedelta(minutes=duration_minutes)
 
+    def _get_schedule_share_default_range(self) -> dict[str, object]:
+        """Build the same values preselected by the local 스케쥴복사 dialog."""
+        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        start_value = self._get_schedule_share_default_start_datetime(reference_now)
+        end_value = self._get_schedule_share_default_end_datetime(start_value)
+        return {
+            "start_datetime": start_value,
+            "end_datetime": end_value,
+            "use_boss_colors": bool(getattr(self, "schedule_share_use_boss_colors_default", True)),
+            "use_fixed_boss_colors": bool(getattr(self, "schedule_share_use_fixed_boss_colors_default", True)),
+            "include_break_rows": bool(getattr(self, "schedule_share_include_break_rows_default", True)),
+            "font_size": int(getattr(self, "schedule_share_font_size_default", 14) or 14),
+            "bold": bool(getattr(self, "schedule_share_bold_default", False)),
+            "strike_elapsed": bool(getattr(self, "schedule_share_elapsed_strike_default", False)),
+            "exclude_elapsed": bool(getattr(self, "schedule_share_exclude_elapsed_default", False)),
+        }
+
     def _show_schedule_share_period_dialog(self) -> dict[str, object] | None:
         host = self.schedule_window if self._widget_available(self.schedule_window) else self.root
         dialog = tk.Toplevel(host)
@@ -15324,15 +17876,16 @@ class BossTimerApp:
             grouped_rows.append(entry)
         return grouped_rows, share_start, effective_share_end
 
-    def _copy_schedule_share_image_to_clipboard(self) -> None:
+    def _copy_schedule_share_image_to_clipboard(self, selected_range: dict[str, object] | None = None) -> bool:
         try:
-            selected_range = self._show_schedule_share_period_dialog()
+            if selected_range is None:
+                selected_range = self._show_schedule_share_period_dialog()
             if not isinstance(selected_range, dict):
-                return
+                return False
             start_datetime = selected_range.get("start_datetime")
             end_datetime = selected_range.get("end_datetime")
             if not isinstance(start_datetime, datetime) or not isinstance(end_datetime, datetime):
-                return
+                return False
             rows, reference_now, share_end = self._collect_schedule_share_rows(
                 start_datetime,
                 end_datetime,
@@ -15343,7 +17896,7 @@ class BossTimerApp:
             )
             if not rows:
                 self.schedule_status_var.set("공유할 예정 스케쥴이 없습니다.")
-                return
+                return False
             title_prefix, title_server, title_date, title_weekday, title_suffix = self._get_schedule_share_title_parts(reference_now)
             payload = {
                 "title": f"{title_prefix}{title_server}{title_date}{title_weekday}{title_suffix}",
@@ -15381,6 +17934,7 @@ class BossTimerApp:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8-sig") as payload_file:
                     json.dump(payload, payload_file, ensure_ascii=False)
+                latest_image_path = os.path.join(get_app_root(), SCHEDULE_SHARE_LATEST_IMAGE_FILENAME)
                 script = (
                     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
                     "$ErrorActionPreference = 'Stop'\n"
@@ -15389,6 +17943,7 @@ class BossTimerApp:
                     "  Add-Type -AssemblyName PresentationCore -ErrorAction Stop\n"
                     "  Add-Type -AssemblyName PresentationFramework -ErrorAction Stop\n"
                     f"  $payloadPath = '{self._quote_powershell_literal(payload_path)}'\n"
+                    f"  $latestImagePath = '{self._quote_powershell_literal(latest_image_path)}'\n"
                     "  $payload = Get-Content -Raw -Encoding UTF8 -Path $payloadPath | ConvertFrom-Json\n"
                     "  $rows = @($payload.rows)\n"
                     "  $width = 520\n"
@@ -15529,6 +18084,16 @@ class BossTimerApp:
                     "    }\n"
                     "  }\n"
                     "  $bmp.Save($clipboardImagePath, [System.Drawing.Imaging.ImageFormat]::Png)\n"
+                    "  # Keep the exact bitmap produced by the local '스케쥴복사' renderer.\n"
+                    "  # The Discord bot uploads this persistent copy for /이미지.\n"
+                    "  $latestImageTempPath = $latestImagePath + '.tmp.png'\n"
+                    "  try {\n"
+                    "    if ([System.IO.File]::Exists($latestImageTempPath)) { [System.IO.File]::Delete($latestImageTempPath) }\n"
+                    "    $bmp.Save($latestImageTempPath, [System.Drawing.Imaging.ImageFormat]::Png)\n"
+                    "    [System.IO.File]::Copy($latestImageTempPath, $latestImagePath, $true)\n"
+                    "  } catch { } finally {\n"
+                    "    if ($latestImageTempPath -and [System.IO.File]::Exists($latestImageTempPath)) { [System.IO.File]::Delete($latestImageTempPath) }\n"
+                    "  }\n"
                     "  $bitmapImage = New-Object System.Windows.Media.Imaging.BitmapImage\n"
                     "  $bitmapImage.BeginInit()\n"
                     "  $bitmapImage.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad\n"
@@ -15570,7 +18135,7 @@ class BossTimerApp:
                 ok, output = self._run_schedule_ocr_powershell(script, sta=True)
                 if not ok or not output:
                     self.schedule_status_var.set("공유용 스케쥴을 클립보드에 저장하지 못했습니다.")
-                    return
+                    return False
                 try:
                     payload_result = json.loads(output)
                 except json.JSONDecodeError:
@@ -15589,8 +18154,9 @@ class BossTimerApp:
                     except OSError:
                         pass
                     self.schedule_status_var.set(f"공유용 스케쥴 저장 실패: {error_message}")
-                    return
+                    return False
                 self.schedule_status_var.set(f"클립보드에 스케쥴이 저장됐습니다. ({len(rows)}건)")
+                return True
             finally:
                 try:
                     os.remove(payload_path)
@@ -15605,12 +18171,657 @@ class BossTimerApp:
             except OSError:
                 pass
             self.schedule_status_var.set(f"공유용 스케쥴 저장 실패: {exc}")
+            return False
+
+    def _get_schedule_share_discord_request_path(self) -> str:
+        return os.path.join(get_app_root(), SCHEDULE_SHARE_DISCORD_IMAGE_REQUEST_FILENAME)
+
+    def _get_schedule_share_discord_response_path(self, request_id: str) -> str:
+        safe_request_id = re.sub(r"[^0-9A-Za-z_-]", "", str(request_id or ""))
+        return os.path.join(
+            get_app_root(),
+            f"{SCHEDULE_SHARE_DISCORD_IMAGE_RESPONSE_PREFIX}{safe_request_id}.json",
+        )
+
+    def _write_schedule_share_discord_response(self, request_id: str, payload: dict[str, object]) -> None:
+        response_path = self._get_schedule_share_discord_response_path(request_id)
+        temporary_path = f"{response_path}.{uuid.uuid4().hex}.tmp"
+        with open(temporary_path, "w", encoding="utf-8") as output_file:
+            json.dump(payload, output_file, ensure_ascii=False)
+        os.replace(temporary_path, response_path)
+
+    def _process_pending_schedule_share_discord_request(self) -> None:
+        """Render the exact local 스케쥴복사 output requested by Discord /이미지."""
+        request_path = self._get_schedule_share_discord_request_path()
+        processing_path = f"{request_path}.processing"
+        try:
+            if not os.path.isfile(request_path):
+                return
+            os.replace(request_path, processing_path)
+        except OSError:
+            return
+
+        request_id = ""
+        try:
+            with open(processing_path, "r", encoding="utf-8") as request_file:
+                request_payload = json.load(request_file)
+            if not isinstance(request_payload, dict):
+                return
+            request_id = re.sub(r"[^0-9A-Za-z_-]", "", str(request_payload.get("request_id") or ""))
+            if not request_id:
+                return
+            requested_at = float(request_payload.get("requested_at") or 0.0)
+            latest_image_path = os.path.join(get_app_root(), SCHEDULE_SHARE_LATEST_IMAGE_FILENAME)
+            self.schedule_status_var.set("디스코드 요청: 스케쥴복사 이미지를 생성 중입니다.")
+            created = self._copy_schedule_share_image_to_clipboard(self._get_schedule_share_default_range())
+            try:
+                image_ready = (
+                    bool(created)
+                    and os.path.isfile(latest_image_path)
+                    and os.path.getsize(latest_image_path) > 0
+                    and os.path.getmtime(latest_image_path) >= requested_at - 1.0
+                )
+            except OSError:
+                image_ready = False
+            response: dict[str, object] = {
+                "request_id": request_id,
+                "ok": image_ready,
+                "image_path": latest_image_path if image_ready else "",
+            }
+            if not image_ready:
+                response["error"] = "local_schedule_share_image_not_created"
+            self._write_schedule_share_discord_response(request_id, response)
+        except Exception as exc:
+            if request_id:
+                try:
+                    self._write_schedule_share_discord_response(
+                        request_id,
+                        {"request_id": request_id, "ok": False, "error": str(exc)},
+                    )
+                except OSError:
+                    pass
+            self._append_debug_log(f"discord_schedule_image_request_failed {type(exc).__name__}: {exc}")
+        finally:
+            try:
+                os.remove(processing_path)
+            except OSError:
+                pass
+
+    def _get_discord_schedule_request_dir(self) -> str:
+        return os.path.join(get_app_root(), DISCORD_SCHEDULE_REQUEST_DIRNAME)
+
+    def _get_discord_schedule_monitor_reset_key(self, now_value: datetime | None = None) -> str:
+        current = now_value if isinstance(now_value, datetime) else datetime.now()
+        reset_date = current.date() if current.hour >= 8 else (current - timedelta(days=1)).date()
+        return reset_date.isoformat()
+
+    def _clear_discord_schedule_monitor_entries(self) -> None:
+        monitor = getattr(self, "discord_schedule_monitor_text", None)
+        if not self._widget_available(monitor):
+            return
+        try:
+            monitor.config(state="normal")
+            monitor.delete("1.0", "end")
+            monitor.config(state="disabled")
+        except tk.TclError:
+            pass
+
+    def _reset_discord_schedule_monitor_if_due(self, now_value: datetime | None = None) -> bool:
+        reset_key = self._get_discord_schedule_monitor_reset_key(now_value)
+        previous_key = str(getattr(self, "discord_schedule_monitor_reset_key", "") or "")
+        self.discord_schedule_monitor_reset_key = reset_key
+        if not previous_key or previous_key == reset_key:
+            return False
+        self._clear_discord_schedule_monitor_entries()
+        return True
+
+    def _close_discord_schedule_monitor_window(self) -> None:
+        window = getattr(self, "discord_schedule_monitor_window", None)
+        self.discord_schedule_monitor_window = None
+        self.discord_schedule_monitor_text = None
+        if self._widget_available(window):
+            try:
+                window.destroy()
+            except tk.TclError:
+                pass
+
+    def _open_discord_schedule_monitor_window(self) -> None:
+        self._ensure_discord_schedule_monitor_window()
+        window = getattr(self, "discord_schedule_monitor_window", None)
+        if self._widget_available(window):
+            try:
+                window.deiconify()
+                window.lift()
+                window.focus_force()
+            except tk.TclError:
+                pass
+
+    @staticmethod
+    def _select_discord_schedule_monitor_position(
+        owner_rect: tuple[int, int, int, int],
+        screen_rect: tuple[int, int, int, int],
+        window_size: tuple[int, int],
+    ) -> tuple[int, int]:
+        owner_x, owner_y, owner_width, owner_height = owner_rect
+        screen_x, screen_y, screen_width, screen_height = screen_rect
+        width, height = window_size
+        screen_right = screen_x + screen_width
+        screen_bottom = screen_y + screen_height
+
+        def fits(x: int, y: int) -> bool:
+            return (
+                x >= screen_x
+                and y >= screen_y
+                and x + width <= screen_right
+                and y + height <= screen_bottom
+            )
+
+        centered_x = owner_x + ((owner_width - width) // 2)
+        candidates = (
+            (owner_x + owner_width + 8, owner_y),
+            (centered_x, owner_y - height - 8),
+            (centered_x, owner_y + owner_height + 8),
+        )
+        for candidate in candidates:
+            if fits(*candidate):
+                return candidate
+        return (
+            max(screen_x, screen_x + ((screen_width - width) // 2)),
+            max(screen_y, screen_y + ((screen_height - height) // 2)),
+        )
+
+    def _ensure_discord_schedule_monitor_window(self) -> None:
+        if self._widget_available(getattr(self, "discord_schedule_monitor_window", None)):
+            return
+        self.open_schedule_window()
+        owner = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        window = tk.Toplevel(owner)
+        window.title("보탐 로그 · 디스코드 스케쥴 자동 적용")
+        window.resizable(True, True)
+        window.minsize(460, 300)
+        window.configure(bg="#eef2ff")
+        window.protocol("WM_DELETE_WINDOW", self._close_discord_schedule_monitor_window)
+
+        tk.Label(
+            window,
+            text="디스코드 보탐매니저 채널 요청",
+            font=self.header_font,
+            bg="#3730a3",
+            fg="#ffffff",
+            anchor="w",
+            padx=14,
+        ).pack(fill="x", ipady=7)
+        tk.Label(
+            window,
+            text="수신된 요청은 즉시 적용되며 저장하지 않습니다. 표시 내역은 매일 오전 8시에 초기화됩니다.",
+            font=self.percent_font,
+            bg="#e0e7ff",
+            fg="#3730a3",
+            anchor="w",
+            justify="left",
+            padx=12,
+            pady=7,
+            wraplength=500,
+        ).pack(fill="x")
+        control_bar = tk.Frame(window, bg="#eef2ff")
+        control_bar.pack(fill="x", padx=10, pady=(8, 0))
+        tk.Label(
+            control_bar,
+            text="현재 창에 표시된 요청 내역만 지웁니다.",
+            font=self.percent_font,
+            bg="#eef2ff",
+            fg="#64748b",
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+        clear_button = tk.Button(
+            control_bar,
+            text="요청 내역 초기화",
+            font=self.percent_font,
+            bg="#e2e8f0",
+            fg="#334155",
+            activebackground="#cbd5e1",
+            activeforeground="#0f172a",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._clear_discord_schedule_monitor_entries,
+            cursor="hand2",
+        )
+        clear_button.pack(side="right", ipadx=7, ipady=2)
+        self._bind_hover_button(clear_button, "#e2e8f0", "#cbd5e1", "#334155", "#0f172a")
+        body = tk.Frame(window, bg="#eef2ff")
+        body.pack(fill="both", expand=True, padx=10, pady=(6, 10))
+        scrollbar = tk.Scrollbar(body, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
+        monitor = tk.Text(
+            body,
+            wrap="word",
+            state="disabled",
+            font=(self.current_font_family, 10),
+            bg="#ffffff",
+            fg="#1e293b",
+            relief="solid",
+            bd=1,
+            padx=9,
+            pady=8,
+            yscrollcommand=scrollbar.set,
+        )
+        monitor.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=monitor.yview)
+        monitor.tag_configure("header", foreground="#4338ca", font=(self.current_font_family, 10, "bold"))
+        monitor.tag_configure("request", foreground="#0f172a")
+        monitor.tag_configure("success", foreground="#047857", font=(self.current_font_family, 10, "bold"))
+        monitor.tag_configure("error", foreground="#b91c1c", font=(self.current_font_family, 10, "bold"))
+        self.discord_schedule_monitor_window = window
+        self.discord_schedule_monitor_text = monitor
+        window.update_idletasks()
+        try:
+            owner_x = owner.winfo_rootx()
+            owner_y = owner.winfo_rooty()
+            owner_width = owner.winfo_width()
+            owner_height = owner.winfo_height()
+            width, height = 540, 410
+            screen_x = window.winfo_vrootx()
+            screen_y = window.winfo_vrooty()
+            screen_width = window.winfo_vrootwidth()
+            screen_height = window.winfo_vrootheight()
+            x, y = self._select_discord_schedule_monitor_position(
+                (owner_x, owner_y, owner_width, owner_height),
+                (screen_x, screen_y, screen_width, screen_height),
+                (width, height),
+            )
+            window.geometry(f"{width}x{height}{x:+d}{y:+d}")
+        except tk.TclError:
+            pass
+
+    def _append_discord_schedule_monitor_entry(
+        self,
+        payload: dict[str, object],
+        result_text: str,
+        *,
+        success: bool,
+    ) -> None:
+        self._ensure_discord_schedule_monitor_window()
+        monitor = getattr(self, "discord_schedule_monitor_text", None)
+        if not self._widget_available(monitor):
+            return
+        received_at = str(payload.get("received_at") or datetime.now().isoformat(timespec="seconds"))
+        try:
+            clock_text = datetime.fromisoformat(received_at).strftime("%H:%M:%S")
+        except ValueError:
+            clock_text = datetime.now().strftime("%H:%M:%S")
+        author_name = str(payload.get("author_name") or "사용자").strip()
+        raw_text = str(payload.get("raw_text") or "").strip()
+        operation_key = str(payload.get("operation") or "").strip().lower()
+        operation = {
+            "delete": "삭제",
+            "discord_reconnect": "봇 재접속",
+            "auto_reconnect": "자동 재접속",
+            "connection_log": "음성 자동 재접속",
+            "voice_play": "음성 송출",
+            "voice_prepare": "음성 준비",
+        }.get(operation_key, "추가/수정")
+        try:
+            monitor.config(state="normal")
+            if monitor.index("end-1c") != "1.0":
+                monitor.insert("end", "\n" + ("─" * 34) + "\n")
+            monitor.insert("end", f"[{clock_text}] {author_name} · {operation}\n", "header")
+            monitor.insert("end", f"{raw_text}\n", "request")
+            monitor.insert("end", f"{'적용 완료' if success else '적용 실패'}: {result_text}\n", "success" if success else "error")
+            monitor.see("end")
+            monitor.config(state="disabled")
+        except tk.TclError:
+            pass
+
+    def _delete_discord_schedule_bosses(self, boss_names: list[str]) -> tuple[bool, str]:
+        target_map: dict[str, str] = {}
+        for boss_name in boss_names:
+            info = self._normalize_schedule_input_boss_name(str(boss_name or ""))
+            raw_key = str(info.get("raw_key") or "").strip()
+            display_name = self._get_schedule_boss_display_name(info, prefer_alias=True) or str(boss_name or "").strip()
+            if raw_key:
+                target_map[raw_key] = display_name
+        if not target_map:
+            return False, "삭제할 보스 이름을 확인할 수 없습니다."
+
+        target_keys = set(target_map)
+        removed_event_items = [
+            dict(item)
+            for item in self.schedule_events
+            if str(item.get("raw_key") or "").strip() in target_keys
+        ]
+        removed_active_items = [
+            dict(item)
+            for item in self.schedule_active_entries
+            if str(item.get("raw_key") or "").strip() in target_keys
+        ]
+        self.schedule_events = [
+            item for item in self.schedule_events
+            if str(item.get("raw_key") or "").strip() not in target_keys
+        ]
+        self.schedule_active_entries = [
+            item for item in self.schedule_active_entries
+            if str(item.get("raw_key") or "").strip() not in target_keys
+        ]
+        removed_count = len(removed_event_items) + len(removed_active_items)
+        if removed_count <= 0:
+            return False, f"해당 스케쥴이 없습니다: {', '.join(target_map.values())}"
+        identities = {
+            identity
+            for identity in (
+                self._get_schedule_item_identity("event", item) for item in removed_event_items
+            )
+            if isinstance(identity, tuple)
+        }
+        identities.update(
+            identity
+            for identity in (
+                self._get_schedule_item_identity("active", item) for item in removed_active_items
+            )
+            if isinstance(identity, tuple)
+        )
+        self._purge_schedule_cut_state(identities=identities, raw_keys=target_keys)
+        self._clear_schedule_second_precision_offsets_for_raw_keys(target_keys)
+        self._reset_schedule_alarm_event_index()
+        self._save_schedule_state(mark_github_dirty=True)
+        self._refresh_schedule_view()
+        deleted_names = [
+            display_name
+            for raw_key, display_name in target_map.items()
+            if any(str(item.get("raw_key") or "").strip() == raw_key for item in removed_event_items + removed_active_items)
+        ]
+        return True, f"{', '.join(deleted_names)} 스케쥴 {removed_count}건 삭제"
+
+    def _apply_discord_schedule_text(self, raw_text: str) -> tuple[bool, str]:
+        reference_datetime = self._get_schedule_reference_datetime().replace(microsecond=0)
+        parsed_items, ignored_count = self._parse_schedule_input_lines(
+            raw_text,
+            reference_datetime=reference_datetime,
+            treat_cut_text_as_seed=True,
+            allow_past_clock_seeds=False,
+        )
+        if not parsed_items or ignored_count:
+            return False, f"입력 형식을 확인하세요. 파싱 {len(parsed_items)}건, 무시 {ignored_count}줄"
+        normal_keys = {
+            str(item.get("raw_key") or "").strip()
+            for item in parsed_items
+            if str(item.get("state") or "") == "scheduled"
+            and not bool(item.get("cut_applied"))
+            and str(item.get("raw_key") or "").strip()
+        }
+        previous_add_mode = bool(self.schedule_input_add_mode)
+        self.schedule_input_add_mode = True
+        try:
+            applied = self._apply_schedule_parsed_batch(
+                raw_text,
+                parsed_items,
+                ignored_count,
+                reference_datetime,
+                reference_datetime,
+                source_label="디스코드 자동 적용",
+                skip_overwrite_confirm=True,
+                ignore_delete_cutoff=True,
+                preserve_existing_past_raw_keys=normal_keys,
+            )
+        finally:
+            self.schedule_input_add_mode = previous_add_mode
+        if not applied:
+            return False, "스케쥴 저장 단계에서 적용하지 못했습니다."
+        names = [
+            self._get_schedule_boss_display_name(item, prefer_alias=True)
+            for item in parsed_items
+            if str(item.get("state") or "") != "control"
+        ]
+        cache_names = {
+            re.sub(r"^침공\s*", "", str(item.get("boss_name") or item.get("display_name") or "").strip()).strip()
+            for item in parsed_items
+            if str(item.get("state") or "") != "control"
+        }
+        cache_names.discard("")
+        if cache_names:
+            self._ensure_edge_tts_cache_for_names(cache_names, parent=self.discord_schedule_monitor_window)
+        return True, f"{len(parsed_items)}건 반영 ({', '.join(name for name in names if name)})"
+
+    @staticmethod
+    def _normalize_discord_voice_command_name(value: object) -> str:
+        return re.sub(r"\s+", "", str(value or "").strip()).casefold()
+
+    def _find_discord_voice_command_media(self, command_name: object) -> str:
+        normalized_name = self._normalize_discord_voice_command_name(command_name)
+        if not normalized_name:
+            return ""
+        app_root = get_app_root()
+        recursive_roots = (
+            os.path.join(app_root, DISCORD_VOICE_COMMAND_MEDIA_DIRNAME),
+            os.path.join(app_root, "wave"),
+            os.path.join(app_root, "voice"),
+        )
+        direct_root = app_root
+        for wanted_extension in DISCORD_VOICE_COMMAND_MEDIA_EXTENSIONS:
+            try:
+                direct_names = os.listdir(direct_root)
+            except OSError:
+                direct_names = []
+            for filename in direct_names:
+                candidate = os.path.join(direct_root, filename)
+                stem, extension = os.path.splitext(filename)
+                if (
+                    extension.casefold() == wanted_extension
+                    and self._normalize_discord_voice_command_name(stem) == normalized_name
+                    and os.path.isfile(candidate)
+                ):
+                    return os.path.abspath(candidate)
+            for search_root in recursive_roots:
+                if not os.path.isdir(search_root):
+                    continue
+                for directory, _subdirs, filenames in os.walk(search_root):
+                    for filename in filenames:
+                        stem, extension = os.path.splitext(filename)
+                        if (
+                            extension.casefold() == wanted_extension
+                            and self._normalize_discord_voice_command_name(stem) == normalized_name
+                        ):
+                            candidate = os.path.join(directory, filename)
+                            if os.path.isfile(candidate):
+                                return os.path.abspath(candidate)
+        return ""
+
+    def _queue_discord_voice_command_tts(
+        self,
+        command_name: str,
+        tts_text: str,
+        *,
+        play_when_ready: bool,
+    ) -> tuple[bool, str]:
+        speech_text = str(tts_text or "").strip()
+        if not speech_text:
+            return False, f"{command_name}: 파일 전용 명령이라 TTS를 생성하지 않습니다."
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None or not cache.configured:
+            return False, "edge-tts가 준비되지 않아 음성을 만들 수 없습니다."
+        persistent_relpath = self._get_edge_tts_cache_job_relpath(
+            "command",
+            speech_text,
+            0,
+            0,
+        )
+        cached_path = self._get_edge_tts_cached_path(speech_text)
+        if cached_path:
+            if not play_when_ready:
+                return True, f"{command_name}: TTS 캐시 준비 완료"
+            emitted = self._append_discord_voice_bridge_request(
+                clip_paths=[cached_path],
+                fallback_text=speech_text,
+                phase="VOICE_COMMAND",
+                category="command",
+            )
+            return (
+                (True, f"{command_name}: TTS 캐시를 디스코드로 송출")
+                if emitted
+                else (False, f"{command_name}: 디스코드 음성 연결이 없어 송출하지 못했습니다.")
+            )
+        if not play_when_ready:
+            queued = self._prefetch_edge_tts_text(
+                speech_text,
+                persistent_relpath=persistent_relpath,
+            )
+            return (
+                (True, f"{command_name}: TTS 캐시 생성을 시작했습니다.")
+                if queued
+                else (False, f"{command_name}: TTS 캐시 생성 요청에 실패했습니다.")
+            )
+
+        def synthesize_and_play() -> None:
+            try:
+                clip_path = cache.wait(
+                    speech_text,
+                    timeout=45.0,
+                    rate_steps=0,
+                    volume_steps=0,
+                    persistent_relpath=persistent_relpath,
+                )
+                if not clip_path:
+                    self._append_debug_log(
+                        f"discord_voice_command_tts_failed command={command_name} "
+                        f"error={str(cache.last_error or '응답 없음')}"
+                    )
+                    return
+                emitted = self._append_discord_voice_bridge_request(
+                    clip_paths=[clip_path],
+                    fallback_text=speech_text,
+                    phase="VOICE_COMMAND",
+                    category="command",
+                )
+                self._append_debug_log(
+                    f"discord_voice_command_tts_ready command={command_name} emitted={int(bool(emitted))}"
+                )
+            except Exception as exc:
+                self._append_debug_log(
+                    f"discord_voice_command_tts_exception command={command_name} "
+                    f"error={type(exc).__name__}: {exc}"
+                )
+
+        threading.Thread(
+            target=synthesize_and_play,
+            name="DiscordVoiceCommandTts",
+            daemon=True,
+        ).start()
+        return True, f"{command_name}: 파일이 없어 TTS 생성 후 송출합니다."
+
+    def _handle_discord_voice_command_request(
+        self,
+        payload: dict[str, object],
+        *,
+        play: bool,
+    ) -> tuple[bool, str]:
+        command_name = str(payload.get("voice_command") or "").strip()
+        raw_tts_text = payload.get("tts_text")
+        tts_text = str(command_name if raw_tts_text is None else raw_tts_text).strip()
+        normalized_name = self._normalize_discord_voice_command_name(command_name)
+        if (
+            not normalized_name
+            or len(command_name) > 40
+            or any(ch in '/\\:*?"<>|' for ch in command_name)
+            or any(ord(ch) < 32 for ch in command_name)
+        ):
+            return False, "음성 명령 이름이 올바르지 않습니다."
+        media_path = self._find_discord_voice_command_media(command_name)
+        if media_path:
+            if not play:
+                return True, f"{command_name}: {os.path.basename(media_path)} 연결 완료"
+            emitted = self._append_discord_voice_bridge_request(
+                clip_paths=[media_path],
+                fallback_text=tts_text,
+                phase="VOICE_COMMAND",
+                category="command",
+            )
+            return (
+                (True, f"{command_name}: {os.path.basename(media_path)} 디스코드 송출")
+                if emitted
+                else (False, f"{command_name}: 디스코드 음성 연결이 없어 송출하지 못했습니다.")
+            )
+        if not tts_text:
+            return False, f"{command_name}: 같은 이름의 WAV/MP4 파일을 찾지 못했습니다. (TTS 없음)"
+        return self._queue_discord_voice_command_tts(
+            command_name,
+            tts_text,
+            play_when_ready=play,
+        )
+
+    def _apply_discord_schedule_request(self, payload: dict[str, object]) -> tuple[bool, str]:
+        request_server_id = str(payload.get("server_id") or "").strip()
+        configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
+        if (
+            request_server_id
+            and configured_server_id.isdigit()
+            and request_server_id != configured_server_id
+        ):
+            self._append_debug_log(
+                f"discord_schedule_request_rejected_wrong_guild requested={request_server_id} "
+                f"configured={configured_server_id}"
+            )
+            return False, "다른 서버에서 들어온 요청을 차단했습니다."
+        operation = str(payload.get("operation") or "").strip().lower()
+        if operation == "delete":
+            names = payload.get("boss_names")
+            if not isinstance(names, list):
+                return False, "삭제 대상 형식이 올바르지 않습니다."
+            return self._delete_discord_schedule_bosses([str(name) for name in names])
+        if operation == "apply":
+            return self._apply_discord_schedule_text(str(payload.get("raw_text") or ""))
+        if operation == "discord_reconnect":
+            return self._reconnect_discord_bot_runtime_from_request(payload)
+        if operation == "connection_log":
+            return True, "디스코드 음성채널 자동 재접속 완료"
+        if operation == "voice_play":
+            return self._handle_discord_voice_command_request(payload, play=True)
+        if operation == "voice_prepare":
+            return self._handle_discord_voice_command_request(payload, play=False)
+        return False, "지원하지 않는 요청입니다."
+
+    def _process_pending_discord_schedule_requests(self) -> None:
+        request_dir = self._get_discord_schedule_request_dir()
+        try:
+            request_paths = sorted(
+                os.path.join(request_dir, name)
+                for name in os.listdir(request_dir)
+                if name.endswith(".json") and os.path.isfile(os.path.join(request_dir, name))
+            )[:20]
+        except OSError:
+            return
+        for request_path in request_paths:
+            processing_path = f"{request_path}.processing"
+            try:
+                os.replace(request_path, processing_path)
+            except OSError:
+                continue
+            payload: dict[str, object] = {}
+            success = False
+            result_text = "요청 파일을 읽지 못했습니다."
+            try:
+                with open(processing_path, "r", encoding="utf-8") as request_file:
+                    loaded = json.load(request_file)
+                if not isinstance(loaded, dict):
+                    raise ValueError("요청 데이터가 객체가 아닙니다.")
+                payload = loaded
+                self._ensure_discord_schedule_monitor_window()
+                success, result_text = self._apply_discord_schedule_request(payload)
+            except Exception as exc:
+                result_text = f"{type(exc).__name__}: {exc}"
+                self._append_debug_log(f"discord_schedule_request_failed {result_text}")
+            finally:
+                self._append_discord_schedule_monitor_entry(payload, result_text, success=success)
+                try:
+                    os.remove(processing_path)
+                except OSError:
+                    pass
 
     def _get_schedule_input_placeholder_text(self) -> str:
         if self.schedule_input_add_mode:
             return (
                 "- 기존 스케쥴에 몇 줄만 추가 입력\n"
                 "1817 그로아\n"
+                "2510 그로아\n"
                 "18:17 그로아\n"
                 "18:17:00 그로아\n"
                 "그로아 출현 중\n"
@@ -15619,6 +18830,7 @@ class BossTimerApp:
                 "그로아 컷\n\n"
                 "※ 추가 규칙\n"
                 "입력한 보스만 현재 시각 이후 스케쥴에 반영합니다.\n"
+                "2510 그로아  -> 다음날 01:10으로 등록\n"
                 "그로아 컷  -> 현재시간 기준 시드 등록\n"
                 "1817 그로아 컷  -> 해당 시각 기준 과거 시드 등록\n"
                 "※ 컷 입력도 컷 버튼처럼 취소 기록과 함께 처리됩니다.\n"
@@ -15627,12 +18839,14 @@ class BossTimerApp:
         return (
             "- 디코보탐매니저 텍스트 복사 또는 수동입력\n"
             "1817 그로아\n"
+            "2510 그로아\n"
             "18:17 그로아\n"
             "181700 그로아\n"
             "18:17:00 그로아\n"
             "1817 그로아 컷\n"
             "출현중 or 출현 중\n\n"
             "※ 생성 규칙\n"
+            "2510 그로아  -> 다음날 01:10으로 등록\n"
             "그로아 컷  -> 현재시간 기준 시드 등록\n"
             "1815 그로아 컷  -> 해당 시각 기준 과거 시드 등록\n"
             "※ 컷 입력도 컷 버튼처럼 취소 기록과 함께 처리됩니다.\n\n"
@@ -15834,10 +19048,11 @@ class BossTimerApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _load_schedule_ocr_corrections(self) -> dict[str, dict[str, object]]:
-        if not os.path.exists(SCHEDULE_OCR_CORRECTIONS_PATH):
+        corrections_path = self._get_schedule_ocr_corrections_storage_path()
+        if not os.path.exists(corrections_path):
             return {}
         try:
-            with open(SCHEDULE_OCR_CORRECTIONS_PATH, "r", encoding="utf-8") as file:
+            with open(corrections_path, "r", encoding="utf-8") as file:
                 payload = json.load(file)
         except (OSError, json.JSONDecodeError):
             return {}
@@ -15874,7 +19089,9 @@ class BossTimerApp:
         )
         payload = {"version": 1, "items": items}
         try:
-            with open(SCHEDULE_OCR_CORRECTIONS_PATH, "w", encoding="utf-8") as file:
+            corrections_path = self._get_schedule_ocr_corrections_storage_path()
+            os.makedirs(os.path.dirname(corrections_path), exist_ok=True)
+            with open(corrections_path, "w", encoding="utf-8") as file:
                 json.dump(payload, file, ensure_ascii=False, indent=2)
         except OSError:
             return
@@ -17065,11 +20282,19 @@ class BossTimerApp:
             return
         try:
             log_path = os.path.join(get_app_root(), DEBUG_LOG_FILENAME)
-            self._prune_debug_log_file(log_path)
+            now_perf = time.perf_counter()
+            last_pruned_at = float(getattr(self, "_debug_log_last_prune_at", 0.0) or 0.0)
+            should_prune = now_perf - last_pruned_at >= 60.0
+            if not should_prune and os.path.isfile(log_path):
+                should_prune = os.path.getsize(log_path) > DEBUG_LOG_MAX_BYTES
+            if should_prune:
+                self._prune_debug_log_file(log_path)
+                self._debug_log_last_prune_at = now_perf
             with open(log_path, "a", encoding="utf-8") as debug_file:
                 debug_file.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
             if os.path.getsize(log_path) > DEBUG_LOG_MAX_BYTES:
                 self._prune_debug_log_file(log_path)
+                self._debug_log_last_prune_at = time.perf_counter()
         except Exception:
             pass
 
@@ -25161,7 +28386,7 @@ class BossTimerApp:
 
     def _update_schedule_alarm_master_button(self) -> None:
         button = getattr(self, "schedule_alarm_master_button", None)
-        is_enabled = bool(self.schedule_alarm_master_var.get()) if hasattr(self, "schedule_alarm_master_var") else False
+        is_enabled = bool(self.schedule_alarm_master_var.get()) if hasattr(self, "schedule_alarm_master_var") else True
         if button is None:
             return
         normal_bg = "#16a34a" if is_enabled else "#dc2626"
@@ -25183,36 +28408,21 @@ class BossTimerApp:
         self.schedule_alarm_master_var.set(not bool(self.schedule_alarm_master_var.get()))
 
     def _on_schedule_alarm_master_changed(self, *_args) -> None:
-        self.schedule_alarm_master_enabled_default = bool(self.schedule_alarm_master_var.get())
+        is_enabled = bool(self.schedule_alarm_master_var.get())
+        self.schedule_alarm_master_enabled_default = is_enabled
         self._update_schedule_alarm_master_button()
         if hasattr(self, "schedule_alarm_status_var") and self.schedule_alarm_status_var is not None:
-            self.schedule_alarm_status_var.set("전체 알람을 켰습니다." if self.schedule_alarm_master_enabled_default else "전체 알람을 껐습니다.")
-        if not self.schedule_alarm_master_enabled_default:
-            self._drop_pending_schedule_alarm_queue_items(category="countdown")
-            self._stop_schedule_alarm_countdown_audio(close_host=True)
-            self._stop_schedule_alarm_boss_audio(close_host=True)
-            self._stop_schedule_alarm_near_boss_audio_host()
-            self._stop_schedule_alarm_second_precision_gen_audio_host()
-        elif (
-            bool(self.schedule_alarm_countdown_enabled_var.get())
-            and bool(self.schedule_alarm_countdown_ai_voice_var.get())
-            and self._schedule_alarm_countdown_requires_audio_host()
+            self.schedule_alarm_status_var.set("스케쥴 PC 알람을 켰습니다." if is_enabled else "스케쥴 PC 알람을 껐습니다.")
+        if (
+            is_enabled
+            and bool(self.schedule_alarm_countdown_enabled_var.get())
+            and (
+                not bool(self.schedule_alarm_ai_recording_preferred_var.get())
+                or self._schedule_alarm_countdown_requires_audio_host()
+            )
         ):
-            self._ensure_schedule_alarm_countdown_audio_host_process()
-        self._save_schedule_alarm_settings()
-        if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
-            self._refresh_schedule_tree_scope()
-
-    def _play_schedule_alarm_signal(self) -> None:
-        for frequency in SCHEDULE_ALARM_SIGNAL_FREQUENCIES:
-            try:
-                winsound.Beep(int(frequency), 90)
-            except RuntimeError:
-                try:
-                    winsound.MessageBeep(winsound.MB_ICONASTERISK)
-                except RuntimeError:
-                    pass
-            time.sleep(0.03)
+            self._prewarm_schedule_alarm_countdown_audio_host_async()
+        self._save_schedule_alarm_settings_async()
 
     def _build_schedule_alarm_media_player_command(self, clip_path: str, duration_ms: int) -> list[str]:
         safe_duration = max(200, int(duration_ms))
@@ -25221,9 +28431,10 @@ class BossTimerApp:
             f"$clipPath = {json.dumps(clip_path, ensure_ascii=False)}\n"
             f"$durationMs = {safe_duration}\n"
             "$player = New-Object System.Windows.Media.MediaPlayer\n"
-            "$player.Volume = 1.0\n"
+            "$player.Volume = 0.0\n"
             "$player.Open([Uri]::new($clipPath))\n"
             "Start-Sleep -Milliseconds 30\n"
+            "$player.Volume = 1.0\n"
             "$player.Play()\n"
             "for ($i = 0; $i -lt 40 -and -not $player.NaturalDuration.HasTimeSpan; $i++) {\n"
             "  Start-Sleep -Milliseconds 50\n"
@@ -25263,19 +28474,21 @@ class BossTimerApp:
             f"$endBalance = {safe_end_balance:.4f}\n"
             f"$boostVolume = {safe_boost_volume:.4f}\n"
             "$player = New-Object System.Windows.Media.MediaPlayer\n"
-            "$player.Volume = [double]$endVolume\n"
+            "$player.Volume = 0.0\n"
             "$player.Balance = [double]$startBalance\n"
             "$player.Open([Uri]::new($clipPath))\n"
             "$boostPlayer = $null\n"
             "if ($boostVolume -gt 0.001) {\n"
             "  try {\n"
             "    $boostPlayer = New-Object System.Windows.Media.MediaPlayer\n"
-            "    $boostPlayer.Volume = [double]$boostVolume\n"
+            "    $boostPlayer.Volume = 0.0\n"
             "    $boostPlayer.Balance = [double]$startBalance\n"
             "    $boostPlayer.Open([Uri]::new($clipPath))\n"
             "  } catch { $boostPlayer = $null }\n"
             "}\n"
             "Start-Sleep -Milliseconds 20\n"
+            "$player.Volume = [double]$endVolume\n"
+            "if ($boostPlayer -ne $null) { try { $boostPlayer.Volume = [double]$boostVolume } catch {} }\n"
             "$player.Play()\n"
             "if ($boostPlayer -ne $null) { try { $boostPlayer.Play() } catch {} }\n"
             "$playDurationMs = 1400\n"
@@ -25330,16 +28543,18 @@ class BossTimerApp:
             f"$clipPaths = {clip_array}\n"
             f"$playbackVolume = {playback_volume:.4f}\n"
             f"$playbackBalance = {playback_balance:.4f}\n"
-            "$transitionTrimMs = 130\n"
+            # 이름 뒤의 "외"가 늘어지지 않도록 묶음 파일 전환을 조금 더 촘촘히 한다.
+            "$transitionTrimMs = 160\n"
             "for ($clipIndex = 0; $clipIndex -lt $clipPaths.Count; $clipIndex++) {\n"
             "  $clipPath = [string]$clipPaths[$clipIndex]\n"
             "  if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
             "  try {\n"
             "    $player = New-Object System.Windows.Media.MediaPlayer\n"
-            "    $player.Volume = [double]$playbackVolume\n"
+            "    $player.Volume = 0.0\n"
             "    $player.Balance = [double]$playbackBalance\n"
             "    $player.Open([Uri]::new($clipPath))\n"
             "    Start-Sleep -Milliseconds 15\n"
+            "    $player.Volume = [double]$playbackVolume\n"
             "    $player.Play()\n"
             "    $playDurationMs = 1400\n"
             "    for ($attempt = 0; $attempt -lt 80; $attempt++) {\n"
@@ -25446,15 +28661,63 @@ class BossTimerApp:
             except OSError:
                 pass
 
+    def _get_schedule_alarm_silence_clip_path(self, duration_ms: int) -> str | None:
+        safe_duration_ms = max(20, int(duration_ms))
+        filename = f"__silence_{safe_duration_ms}ms.wav"
+        target_path = os.path.join(EDGE_TTS_CACHE_DIR, filename)
+        try:
+            if os.path.isfile(target_path) and os.path.getsize(target_path) > 44:
+                return target_path
+            os.makedirs(EDGE_TTS_CACHE_DIR, exist_ok=True)
+            temporary_path = f"{target_path}.tmp"
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
+            sample_rate = 22050
+            frame_count = max(1, int(round(sample_rate * safe_duration_ms / 1000.0)))
+            with wave.open(temporary_path, "wb") as silence_file:
+                silence_file.setnchannels(1)
+                silence_file.setsampwidth(2)
+                silence_file.setframerate(sample_rate)
+                silence_file.writeframes(b"\x00\x00" * frame_count)
+            os.replace(temporary_path, target_path)
+            return target_path
+        except (OSError, wave.Error):
+            return None
+
+    def _get_schedule_alarm_audio_warmup_clip_path(self) -> str | None:
+        return self._get_schedule_alarm_silence_clip_path(SCHEDULE_ALARM_AUDIO_WARMUP_DURATION_MS)
+
     def _get_schedule_alarm_countdown_audio_host_preload_paths(self) -> list[str]:
         preload_paths: list[str] = []
+        warmup_clip_path = self._get_schedule_alarm_audio_warmup_clip_path()
+        if warmup_clip_path:
+            preload_paths.append(warmup_clip_path)
         clip_paths = self._get_schedule_alarm_voice_files("sec")
         clip_paths.extend(self._get_schedule_alarm_countdown_completion_audio_paths())
+        for remaining_seconds in range(1, 60):
+            edge_tts_path = self._get_edge_tts_cached_path(
+                self._format_schedule_alarm_countdown_speech(remaining_seconds),
+                rate=3,
+                volume_steps=self._get_schedule_alarm_countdown_edge_tts_volume_steps(remaining_seconds),
+            )
+            if edge_tts_path:
+                clip_paths.append(edge_tts_path)
+        edge_tts_gen_path = self._get_edge_tts_cached_path("젠", rate=3)
+        if edge_tts_gen_path:
+            clip_paths.append(edge_tts_gen_path)
         for clip_path in clip_paths:
             cleaned = str(clip_path).strip()
             if cleaned and cleaned not in preload_paths:
                 preload_paths.append(cleaned)
         return preload_paths
+
+    def _get_schedule_alarm_countdown_edge_tts_volume_steps(self, remaining_seconds: int) -> int:
+        try:
+            return int(SCHEDULE_ALARM_EDGE_TTS_COUNTDOWN_VOLUME_STEPS.get(int(remaining_seconds), 0) or 0)
+        except (TypeError, ValueError):
+            return 0
 
     def _schedule_alarm_countdown_requires_audio_host(self) -> bool:
         selected_paths: list[str] = []
@@ -25493,16 +28756,21 @@ class BossTimerApp:
             f"$preloadPaths = {preload_array}\n"
             "$players = @{}\n"
             "$activePlayer = $null\n"
+            "$primePlayer = $null\n"
             "foreach ($preloadPath in $preloadPaths) {\n"
             "  if ([string]::IsNullOrWhiteSpace($preloadPath)) { continue }\n"
             "  try {\n"
             "    $preloadPlayer = New-Object System.Windows.Media.MediaPlayer\n"
-            "    $preloadPlayer.Volume = 1.0\n"
+            "    # Open/디코더 초기화 중 음성 첫 조각이 새지 않도록 무음으로 연다.\n"
+            "    $preloadPlayer.Volume = 0.0\n"
             "    $preloadPlayer.Open([Uri]::new($preloadPath))\n"
             "    $players[$preloadPath] = $preloadPlayer\n"
+            "    if ($primePlayer -eq $null) { $primePlayer = $preloadPlayer }\n"
             "  } catch {}\n"
             "}\n"
             "Start-Sleep -Milliseconds 120\n"
+            "# 선로딩은 Open까지만 한다. 시작 단계에서 Play()를 호출하면 일부 장치에서\n"
+            "# 볼륨 0 설정과 관계없이 실제 음성이 아주 짧게 새어 나올 수 있다.\n"
             "while (($line = [Console]::In.ReadLine()) -ne $null) {\n"
             "  if ($line -eq '__EXIT__') { break }\n"
             "  if ($line -eq '__STOP__') {\n"
@@ -25517,7 +28785,7 @@ class BossTimerApp:
             "  }\n"
             "  if ([string]::IsNullOrWhiteSpace($line)) { continue }\n"
             "  $parts = $line.Split('|', 2)\n"
-            "  if ($parts.Length -lt 2 -or $parts[0] -ne '__PLAY__') { continue }\n"
+            "  if ($parts.Length -lt 2 -or ($parts[0] -ne '__PLAY__' -and $parts[0] -ne '__LOAD__')) { continue }\n"
             "  try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
             "  if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
             "  try {\n"
@@ -25525,17 +28793,19 @@ class BossTimerApp:
             "      $player = $players[$clipPath]\n"
             "    } else {\n"
             "      $player = New-Object System.Windows.Media.MediaPlayer\n"
-            "      $player.Volume = 1.0\n"
+            "      $player.Volume = 0.0\n"
             "      $player.Open([Uri]::new($clipPath))\n"
             "      $players[$clipPath] = $player\n"
             "      Start-Sleep -Milliseconds 30\n"
             "    }\n"
+            "    if ($parts[0] -eq '__LOAD__') { continue }\n"
             "    if ($activePlayer -ne $null -and -not [object]::ReferenceEquals($activePlayer, $player)) {\n"
             "      $activePlayer.Stop()\n"
             "      $activePlayer.Position = [TimeSpan]::Zero\n"
             "    }\n"
             "    $player.Stop()\n"
             "    $player.Position = [TimeSpan]::Zero\n"
+            "    $player.Volume = 1.0\n"
             "    $player.Play()\n"
             "    $activePlayer = $player\n"
             "  } catch {\n"
@@ -25589,6 +28859,25 @@ class BossTimerApp:
         self.schedule_alarm_countdown_audio_host_process = process
         return process
 
+    def _prewarm_schedule_alarm_countdown_audio_host_async(self) -> None:
+        existing = self.schedule_alarm_countdown_audio_host_process
+        if existing is not None and existing.poll() is None and existing.stdin is not None:
+            return
+        if bool(getattr(self, "schedule_alarm_countdown_audio_host_prewarm_inflight", False)):
+            return
+        self.schedule_alarm_countdown_audio_host_prewarm_inflight = True
+
+        def worker() -> None:
+            try:
+                self._ensure_schedule_alarm_countdown_audio_host_process()
+            finally:
+                self.schedule_alarm_countdown_audio_host_prewarm_inflight = False
+
+        try:
+            threading.Thread(target=worker, name="schedule-countdown-audio-prewarm", daemon=True).start()
+        except RuntimeError:
+            self.schedule_alarm_countdown_audio_host_prewarm_inflight = False
+
     def _send_schedule_alarm_countdown_audio_host_command(self, command: str) -> bool:
         process = self._ensure_schedule_alarm_countdown_audio_host_process()
         if process is None or process.stdin is None:
@@ -25608,10 +28897,15 @@ class BossTimerApp:
         if existing is not None:
             self._terminate_schedule_alarm_audio_process(existing)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        preload_paths: list[str] = []
+        warmup_clip_path = self._get_schedule_alarm_audio_warmup_clip_path()
+        if warmup_clip_path:
+            preload_paths.append(warmup_clip_path)
+        preload_paths.extend(self._get_schedule_alarm_countdown_completion_audio_paths())
         try:
             process = subprocess.Popen(
                 self._build_schedule_alarm_countdown_audio_host_command(
-                    self._get_schedule_alarm_countdown_completion_audio_paths()
+                    preload_paths
                 ),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
@@ -25642,6 +28936,22 @@ class BossTimerApp:
             return False
         return True
 
+    def _load_schedule_alarm_second_precision_gen_audio_clip(self, clip_path: str) -> bool:
+        valid_clip_path = str(clip_path or "").strip()
+        if not valid_clip_path:
+            return False
+        process = self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
+        if process is None or process.stdin is None:
+            return False
+        payload = base64.b64encode(valid_clip_path.encode("utf-8")).decode("ascii")
+        try:
+            process.stdin.write(f"__LOAD__|{payload}\n")
+            process.stdin.flush()
+        except OSError:
+            self.schedule_alarm_second_precision_gen_audio_host_process = None
+            return False
+        return True
+
     def _stop_schedule_alarm_second_precision_gen_audio_host(self) -> None:
         process = self.schedule_alarm_second_precision_gen_audio_host_process
         self.schedule_alarm_second_precision_gen_audio_host_process = None
@@ -25654,6 +28964,17 @@ class BossTimerApp:
         except OSError:
             pass
         self._terminate_schedule_alarm_audio_process(process)
+
+    def _stop_schedule_alarm_second_precision_gen_audio_playback(self) -> None:
+        process = self.schedule_alarm_second_precision_gen_audio_host_process
+        if process is None or process.poll() is not None or process.stdin is None:
+            return
+        try:
+            process.stdin.write("__STOP__\n")
+            process.stdin.flush()
+        except OSError:
+            self.schedule_alarm_second_precision_gen_audio_host_process = None
+            self._terminate_schedule_alarm_audio_process(process)
 
     def _stop_schedule_alarm_countdown_audio(self, *, close_host: bool = False) -> int:
         with self.schedule_alarm_countdown_audio_lock:
@@ -25695,6 +29016,759 @@ class BossTimerApp:
             seen.add(normalized)
             roots.append(candidate)
         return roots
+
+    def _shutdown_edge_tts(self) -> None:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None:
+            return
+        try:
+            cache.stop()
+        except Exception:
+            pass
+
+    def _get_edge_tts_status_text(self) -> str:
+        settings = getattr(self, "edge_tts_settings", EdgeTtsSettings())
+        if settings.enabled and edge_tts_available():
+            module_status = get_edge_tts_module_status(EDGE_TTS_MODULE_DIR)
+            module_text = f"모듈 {module_status.version}" if module_status.installed else "개발 환경"
+            return f"edge-tts 준비됨 ({module_text}, {settings.voice})"
+        if settings.enabled:
+            return f"edge-tts 모듈 설치 필요: {get_edge_tts_module_error()}"
+        return "edge-tts 사용 안 함"
+
+    def _request_edge_tts_module_install(
+        self,
+        *,
+        parent: tk.Widget | None = None,
+        on_ready=None,
+        force_prompt: bool = False,
+    ) -> bool:
+        """Ask once, then install the separate Edge TTS package in the background."""
+        if edge_tts_available():
+            if callable(on_ready):
+                on_ready()
+            return True
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.root.after(
+                    0,
+                    lambda: self._request_edge_tts_module_install(
+                        parent=parent,
+                        on_ready=on_ready,
+                        force_prompt=force_prompt,
+                    ),
+                )
+            except tk.TclError:
+                pass
+            return False
+        if bool(getattr(self, "edge_tts_module_installing", False)):
+            return False
+        if bool(getattr(self, "edge_tts_module_install_prompt_suppressed", False)) and not force_prompt:
+            return False
+        dialog_parent = parent if parent is not None and self._widget_available(parent) else self.root
+        module_status = get_edge_tts_module_status(EDGE_TTS_MODULE_DIR)
+        detail = module_status.reason or get_edge_tts_module_error()
+        should_install = self._ask_centered_yesno(
+            "TTS 모듈 설치",
+            "edge-tts 온라인 음성 모듈이 설치되어 있지 않습니다.\n\n"
+            "GitHub Releases에서 별도 TTS 모듈을 내려받아 설치할까요?\n"
+            "설치 후 현재 캐시 생성 작업을 자동으로 다시 시도합니다.\n\n"
+            f"상태: {detail}",
+            parent=dialog_parent,
+        )
+        if not should_install:
+            self.edge_tts_module_install_prompt_suppressed = True
+            return False
+        self.edge_tts_module_install_prompt_suppressed = False
+        self.edge_tts_module_installing = True
+        if hasattr(self, "schedule_alarm_status_var"):
+            self.schedule_alarm_status_var.set("TTS 모듈을 다운로드하여 설치하는 중입니다...")
+
+        def worker() -> None:
+            try:
+                status = install_edge_tts_module(EDGE_TTS_MODULE_DIR)
+                loaded = configure_edge_tts_module(
+                    EDGE_TTS_MODULE_DIR,
+                    allow_development_fallback=not bool(getattr(sys, "frozen", False)),
+                )
+                if not loaded:
+                    raise RuntimeError(get_edge_tts_module_error())
+                error_text = ""
+            except Exception as exc:
+                status = None
+                error_text = f"{type(exc).__name__}: {exc}"
+
+            def finish() -> None:
+                self.edge_tts_module_installing = False
+                if error_text:
+                    messagebox.showerror(
+                        "TTS 모듈 설치 실패",
+                        "TTS 모듈을 설치하지 못했습니다. 인터넷 연결과 GitHub Releases 파일을 확인해주세요.\n\n"
+                        f"{error_text}",
+                        parent=dialog_parent,
+                    )
+                    return
+                version_text = str(getattr(status, "version", "") or EDGE_TTS_MODULE_VERSION)
+                if hasattr(self, "schedule_alarm_status_var"):
+                    self.schedule_alarm_status_var.set(f"TTS 모듈 {version_text} 설치를 완료했습니다.")
+                self._refresh_schedule_alarm_voice_label()
+                if callable(on_ready):
+                    on_ready()
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                self.edge_tts_module_installing = False
+
+        threading.Thread(target=worker, name="edge-tts-module-install", daemon=True).start()
+        return False
+
+    def _refresh_schedule_alarm_voice_label(self) -> None:
+        label_var = getattr(self, "schedule_alarm_voice_label_var", None)
+        if label_var is None:
+            return
+        label_var.set(
+            '"AI 음성파일 우선 사용" 체크시 녹음 파일을 우선 사용하고 파일 누락시 edge-tts로 동작합니다. '
+            "체크해제시 edge-tts가 동작합니다."
+        )
+
+    def _is_schedule_alarm_ai_recording_preferred(self) -> bool:
+        preference_var = getattr(self, "schedule_alarm_ai_recording_preferred_var", None)
+        if preference_var is not None:
+            try:
+                return bool(preference_var.get())
+            except tk.TclError:
+                pass
+        return bool(getattr(self, "schedule_alarm_ai_recording_preferred_default", False))
+
+    def _filter_schedule_alarm_recording_paths(self, clip_paths: list[str]) -> list[str]:
+        valid_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if self._is_schedule_alarm_ai_recording_preferred():
+            return valid_paths
+        return [path for path in valid_paths if self._is_schedule_alarm_chime_clip_path(path)]
+
+    def _prepare_schedule_alarm_voice_output(self) -> None:
+        self._prefetch_schedule_alarm_edge_tts_common_phrases()
+        self._ensure_schedule_alarm_boss_audio_host_process()
+        self._prewarm_schedule_alarm_countdown_audio_host_async()
+        if not self._is_schedule_alarm_ai_recording_preferred():
+            return
+        self._ensure_schedule_alarm_boss_audio_host_process()
+        self._ensure_schedule_alarm_near_boss_audio_host_process()
+        self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
+        if bool(self.schedule_alarm_countdown_enabled_var.get()) and self._schedule_alarm_countdown_requires_audio_host():
+            self._ensure_schedule_alarm_countdown_audio_host_process()
+
+    def _prefetch_schedule_alarm_edge_tts_common_phrases(self) -> None:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None or not cache.configured:
+            return
+        common_phrases = [
+            *DISCORD_BUILTIN_VOICE_COMMAND_PHRASES,
+            *(self._format_schedule_alarm_group_extra_count(count) for count in range(1, 10)),
+            "외 다수",
+        ]
+        for phrase in common_phrases:
+            self._prefetch_edge_tts_text(phrase)
+        runtime_items = [
+            item
+            for item in list(getattr(self, "schedule_events", []))
+            if isinstance(item, dict) and isinstance(item.get("scheduled_at"), datetime)
+        ]
+        try:
+            compact_groups = self._build_schedule_alarm_event_clusters(
+                runtime_items,
+                max_gap_seconds=0,
+            )
+        except (AttributeError, TypeError, ValueError):
+            compact_groups = []
+        for compact_group in compact_groups:
+            _primary_item, group_summary, _additional_count, _all_invasion = (
+                self._get_schedule_alarm_compact_group_context(compact_group)
+            )
+            if not group_summary:
+                continue
+            self._prefetch_edge_tts_text(group_summary)
+            self._prefetch_edge_tts_text(f"곧 {group_summary} 타임입니다.")
+        self._prefetch_edge_tts_text("젠", rate=1)
+        self._prefetch_edge_tts_text("젠", rate=3)
+        second_cache_order = [*range(15, 0, -1), *range(16, 60)]
+        for seconds in second_cache_order:
+            self._prefetch_edge_tts_text(
+                self._format_schedule_alarm_countdown_speech(seconds),
+                rate=3,
+                volume_steps=self._get_schedule_alarm_countdown_edge_tts_volume_steps(seconds),
+                persistent_relpath=f"sec/{seconds}.mp3",
+            )
+
+    def _wait_for_edge_tts_audio(
+        self,
+        text: object,
+        *,
+        timeout: float = 45.0,
+        rate: int = 0,
+        volume_steps: int = 0,
+    ) -> str | None:
+        speech_text = str(text or "").strip()
+        cache = getattr(self, "edge_tts_cache", None)
+        if not speech_text or cache is None or not cache.configured:
+            self._write_schedule_alarm_voice_test_log(
+                "edge_tts_unavailable_ms_tts_suppressed",
+                text=speech_text,
+            )
+            return None
+        clip_path = cache.wait(
+            speech_text,
+            timeout=max(0.0, float(timeout)),
+            rate_steps=int(rate),
+            volume_steps=int(volume_steps),
+        )
+        if not clip_path:
+            self._write_schedule_alarm_voice_test_log(
+                "edge_tts_failed_ms_tts_suppressed",
+                text=speech_text,
+                error=str(cache.last_error or "응답 없음"),
+            )
+        return clip_path
+
+    def _prefetch_edge_tts_text(
+        self,
+        text: object,
+        *,
+        rate: int = 0,
+        volume_steps: int = 0,
+        persistent_relpath: str = "",
+    ) -> bool:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None:
+            return False
+        if cache.settings.enabled and not edge_tts_available():
+            self._request_edge_tts_module_install(
+                on_ready=lambda: self._prefetch_edge_tts_text(
+                    text,
+                    rate=rate,
+                    volume_steps=volume_steps,
+                    persistent_relpath=persistent_relpath,
+                )
+            )
+            return False
+        return bool(
+            cache.prefetch(
+                text,
+                rate_steps=int(rate),
+                volume_steps=int(volume_steps),
+                persistent_relpath=persistent_relpath,
+            )
+        )
+
+    def _get_edge_tts_cached_path(self, text: object, *, rate: int = 0, volume_steps: int = 0) -> str | None:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None:
+            return None
+        return cache.get(text, rate_steps=int(rate), volume_steps=int(volume_steps))
+
+    def _get_edge_tts_cache_job_relpath(self, group: str, text: str, rate: int, volume_steps: int = 0) -> str:
+        digest = hashlib.sha256(f"{int(rate)}\n{int(volume_steps)}\n{text}".encode("utf-8")).hexdigest()[:24]
+        normalized_group = re.sub(r"[^a-z0-9_-]+", "_", str(group or "message").lower()).strip("_") or "message"
+        return f"{normalized_group}/{digest}.mp3"
+
+    def _build_edge_tts_cache_jobs(
+        self,
+        *,
+        names: list[str] | tuple[str, ...] | set[str] | None = None,
+        include_catalogs: bool = True,
+        include_seconds: bool = True,
+        include_messages: bool = True,
+    ) -> list[dict[str, object]]:
+        jobs: list[dict[str, object]] = []
+        seen: set[tuple[str, int, int]] = set()
+
+        def add_job(text: object, *, rate: int = 0, volume_steps: int = 0, group: str = "message", relpath: str = "") -> None:
+            speech_text = str(text or "").strip()
+            key = (speech_text, int(rate), int(volume_steps))
+            if not speech_text or key in seen:
+                return
+            seen.add(key)
+            jobs.append(
+                {
+                    "text": speech_text,
+                    "rate": int(rate),
+                    "volume_steps": int(volume_steps),
+                    "relpath": relpath or self._get_edge_tts_cache_job_relpath(group, speech_text, int(rate), int(volume_steps)),
+                }
+            )
+
+        if include_seconds:
+            second_cache_order = [*range(15, 0, -1), *range(16, 60)]
+            for seconds in second_cache_order:
+                add_job(
+                    self._format_schedule_alarm_countdown_speech(seconds),
+                    rate=3,
+                    volume_steps=self._get_schedule_alarm_countdown_edge_tts_volume_steps(seconds),
+                    group="sec",
+                    relpath=f"sec/{seconds}.mp3",
+                )
+
+        if include_messages:
+            for message_text, message_rate in (
+                ("젠", 1),
+                ("젠", 3),
+                ("침공", 1),
+                ("초읽기 시작", 1),
+                ("타임입니다", 1),
+                ("곧", 1),
+                ("곧 발할라 대전이 종료합니다.", 1),
+                ("1분전", 1),
+                ("연속보스 감지", 1),
+                ("10분전", 1),
+                ("축 작업 하세요.", 1),
+            ):
+                add_job(message_text, rate=message_rate, group="message")
+            for command_phrase in DISCORD_BUILTIN_VOICE_COMMAND_PHRASES:
+                add_job(command_phrase, rate=0, group="command")
+            for additional_count in range(1, 10):
+                add_job(
+                    self._format_schedule_alarm_group_extra_count(additional_count),
+                    rate=1,
+                    group="message",
+                )
+            add_job("외 다수", rate=1, group="message")
+
+        collected_names: set[str] = {
+            str(name or "").strip()
+            for name in (names or [])
+            if str(name or "").strip()
+        }
+        if include_catalogs:
+            for boss_name, definition in getattr(self, "schedule_boss_definitions", {}).items():
+                collected_names.add(str(boss_name or "").strip())
+                if isinstance(definition, dict):
+                    collected_names.add(str(definition.get("alias") or "").strip())
+            for item in getattr(self, "fixed_boss_entries", []):
+                if isinstance(item, dict):
+                    collected_names.add(str(item.get("boss_name") or "").strip())
+            for item in list(getattr(self, "schedule_events", [])) + list(getattr(self, "schedule_control_events", [])):
+                if not isinstance(item, dict):
+                    continue
+                for key in ("boss_name", "display_name", "raw_name"):
+                    collected_names.add(str(item.get(key) or "").strip())
+        collected_names.discard("")
+
+        offsets: set[int] = set(self._normalize_schedule_alarm_offsets(getattr(self, "schedule_alarm_common_offsets", [])))
+        for settings_map_name in ("schedule_boss_alarm_settings", "schedule_fixed_boss_alarm_settings"):
+            for entry in getattr(self, settings_map_name, {}).values():
+                if isinstance(entry, dict):
+                    offsets.update(self._normalize_schedule_alarm_offsets(entry.get("offsets", [])))
+        if not offsets:
+            offsets.update((60, 300))
+
+        if include_messages:
+            for offset_seconds in sorted(offsets):
+                add_job(
+                    f"{self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.",
+                    rate=1,
+                    group="message",
+                )
+
+            # 현재 스케쥴에서 동시에 또는 짧은 간격으로 몰린 보스는 실제
+            # 알림과 같은 "대표 보스 외 N개" 문구까지 미리 캐시한다.
+            runtime_items = [
+                item
+                for item in list(getattr(self, "schedule_events", []))
+                if isinstance(item, dict) and isinstance(item.get("scheduled_at"), datetime)
+            ]
+            try:
+                compact_groups = self._build_schedule_alarm_event_clusters(
+                    runtime_items,
+                    max_gap_seconds=0,
+                )
+            except (AttributeError, TypeError, ValueError):
+                compact_groups = []
+            for compact_group in compact_groups:
+                _primary_item, group_summary, _additional_count, _all_invasion = (
+                    self._get_schedule_alarm_compact_group_context(compact_group)
+                )
+                if not group_summary:
+                    continue
+                add_job(group_summary, rate=1, group="message")
+                add_job(f"곧 {group_summary} 타임입니다.", rate=1, group="message")
+                add_job(f"{group_summary} 1분전입니다.", rate=1, group="message")
+                for offset_seconds in sorted(offsets):
+                    add_job(
+                        f"{group_summary} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.",
+                        rate=1,
+                        group="message",
+                    )
+
+        for display_name in sorted(collected_names):
+            add_job(display_name, rate=1, group="boss")
+            add_job(f"{display_name} 젠", rate=1, group="boss")
+            add_job(f"{display_name} 초읽기 시작", rate=1, group="boss")
+            add_job(f"{display_name} 타임입니다.", rate=1, group="boss")
+            add_job(f"{display_name} 1분 전입니다.", rate=1, group="message")
+            add_job(f"곧 {display_name} 타임입니다.", rate=1, group="fixed")
+            for offset_seconds in sorted(offsets):
+                add_job(
+                    f"{display_name} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.",
+                    rate=1,
+                    group="boss",
+                )
+                add_job(
+                    f"{display_name} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 전입니다.",
+                    rate=1,
+                    group="fixed",
+                )
+        if include_catalogs:
+            try:
+                reference_now = self._get_schedule_reference_datetime()
+                fixed_rows = self._get_fixed_boss_schedule_rows_for_alarm(reference_now)
+                for scheduled_at, boss_name, *_rest in fixed_rows:
+                    entry = self._get_schedule_fixed_boss_alarm_entry(boss_name)
+                    for offset_seconds in self._normalize_schedule_alarm_offsets(entry.get("offsets", [])):
+                        add_job(
+                            self._build_schedule_fixed_alarm_message(
+                                reference_now,
+                                scheduled_at,
+                                boss_name,
+                                offset_seconds,
+                            ),
+                            rate=1,
+                            group="fixed",
+                        )
+                    if (
+                        bool(entry.get("enabled"))
+                        and SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS
+                        in self._normalize_schedule_alarm_offsets(entry.get("offsets", []))
+                        and self._is_schedule_valhalla_battle_name(boss_name)
+                    ):
+                        add_job(
+                            self._build_schedule_valhalla_end_alarm_message(
+                                reference_now,
+                                scheduled_at + timedelta(seconds=SCHEDULE_VALHALLA_BATTLE_DURATION_SECONDS),
+                            ),
+                            rate=1,
+                            group="fixed",
+                        )
+                fixed_pre_alert_rows = self._build_schedule_fixed_pre_alert_rows(fixed_rows)
+                for (scheduled_at, offset_seconds, is_valhalla_end_notice), group_names in (
+                    self._build_schedule_fixed_pre_alert_groups(fixed_pre_alert_rows).items()
+                ):
+                    if is_valhalla_end_notice or len(group_names) < 2:
+                        continue
+                    add_job(
+                        self._build_schedule_fixed_alarm_group_message(
+                            reference_now,
+                            scheduled_at,
+                            group_names,
+                            offset_seconds,
+                        ),
+                        rate=1,
+                        group="fixed",
+                    )
+                for scheduled_at, group_names in self._build_schedule_fixed_due_time_groups(fixed_rows).items():
+                    if len(group_names) < 2:
+                        continue
+                    group_summary, _additional_count = self._summarize_schedule_alarm_group_names(group_names)
+                    add_job(
+                        f"{group_summary} 타임입니다.",
+                        rate=1,
+                        group="fixed",
+                    )
+            except (AttributeError, TypeError, ValueError):
+                pass
+        return jobs
+
+    def _partition_edge_tts_cache_jobs(
+        self,
+        jobs: list[dict[str, object]],
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None:
+            return [], []
+        ready_jobs: list[dict[str, object]] = []
+        missing_jobs: list[dict[str, object]] = []
+        seen: set[tuple[str, int, int]] = set()
+        for raw_job in jobs:
+            if not isinstance(raw_job, dict):
+                continue
+            job = dict(raw_job)
+            text = str(job.get("text") or "").strip()
+            rate = int(job.get("rate") or 0)
+            volume_steps = int(job.get("volume_steps") or 0)
+            identity = (text, rate, volume_steps)
+            if not text or identity in seen:
+                continue
+            seen.add(identity)
+            if cache.get(text, rate_steps=rate, volume_steps=volume_steps):
+                ready_jobs.append(job)
+            else:
+                missing_jobs.append(job)
+        return ready_jobs, missing_jobs
+
+    def _get_missing_edge_tts_cache_jobs(self, jobs: list[dict[str, object]]) -> list[dict[str, object]]:
+        _ready_jobs, missing_jobs = self._partition_edge_tts_cache_jobs(jobs)
+        return missing_jobs
+
+    def _start_edge_tts_cache_generation(
+        self,
+        jobs: list[dict[str, object]],
+        *,
+        parent: tk.Widget | None = None,
+        completion_message: str = "TTS 캐시 생성을 완료했습니다.",
+        on_complete=None,
+    ) -> bool:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None:
+            if hasattr(self, "schedule_alarm_status_var"):
+                self.schedule_alarm_status_var.set("edge-tts 캐시를 준비하지 못했습니다.")
+            return False
+        if not edge_tts_available():
+            self._request_edge_tts_module_install(
+                parent=parent,
+                on_ready=lambda: self._start_edge_tts_cache_generation(
+                    jobs,
+                    parent=parent,
+                    completion_message=completion_message,
+                    on_complete=on_complete,
+                ),
+            )
+            return False
+        if not cache.configured:
+            if hasattr(self, "schedule_alarm_status_var"):
+                self.schedule_alarm_status_var.set("edge-tts 음성 사용이 꺼져 있어 캐시를 생성할 수 없습니다.")
+            return False
+        missing_jobs = self._get_missing_edge_tts_cache_jobs(jobs)
+        if not missing_jobs:
+            if callable(on_complete):
+                on_complete(True, 0, 0)
+            return True
+        if bool(getattr(self, "edge_tts_cache_generation_active", False)):
+            return False
+        self.edge_tts_cache_generation_active = True
+        dialog_parent = parent if parent is not None and self._widget_available(parent) else self.root
+        dialog = tk.Toplevel(dialog_parent)
+        dialog.title("TTS 캐시 생성")
+        dialog.resizable(False, False)
+        dialog.transient(dialog_parent)
+        dialog.configure(bg="#eff6ff")
+        self._center_window_over_parent(dialog, dialog_parent, 430, 150)
+        status_var = tk.StringVar(value=f"TTS 캐쉬 생성중... 0/{len(missing_jobs)}")
+        tk.Label(dialog, text="edge-tts 캐시 생성", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=430, height=38)
+        tk.Label(dialog, textvariable=status_var, font=self.button_font, bg="#eff6ff", fg="#1e3a8a", anchor="w").place(x=24, y=54, width=382, height=24)
+        progress = ttk.Progressbar(dialog, orient="horizontal", mode="determinate", maximum=len(missing_jobs), value=0)
+        progress.place(x=24, y=92, width=382, height=22)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            pass
+
+        def worker() -> None:
+            generated = 0
+            failed = 0
+            for index, job in enumerate(missing_jobs, start=1):
+                clip_path = cache.wait(
+                    job.get("text"),
+                    timeout=60.0,
+                    rate_steps=int(job.get("rate") or 0),
+                    volume_steps=int(job.get("volume_steps") or 0),
+                    persistent_relpath=str(job.get("relpath") or ""),
+                )
+                if clip_path:
+                    generated += 1
+                else:
+                    failed += 1
+
+                def update(current=index, text=str(job.get("text") or "")) -> None:
+                    if not self._widget_available(dialog):
+                        return
+                    progress.configure(value=current)
+                    status_var.set(f"TTS 캐쉬 생성중... {current}/{len(missing_jobs)}  {text[:22]}")
+
+                try:
+                    self.root.after(0, update)
+                except tk.TclError:
+                    break
+
+            def finish() -> None:
+                self.edge_tts_cache_generation_active = False
+                if any(str(job.get("relpath") or "").replace("\\", "/").startswith("sec/") for job in missing_jobs):
+                    # 이미 떠 있던 초읽기 호스트도 새로 만든 숫자 MP3를 시작 전에
+                    # 선로딩하도록 다시 연다. 첫 숫자에서 발생하는 워밍업 잡음을 막는다.
+                    self._stop_schedule_alarm_countdown_audio(close_host=True)
+                # 생성 전에 종료한 재생기를 새 캐시 기준으로 다시 준비한다.
+                self._prepare_schedule_alarm_voice_output()
+                if self._widget_available(dialog):
+                    try:
+                        dialog.grab_release()
+                    except tk.TclError:
+                        pass
+                    dialog.destroy()
+                if hasattr(self, "schedule_alarm_status_var"):
+                    suffix = f" (실패 {failed}개)" if failed else ""
+                    self.schedule_alarm_status_var.set(f"{completion_message}{suffix}")
+                if callable(on_complete):
+                    on_complete(failed == 0, generated, failed)
+
+            try:
+                self.root.after(0, finish)
+            except tk.TclError:
+                self.edge_tts_cache_generation_active = False
+
+        threading.Thread(target=worker, name="edge-tts-persistent-cache", daemon=True).start()
+        return True
+
+    def _ensure_edge_tts_cache_for_names(
+        self,
+        names: list[str] | tuple[str, ...] | set[str],
+        *,
+        parent: tk.Widget | None = None,
+    ) -> bool:
+        clean_names = {str(name or "").strip() for name in names if str(name or "").strip()}
+        if not clean_names:
+            return True
+        jobs = self._build_edge_tts_cache_jobs(
+            names=clean_names,
+            include_catalogs=False,
+            include_seconds=False,
+            include_messages=False,
+        )
+        if not self._get_missing_edge_tts_cache_jobs(jobs):
+            return True
+        return self._start_edge_tts_cache_generation(
+            jobs,
+            parent=parent,
+            completion_message="신규 이름 TTS 캐시 생성을 완료했습니다.",
+        )
+
+    def _resolve_edge_tts_fallback_audio(
+        self,
+        clip_paths: list[str],
+        fallback_text: object,
+        *,
+        rate: int = 0,
+    ) -> tuple[list[str], bool]:
+        valid_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if any(not self._is_schedule_alarm_chime_clip_path(path) for path in valid_paths):
+            return valid_paths, False
+        speech_text = str(fallback_text or "").strip()
+        if not speech_text:
+            return valid_paths, False
+        if not valid_paths:
+            self._prefetch_edge_tts_text(speech_text, rate=rate)
+            return [], False
+        edge_tts_path = self._get_edge_tts_cached_path(speech_text, rate=rate)
+        if edge_tts_path:
+            return valid_paths + [edge_tts_path], True
+        self._prefetch_edge_tts_text(speech_text, rate=rate)
+        # 음성 규칙 테스트는 Edge 파일을 얻기 전에 로컬 TTS 대기열로 넘기면
+        # Discord 브리지 요청을 만들 수 없다. 특히 8/9/15-1처럼 젠/사전안내가
+        # 테스트 시작 직후 실행되는 경우 캐시 워커가 막 완료되는 수 ms 차이로
+        # 결과가 매번 달라졌다. 테스트 중에는 완성 문장을 짧게 기다려 파일을
+        # 확정한 뒤 동일한 파일을 봇과 로컬 경로에 함께 사용한다.
+        if bool(getattr(self, "schedule_alarm_voice_test_active", False)):
+            waited_path = self._wait_for_edge_tts_audio(
+                speech_text,
+                timeout=3.0,
+                rate=rate,
+            )
+            if waited_path:
+                return valid_paths + [waited_path], True
+        return valid_paths, False
+
+    def _resolve_edge_tts_segment_audio(
+        self,
+        clip_paths: list[str],
+        segments: list[str],
+        *,
+        rate: int = 0,
+    ) -> tuple[list[str], bool]:
+        """Resolve a TTS-only phrase as adjacent cached clips."""
+        valid_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if any(not self._is_schedule_alarm_chime_clip_path(path) for path in valid_paths):
+            return valid_paths, False
+        valid_segments = [str(segment or "").strip() for segment in segments if str(segment or "").strip()]
+        if not valid_segments:
+            return valid_paths, False
+        resolved_paths: list[str] = []
+        for segment in valid_segments:
+            edge_tts_path = self._get_edge_tts_cached_path(segment, rate=rate)
+            if not edge_tts_path:
+                for pending_segment in valid_segments:
+                    self._prefetch_edge_tts_text(pending_segment, rate=rate)
+                return valid_paths, False
+            resolved_paths.append(edge_tts_path)
+        return valid_paths + resolved_paths, True
+
+    def _prefetch_edge_tts_runtime_event_names(self, runtime_events: list[dict[str, object]]) -> None:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None or not cache.configured:
+            return
+        for event in runtime_events:
+            if not isinstance(event, dict) or not bool(event.get("enabled")):
+                continue
+            item = event.get("item")
+            if not self._is_schedule_alarm_ai_recording_preferred():
+                display_name = str(
+                    event.get("display_name")
+                    or event.get("boss_name")
+                    or ""
+                ).strip()
+                if display_name:
+                    self._prefetch_edge_tts_text(display_name, rate=1)
+                    is_invasion = bool(event.get("is_invasion"))
+                    spoken_name = re.sub(r"^\s*침공\s*", "", display_name).strip() if is_invasion else display_name
+                    # 젠시간 안내는 남은 시간이 짧아 이름만 먼저 캐싱하면
+                    # 실제 문장이 생성되기 전에 로컬 TTS로 떨어질 수 있다.
+                    # 디스코드 브리지가 바로 사용할 완성 문장까지 함께 준비한다.
+                    if is_invasion:
+                        self._prefetch_edge_tts_text(
+                            f"침공 {spoken_name} 타임입니다." if spoken_name else "침공 타임입니다.",
+                            rate=1,
+                        )
+                    else:
+                        self._prefetch_edge_tts_text(
+                            f"곧 {spoken_name} 타임입니다." if spoken_name else "곧 타임입니다.",
+                            rate=1,
+                        )
+                    for offset_seconds in self._normalize_schedule_alarm_offsets(event.get("offsets", [])):
+                        self._prefetch_edge_tts_text(
+                            f"{display_name} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.",
+                            rate=1,
+                        )
+                continue
+            self._get_schedule_alarm_boss_voice_path(
+                item=item if isinstance(item, dict) else None,
+                boss_name=event.get("boss_name"),
+            )
+
+    def _prefetch_edge_tts_fixed_names(
+        self,
+        fixed_rows: list[tuple],
+        current_second: datetime,
+        *,
+        horizon_seconds: int,
+    ) -> None:
+        cache = getattr(self, "edge_tts_cache", None)
+        if cache is None or not cache.configured:
+            return
+        for row in fixed_rows:
+            if not isinstance(row, tuple) or len(row) < 2:
+                continue
+            scheduled_at, boss_name = row[0], row[1]
+            if not isinstance(scheduled_at, datetime):
+                continue
+            remaining = (scheduled_at - current_second).total_seconds()
+            if 0 <= remaining <= max(120, int(horizon_seconds)):
+                if self._is_schedule_alarm_ai_recording_preferred():
+                    self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
+                else:
+                    spoken_name = str(boss_name or "").strip()
+                    if spoken_name:
+                        self._prefetch_edge_tts_text(spoken_name, rate=1)
+                        # 15-1처럼 젠 시각에 바로 실행되는 고정보스도 완성 문장을
+                        # 미리 캐싱해야 디스코드 봇 송출 경로를 유지할 수 있다.
+                        self._prefetch_edge_tts_text(f"{spoken_name} 타임입니다.", rate=1)
 
     def _resolve_schedule_alarm_voice_dir(self, subdir: str | None = None) -> str | None:
         for root_dir in self._get_schedule_alarm_voice_root_dirs():
@@ -25894,9 +29968,13 @@ class BossTimerApp:
             stat_result = os.stat(normalized_path)
         except OSError:
             return None
+        edge_tts_cache = getattr(self, "edge_tts_cache", None)
+        session_only = bool(edge_tts_cache is not None and edge_tts_cache.owns_path(normalized_path))
         signature = (int(getattr(stat_result, "st_mtime_ns", 0) or 0), int(getattr(stat_result, "st_size", 0) or 0))
-        with self.schedule_alarm_voice_duration_cache_lock:
-            cached = self.schedule_alarm_voice_duration_cache.get(absolute_path)
+        cached = None
+        if not session_only:
+            with self.schedule_alarm_voice_duration_cache_lock:
+                cached = self.schedule_alarm_voice_duration_cache.get(absolute_path)
         if isinstance(cached, dict) and cached.get("signature") == signature:
             cached_duration = cached.get("duration_ms")
             return int(cached_duration) if isinstance(cached_duration, int) else None
@@ -25910,12 +29988,13 @@ class BossTimerApp:
                         duration_ms = max(1, int(math.ceil((frame_count * 1000.0) / frame_rate)))
         except (OSError, EOFError, wave.Error):
             duration_ms = None
-        with self.schedule_alarm_voice_duration_cache_lock:
-            self.schedule_alarm_voice_duration_cache[absolute_path] = {
-                "signature": signature,
-                "duration_ms": duration_ms,
-            }
-            self.schedule_alarm_voice_duration_cache_dirty = True
+        if not session_only:
+            with self.schedule_alarm_voice_duration_cache_lock:
+                self.schedule_alarm_voice_duration_cache[absolute_path] = {
+                    "signature": signature,
+                    "duration_ms": duration_ms,
+                }
+                self.schedule_alarm_voice_duration_cache_dirty = True
         return duration_ms
 
     def _get_schedule_alarm_chime_path(self, category: str, *, countdown: bool = False) -> str | None:
@@ -26102,19 +30181,127 @@ class BossTimerApp:
                 if self.schedule_alarm_countdown_audio_request_id == request_id:
                     self.schedule_alarm_countdown_audio_thread = None
 
-    def _start_schedule_alarm_countdown_audio(self, remaining_seconds: int, *, expires_at: datetime | None = None) -> bool:
+    def _load_schedule_alarm_countdown_audio_clip(self, clip_path: str) -> bool:
+        valid_clip_path = str(clip_path or "").strip()
+        if not valid_clip_path:
+            return False
+        process = self._ensure_schedule_alarm_countdown_audio_host_process()
+        if process is None or process.stdin is None:
+            return False
+        payload = base64.b64encode(valid_clip_path.encode("utf-8")).decode("ascii")
+        try:
+            process.stdin.write(f"__LOAD__|{payload}\n")
+            process.stdin.flush()
+        except OSError:
+            self.schedule_alarm_countdown_audio_host_process = None
+            return False
+        return True
+
+    def _start_schedule_alarm_countdown_audio(
+        self,
+        remaining_seconds: int,
+        *,
+        expires_at: datetime | None = None,
+        scheduled_at: datetime | None = None,
+        group_identity: str = "",
+        display_text: str = "",
+    ) -> bool:
+        request_started_perf = time.perf_counter()
+        request_started_at = datetime.now()
+        expected_play_at = (
+            scheduled_at - timedelta(seconds=max(0, int(remaining_seconds)))
+            if isinstance(scheduled_at, datetime)
+            else None
+        )
+        start_delta_ms = (
+            int(round((request_started_at - expected_play_at).total_seconds() * 1000.0))
+            if isinstance(expected_play_at, datetime)
+            else None
+        )
         clip_paths = self._get_schedule_alarm_countdown_audio_paths(remaining_seconds)
         if not clip_paths:
             return False
+        self._drop_pending_schedule_alarm_queue_items(category="countdown")
+        self._stop_schedule_alarm_edge_tts_playback(category="countdown")
+        bridge_emitted = False
+        bridge_started_perf = time.perf_counter()
+        if isinstance(scheduled_at, datetime):
+            bridge_emitted = self._append_discord_countdown_sequence_bridge_request(
+                scheduled_at=scheduled_at,
+                countdown_start_seconds=max(1, int(remaining_seconds)),
+                group_identity=group_identity,
+                display_text=display_text,
+            )
+        if not bridge_emitted:
+            bridge_emitted = self._append_discord_voice_bridge_request(
+                clip_paths=clip_paths,
+                fallback_text=self._format_schedule_alarm_countdown_speech(remaining_seconds),
+                phase="COUNTDOWN_TICK",
+                category="countdown",
+                lane="center",
+                volume=1.0,
+                offset_sec=int(remaining_seconds),
+            )
+        bridge_elapsed_ms = (time.perf_counter() - bridge_started_perf) * 1000.0
+        local_muted = self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted)
+        if local_muted:
+            self._write_schedule_alarm_voice_test_log(
+                "discord_voice_bridge_local_mute",
+                phase="COUNTDOWN_TICK",
+                remaining_seconds=int(remaining_seconds),
+                clip_paths=clip_paths,
+                scheduled_at=scheduled_at,
+                expected_play_at=expected_play_at,
+                start_delta_ms=start_delta_ms,
+                bridge_elapsed_ms=round(bridge_elapsed_ms, 1),
+            )
+            return True
+        self._sync_local_schedule_audio_with_discord_bridge(
+            bridge_emitted,
+            phase="COUNTDOWN_TICK",
+            clip_paths=clip_paths,
+        )
         request_id = self._stop_schedule_alarm_countdown_audio()
         prefer_host = int(remaining_seconds) > 0
         if prefer_host and len(clip_paths) == 1:
-            return self._play_schedule_alarm_countdown_audio_clip(
+            local_started_perf = time.perf_counter()
+            played = self._play_schedule_alarm_countdown_audio_clip(
                 clip_paths[0],
                 request_id=request_id,
                 expires_at=expires_at,
                 use_host=True,
             )
+            local_elapsed_ms = (time.perf_counter() - local_started_perf) * 1000.0
+            elapsed_ms = (time.perf_counter() - request_started_perf) * 1000.0
+            self._write_schedule_alarm_voice_test_log(
+                "countdown_local_audio_timing",
+                remaining_seconds=int(remaining_seconds),
+                scheduled_at=scheduled_at,
+                expected_play_at=expected_play_at,
+                start_delta_ms=start_delta_ms,
+                bridge_emitted=bridge_emitted,
+                bridge_elapsed_ms=round(bridge_elapsed_ms, 1),
+                local_elapsed_ms=round(local_elapsed_ms, 1),
+                total_elapsed_ms=round(elapsed_ms, 1),
+                played=played,
+                clip_paths=clip_paths,
+            )
+            if (
+                int(remaining_seconds) in {3, 4, 5, 6}
+                or (isinstance(start_delta_ms, int) and abs(start_delta_ms) >= 60)
+                or bridge_elapsed_ms >= 30.0
+                or local_elapsed_ms >= 30.0
+            ):
+                self._append_debug_log(
+                    "countdown_audio_timing "
+                    f"remaining={int(remaining_seconds)} "
+                    f"start_delta_ms={start_delta_ms if start_delta_ms is not None else '-'} "
+                    f"bridge_ms={bridge_elapsed_ms:.1f} "
+                    f"local_ms={local_elapsed_ms:.1f} "
+                    f"total_ms={elapsed_ms:.1f} "
+                    f"bridge={int(bool(bridge_emitted))} played={int(bool(played))}"
+                )
+            return played
         worker = threading.Thread(
             target=self._play_schedule_alarm_countdown_audio_sequence,
             args=(clip_paths,),
@@ -26134,11 +30321,47 @@ class BossTimerApp:
     ) -> bool:
         completion_clip_paths = self._get_schedule_alarm_countdown_completion_audio_paths() if bool(prefer_audio) else []
         self._drop_pending_schedule_alarm_queue_items(category="countdown")
+        if completion_clip_paths:
+            self._stop_schedule_alarm_edge_tts_playback(category="countdown")
         request_id = self._stop_schedule_alarm_countdown_audio(close_host=False)
+        bridge_prescheduled = self._has_discord_countdown_sequence_bridge_for_target(anchor_datetime)
+        if self._should_mute_local_schedule_audio_for_discord_bot(bridge_prescheduled):
+            self._write_schedule_alarm_voice_test_log(
+                "discord_voice_bridge_local_mute",
+                phase="COUNTDOWN_GEN",
+                anchor_datetime=anchor_datetime,
+                clip_paths=completion_clip_paths,
+                prescheduled=True,
+            )
+            return True
         played_audio = False
         if bool(prefer_audio):
             if completion_clip_paths:
-                if len(completion_clip_paths) == 1:
+                bridge_emitted = self._has_discord_countdown_sequence_bridge_for_target(anchor_datetime)
+                if not bridge_emitted:
+                    bridge_emitted = self._append_discord_voice_bridge_request(
+                        clip_paths=completion_clip_paths,
+                        fallback_text="젠",
+                        phase="COUNTDOWN_GEN",
+                        category="countdown",
+                        lane="center",
+                        volume=1.0,
+                        target_time=anchor_datetime,
+                    )
+                if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
+                    played_audio = True
+                    self._write_schedule_alarm_voice_test_log(
+                        "discord_voice_bridge_local_mute",
+                        phase="COUNTDOWN_GEN",
+                        anchor_datetime=anchor_datetime,
+                        clip_paths=completion_clip_paths,
+                    )
+                elif len(completion_clip_paths) == 1:
+                    self._sync_local_schedule_audio_with_discord_bridge(
+                        bridge_emitted,
+                        phase="COUNTDOWN_GEN",
+                        clip_paths=completion_clip_paths,
+                    )
                     played_audio = self._play_schedule_alarm_countdown_audio_clip(
                         completion_clip_paths[0],
                         request_id=request_id,
@@ -26170,14 +30393,14 @@ class BossTimerApp:
             )
         return True
 
-    def _stop_schedule_alarm_boss_audio(self, *, close_host: bool = False) -> int:
+    def _stop_schedule_alarm_boss_audio(self, *, close_host: bool = False, force: bool = False) -> int:
         with self.schedule_alarm_boss_audio_lock:
             self.schedule_alarm_boss_audio_request_id += 1
             request_id = self.schedule_alarm_boss_audio_request_id
             process = self.schedule_alarm_boss_audio_process
             if close_host:
                 self.schedule_alarm_boss_audio_process = None
-        if not close_host:
+        if not close_host and not force:
             protected_until = float(getattr(self, "schedule_voice_broker_protect_central_until", 0.0) or 0.0)
             if protected_until > time.monotonic():
                 return request_id
@@ -26216,7 +30439,10 @@ class BossTimerApp:
         if remaining_seconds <= 0 or remaining_seconds % 60 != 0:
             return []
         remaining_minutes = remaining_seconds // 60
-        if not 1 <= remaining_minutes <= 10:
+        # 일반 사전 알림은 주로 1~10분이지만 고정보스의 "다음 보스"
+        # 후속 안내는 15분 이상 간격도 사용한다. 실제 min 녹음 파일이
+        # 존재하는 범위에서는 그대로 찾아 조립할 수 있게 한다.
+        if not 1 <= remaining_minutes <= 59:
             return []
         return self._get_schedule_alarm_voice_files_by_stem_prefix("min", f"{remaining_minutes}min")
 
@@ -26276,11 +30502,14 @@ class BossTimerApp:
         item: dict[str, object] | None = None,
         boss_name: object | None = None,
     ) -> str | None:
-        for candidate_name in self._get_schedule_alarm_boss_voice_name_candidates(item=item, boss_name=boss_name):
+        candidate_names = self._get_schedule_alarm_boss_voice_name_candidates(item=item, boss_name=boss_name)
+        for candidate_name in candidate_names:
             for subdir in ("boss", "etc", "info"):
                 clip_path = self._get_schedule_alarm_voice_file_by_stem(subdir, candidate_name)
                 if clip_path:
                     return clip_path
+        if candidate_names:
+            self._prefetch_edge_tts_text(candidate_names[0])
         return None
 
     def _get_schedule_alarm_boss_audio_paths(
@@ -26295,12 +30524,14 @@ class BossTimerApp:
             return []
         clip_paths: list[str] = []
         boss_clip_path = self._get_schedule_alarm_boss_voice_path(item=item, boss_name=boss_name)
-        if boss_clip_path:
-            if self._is_schedule_alarm_audio_invasion(item=item, boss_name=boss_name):
-                invasion_clip_path = self._get_schedule_alarm_info_audio_path("침공")
-                if invasion_clip_path:
-                    clip_paths.append(invasion_clip_path)
-            clip_paths.append(boss_clip_path)
+        if not boss_clip_path:
+            return []
+        if self._is_schedule_alarm_audio_invasion(item=item, boss_name=boss_name):
+            invasion_clip_path = self._get_schedule_alarm_info_audio_path("침공")
+            if not invasion_clip_path:
+                return []
+            clip_paths.append(invasion_clip_path)
+        clip_paths.append(boss_clip_path)
         clip_paths.append(random.choice(minute_clip_candidates))
         return clip_paths
 
@@ -26346,7 +30577,8 @@ class BossTimerApp:
             "    return $script:players[$clipPath]\n"
             "  }\n"
             "  $player = New-Object System.Windows.Media.MediaPlayer\n"
-            "  $player.Volume = 1.0\n"
+            "  # 실제 Play 전까지는 캐시 파일을 완전 무음 상태로 Open한다.\n"
+            "  $player.Volume = 0.0\n"
             "  $resolvedClipPath = $clipPath\n"
             "  try { $resolvedClipPath = (Resolve-Path -LiteralPath $clipPath -ErrorAction Stop).ProviderPath } catch {}\n"
             "  $player.Open([Uri]::new($resolvedClipPath))\n"
@@ -26381,8 +30613,11 @@ class BossTimerApp:
             "      Start-Sleep -Milliseconds 20\n"
             "    }\n"
             "    $wasTrimmed = $false\n"
-            "    if ($transitionTrimMs -gt 0 -and $naturalDurationMs -gt 900) {\n"
-            "      $trimmedForTransitionMs = [Math]::Max(140, $naturalDurationMs - $transitionTrimMs)\n"
+            "    if ($transitionTrimMs -gt 0) {\n"
+            "      # Discord timed sequence와 같은 기준: 긴 파일은 180ms,\n"
+            "      # 짧은 파일은 40ms만 전환 구간에서 겹쳐 재생한다.\n"
+            "      $effectiveTransitionTrimMs = if ($naturalDurationMs -gt 900) { 180 } else { 40 }\n"
+            "      $trimmedForTransitionMs = [Math]::Max(140, $naturalDurationMs - $effectiveTransitionTrimMs)\n"
             "      if ($trimmedForTransitionMs -lt $playDurationMs) {\n"
             "        $playDurationMs = $trimmedForTransitionMs\n"
             "        $wasTrimmed = $true\n"
@@ -26434,6 +30669,12 @@ class BossTimerApp:
             "  if ([string]::IsNullOrWhiteSpace($line)) { continue }\n"
             "  $parts = $line.Split('|', 2)\n"
             "  if ($parts.Length -lt 2) { continue }\n"
+            "  if ($parts[0] -eq '__LOAD__') {\n"
+            "    try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "    if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
+            "    try { [void](Resolve-Player $clipPath) } catch {}\n"
+            "    continue\n"
+            "  }\n"
             "  if ($parts[0] -eq '__PLAY__') {\n"
             "    try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
             "    [void](Play-Clip $clipPath $true 0 0)\n"
@@ -26497,7 +30738,7 @@ class BossTimerApp:
             "    } catch {\n"
             "      $clipPaths = @($payload)\n"
             "    }\n"
-            "    $transitionTrimMs = 260\n"
+            "    $transitionTrimMs = 1\n"
             "    for ($clipIndex = 0; $clipIndex -lt $clipPaths.Count; $clipIndex++) {\n"
             "      $clipPath = [string]$clipPaths[$clipIndex]\n"
             "      $currentTrimMs = 0\n"
@@ -26578,6 +30819,9 @@ class BossTimerApp:
             self._terminate_schedule_alarm_audio_process(existing)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         preload_paths: list[str] = []
+        warmup_clip_path = self._get_schedule_alarm_audio_warmup_clip_path()
+        if warmup_clip_path:
+            preload_paths.append(warmup_clip_path)
         for subdir in ("boss", "min", "info", "sec", "etc"):
             for clip_path in self._get_schedule_alarm_voice_files(subdir):
                 if clip_path not in preload_paths:
@@ -26647,6 +30891,14 @@ class BossTimerApp:
         self._terminate_schedule_alarm_audio_process(process)
 
     def _get_schedule_alarm_audio_prime_clip_path(self) -> str | None:
+        warmup_clip_path = self._get_schedule_alarm_audio_warmup_clip_path()
+        if warmup_clip_path:
+            return warmup_clip_path
+        if not self._is_schedule_alarm_ai_recording_preferred():
+            for speech_text, rate in (("십오", 3), ("젠", 3)):
+                edge_tts_path = self._get_edge_tts_cached_path(speech_text, rate=rate)
+                if edge_tts_path:
+                    return edge_tts_path
         countdown_start = 60
         if hasattr(self, "schedule_alarm_countdown_start_var") and self.schedule_alarm_countdown_start_var is not None:
             countdown_start = min(60, max(0, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
@@ -26673,18 +30925,8 @@ class BossTimerApp:
         target_process = process or self.schedule_alarm_boss_audio_process
         if target_process is None or target_process.stdin is None:
             return False
-        clip_path = self._get_schedule_alarm_audio_prime_clip_path()
-        if not clip_path:
-            return False
-        payload = base64.b64encode(str(clip_path).encode("utf-8")).decode("ascii")
-        try:
-            with self.schedule_alarm_boss_audio_host_io_lock:
-                target_process.stdin.write(f"__PRIME__|{payload}\n")
-                target_process.stdin.flush()
-        except OSError:
-            if process is None:
-                self.schedule_alarm_boss_audio_process = None
-            return False
+        # MediaPlayer.Open으로 선로딩은 끝난 상태다. 시작 시 실제 Play()를 보내지
+        # 않아 오디오 장치가 음성 조각을 새어 내보내는 문제를 방지한다.
         return True
 
     def _play_schedule_alarm_boss_audio_file(
@@ -26717,6 +30959,24 @@ class BossTimerApp:
         try:
             with self.schedule_alarm_boss_audio_host_io_lock:
                 process.stdin.write(f"{command_name}|{payload}\n")
+                process.stdin.flush()
+        except OSError:
+            self.schedule_alarm_boss_audio_process = None
+            return False
+        return True
+
+    def _load_schedule_alarm_boss_audio_paths(self, clip_paths: list[str]) -> bool:
+        valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if not valid_clip_paths:
+            return False
+        process = self._ensure_schedule_alarm_boss_audio_host_process()
+        if process is None or process.stdin is None:
+            return False
+        try:
+            with self.schedule_alarm_boss_audio_host_io_lock:
+                for clip_path in valid_clip_paths:
+                    payload = base64.b64encode(clip_path.encode("utf-8")).decode("ascii")
+                    process.stdin.write(f"__LOAD__|{payload}\n")
                 process.stdin.flush()
         except OSError:
             self.schedule_alarm_boss_audio_process = None
@@ -26826,10 +31086,10 @@ class BossTimerApp:
         self._stop_schedule_alarm_boss_audio(close_host=True)
         self._stop_schedule_alarm_near_boss_audio_host()
         self._stop_schedule_alarm_second_precision_gen_audio_host()
-        if preload:
+        if preload and self._is_schedule_alarm_ai_recording_preferred():
             if (
                 self.schedule_alarm_countdown_enabled_default
-                and self.schedule_alarm_countdown_ai_voice_enabled_default
+                and self.schedule_alarm_ai_recording_preferred_default
                 and self._schedule_alarm_countdown_requires_audio_host()
             ):
                 self._ensure_schedule_alarm_countdown_audio_host_process()
@@ -26866,6 +31126,18 @@ class BossTimerApp:
         return selected_paths
 
     def _reload_and_test_schedule_alarm_countdown_audio(self) -> None:
+        if not self._is_schedule_alarm_ai_recording_preferred():
+            self._queue_schedule_alarm_speech(
+                "삼 이 일",
+                beep=False,
+                category="countdown",
+                rate=3,
+                purge=True,
+                async_mode=True,
+            )
+            if hasattr(self, "schedule_alarm_status_var") and self.schedule_alarm_status_var is not None:
+                self.schedule_alarm_status_var.set("AI 녹음파일 우선 사용이 꺼져 있어 edge-tts 초읽기 테스트를 재생합니다.")
+            return
         clip_paths = self._get_schedule_alarm_countdown_test_audio_paths()
         self._reload_schedule_alarm_audio_hosts(preload=False)
         if not clip_paths:
@@ -26984,17 +31256,36 @@ class BossTimerApp:
             self.schedule_alarm_tts_process_voice_name = ""
 
     def _drop_pending_schedule_alarm_queue_items(self, *, category: str) -> None:
+        normalized_category = str(category or "general").strip() or "general"
         with self.schedule_alarm_tts_queue.mutex:
+            generations = getattr(self, "schedule_alarm_tts_category_generation", None)
+            if not isinstance(generations, dict):
+                generations = {}
+                self.schedule_alarm_tts_category_generation = generations
+            generations[normalized_category] = int(generations.get(normalized_category, 0) or 0) + 1
             retained = []
             for item in list(self.schedule_alarm_tts_queue.queue):
                 if item is None:
                     retained.append(item)
                     continue
-                if isinstance(item, dict) and str(item.get("category") or "") == category:
+                if isinstance(item, dict) and str(item.get("category") or "") == normalized_category:
                     continue
                 retained.append(item)
             self.schedule_alarm_tts_queue.queue.clear()
             self.schedule_alarm_tts_queue.queue.extend(retained)
+
+    def _stop_schedule_alarm_edge_tts_playback(self, *, category: str) -> None:
+        normalized_category = str(category or "general").strip() or "general"
+        active_category = str(getattr(self, "schedule_alarm_edge_tts_active_category", "") or "")
+        active_until = float(getattr(self, "schedule_alarm_edge_tts_active_until", 0.0) or 0.0)
+        if active_category != normalized_category or active_until <= time.monotonic():
+            return
+        if normalized_category == "countdown":
+            self._stop_schedule_alarm_countdown_audio(close_host=False)
+        else:
+            self._stop_schedule_alarm_boss_audio(close_host=False, force=True)
+        self.schedule_alarm_edge_tts_active_category = ""
+        self.schedule_alarm_edge_tts_active_until = 0.0
 
     def _schedule_alarm_tts_worker_loop(self) -> None:
         while not self.schedule_alarm_tts_stop_event.is_set():
@@ -27009,16 +31300,90 @@ class BossTimerApp:
                 text = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
                 if not text:
                     continue
+                category = str(payload.get("category") or "general").strip() or "general"
+                generation = int(payload.get("generation") or 0)
+                rate = int(payload.get("rate") or 0)
+                volume_steps = int(payload.get("volume_steps") or 0)
                 expires_at = payload.get("expires_at") if isinstance(payload, dict) else None
                 if isinstance(expires_at, datetime) and datetime.now() > expires_at:
                     continue
+                wait_timeout = 45.0
+                if isinstance(expires_at, datetime):
+                    wait_timeout = max(0.0, min(wait_timeout, (expires_at - datetime.now()).total_seconds()))
+                edge_tts_wait_kwargs = {"timeout": wait_timeout, "rate": rate}
+                if volume_steps:
+                    edge_tts_wait_kwargs["volume_steps"] = volume_steps
+                clip_path = self._wait_for_edge_tts_audio(text, **edge_tts_wait_kwargs)
+                if not clip_path:
+                    continue
+                generations = getattr(self, "schedule_alarm_tts_category_generation", {})
+                if generation != int(generations.get(category, 0) or 0):
+                    continue
+                clip_paths: list[str] = []
                 if bool(payload.get("beep")):
-                    self._play_schedule_alarm_signal()
-                self._speak_schedule_alarm_text(
-                    text,
-                    rate=int(payload.get("rate", 0)) if isinstance(payload, dict) else 0,
-                    purge=bool(payload.get("purge", False)) if isinstance(payload, dict) else False,
-                    async_mode=bool(payload.get("async_mode", False)) if isinstance(payload, dict) else False,
+                    chime_path = self._get_schedule_alarm_chime_path(
+                        category,
+                        countdown=category == "countdown",
+                    )
+                    if chime_path:
+                        clip_paths.append(chime_path)
+                clip_paths.append(clip_path)
+                use_countdown_host = category == "countdown" and len(clip_paths) == 1
+                if use_countdown_host:
+                    self._load_schedule_alarm_countdown_audio_clip(clip_paths[0])
+                else:
+                    self._load_schedule_alarm_boss_audio_paths(clip_paths)
+                play_at = payload.get("play_at") if isinstance(payload, dict) else None
+                while isinstance(play_at, datetime):
+                    remaining = (play_at - datetime.now()).total_seconds()
+                    if remaining <= 0:
+                        break
+                    if self.schedule_alarm_tts_stop_event.wait(min(0.02, remaining)):
+                        break
+                    generations = getattr(self, "schedule_alarm_tts_category_generation", {})
+                    if generation != int(generations.get(category, 0) or 0):
+                        break
+                if self.schedule_alarm_tts_stop_event.is_set():
+                    continue
+                generations = getattr(self, "schedule_alarm_tts_category_generation", {})
+                if generation != int(generations.get(category, 0) or 0):
+                    continue
+                if isinstance(expires_at, datetime) and datetime.now() > expires_at:
+                    continue
+                if use_countdown_host:
+                    countdown_request_id = self._stop_schedule_alarm_countdown_audio(close_host=False)
+                    played = self._play_schedule_alarm_countdown_audio_clip(
+                        clip_paths[0],
+                        request_id=countdown_request_id,
+                        expires_at=expires_at if isinstance(expires_at, datetime) else None,
+                        use_host=True,
+                    )
+                else:
+                    played = self._play_schedule_alarm_boss_audio_paths(
+                        clip_paths,
+                        request_id=self.schedule_alarm_boss_audio_request_id,
+                        expires_at=expires_at if isinstance(expires_at, datetime) else None,
+                        interrupt_existing=True,
+                    )
+                if played:
+                    duration_ms = self._get_schedule_alarm_clip_sequence_duration_ms(
+                        clip_paths,
+                        fallback_ms=1800,
+                    )
+                    self.schedule_alarm_edge_tts_active_category = category
+                    self.schedule_alarm_edge_tts_active_until = time.monotonic() + max(
+                        0.2,
+                        duration_ms / 1000.0,
+                    )
+                self._write_schedule_alarm_voice_test_log(
+                    "edge_tts_play" if played else "edge_tts_play_failed_ms_tts_suppressed",
+                    text=text,
+                    clip_path=clip_path,
+                    clip_paths=clip_paths,
+                    category=category,
+                    rate=rate,
+                    volume_steps=volume_steps,
+                    play_at=play_at,
                 )
             finally:
                 self.schedule_alarm_tts_queue.task_done()
@@ -27073,9 +31438,12 @@ class BossTimerApp:
         beep: bool = True,
         category: str = "general",
         rate: int = 0,
+        volume_steps: int | None = None,
         purge: bool = False,
         async_mode: bool = False,
         expires_at: datetime | None = None,
+        play_at: datetime | None = None,
+        replace_pending: bool = True,
     ) -> None:
         if self.schedule_alarm_tts_stop_event.is_set():
             return
@@ -27083,27 +31451,54 @@ class BossTimerApp:
         if not speech_text:
             return
         normalized_category = str(category or "general").strip() or "general"
+        if volume_steps is None and normalized_category == "countdown" and int(rate) == 3:
+            countdown_ten_speech = self._format_schedule_alarm_countdown_speech(10)
+            volume_steps = self._get_schedule_alarm_countdown_edge_tts_volume_steps(
+                10 if speech_text == countdown_ten_speech else 0
+            )
+        safe_volume_steps = int(volume_steps or 0)
+        if self._should_mute_local_schedule_audio_for_discord_bot(False):
+            self._write_schedule_alarm_voice_test_log(
+                "tts_local_mute",
+                text=speech_text,
+                category=normalized_category,
+                rate=int(rate),
+                volume_steps=safe_volume_steps,
+                async_mode=bool(async_mode),
+            )
+            return
         self._write_schedule_alarm_voice_test_log(
             "tts_queue",
             text=speech_text,
             beep=bool(beep),
             category=normalized_category,
             rate=int(rate),
+            volume_steps=safe_volume_steps,
             purge=bool(purge),
             async_mode=bool(async_mode),
             expires_at=expires_at,
+            play_at=play_at,
+            replace_pending=bool(replace_pending),
         )
-        if normalized_category == "countdown":
+        if normalized_category == "countdown" and bool(replace_pending):
             self._drop_pending_schedule_alarm_queue_items(category="countdown")
+        generations = getattr(self, "schedule_alarm_tts_category_generation", None)
+        if not isinstance(generations, dict):
+            generations = {}
+            self.schedule_alarm_tts_category_generation = generations
+        generation = int(generations.get(normalized_category, 0) or 0)
         self.schedule_alarm_tts_queue.put(
             {
                 "text": speech_text,
                 "beep": bool(beep),
                 "category": normalized_category,
                 "rate": int(rate),
+                "volume_steps": safe_volume_steps,
                 "purge": bool(purge),
                 "async_mode": bool(async_mode),
                 "expires_at": expires_at if isinstance(expires_at, datetime) else None,
+                "play_at": play_at if isinstance(play_at, datetime) else None,
+                "generation": generation,
             }
         )
 
@@ -27121,6 +31516,13 @@ class BossTimerApp:
         if not parts:
             parts.append("1초")
         return " ".join(parts)
+
+    def _format_schedule_alarm_followup_delay_speech(self, total_seconds: int) -> str:
+        seconds = max(1, int(total_seconds))
+        if seconds < 60:
+            return f"{seconds}초"
+        rounded_minutes = max(1, (seconds + 30) // 60)
+        return self._format_schedule_alarm_remaining_speech(rounded_minutes * 60)
 
     def _format_schedule_alarm_countdown_speech(self, remaining_seconds: int) -> str:
         seconds = int(remaining_seconds)
@@ -27234,15 +31636,21 @@ class BossTimerApp:
             if clip_path and clip_path not in clip_paths:
                 clip_paths.append(clip_path)
                 break
+        if not clip_paths:
+            return []
         if include_minute:
             minute_clip = self._get_schedule_alarm_offset_audio_path(60, preferred_info_token="1분전")
-            if minute_clip and minute_clip not in clip_paths:
+            if not minute_clip:
+                return []
+            if minute_clip not in clip_paths:
                 clip_paths.append(minute_clip)
         if include_due_suffix:
             due_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
             if not due_clip:
                 due_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
-            if due_clip and due_clip not in clip_paths:
+            if not due_clip:
+                return []
+            if due_clip not in clip_paths:
                 clip_paths.append(due_clip)
         return clip_paths
 
@@ -27334,7 +31742,7 @@ class BossTimerApp:
         clusters: list[list[dict[str, object]]] = []
         current_cluster: list[dict[str, object]] = []
         previous_scheduled_at: datetime | None = None
-        gap_limit = max(1, int(max_gap_seconds))
+        gap_limit = max(0, int(max_gap_seconds))
         for item in sorted_items:
             scheduled_at = item.get("scheduled_at")
             if not isinstance(scheduled_at, datetime):
@@ -27404,39 +31812,51 @@ class BossTimerApp:
         minute_seconds: int | None = None,
         minute_info_token: str | None = None,
         sec_tokens: list[str] | None = None,
+        compact_boss_group: bool = False,
     ) -> list[str]:
         clip_paths: list[str] = []
-        for item in boss_items or []:
-            if not isinstance(item, dict):
-                continue
-            if self._is_schedule_alarm_audio_invasion(item=item):
-                invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
-                if invasion_clip:
+        normalized_items = [item for item in boss_items or [] if isinstance(item, dict)]
+        if compact_boss_group and normalized_items:
+            compact_paths = self._build_schedule_alarm_compact_group_audio_paths(normalized_items)
+            if not compact_paths:
+                return []
+            clip_paths.extend(compact_paths)
+        else:
+            for item in normalized_items:
+                if self._is_schedule_alarm_audio_invasion(item=item):
+                    invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
+                    if not invasion_clip:
+                        return []
                     clip_paths.append(invasion_clip)
-            boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
-            if boss_clip:
+                boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
+                if not boss_clip:
+                    return []
                 clip_paths.append(boss_clip)
         for boss_name in boss_names or []:
             boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
-            if boss_clip:
-                clip_paths.append(boss_clip)
+            if not boss_clip:
+                return []
+            clip_paths.append(boss_clip)
         for token in info_tokens or []:
             info_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", token)
             if not info_clip:
                 info_clip = self._get_schedule_alarm_info_audio_path(token)
-            if info_clip:
-                clip_paths.append(info_clip)
+            if not info_clip:
+                return []
+            clip_paths.append(info_clip)
         if isinstance(minute_seconds, int) and minute_seconds > 0:
             minute_clip = self._get_schedule_alarm_offset_audio_path(
                 minute_seconds,
                 preferred_info_token=minute_info_token,
             )
-            if minute_clip:
-                clip_paths.append(minute_clip)
+            if not minute_clip:
+                return []
+            clip_paths.append(minute_clip)
         for token in sec_tokens or []:
             sec_clip = self._get_schedule_alarm_voice_file_by_stem("sec", token)
-            if sec_clip:
-                clip_paths.append(sec_clip)
+            if not sec_clip:
+                return []
+            clip_paths.append(sec_clip)
         return clip_paths
 
     def _build_schedule_alarm_due_time_audio_paths(
@@ -27448,71 +31868,40 @@ class BossTimerApp:
         soon_clip = self._get_schedule_alarm_info_audio_path("곧")
         if not soon_clip:
             soon_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "곧")
-        if soon_clip:
-            clip_paths.append(soon_clip)
+        if not soon_clip:
+            return []
+        clip_paths.append(soon_clip)
         if self._is_schedule_alarm_audio_invasion(item=item):
             invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
-            if invasion_clip:
-                clip_paths.append(invasion_clip)
+            if not invasion_clip:
+                return []
+            clip_paths.append(invasion_clip)
         boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
         if not boss_clip:
             boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
-        if boss_clip:
-            clip_paths.append(boss_clip)
+        if not boss_clip:
+            return []
+        clip_paths.append(boss_clip)
         time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
         if not time_clip:
             time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
-        if time_clip:
-            clip_paths.append(time_clip)
+        if not time_clip:
+            return []
+        clip_paths.append(time_clip)
         return clip_paths
 
     def _build_schedule_alarm_due_time_group_audio_paths(self, items: list[dict[str, object]]) -> list[str]:
-        clip_paths: list[str] = []
-        soon_clip = self._get_schedule_alarm_info_audio_path("곧")
-        if not soon_clip:
-            soon_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "곧")
-        if soon_clip:
-            clip_paths.append(soon_clip)
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if self._is_schedule_alarm_audio_invasion(item=item):
-                invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
-                if invasion_clip:
-                    clip_paths.append(invasion_clip)
-            boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
-            boss_name = str(item.get("boss_name") or "").strip()
-            if not boss_clip and boss_name:
-                boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
-            if boss_clip:
-                clip_paths.append(boss_clip)
-        time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
-        if not time_clip:
-            time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
-        if time_clip:
-            clip_paths.append(time_clip)
-        return clip_paths
+        return self._build_schedule_alarm_compact_group_audio_paths(
+            items,
+            prefix_info_tokens=["곧"],
+            suffix_info_tokens=["타임입니다"],
+        )
 
     def _build_schedule_alarm_invasion_due_time_group_audio_paths(self, items: list[dict[str, object]]) -> list[str]:
-        clip_paths: list[str] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
-            if invasion_clip:
-                clip_paths.append(invasion_clip)
-            boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
-            boss_name = str(item.get("boss_name") or "").strip()
-            if not boss_clip and boss_name:
-                boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
-            if boss_clip:
-                clip_paths.append(boss_clip)
-        time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
-        if not time_clip:
-            time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
-        if time_clip:
-            clip_paths.append(time_clip)
-        return clip_paths
+        return self._build_schedule_alarm_compact_group_audio_paths(
+            items,
+            suffix_info_tokens=["타임입니다"],
+        )
 
     def _build_schedule_alarm_second_precision_gen_audio_paths(
         self,
@@ -27522,18 +31911,21 @@ class BossTimerApp:
         clip_paths: list[str] = []
         if self._is_schedule_alarm_audio_invasion(item=item):
             invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
-            if invasion_clip:
-                clip_paths.append(invasion_clip)
+            if not invasion_clip:
+                return []
+            clip_paths.append(invasion_clip)
         boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
         if not boss_clip:
             boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
-        if boss_clip:
-            clip_paths.append(boss_clip)
+        if not boss_clip:
+            return []
+        clip_paths.append(boss_clip)
         gen_clip = self._get_schedule_alarm_info_audio_path("젠")
         if not gen_clip:
             gen_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "젠")
-        if gen_clip:
-            clip_paths.append(gen_clip)
+        if not gen_clip:
+            return []
+        clip_paths.append(gen_clip)
         return self._with_schedule_alarm_chime_paths(clip_paths, "general")
 
     def _get_schedule_alarm_second_precision_gen_lead_ms(self, clip_paths: list[str]) -> int:
@@ -27547,6 +31939,28 @@ class BossTimerApp:
             else:
                 lead_duration_ms += 700
         return max(0, int(lead_duration_ms + SCHEDULE_SECOND_PRECISION_GEN_GAP_MS))
+
+    def _get_schedule_alarm_timed_sequence_lead_ms(self, clip_paths: list[str]) -> int:
+        """Return the start lead that puts the final clip at the target time.
+
+        This is shared with the Discord timed-sequence spacing: long clips lose
+        180 ms at a transition, short clips lose 40 ms.  Near confirmed spawns
+        are a complete sequence (rather than a separately dispatched final
+        ``젠`` clip), so they must not use the extra 1.7-second split-playback
+        latency compensation.
+        """
+        valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
+        if len(valid_clip_paths) < 2:
+            return 0
+        lead_duration_ms = 0
+        for clip_path in valid_clip_paths[:-1]:
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
+            if isinstance(clip_duration_ms, int) and clip_duration_ms > 0:
+                transition_trim_ms = 180 if clip_duration_ms > 900 else 40
+                lead_duration_ms += max(120, clip_duration_ms - transition_trim_ms)
+            else:
+                lead_duration_ms += 900
+        return max(0, int(lead_duration_ms))
 
     def _get_schedule_alarm_due_time_lead_ms(self, clip_paths: list[str]) -> int:
         valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
@@ -27605,7 +32019,20 @@ class BossTimerApp:
             self.schedule_voice_broker_lane_busy_until = busy_map
         return float(busy_map.get(normalized, 0.0) or 0.0)
 
-    def _set_schedule_voice_lane_busy_until(self, lane: object, busy_until: float, *, protect_central: bool = False) -> None:
+    def _set_schedule_voice_lane_busy_until(
+        self,
+        lane: object,
+        busy_until: float,
+        *,
+        protect_central: bool = False,
+        generation: object | None = None,
+    ) -> None:
+        if generation is not None:
+            try:
+                if int(generation) != int(getattr(self, "schedule_voice_broker_generation", 0)):
+                    return
+            except (TypeError, ValueError):
+                return
         normalized = self._normalize_schedule_voice_lane(lane)
         safe_busy_until = float(busy_until or 0.0)
         busy_map = getattr(self, "schedule_voice_broker_lane_busy_until", None)
@@ -27631,7 +32058,14 @@ class BossTimerApp:
         *,
         reserved_until: float | None = None,
         protect_central: bool = False,
+        generation: object | None = None,
     ) -> None:
+        if generation is not None:
+            try:
+                if int(generation) != int(getattr(self, "schedule_voice_broker_generation", 0)):
+                    return
+            except (TypeError, ValueError):
+                return
         normalized = self._normalize_schedule_voice_lane(lane)
         safe_busy_until = float(busy_until or 0.0)
         try:
@@ -27773,8 +32207,8 @@ class BossTimerApp:
             self.schedule_alarm_second_precision_gen_pending_keys = pending_keys
         precision_window_start = current_second - timedelta(seconds=3)
         precision_window_end = precise_reference_now + timedelta(seconds=90)
-        previous_event_at: datetime | None = None
         main_countdown_active = self._has_active_main_schedule_countdown_window(current_second) if countdown_enabled else False
+        grouped_entries: dict[datetime, list[tuple[dict[str, object], datetime, bool]]] = {}
         for item, scheduled_at in self._iter_schedule_alarm_events_between(precision_window_start, precision_window_end):
             if not self._is_schedule_second_precision(item):
                 continue
@@ -27790,25 +32224,141 @@ class BossTimerApp:
             precise_remaining_ms = int(round((scheduled_at - precise_reference_now).total_seconds() * 1000.0))
             if precise_remaining_ms < -3000 or precise_remaining_ms > 90 * 1000:
                 continue
-            clip_paths = self._build_schedule_alarm_second_precision_gen_audio_paths(item, boss_name)
-            lead_ms = self._get_schedule_alarm_second_precision_gen_lead_ms(clip_paths)
-            notice_start_at = scheduled_at - timedelta(
-                milliseconds=max(0, lead_ms + SCHEDULE_SECOND_PRECISION_GEN_PLAYBACK_LATENCY_MS)
+            grouped_entries.setdefault(scheduled_at.replace(microsecond=0), []).append(
+                (item, scheduled_at, invasion_side_route)
             )
-            if isinstance(previous_event_at, datetime):
-                gap_seconds = (scheduled_at - previous_event_at).total_seconds()
-                if 0 < gap_seconds <= 2:
-                    notice_start_at = scheduled_at - timedelta(milliseconds=max(120, lead_ms + 120))
-            previous_event_at = scheduled_at
+
+        # 초확정 젠은 동일 초뿐 아니라 아주 가까운 초에도 이전 요청이 중앙
+        # 재생 통로를 점유한다. 종전에는 2초 이내 요청의 시작 시각만 억지로
+        # 줄여 별도 요청으로 냈고, 이 요청이 차임/1분전 대기와 충돌해 젠을
+        # 놓치거나 잘린 차임이 다시 나는 문제가 있었다.
+        #
+        # - 1초 이내: 이름을 한 묶음으로 읽고 마지막 시각에 젠을 한 번만 낸다.
+        # - 2~10초: 차임은 한 번만 내고, 각 보스의 "이름 젠"을 한 요청 안에서
+        #   순서대로 읽는다. 10초를 넘으면 별도 알림으로 유지한다.
+        exact_groups = [
+            (target_second, entries)
+            for target_second, entries in sorted(grouped_entries.items(), key=lambda entry: entry[0])
+            if entries
+        ]
+        near_clusters: list[list[tuple[datetime, list[tuple[dict[str, object], datetime, bool]]]]] = []
+        active_cluster: list[tuple[datetime, list[tuple[dict[str, object], datetime, bool]]]] = []
+        cluster_start_at: datetime | None = None
+        for target_second, entries in exact_groups:
+            if (
+                active_cluster
+                and isinstance(cluster_start_at, datetime)
+                and (target_second - cluster_start_at).total_seconds() > SCHEDULE_SECOND_PRECISION_NEAR_CLUSTER_SECONDS
+            ):
+                near_clusters.append(active_cluster)
+                active_cluster = []
+                cluster_start_at = None
+            if not active_cluster:
+                cluster_start_at = target_second
+            active_cluster.append((target_second, entries))
+        if active_cluster:
+            near_clusters.append(active_cluster)
+
+        for near_cluster in near_clusters:
+            first_target_second = near_cluster[0][0]
+            target_second = near_cluster[-1][0]
+            cluster_entries = [entry for _second, entries in near_cluster for entry in entries]
+            group_items = [item for item, _scheduled_at, _side_route in cluster_entries]
+            group_identity = self._build_schedule_alarm_event_group_identity(group_items)
+            if not group_items or not group_identity:
+                continue
+            # 근접 묶음의 앞 보스는 3초가 지나면 조회 창에서 빠지고, 뒤 보스만
+            # 남는다. 묶음 키만 기록하면 그 뒤 보스가 새 단일 젠으로 다시
+            # 제출되어 차임벨/젠이 중복된다. 묶음에 포함된 개별 이벤트도 완료
+            # 키로 기록해, 조회 창이 달라져도 동일 이벤트를 재등록하지 않는다.
+            member_pending_keys: set[str] = set()
+            for item, scheduled_at, _side_route in cluster_entries:
+                item_identity = self._get_schedule_alarm_event_identity(item)
+                if not item_identity:
+                    continue
+                member_pending_keys.add(
+                    self._build_schedule_alarm_due_key(
+                        "second_precision_gen_notice_member",
+                        item_identity,
+                        scheduled_at.replace(microsecond=0),
+                        0,
+                    )
+                )
+            if member_pending_keys and any(member_key in pending_keys for member_key in member_pending_keys):
+                continue
+            cluster_span_seconds = max(0.0, (target_second - first_target_second).total_seconds())
+            combined_near_second_group = cluster_span_seconds <= float(SCHEDULE_SECOND_PRECISION_COMBINED_SECONDS)
+            timed_clip_paths: list[tuple[datetime, str]] = []
+            if combined_near_second_group:
+                _primary_item, group_summary, _additional_count, all_invasion = (
+                    self._get_schedule_alarm_compact_group_context(group_items)
+                )
+                speech_clip_paths = self._build_schedule_alarm_compact_group_audio_paths(
+                    group_items,
+                    suffix_info_tokens=["젠"],
+                )
+                fallback_text = f"{group_summary} 젠"
+                tts_segments: list[str] = []
+                phase = "SPAWN_CONFIRMED"
+            else:
+                sequence_parts: list[str] = []
+                speech_clip_paths = []
+                member_clip_groups: list[tuple[datetime, list[str]]] = []
+                all_invasion = bool(group_items) and all(self._is_schedule_invasion_item(item) for item in group_items)
+                for member_target_second, member_entries in near_cluster:
+                    member_items = [item for item, _scheduled_at, _side_route in member_entries]
+                    _primary_item, member_summary, _additional_count, _member_all_invasion = (
+                        self._get_schedule_alarm_compact_group_context(member_items)
+                    )
+                    if not member_summary:
+                        continue
+                    sequence_parts.append(f"{member_summary} 젠")
+                    member_clip_paths = self._build_schedule_alarm_compact_group_audio_paths(
+                        member_items,
+                        suffix_info_tokens=["젠"],
+                    )
+                    speech_clip_paths.extend(member_clip_paths)
+                    if member_clip_paths:
+                        member_clip_groups.append((member_target_second, member_clip_paths))
+                if not sequence_parts:
+                    continue
+                group_summary = ", ".join(sequence_parts)
+                fallback_text = group_summary
+                # 녹음 파일을 사용하지 않을 때도 큰 문장 하나로 합성해 중간이
+                # 끊기지 않도록 각 "이름 젠"을 캐시된 Edge 음성으로 이어 낸다.
+                tts_segments = list(sequence_parts)
+                phase = "SPAWN_CONFIRMED_NEAR_SEQUENCE"
+            if not group_summary:
+                continue
+            clip_paths = self._with_schedule_alarm_chime_paths(speech_clip_paths, "general")
+            if phase == "SPAWN_CONFIRMED_NEAR_SEQUENCE":
+                # 근접 젠은 차임부터 마지막 젠까지 하나의 연속 재생이다.
+                # 마지막 젠에만 적용하는 분리 재생 지연 보정을 더하면 두 번째
+                # 보스가 크게 앞당겨져 디코와 로컬의 싱크가 갈라진다.
+                chime_paths = [path for path in clip_paths if self._is_schedule_alarm_chime_clip_path(path)]
+                timed_clip_paths = self._build_discord_near_confirmed_spawn_timed_clip_paths(
+                    member_clip_groups,
+                    chime_paths=chime_paths,
+                )
+                lead_ms = self._get_schedule_alarm_timed_sequence_lead_ms(clip_paths)
+                latency_ms = SCHEDULE_SECOND_PRECISION_NEAR_BRIDGE_PRESEND_MS
+                notice_start_at = first_target_second - timedelta(
+                    milliseconds=SCHEDULE_SECOND_PRECISION_NEAR_CHIME_LEAD_MS + latency_ms
+                )
+            else:
+                lead_ms = self._get_schedule_alarm_second_precision_gen_lead_ms(clip_paths)
+                latency_ms = SCHEDULE_SECOND_PRECISION_GEN_PLAYBACK_LATENCY_MS
+                notice_start_at = target_second - timedelta(
+                    milliseconds=max(0, lead_ms + latency_ms)
+                )
             submit_window_start = notice_start_at - timedelta(milliseconds=250)
-            submit_window_end = scheduled_at + timedelta(seconds=3)
+            submit_window_end = target_second + timedelta(seconds=3)
             if precise_reference_now < submit_window_start or precise_reference_now > submit_window_end:
                 continue
-            identity = self._get_schedule_alarm_event_identity(item) or boss_name
             alert_key = self._build_schedule_alarm_due_key(
-                "second_precision_gen_notice",
-                identity,
-                scheduled_at,
+                "second_precision_gen_notice_cluster",
+                group_identity,
+                target_second,
                 1,
             )
             if alert_key in pending_keys:
@@ -27816,65 +32366,61 @@ class BossTimerApp:
             if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                 continue
             pending_keys.add(alert_key)
-            display_name = self._get_schedule_boss_display_name(item, prefer_alias=True) or boss_name
+            pending_keys.update(member_pending_keys)
             self._append_debug_log(
                 "second_precision_gen_submit "
-                f"boss={display_name} "
-                f"scheduled_at={scheduled_at.isoformat()} "
+                f"boss={group_summary} "
+                f"group_size={len(group_items)} "
+                f"cluster_seconds={cluster_span_seconds:.1f} "
+                f"cluster_mode={'combined' if combined_near_second_group else 'sequence'} "
+                f"scheduled_at={target_second.isoformat()} "
                 f"notice_start_at={notice_start_at.isoformat()} "
                 f"remaining_ms={precise_remaining_ms} "
                 f"lead_ms={lead_ms} "
-                f"latency_ms={SCHEDULE_SECOND_PRECISION_GEN_PLAYBACK_LATENCY_MS} "
+                f"latency_ms={latency_ms} "
                 f"countdown_enabled={int(bool(countdown_enabled))} "
-                f"invasion={int(bool(is_invasion))}"
+                f"invasion={int(bool(all_invasion))}"
             )
             self._write_schedule_alarm_voice_test_log(
                 "second_precision_gen_notice",
-                boss_id=identity,
-                display_name=display_name,
-                target_time=scheduled_at,
+                boss_id=group_identity,
+                display_name=group_summary,
+                group_names=self._get_schedule_alarm_group_display_names(group_items),
+                target_time=target_second,
+                cluster_start_at=first_target_second,
+                cluster_span_seconds=cluster_span_seconds,
+                cluster_mode="combined" if combined_near_second_group else "sequence",
                 notice_start_at=notice_start_at,
                 precise_remaining_ms=precise_remaining_ms,
                 lead_ms=lead_ms,
-                latency_ms=SCHEDULE_SECOND_PRECISION_GEN_PLAYBACK_LATENCY_MS,
+                latency_ms=latency_ms,
                 countdown_enabled=bool(countdown_enabled),
-                is_invasion=bool(is_invasion),
+                is_invasion=bool(all_invasion),
                 clip_paths=clip_paths,
             )
-            if is_invasion:
-                invasion_lane, invasion_volume = self._get_schedule_invasion_voice_route(force_side=invasion_side_route)
-                self._submit_schedule_voice_request(
-                    phase="SPAWN_CONFIRMED",
-                    boss_id=identity,
-                    target_time=scheduled_at,
-                    offset_sec=0,
-                    clip_paths=clip_paths,
-                    fallback_text=f"{display_name} 젠",
-                    category="general",
-                    rate=1,
-                    force_audio=True,
-                    chime_key="general",
-                    earliest_play_at=notice_start_at,
-                    lane=invasion_lane,
-                    volume=invasion_volume,
-                    is_invasion=True,
+            lane = "center"
+            volume = 1.0
+            if all_invasion:
+                lane, volume = self._get_schedule_invasion_voice_route(
+                    force_side=any(side_route for _item, _scheduled_at, side_route in entries)
                 )
-                continue
             self._submit_schedule_voice_request(
-                phase="SPAWN_CONFIRMED",
-                boss_id=identity,
-                target_time=scheduled_at,
+                phase=phase,
+                boss_id=group_identity,
+                target_time=target_second,
                 offset_sec=0,
                 clip_paths=clip_paths,
-                fallback_text=f"{display_name} 젠",
+                timed_clip_paths=timed_clip_paths,
+                fallback_text=fallback_text,
+                tts_segments=tts_segments,
                 category="general",
                 rate=1,
                 force_audio=True,
                 chime_key="general",
                 earliest_play_at=notice_start_at,
-                lane="center",
-                volume=1.0,
-                is_invasion=False,
+                lane=lane,
+                volume=volume,
+                is_invasion=bool(all_invasion),
             )
 
     def _get_schedule_alarm_sequence_lead_seconds(self, clip_paths: list[str]) -> int:
@@ -27891,6 +32437,42 @@ class BossTimerApp:
                 lead_duration_ms += 1000
         return max(0, int(math.ceil(lead_duration_ms / 1000.0)))
 
+    def _get_schedule_alarm_tts_sequence_lead_seconds(
+        self,
+        text: object,
+        *,
+        category: str,
+        rate: int = 1,
+    ) -> int:
+        """Return the chime pre-roll needed to place TTS speech on the target."""
+        speech_text = str(text or "").strip()
+        chime_paths = self._with_schedule_alarm_chime_paths([], category)
+        if not chime_paths:
+            if speech_text:
+                self._prefetch_edge_tts_text(speech_text, rate=rate)
+            return 0
+        edge_tts_path = self._get_edge_tts_cached_path(speech_text, rate=rate) if speech_text else None
+        if speech_text and not edge_tts_path:
+            self._prefetch_edge_tts_text(speech_text, rate=rate)
+        lead_duration_ms = 0
+        for chime_path in chime_paths:
+            clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(chime_path)
+            if isinstance(clip_duration_ms, int) and clip_duration_ms > 0:
+                transition_trim_ms = 180 if clip_duration_ms > 900 else 40
+                lead_duration_ms += max(140, clip_duration_ms - transition_trim_ms)
+            else:
+                lead_duration_ms += 1000
+        speech_duration_ms = self._get_schedule_alarm_voice_duration_ms(edge_tts_path)
+        if not isinstance(speech_duration_ms, int) or speech_duration_ms <= 0:
+            spoken_units = len(re.sub(r"[\s.,!?]+", "", speech_text))
+            pause_count = len(re.findall(r"[.,!?]", speech_text))
+            rate_factor = max(0.55, 1.0 + (int(rate) * 0.1))
+            estimated_seconds = (0.35 + (spoken_units * 0.145) + (pause_count * 0.18)) / rate_factor
+            speech_duration_ms = int(round(max(650.0, min(10000.0, estimated_seconds * 1000.0))))
+        # TTS is one complete sentence rather than the recorded boss/offset pieces.
+        # Include its duration so the sentence finishes near the intended alarm time.
+        return max(0, int(math.ceil((lead_duration_ms + speech_duration_ms) / 1000.0)))
+
     def _play_or_queue_schedule_alarm_audio_sequence(
         self,
         clip_paths: list[str],
@@ -27901,8 +32483,18 @@ class BossTimerApp:
         rate: int = 1,
         balance: float = 0.0,
         force_audio: bool = False,
+        allow_discord_bridge: bool = True,
     ) -> bool:
-        valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
+        recording_preferred = self._is_schedule_alarm_ai_recording_preferred()
+        valid_clip_paths = self._filter_schedule_alarm_recording_paths(clip_paths)
+        force_audio = bool(force_audio and recording_preferred)
+        valid_clip_paths, edge_tts_fallback_ready = self._resolve_edge_tts_fallback_audio(
+            valid_clip_paths,
+            fallback_text,
+            rate=rate,
+        )
+        if edge_tts_fallback_ready:
+            force_audio = True
         self._write_schedule_alarm_voice_test_log(
             "audio_sequence_request",
             clip_paths=valid_clip_paths,
@@ -27912,26 +32504,75 @@ class BossTimerApp:
             rate=int(rate),
             balance=balance,
             force_audio=bool(force_audio),
+            allow_discord_bridge=bool(allow_discord_bridge),
         )
         try:
             playback_balance = max(-1.0, min(1.0, float(balance)))
         except (TypeError, ValueError):
             playback_balance = 0.0
-        if valid_clip_paths and not any(not self._is_schedule_alarm_chime_clip_path(path) for path in valid_clip_paths):
-            if bool(force_audio) or bool(self.schedule_alarm_boss_ai_voice_var.get()):
-                self._play_schedule_alarm_boss_audio_paths(
-                    valid_clip_paths,
-                    request_id=self.schedule_alarm_boss_audio_request_id,
-                    expires_at=None,
+        bridge_emitted = False
+        if (
+            bool(allow_discord_bridge)
+            and valid_clip_paths
+            and any(not self._is_schedule_alarm_chime_clip_path(path) for path in valid_clip_paths)
+        ):
+            bridge_start_at = datetime.now() + timedelta(seconds=max(0.0, float(DISCORD_VOICE_BRIDGE_GENERIC_PRESEND_SEC)))
+            bridge_emitted, bridge_scheduled_start_at = self._append_discord_timed_voice_sequence_bridge_request(
+                clip_paths=valid_clip_paths,
+                fallback_text=fallback_text,
+                phase="AUDIO_SEQUENCE",
+                category=category,
+                lane="right" if playback_balance > 0.001 else "left" if playback_balance < -0.001 else "center",
+                volume=1.0,
+                start_at=bridge_start_at,
+            )
+            if not bridge_emitted:
+                bridge_scheduled_start_at = None
+                bridge_emitted = self._append_discord_voice_bridge_request(
+                    clip_paths=valid_clip_paths,
+                    fallback_text=fallback_text,
+                    phase="AUDIO_SEQUENCE",
+                    category=category,
+                    lane="right" if playback_balance > 0.001 else "left" if playback_balance < -0.001 else "center",
+                    volume=1.0,
                 )
+            if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
+                self._write_schedule_alarm_voice_test_log(
+                    "discord_voice_bridge_local_mute",
+                    phase="AUDIO_SEQUENCE",
+                    clip_paths=valid_clip_paths,
+                    fallback_text=fallback_text,
+                    category=category,
+                )
+                return True
+            self._wait_for_discord_timed_voice_sequence_start(
+                bridge_emitted,
+                bridge_scheduled_start_at,
+                phase="AUDIO_SEQUENCE",
+                clip_paths=valid_clip_paths,
+            )
+            self._sync_local_schedule_audio_with_discord_bridge(
+                bridge_emitted,
+                phase="AUDIO_SEQUENCE",
+                clip_paths=valid_clip_paths,
+            )
+        if self._should_mute_local_schedule_audio_for_discord_bot(False):
+            self._write_schedule_alarm_voice_test_log(
+                "audio_sequence_local_mute",
+                clip_paths=valid_clip_paths,
+                fallback_text=fallback_text,
+                category=category,
+            )
+            return bool(valid_clip_paths or str(fallback_text or "").strip())
+        if valid_clip_paths and not any(not self._is_schedule_alarm_chime_clip_path(path) for path in valid_clip_paths):
             self._queue_schedule_alarm_speech(
                 fallback_text,
-                beep=False,
+                beep=True,
                 category=category,
                 rate=rate,
             )
             return True
-        if (bool(force_audio) or bool(self.schedule_alarm_boss_ai_voice_var.get())) and valid_clip_paths:
+        if (bool(force_audio) or self._is_schedule_alarm_ai_recording_preferred()) and valid_clip_paths:
             if abs(playback_balance) > 0.001:
                 self._stop_schedule_alarm_boss_audio(close_host=False)
                 process = self._start_schedule_alarm_audio_sequence_process(
@@ -27965,7 +32606,9 @@ class BossTimerApp:
         target_time: datetime,
         offset_sec: int,
         clip_paths: list[str] | None = None,
+        timed_clip_paths: list[tuple[datetime, str]] | None = None,
         fallback_text: str = "",
+        tts_segments: list[str] | None = None,
         category: str = "general",
         rate: int = 1,
         force_audio: bool = False,
@@ -27977,6 +32620,7 @@ class BossTimerApp:
         lane: str = "center",
         volume: float = 1.0,
         is_invasion: bool = False,
+        preserve_fixed_message: bool = False,
     ) -> None:
         if self.schedule_voice_broker_stop_event.is_set():
             return
@@ -27994,16 +32638,26 @@ class BossTimerApp:
             ):
                 normalized_earliest_play_at = countdown_block_until
         dedupe_key = f"{normalized_phase}:{normalized_boss_id}:{target_time.isoformat()}:{int(offset_sec)}"
+        recording_preferred = self._is_schedule_alarm_ai_recording_preferred()
+        prepared_clip_paths = self._filter_schedule_alarm_recording_paths(clip_paths or [])
+        prepared_timed_clip_paths = [
+            (play_at, str(clip_path).strip())
+            for play_at, clip_path in (timed_clip_paths or [])
+            if isinstance(play_at, datetime) and str(clip_path).strip()
+        ]
+        prepared_tts_segments = [str(segment or "").strip() for segment in (tts_segments or []) if str(segment or "").strip()]
         request = {
             "phase": normalized_phase,
             "boss_id": normalized_boss_id,
             "target_time": target_time,
             "offset_sec": int(offset_sec),
-            "clip_paths": [str(path).strip() for path in (clip_paths or []) if str(path).strip()],
+            "clip_paths": prepared_clip_paths,
+            "timed_clip_paths": prepared_timed_clip_paths,
             "fallback_text": str(fallback_text or "").strip(),
+            "tts_segments": prepared_tts_segments,
             "category": str(category or "general").strip() or "general",
             "rate": int(rate),
-            "force_audio": bool(force_audio),
+            "force_audio": bool(force_audio and recording_preferred),
             "expires_at": expires_at if isinstance(expires_at, datetime) else None,
             "merge_items": [dict(item) for item in (merge_items or []) if isinstance(item, dict)],
             "chime_key": str(chime_key or "general").strip() or "general",
@@ -28012,10 +32666,24 @@ class BossTimerApp:
             "lane": normalized_lane,
             "volume": max(0.0, min(1.0, float(volume))) if isinstance(volume, (int, float)) else 1.0,
             "is_invasion": bool(is_invasion),
+            "preserve_fixed_message": bool(preserve_fixed_message),
             "dedupe_key": dedupe_key,
             "created_at": datetime.now(),
             "generation": int(getattr(self, "schedule_voice_broker_generation", 0)),
         }
+        if request["fallback_text"]:
+            if prepared_tts_segments:
+                for segment in prepared_tts_segments:
+                    self._prefetch_edge_tts_text(segment, rate=int(rate))
+            elif normalized_phase == "SPAWN_CONFIRMED":
+                lead_text, gen_text = self._split_schedule_alarm_gen_fallback_text(request["fallback_text"])
+                if bool(is_invasion) and lead_text and not lead_text.startswith("침공"):
+                    lead_text = f"침공 {lead_text}"
+                if lead_text:
+                    self._prefetch_edge_tts_text(lead_text, rate=int(rate))
+                self._prefetch_edge_tts_text(gen_text, rate=int(rate))
+            else:
+                self._prefetch_edge_tts_text(request["fallback_text"], rate=int(rate))
         self._write_schedule_alarm_voice_test_log(
             "voice_request_submit",
             request=self._summarize_schedule_alarm_voice_request_for_log(request),
@@ -28101,7 +32769,7 @@ class BossTimerApp:
             return 20
         if normalized_phase == "SPAWN_SOON":
             return 10
-        if normalized_phase == "SPAWN_CONFIRMED":
+        if normalized_phase in {"SPAWN_CONFIRMED", "SPAWN_CONFIRMED_NEAR_SEQUENCE"}:
             return 15
         if normalized_phase == "FIXED_PRE_ALERT":
             return 65
@@ -28128,7 +32796,15 @@ class BossTimerApp:
         offset_sec = int(request.get("offset_sec") or 0)
         speak_time = target_time - timedelta(seconds=max(0, offset_sec)) if isinstance(target_time, datetime) else request.get("created_at")
         earliest_play_at = request.get("earliest_play_at")
-        if isinstance(earliest_play_at, datetime) and isinstance(speak_time, datetime) and earliest_play_at > speak_time:
+        # 일반 사전 알림은 원래 알림 시각을 기준으로 만료한다. 현재 젠
+        # 뒤로 대기시킨 earliest_play_at을 새 기준으로 삼으면 1분전 안내가
+        # 40초 미만까지 밀려도 살아남아 곧바로 젠 안내와 충돌한다.
+        if (
+            phase != "PRE_ALERT"
+            and isinstance(earliest_play_at, datetime)
+            and isinstance(speak_time, datetime)
+            and earliest_play_at > speak_time
+        ):
             speak_time = earliest_play_at
         if not isinstance(speak_time, datetime):
             return False
@@ -28146,18 +32822,27 @@ class BossTimerApp:
                     merged_items.append(item)
         if not merged_items:
             return base_request
-        merged_items = merged_items[:4]
         clip_paths = self._build_schedule_alarm_custom_audio_paths(
             boss_items=merged_items,
             minute_seconds=offset_sec,
+            compact_boss_group=True,
         )
         clip_paths = self._with_schedule_alarm_chime_paths(
             clip_paths,
             str(base_request.get("chime_key") or "general"),
         )
-        joined_names = " ".join(self._get_schedule_alarm_group_display_names(merged_items)).strip()
+        _primary_item, group_summary, _additional_count, _all_invasion = (
+            self._get_schedule_alarm_compact_group_context(merged_items)
+        )
         base_request["clip_paths"] = clip_paths
-        base_request["fallback_text"] = f"{joined_names} {self._format_schedule_alarm_remaining_speech(offset_sec)} 남았습니다.".strip()
+        base_request["fallback_text"] = f"{group_summary} {self._format_schedule_alarm_remaining_speech(offset_sec)} 남았습니다.".strip()
+        # 동시간 그룹과 동일하게 TTS도 대표 보스, "외 N개", 안내어를
+        # 분리 캐시해 조립한다. 자동 병합 경로만 완성 문장으로 재생하면
+        # 동일시간 전용 경로와 발음·캐시 준비 방식이 달라질 수 있다.
+        base_request["tts_segments"] = [
+            group_summary,
+            f"{self._format_schedule_alarm_remaining_speech(offset_sec)} 남았습니다.",
+        ]
         base_request["boss_id"] = self._build_schedule_alarm_event_group_identity(merged_items)
         base_request["dedupe_key"] = f"PRE_ALERT_GROUP:{base_request['boss_id']}:{offset_sec}"
         base_request["is_invasion"] = any(bool(request.get("is_invasion")) for request in requests)
@@ -28244,8 +32929,6 @@ class BossTimerApp:
         ]
         consumed_ids: set[int] = set()
         prepared: list[dict[str, object]] = []
-        merge_window_seconds = 60
-        max_merge_count = 4
         pre_alerts.sort(
             key=lambda request: (
                 int(request.get("offset_sec") or 0),
@@ -28269,11 +32952,11 @@ class BossTimerApp:
                     other_target_time = other.get("target_time")
                     if not isinstance(other_target_time, datetime):
                         continue
-                    if abs((other_target_time - target_time).total_seconds()) <= merge_window_seconds:
+                    # 사전 알림도 목표 시각이 정확히 같은 보스만 합친다.
+                    # 1분 간격의 서로 다른 젠 그룹은 각각 독립된 큐 항목이다.
+                    if other_target_time.replace(microsecond=0) == target_time.replace(microsecond=0):
                         group.append(other)
                         consumed_ids.add(other_id)
-                        if len(group) >= max_merge_count:
-                            break
             prepared.append(self._build_schedule_voice_broker_merged_pre_alert(group) if len(group) > 1 else request)
         for request in deduped:
             if id(request) in consumed_ids:
@@ -28300,19 +32983,11 @@ class BossTimerApp:
                 if len(combined_pre_alerts) > 1
                 else combined_pre_alerts[0]
             )
-        center_has_main_request = any(
-            self._normalize_schedule_voice_lane(request.get("lane")) == "center"
-            and not bool(request.get("is_invasion"))
-            for request in sequence_ready
-        )
-        if center_has_main_request:
-            for request in sequence_ready:
-                if bool(request.get("is_invasion")) and self._normalize_schedule_voice_lane(request.get("lane")) == "center":
-                    request["lane"] = "right"
-                    request["volume"] = min(
-                        float(request.get("volume") or 1.0),
-                        float(SCHEDULE_INVASION_SIDE_CHANNEL_VOLUME),
-                    )
+        # 침공 n분전 알림은 일반 보스 젠시간과 같은 틱에 들어올 수 있다.
+        # 여기서 침공을 우측 채널로 강제 이동하면 별도 재생 스레드가 생겨
+        # 두 안내가 겹친다. 사전 알림은 제출 시 지정된 중앙 큐를 유지한다.
+        # 초확정/초읽기 보호가 필요한 침공 젠 안내만 제출 단계에서 명시적으로
+        # 우측 채널을 선택한다.
         sequence_ready.sort(
             key=lambda request: (
                 priority.get(str(request.get("phase") or ""), 50),
@@ -28357,6 +33032,63 @@ class BossTimerApp:
             return 900
         return max(1400, min(12000, 700 + len(fallback_text) * 95))
 
+    def _split_schedule_alarm_gen_fallback_text(self, fallback_text: object) -> tuple[str, str]:
+        speech_text = str(fallback_text or "").strip()
+        match = re.fullmatch(r"(.+?)\s*젠[.!?]?", speech_text)
+        if match is None:
+            return speech_text, "젠"
+        return str(match.group(1) or "").strip(), "젠"
+
+    def _play_schedule_voice_broker_second_precision_tts_request(
+        self,
+        request: dict[str, object],
+        chime_paths: list[str],
+    ) -> bool:
+        if str(request.get("phase") or "") != "SPAWN_CONFIRMED":
+            return False
+        target_time = request.get("target_time")
+        if not isinstance(target_time, datetime):
+            return False
+        lead_text, gen_text = self._split_schedule_alarm_gen_fallback_text(request.get("fallback_text"))
+        if bool(request.get("is_invasion")) and lead_text and not lead_text.startswith("침공"):
+            lead_text = f"침공 {lead_text}"
+        if not lead_text:
+            return False
+        rate = int(request.get("rate") or 0)
+        timeout = min(
+            5.0,
+            max(0.2, (target_time - datetime.now()).total_seconds() - 0.35),
+        )
+        gen_clip_path = self._wait_for_edge_tts_audio(gen_text, timeout=timeout, rate=rate)
+        lead_clip_path = self._wait_for_edge_tts_audio(lead_text, timeout=timeout, rate=rate)
+        if not gen_clip_path or not lead_clip_path:
+            return False
+        lead_clip_paths = [
+            str(path).strip()
+            for path in chime_paths
+            if str(path).strip() and self._is_schedule_alarm_chime_clip_path(str(path).strip())
+        ]
+        if not lead_clip_paths and not bool(request.get("suppress_chime")):
+            chime_path = self._get_schedule_alarm_chime_path(str(request.get("category") or "general"))
+            if chime_path:
+                lead_clip_paths.append(chime_path)
+        lead_clip_paths.append(lead_clip_path)
+        self._load_schedule_alarm_boss_audio_paths(lead_clip_paths)
+        self._load_schedule_alarm_second_precision_gen_audio_clip(gen_clip_path)
+        timed_request = dict(request)
+        timed_request["edge_tts_timed_gen"] = True
+        self._write_schedule_alarm_voice_test_log(
+            "second_precision_tts_split_ready",
+            request=self._summarize_schedule_alarm_voice_request_for_log(request),
+            lead_text=lead_text,
+            lead_clip_paths=lead_clip_paths,
+            gen_clip_path=gen_clip_path,
+        )
+        return self._play_schedule_voice_broker_second_precision_gen_request(
+            timed_request,
+            [*lead_clip_paths, gen_clip_path],
+        )
+
     def _play_schedule_voice_broker_second_precision_gen_request(
         self,
         request: dict[str, object],
@@ -28367,8 +33099,7 @@ class BossTimerApp:
         target_time = request.get("target_time")
         if not isinstance(target_time, datetime):
             return False
-        if self._normalize_schedule_voice_lane(request.get("lane")) != "center":
-            return False
+        lane = self._normalize_schedule_voice_lane(request.get("lane"))
         valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
         if len(valid_clip_paths) < 2:
             return False
@@ -28377,9 +33108,10 @@ class BossTimerApp:
         duration_ms = self._estimate_schedule_voice_broker_request_duration_ms(request, valid_clip_paths)
         reserved_busy_until = time.monotonic() + min(60.0, max(8.0, duration_ms / 1000.0 + 8.0))
         self._set_schedule_voice_lane_busy_until(
-            "center",
+            lane,
             reserved_busy_until,
-            protect_central=True,
+            protect_central=(lane == "center"),
+            generation=request.get("generation"),
         )
         self._write_schedule_alarm_voice_test_log(
             "second_precision_gen_split_start",
@@ -28388,16 +33120,64 @@ class BossTimerApp:
             gen_clip_path=gen_clip_path,
             reserved_busy_until=reserved_busy_until,
         )
-        lead_played = self._play_schedule_alarm_boss_audio_paths(
-            lead_clip_paths,
-            request_id=self.schedule_alarm_boss_audio_request_id,
-            expires_at=None,
-            interrupt_existing=False,
-            wait_until_done=False,
+        bridge_sequence_emitted = self._append_discord_second_precision_spawn_bridge_request(
+            target_time=target_time,
+            lead_clip_paths=lead_clip_paths,
+            gen_clip_path=gen_clip_path,
+            fallback_text=str(request.get("fallback_text") or ""),
+            category=str(request.get("category") or "general"),
+            lane=lane,
+            volume=float(request.get("volume") or 1.0),
         )
+        if bridge_sequence_emitted:
+            bridge_lead_emitted = True
+        else:
+            bridge_lead_emitted = self._append_discord_voice_bridge_request(
+                clip_paths=lead_clip_paths,
+                fallback_text=str(request.get("fallback_text") or ""),
+                phase="SPAWN_CONFIRMED_LEAD",
+                category=str(request.get("category") or "general"),
+                lane=lane,
+                volume=float(request.get("volume") or 1.0),
+                target_time=target_time,
+                offset_sec=int(request.get("offset_sec") or 0),
+            )
+        if self._should_mute_local_schedule_audio_for_discord_bot(bridge_lead_emitted):
+            lead_played = True
+            self._write_schedule_alarm_voice_test_log(
+                "discord_voice_bridge_local_mute",
+                phase="SPAWN_CONFIRMED_LEAD",
+                request=self._summarize_schedule_alarm_voice_request_for_log(request),
+            )
+        else:
+            self._sync_local_schedule_audio_with_discord_bridge(
+                bridge_lead_emitted,
+                phase="SPAWN_CONFIRMED_LEAD",
+                clip_paths=lead_clip_paths,
+            )
+            if lane == "center":
+                lead_played = self._play_schedule_alarm_boss_audio_paths(
+                    lead_clip_paths,
+                    request_id=self.schedule_alarm_boss_audio_request_id,
+                    expires_at=None,
+                    interrupt_existing=False,
+                    wait_until_done=False,
+                )
+            else:
+                lead_process = self._start_schedule_alarm_audio_sequence_process(
+                    lead_clip_paths,
+                    volume=float(request.get("volume") or 1.0),
+                    balance=self._get_schedule_voice_lane_balance(lane),
+                )
+                lead_played = lead_process is not None
+        gen_dispatch_at = target_time
+        if bool(request.get("edge_tts_timed_gen")):
+            gen_dispatch_at = target_time - timedelta(
+                milliseconds=SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS,
+            )
         while True:
             now_value = datetime.now()
-            if now_value >= target_time:
+            if now_value >= gen_dispatch_at:
                 break
             if self._schedule_voice_broker_request_is_stale(request, now_value):
                 self._write_schedule_alarm_voice_test_log(
@@ -28408,8 +33188,42 @@ class BossTimerApp:
                 return True
             time.sleep(min(0.01, max(0.0, (target_time - now_value).total_seconds())))
         gen_started_at = datetime.now()
-        gen_played = self._play_schedule_alarm_second_precision_gen_audio_clip(gen_clip_path)
-        if not gen_played:
+        if bridge_sequence_emitted:
+            bridge_gen_emitted = True
+        else:
+            bridge_gen_emitted = self._append_discord_voice_bridge_request(
+                clip_paths=[gen_clip_path],
+                fallback_text="젠",
+                phase="SPAWN_CONFIRMED_GEN",
+                category=str(request.get("category") or "general"),
+                lane=lane,
+                volume=float(request.get("volume") or 1.0),
+                target_time=target_time,
+                offset_sec=0,
+            )
+        if self._should_mute_local_schedule_audio_for_discord_bot(bridge_gen_emitted):
+            gen_played = True
+            self._write_schedule_alarm_voice_test_log(
+                "discord_voice_bridge_local_mute",
+                phase="SPAWN_CONFIRMED_GEN",
+                request=self._summarize_schedule_alarm_voice_request_for_log(request),
+            )
+        else:
+            self._sync_local_schedule_audio_with_discord_bridge(
+                bridge_gen_emitted,
+                phase="SPAWN_CONFIRMED_GEN",
+                clip_paths=[gen_clip_path],
+            )
+            if lane == "center":
+                gen_played = self._play_schedule_alarm_second_precision_gen_audio_clip(gen_clip_path)
+            else:
+                gen_process = self._start_schedule_alarm_audio_sequence_process(
+                    [gen_clip_path],
+                    volume=float(request.get("volume") or 1.0),
+                    balance=self._get_schedule_voice_lane_balance(lane),
+                )
+                gen_played = gen_process is not None
+        if not gen_played and lane == "center":
             gen_played = self._play_schedule_alarm_boss_audio_paths(
                 [gen_clip_path],
                 request_id=self.schedule_alarm_boss_audio_request_id,
@@ -28429,15 +33243,17 @@ class BossTimerApp:
             target_time=target_time,
             gen_started_at=gen_started_at,
             gen_start_delta_ms=int(round((gen_started_at - target_time).total_seconds() * 1000.0)),
+            gen_dispatch_at=gen_dispatch_at,
             gen_duration_ms=gen_duration_ms,
             sleep_seconds=sleep_seconds,
             reserved_busy_until=reserved_busy_until,
         )
         self._release_schedule_voice_lane_busy_until(
-            "center",
+            lane,
             time.monotonic() + sleep_seconds,
             reserved_until=reserved_busy_until,
-            protect_central=True,
+            protect_central=(lane == "center"),
+            generation=request.get("generation"),
         )
         time.sleep(sleep_seconds)
         return True
@@ -28448,6 +33264,26 @@ class BossTimerApp:
             return
         lane = self._normalize_schedule_voice_lane(request.get("lane"))
         lane_lock = self._get_schedule_voice_lane_lock(lane)
+        # 미래 예약 요청이 재생 통로의 lock을 잡고 잠들면, 그보다 먼저
+        # 재생되어야 하는 일반 알림까지 막힌다. 예약 시각까지는 lock 밖에서
+        # 기다리고 실제 재생 직전에만 통로를 점유한다.
+        while True:
+            earliest_play_at = self._refresh_schedule_voice_request_countdown_block(request)
+            now_value = datetime.now()
+            if isinstance(earliest_play_at, datetime):
+                delay_seconds = (earliest_play_at - now_value).total_seconds()
+            else:
+                delay_seconds = 0.0
+            if delay_seconds <= 0:
+                break
+            if self._schedule_voice_broker_request_is_stale(request, now_value):
+                self._write_schedule_alarm_voice_test_log(
+                    "voice_request_stale_during_prelock_delay",
+                    request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                    now=now_value,
+                )
+                return
+            time.sleep(min(1.0, delay_seconds))
         with lane_lock:
             self._refresh_schedule_voice_request_countdown_block(request)
             now_value = datetime.now()
@@ -28508,23 +33344,155 @@ class BossTimerApp:
                         request=self._summarize_schedule_alarm_voice_request_for_log(request),
                     )
                     return
+                fallback_text = str(request.get("fallback_text") or "").strip()
+                if fallback_text:
+                    self._prefetch_edge_tts_text(fallback_text)
             clip_paths = [str(path).strip() for path in (request.get("clip_paths") or []) if str(path).strip()]
             if bool(request.get("suppress_chime")):
                 clip_paths = [path for path in clip_paths if not self._is_schedule_alarm_chime_clip_path(path)]
+            clip_paths = self._filter_schedule_alarm_recording_paths(clip_paths)
+            near_timed_clip_paths = [
+                (play_at, str(clip_path).strip())
+                for play_at, clip_path in (request.get("timed_clip_paths") or [])
+                if isinstance(play_at, datetime) and str(clip_path).strip()
+            ]
+            if (
+                str(request.get("phase") or "") == "SPAWN_CONFIRMED_NEAR_SEQUENCE"
+                and near_timed_clip_paths
+            ):
+                bridge_emitted = self._append_discord_voice_bridge_request(
+                    clip_paths=[],
+                    timed_clip_paths=near_timed_clip_paths,
+                    fallback_text=fallback_text,
+                    phase="SPAWN_CONFIRMED_NEAR_SEQUENCE",
+                    category=str(request.get("category") or "general"),
+                    lane=lane,
+                    volume=float(request.get("volume") or 1.0),
+                    target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
+                    offset_sec=0,
+                )
+                if bridge_emitted and self._should_mute_local_schedule_audio_for_discord_bot(True):
+                    final_play_at, final_clip_path = max(near_timed_clip_paths, key=lambda entry: entry[0])
+                    final_duration_ms = self._get_schedule_alarm_voice_duration_ms(final_clip_path)
+                    if not isinstance(final_duration_ms, int) or final_duration_ms <= 0:
+                        final_duration_ms = 900
+                    remaining_hold_seconds = max(
+                        0.8,
+                        (final_play_at - datetime.now()).total_seconds()
+                        + (final_duration_ms / 1000.0)
+                        + 0.35,
+                    )
+                    reserved_busy_until = time.monotonic() + min(20.0, remaining_hold_seconds)
+                    # 디코봇은 근접 젠을 별도 타임드 작업으로 재생한다. 이
+                    # 작업이 끝나기 전에 PRE_ALERT 브리지가 들어오면 음성
+                    # 클라이언트가 교체되어 이름/젠이 잘린다. 마지막 젠까지
+                    # 중앙 큐를 예약해 다음 안내가 뒤에 오도록 한다.
+                    self._set_schedule_voice_lane_busy_until(
+                        lane,
+                        reserved_busy_until,
+                        protect_central=(lane == "center"),
+                        generation=request.get("generation"),
+                    )
+                    self._write_schedule_alarm_voice_test_log(
+                        "discord_near_confirmed_spawn_timed_local_mute",
+                        request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                        timed_clip_paths=near_timed_clip_paths,
+                        reserved_busy_until=reserved_busy_until,
+                        remaining_hold_seconds=remaining_hold_seconds,
+                    )
+                    return
+            if (
+                not any(not self._is_schedule_alarm_chime_clip_path(path) for path in clip_paths)
+                and self._play_schedule_voice_broker_second_precision_tts_request(request, clip_paths)
+            ):
+                return
+            tts_segments = [
+                str(segment or "").strip()
+                for segment in (request.get("tts_segments") or [])
+                if str(segment or "").strip()
+            ]
+            if tts_segments:
+                clip_paths, edge_tts_fallback_ready = self._resolve_edge_tts_segment_audio(
+                    clip_paths,
+                    tts_segments,
+                    rate=int(request.get("rate") or 0),
+                )
+            else:
+                clip_paths, edge_tts_fallback_ready = self._resolve_edge_tts_fallback_audio(
+                    clip_paths,
+                    fallback_text,
+                    rate=int(request.get("rate") or 0),
+                )
+            if (
+                str(request.get("phase") or "") == "SPAWN_SOON"
+                and str(request.get("category") or "") == "fixed"
+                and not edge_tts_fallback_ready
+                and fallback_text
+            ):
+                # 15-1 고정보스 젠 알림은 정확히 0초에 발생해 일반 비동기
+                # 캐시 확인보다 먼저 로컬 TTS로 빠질 수 있다. 이 경우에는
+                # 완성된 Edge 파일을 직접 확보해 브리지 경로를 반드시 만든다.
+                fixed_due_tts_path = self._wait_for_edge_tts_audio(
+                    fallback_text,
+                    timeout=3.0,
+                    rate=int(request.get("rate") or 0),
+                )
+                if fixed_due_tts_path:
+                    clip_paths = self._with_schedule_alarm_chime_paths(
+                        [fixed_due_tts_path],
+                        str(request.get("chime_key") or "fixed"),
+                    )
+                    edge_tts_fallback_ready = True
+                    self._write_schedule_alarm_voice_test_log(
+                        "fixed_due_edge_tts_bridge_ready",
+                        request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                        clip_paths=clip_paths,
+                    )
+            if (
+                str(request.get("phase") or "") == "FIXED_PRE_ALERT"
+                and not any(not self._is_schedule_alarm_chime_clip_path(path) for path in clip_paths)
+                and fallback_text
+            ):
+                # 다음 보스 후속 조립이 TTS로 대체된 경우 캐시 완료를 잠깐
+                # 기다려 차임+문장 파일을 반드시 Discord 브리지에 전달한다.
+                fixed_alert_tts_path = self._wait_for_edge_tts_audio(
+                    fallback_text,
+                    timeout=3.0,
+                    rate=int(request.get("rate") or 0),
+                )
+                if fixed_alert_tts_path:
+                    clip_paths = self._with_schedule_alarm_chime_paths(
+                        [fixed_alert_tts_path],
+                        str(request.get("chime_key") or "fixed"),
+                    )
+                    edge_tts_fallback_ready = True
+                    self._write_schedule_alarm_voice_test_log(
+                        "fixed_pre_alert_edge_tts_bridge_ready",
+                        request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                        clip_paths=clip_paths,
+                    )
+            if (
+                clip_paths
+                and not edge_tts_fallback_ready
+                and all(self._is_schedule_alarm_chime_clip_path(path) for path in clip_paths)
+            ):
+                # 녹음 조합이 누락되어 차임벨만 남은 경우에도 음성 메시지는 TTS로 전달한다.
+                clip_paths = []
             self._write_schedule_alarm_voice_test_log(
                 "voice_request_play_start",
                 request=self._summarize_schedule_alarm_voice_request_for_log(request),
                 clip_paths_after_suppress=clip_paths,
             )
             if (
-                bool(request.get("force_audio"))
+                (bool(request.get("force_audio")) or edge_tts_fallback_ready)
                 and clip_paths
                 and self._play_schedule_voice_broker_second_precision_gen_request(request, clip_paths)
             ):
                 return
             played_audio = False
+            muted_by_discord_bridge = False
             reserved_busy_until: float | None = None
-            if bool(request.get("force_audio")) and clip_paths:
+            if (bool(request.get("force_audio")) or edge_tts_fallback_ready) and clip_paths:
                 duration_ms = self._estimate_schedule_voice_broker_request_duration_ms(request, clip_paths)
                 if lane == "center":
                     protect_seconds = min(60.0, max(8.0, duration_ms / 1000.0 + 8.0))
@@ -28535,8 +33503,69 @@ class BossTimerApp:
                     lane,
                     reserved_busy_until,
                     protect_central=(lane == "center"),
+                    generation=request.get("generation"),
                 )
-                if lane == "center":
+                bridge_start_at = datetime.now() + timedelta(seconds=max(0.0, float(DISCORD_VOICE_BRIDGE_GENERIC_PRESEND_SEC)))
+                bridge_emitted, bridge_scheduled_start_at = self._append_discord_timed_voice_sequence_bridge_request(
+                    clip_paths=clip_paths,
+                    fallback_text=fallback_text,
+                    phase=str(request.get("phase") or "AUDIO"),
+                    category=str(request.get("category") or "general"),
+                    lane=lane,
+                    volume=float(request.get("volume") or 1.0),
+                    target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
+                    offset_sec=int(request.get("offset_sec") or 0),
+                    start_at=bridge_start_at,
+                )
+                if not bridge_emitted:
+                    bridge_scheduled_start_at = None
+                    bridge_emitted = self._append_discord_voice_bridge_request(
+                        clip_paths=clip_paths,
+                        fallback_text=fallback_text,
+                        phase=str(request.get("phase") or "AUDIO"),
+                        category=str(request.get("category") or "general"),
+                        lane=lane,
+                        volume=float(request.get("volume") or 1.0),
+                        target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
+                        offset_sec=int(request.get("offset_sec") or 0),
+                    )
+                if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
+                    played_audio = True
+                    muted_by_discord_bridge = True
+                    self._write_schedule_alarm_voice_test_log(
+                        "discord_voice_bridge_local_mute",
+                        request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                        clip_paths=clip_paths,
+                        lane=lane,
+                    )
+                elif lane == "center":
+                    if (
+                        not bridge_emitted
+                        and str(request.get("phase") or "") == "SPAWN_CONFIRMED_NEAR_SEQUENCE"
+                    ):
+                        # 디코 브리지가 없는 로컬 재생도 브리지가 예정한 시작
+                        # 시각까지 기다려, 두 출력의 근접 젠 재생 속도/위치를
+                        # 같은 타임라인으로 맞춘다.
+                        local_sync_delay = max(0.0, (bridge_start_at - datetime.now()).total_seconds())
+                        if local_sync_delay > 0:
+                            self._write_schedule_alarm_voice_test_log(
+                                "near_sequence_local_bridge_timeline_wait",
+                                request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                                delay_seconds=local_sync_delay,
+                                start_at=bridge_start_at,
+                            )
+                            time.sleep(min(1.0, local_sync_delay))
+                    self._wait_for_discord_timed_voice_sequence_start(
+                        bridge_emitted,
+                        bridge_scheduled_start_at,
+                        phase=str(request.get("phase") or "AUDIO"),
+                        clip_paths=clip_paths,
+                    )
+                    self._sync_local_schedule_audio_with_discord_bridge(
+                        bridge_emitted,
+                        phase=str(request.get("phase") or "AUDIO"),
+                        clip_paths=clip_paths,
+                    )
                     played_audio = self._play_schedule_alarm_boss_audio_paths(
                         clip_paths,
                         request_id=self.schedule_alarm_boss_audio_request_id,
@@ -28545,6 +33574,17 @@ class BossTimerApp:
                         wait_until_done=True,
                     )
                 else:
+                    self._wait_for_discord_timed_voice_sequence_start(
+                        bridge_emitted,
+                        bridge_scheduled_start_at,
+                        phase=str(request.get("phase") or "AUDIO"),
+                        clip_paths=clip_paths,
+                    )
+                    self._sync_local_schedule_audio_with_discord_bridge(
+                        bridge_emitted,
+                        phase=str(request.get("phase") or "AUDIO"),
+                        clip_paths=clip_paths,
+                    )
                     process = self._start_schedule_alarm_audio_sequence_process(
                         clip_paths,
                         volume=float(request.get("volume") or 1.0),
@@ -28552,7 +33592,7 @@ class BossTimerApp:
                     )
                     played_audio = process is not None
             if played_audio:
-                waited_until_done = lane == "center"
+                waited_until_done = lane == "center" and not muted_by_discord_bridge
                 sleep_seconds = 0.35 if waited_until_done else min(15.0, max(0.45, duration_ms / 1000.0 + 0.35))
                 self._write_schedule_alarm_voice_test_log(
                     "voice_request_play_audio_done",
@@ -28569,6 +33609,7 @@ class BossTimerApp:
                     time.monotonic() + sleep_seconds,
                     reserved_until=reserved_busy_until,
                     protect_central=(lane == "center"),
+                    generation=request.get("generation"),
                 )
                 time.sleep(sleep_seconds)
                 return
@@ -28585,11 +33626,15 @@ class BossTimerApp:
             )
             duration_ms = self._estimate_schedule_voice_broker_request_duration_ms(request, [])
             sleep_seconds = min(15.0, max(0.8, duration_ms / 1000.0 + 0.25))
-            self._set_schedule_voice_lane_busy_until(lane, time.monotonic() + sleep_seconds)
+            self._set_schedule_voice_lane_busy_until(
+                lane,
+                time.monotonic() + sleep_seconds,
+                generation=request.get("generation"),
+            )
             time.sleep(sleep_seconds)
 
     def _schedule_voice_broker_worker_loop(self) -> None:
-        collect_window_seconds = 0.7
+        collect_window_seconds = 0.15
         while not self.schedule_voice_broker_stop_event.is_set():
             try:
                 first_request = self.schedule_voice_broker_queue.get(timeout=0.2)
@@ -28660,6 +33705,149 @@ class BossTimerApp:
             names.append(display_name)
         return names
 
+    @staticmethod
+    def _format_schedule_alarm_group_extra_count(additional_count: int) -> str:
+        safe_count = max(0, int(additional_count))
+        if safe_count <= 0:
+            return ""
+        return "외 다수" if safe_count >= 10 else f"외 {safe_count}개"
+
+    def _summarize_schedule_alarm_group_names(self, boss_names: list[object]) -> tuple[str, int]:
+        unique_names = list(
+            dict.fromkeys(str(name or "").strip() for name in boss_names if str(name or "").strip())
+        )
+        if not unique_names:
+            return "", 0
+        additional_count = max(0, len(unique_names) - 1)
+        extra_text = self._format_schedule_alarm_group_extra_count(additional_count)
+        return (f"{unique_names[0]} {extra_text}".strip(), additional_count)
+
+    def _get_schedule_alarm_compact_group_context(
+        self,
+        items: list[dict[str, object]],
+    ) -> tuple[dict[str, object] | None, str, int, bool]:
+        unique_items: list[dict[str, object]] = []
+        seen_names: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            display_name = self._get_schedule_boss_display_name(item, prefer_alias=True)
+            if not display_name or display_name in seen_names:
+                continue
+            seen_names.add(display_name)
+            unique_items.append(item)
+        if not unique_items:
+            return None, "", 0, False
+        # 혼합 그룹은 일반 보스를 대표로 골라 "침공"이 전체 보스에 붙는
+        # 오해를 막는다. 전부 침공일 때만 침공 음성을 한 번 붙인다.
+        primary_item = next(
+            (item for item in unique_items if not self._is_schedule_alarm_audio_invasion(item=item)),
+            unique_items[0],
+        )
+        primary_name = self._get_schedule_boss_display_name(primary_item, prefer_alias=True)
+        all_invasion = all(self._is_schedule_alarm_audio_invasion(item=item) for item in unique_items)
+        primary_name = re.sub(r"^\s*침공\s*", "", primary_name).strip()
+        # 두 보스까지는 예전처럼 이름을 모두 읽는다. 세 보스부터만
+        # 대표 보스 + 외 N개로 짧게 묶어 복잡한 동시/연속 알림을 줄인다.
+        if len(unique_items) <= 2:
+            display_names = [
+                self._get_schedule_boss_display_name(item, prefer_alias=True)
+                for item in unique_items
+            ]
+            if all_invasion:
+                normalized_names = [re.sub(r"^\s*침공\s*", "", name).strip() for name in display_names]
+                summary = " ".join(token for token in ("침공", *normalized_names) if token)
+            else:
+                summary = " ".join(name for name in display_names if name)
+            return primary_item, summary, 0, all_invasion
+        additional_count = max(0, len(unique_items) - 1)
+        extra_text = self._format_schedule_alarm_group_extra_count(additional_count)
+        summary = " ".join(
+            token
+            for token in (("침공" if all_invasion else ""), primary_name, extra_text)
+            if token
+        )
+        return primary_item, summary, additional_count, all_invasion
+
+    def _get_schedule_alarm_group_count_audio_path(self, additional_count: int) -> str | None:
+        safe_count = max(0, int(additional_count))
+        if safe_count <= 0:
+            return None
+        token = "다수" if safe_count >= 10 else f"{safe_count}개"
+        return self._get_schedule_alarm_voice_file_by_stem("count", token)
+
+    def _get_schedule_alarm_group_extra_audio_paths(self, additional_count: int) -> list[str]:
+        safe_count = max(0, int(additional_count))
+        if safe_count <= 0:
+            return []
+        extra_clip = self._get_schedule_alarm_info_audio_path("외")
+        count_clip = self._get_schedule_alarm_group_count_audio_path(safe_count)
+        if not extra_clip or not count_clip:
+            return []
+        return [extra_clip, count_clip]
+
+    def _build_schedule_alarm_compact_group_audio_paths(
+        self,
+        items: list[dict[str, object]],
+        *,
+        prefix_info_tokens: list[str] | None = None,
+        suffix_info_tokens: list[str] | None = None,
+    ) -> list[str]:
+        unique_items: list[dict[str, object]] = []
+        seen_names: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            display_name = self._get_schedule_boss_display_name(item, prefer_alias=True)
+            if not display_name or display_name in seen_names:
+                continue
+            seen_names.add(display_name)
+            unique_items.append(item)
+        primary_item, _summary, additional_count, all_invasion = self._get_schedule_alarm_compact_group_context(unique_items)
+        if primary_item is None:
+            return []
+        clip_paths: list[str] = []
+        for token in prefix_info_tokens or []:
+            info_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", token)
+            if not info_clip:
+                info_clip = self._get_schedule_alarm_info_audio_path(token)
+            if not info_clip:
+                return []
+            clip_paths.append(info_clip)
+        if all_invasion:
+            invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
+            if not invasion_clip:
+                return []
+            clip_paths.append(invasion_clip)
+        if len(unique_items) <= 2:
+            for item in unique_items:
+                if not all_invasion and self._is_schedule_alarm_audio_invasion(item=item):
+                    invasion_clip = self._get_schedule_alarm_info_audio_path("침공")
+                    if not invasion_clip:
+                        return []
+                    clip_paths.append(invasion_clip)
+                boss_clip = self._get_schedule_alarm_boss_voice_path(item=item)
+                if not boss_clip:
+                    return []
+                clip_paths.append(boss_clip)
+        else:
+            boss_clip = self._get_schedule_alarm_boss_voice_path(item=primary_item)
+            if not boss_clip:
+                return []
+            clip_paths.append(boss_clip)
+            extra_clip_paths = self._get_schedule_alarm_group_extra_audio_paths(additional_count)
+            if additional_count and not extra_clip_paths:
+                return []
+            clip_paths.extend(extra_clip_paths)
+        for token in suffix_info_tokens or []:
+            info_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", token)
+            if not info_clip:
+                info_clip = self._get_schedule_alarm_info_audio_path(token)
+            if not info_clip:
+                return []
+            clip_paths.append(info_clip)
+        return clip_paths
+
     def _get_schedule_countdown_same_time_group(
         self,
         countdown_items: list[dict[str, object]],
@@ -28705,9 +33893,9 @@ class BossTimerApp:
 
     def _build_schedule_countdown_group_display_text(self, group: list[dict[str, object]], fallback_name: str) -> str:
         items = [entry.get("item") for entry in group if isinstance(entry, dict) and isinstance(entry.get("item"), dict)]
-        joined_names = " ".join(self._get_schedule_alarm_group_display_names(items)).strip()
-        if joined_names:
-            return joined_names
+        _primary_item, summary, _additional_count, _all_invasion = self._get_schedule_alarm_compact_group_context(items)
+        if summary:
+            return summary
         names: list[str] = []
         seen: set[str] = set()
         for entry in group:
@@ -28716,7 +33904,8 @@ class BossTimerApp:
                 continue
             seen.add(name)
             names.append(name)
-        return " ".join(names).strip() or str(fallback_name or "").strip()
+        summary, _additional_count = self._summarize_schedule_alarm_group_names(names)
+        return summary or str(fallback_name or "").strip()
 
     def _build_schedule_countdown_group_audio_paths(
         self,
@@ -28728,6 +33917,7 @@ class BossTimerApp:
         return self._build_schedule_alarm_custom_audio_paths(
             boss_items=items,
             info_tokens=info_tokens,
+            compact_boss_group=True,
         )
 
     def _get_schedule_alarm_clip_sequence_duration_ms(self, clip_paths: list[str], *, fallback_ms: int = 1200) -> int:
@@ -28761,13 +33951,6 @@ class BossTimerApp:
         )
 
         def _announce() -> None:
-            if not bool(self.schedule_alarm_master_var.get()):
-                self._write_schedule_alarm_voice_test_log(
-                    "countdown_followup_drop",
-                    reason="master_disabled",
-                    next_display_name=display_name,
-                )
-                return
             if isinstance(anchor_datetime, datetime):
                 reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
                 followup_key = self._build_schedule_alarm_due_key(
@@ -28784,7 +33967,11 @@ class BossTimerApp:
                         anchor_datetime=anchor_datetime,
                     )
                     return
-            boss_clip_path = self._get_schedule_alarm_boss_voice_path(boss_name=display_name)
+            boss_clip_path = (
+                self._get_schedule_alarm_boss_voice_path(boss_name=display_name)
+                if self._is_schedule_alarm_ai_recording_preferred()
+                else None
+            )
             if boss_clip_path:
                 self._write_schedule_alarm_voice_test_log(
                     "countdown_followup_play_focus",
@@ -28853,6 +34040,17 @@ class BossTimerApp:
             return None
         return next_candidate
 
+    @staticmethod
+    def _should_schedule_next_countdown_boss_followup(
+        current_scheduled_at: datetime,
+        next_scheduled_at: datetime | None,
+    ) -> bool:
+        """Avoid a name-only follow-up inside a near confirmed-spawn cluster."""
+        if not isinstance(current_scheduled_at, datetime) or not isinstance(next_scheduled_at, datetime):
+            return False
+        gap_seconds = (next_scheduled_at - current_scheduled_at).total_seconds()
+        return gap_seconds > float(SCHEDULE_SECOND_PRECISION_NEAR_CLUSTER_SECONDS)
+
     def _fire_schedule_alarm_countdown_completion(
         self,
         *,
@@ -28900,15 +34098,21 @@ class BossTimerApp:
         if self.root is None or not self.root.winfo_exists() or not isinstance(scheduled_at, datetime):
             return
         reference_now = self._get_schedule_reference_datetime()
+        has_completion_audio = bool(
+            prefer_audio and self._get_schedule_alarm_countdown_completion_audio_paths()
+        )
+        advance_ms = (
+            int(SCHEDULE_ALARM_COUNTDOWN_COMPLETION_ADVANCE_MS)
+            if has_completion_audio
+            else int(SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS)
+        )
         delay_ms = max(
             0,
             int(round((scheduled_at - reference_now).total_seconds() * 1000.0))
-            - int(SCHEDULE_ALARM_COUNTDOWN_COMPLETION_ADVANCE_MS),
+            - advance_ms,
         )
 
         def _announce() -> None:
-            if not bool(self.schedule_alarm_master_var.get()):
-                return
             if not bool(self.schedule_alarm_countdown_enabled_var.get()):
                 return
             self._fire_schedule_alarm_countdown_completion(
@@ -28922,16 +34126,61 @@ class BossTimerApp:
         except Exception:
             _announce()
 
+    def _is_schedule_valhalla_battle_name(self, boss_name: object) -> bool:
+        normalized_boss_name = re.sub(r"\s+", "", str(boss_name or "")).strip()
+        return "발할라" in normalized_boss_name and "대전" in normalized_boss_name
+
     def _build_schedule_fixed_alarm_message(self, reference_now: datetime, scheduled_at: datetime, boss_name: str, offset_seconds: int) -> str:
         offset_text = self._format_schedule_alarm_remaining_speech(max(1, int(offset_seconds)))
-        message = f"고정보스 {boss_name} {offset_text} 전입니다."
+        message = f"{boss_name} {offset_text} 전입니다."
+        if self._is_schedule_valhalla_battle_name(boss_name):
+            # 발할라 시작 일정의 1분 전 알림은 다른 고정 이벤트와 동일하다.
+            # 종료 및 다음 보스 안내는 시작 19분 뒤 별도 알림으로 처리한다.
+            return message
         next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
         if next_target is not None:
             next_time, next_boss = next_target
             next_remaining = int((next_time - scheduled_at).total_seconds())
             if next_remaining > int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
-                message += f" 다음보스는 {next_boss} {self._format_schedule_alarm_remaining_speech(next_remaining)} 전입니다."
+                delay_text = self._format_schedule_alarm_followup_delay_speech(next_remaining)
+                message += f" 다음 보스는 {delay_text} 후 {next_boss}입니다."
         return message
+
+    def _build_schedule_fixed_alarm_group_message(
+        self,
+        reference_now: datetime,
+        scheduled_at: datetime,
+        boss_names: list[str],
+        offset_seconds: int,
+    ) -> str:
+        joined_names, _additional_count = self._summarize_schedule_alarm_group_names(boss_names)
+        offset_text = self._format_schedule_alarm_remaining_speech(max(1, int(offset_seconds)))
+        message = f"{joined_names} {offset_text} 전입니다.".strip()
+        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
+        if next_target is not None:
+            next_time, next_boss = next_target
+            next_remaining = int((next_time - scheduled_at).total_seconds())
+            if next_remaining > int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
+                delay_text = self._format_schedule_alarm_followup_delay_speech(next_remaining)
+                message += f" 다음 보스는 {delay_text} 후 {next_boss}입니다."
+        return message
+
+    def _build_schedule_valhalla_end_alarm_message(
+        self,
+        reference_now: datetime,
+        event_end_at: datetime,
+    ) -> str:
+        message = "곧 발할라 대전이 종료합니다."
+        notice_at = event_end_at - timedelta(seconds=SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS)
+        next_target = self._get_next_schedule_alarm_target_after(reference_now, notice_at)
+        if next_target is None:
+            return message
+        next_time, next_boss = next_target
+        next_remaining = int((next_time - notice_at).total_seconds())
+        if next_remaining <= 0:
+            return message
+        delay_text = self._format_schedule_alarm_followup_delay_speech(next_remaining)
+        return f"{message} 다음 보스는 {delay_text} 후 {next_boss}입니다."
 
     def _build_schedule_fixed_alarm_audio_paths(
         self,
@@ -28944,6 +34193,8 @@ class BossTimerApp:
             offset_seconds,
             boss_name=boss_name,
         )
+        if self._is_schedule_valhalla_battle_name(boss_name):
+            return current_clip_paths
         next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
         if next_target is None:
             return current_clip_paths
@@ -28958,7 +34209,42 @@ class BossTimerApp:
         next_offset_clip = self._get_schedule_alarm_offset_audio_path(next_remaining)
         if current_clip_paths and next_intro_clip and next_boss_clip and next_offset_clip:
             return list(current_clip_paths) + [next_intro_clip, next_boss_clip, next_offset_clip]
-        return current_clip_paths
+        return []
+
+    def _build_schedule_fixed_alarm_group_audio_paths(
+        self,
+        reference_now: datetime,
+        scheduled_at: datetime,
+        boss_names: list[str],
+        offset_seconds: int,
+    ) -> list[str]:
+        unique_names = list(dict.fromkeys(str(name or "").strip() for name in boss_names if str(name or "").strip()))
+        if not unique_names:
+            return []
+        _summary, additional_count = self._summarize_schedule_alarm_group_names(unique_names)
+        primary_clip_path = self._get_schedule_alarm_boss_voice_path(boss_name=unique_names[0])
+        extra_clip_paths = self._get_schedule_alarm_group_extra_audio_paths(additional_count)
+        offset_clip = self._get_schedule_alarm_offset_audio_path(offset_seconds)
+        if not primary_clip_path or (additional_count and not extra_clip_paths) or not offset_clip:
+            return []
+        current_clip_paths = [primary_clip_path]
+        current_clip_paths.extend(extra_clip_paths)
+        current_clip_paths.append(offset_clip)
+        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
+        if next_target is None:
+            return current_clip_paths
+        next_time, next_boss = next_target
+        next_remaining = int((next_time - scheduled_at).total_seconds())
+        if next_remaining <= int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
+            return current_clip_paths
+        next_intro_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "다음보스는")
+        if not next_intro_clip:
+            next_intro_clip = self._get_schedule_alarm_info_audio_path("다음보스는")
+        next_boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=next_boss)
+        next_offset_clip = self._get_schedule_alarm_offset_audio_path(next_remaining)
+        if next_intro_clip and next_boss_clip and next_offset_clip:
+            return current_clip_paths + [next_intro_clip, next_boss_clip, next_offset_clip]
+        return []
 
     def _build_schedule_fixed_alarm_soon_message(self, boss_name: str) -> str:
         return f"곧 {str(boss_name or '').strip()} 타임입니다.".strip()
@@ -28972,6 +34258,8 @@ class BossTimerApp:
         time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
         if not time_clip:
             time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
+        if not (soon_clip and boss_clip and time_clip):
+            return []
         for clip_path in (soon_clip, boss_clip, time_clip):
             if clip_path and clip_path not in clip_paths:
                 clip_paths.append(clip_path)
@@ -28983,9 +34271,28 @@ class BossTimerApp:
         time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
         if not time_clip:
             time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
+        if not (boss_clip and time_clip):
+            return []
         for clip_path in (boss_clip, time_clip):
             if clip_path and clip_path not in clip_paths:
                 clip_paths.append(clip_path)
+        return clip_paths
+
+    def _build_schedule_fixed_due_time_group_audio_paths(self, boss_names: list[str]) -> list[str]:
+        unique_names = list(dict.fromkeys(str(name or "").strip() for name in boss_names if str(name or "").strip()))
+        if not unique_names:
+            return []
+        _summary, additional_count = self._summarize_schedule_alarm_group_names(unique_names)
+        primary_clip_path = self._get_schedule_alarm_boss_voice_path(boss_name=unique_names[0])
+        extra_clip_paths = self._get_schedule_alarm_group_extra_audio_paths(additional_count)
+        time_clip = self._get_schedule_alarm_info_audio_path("타임입니다")
+        if not time_clip:
+            time_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "타임입니다")
+        if not primary_clip_path or (additional_count and not extra_clip_paths) or not time_clip:
+            return []
+        clip_paths = [primary_clip_path]
+        clip_paths.extend(extra_clip_paths)
+        clip_paths.append(time_clip)
         return clip_paths
 
     def _adjust_schedule_fixed_voice_request_for_playback(self, request: dict[str, object]) -> bool:
@@ -28996,6 +34303,8 @@ class BossTimerApp:
         remaining_seconds = (target_time - now_value).total_seconds()
         if remaining_seconds < 1.0:
             return False
+        if bool(request.get("preserve_fixed_message")):
+            return True
         try:
             configured_offset_seconds = max(1, int(request.get("offset_sec") or SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS))
         except (TypeError, ValueError):
@@ -29120,6 +34429,8 @@ class BossTimerApp:
         for item, scheduled_at in self._iter_schedule_alarm_events_between(current_second, scan_until):
             if not self._is_schedule_second_precision(item):
                 continue
+            if self._is_schedule_invasion_item(item):
+                continue
             if not self._is_schedule_alarm_event_visible(item, scheduled_at, current_second, cutoff_datetime):
                 continue
             boss_name = str(item.get("boss_name") or "").strip()
@@ -29186,6 +34497,89 @@ class BossTimerApp:
             return None
         return max(active_end_times) + timedelta(seconds=1)
 
+    def _has_nearby_main_countdown_item(
+        self,
+        countdown_items: list[dict[str, object]],
+        scheduled_at: datetime,
+        *,
+        window_seconds: int | None = None,
+    ) -> bool:
+        if not isinstance(scheduled_at, datetime):
+            return False
+        safe_window_seconds = (
+            int(SCHEDULE_VOICE_PARALLEL_NEAR_EVENT_SUPPRESS_SECONDS)
+            if window_seconds is None
+            else max(0, int(window_seconds))
+        )
+        for entry in countdown_items:
+            if not isinstance(entry, dict):
+                continue
+            item = entry.get("item")
+            if isinstance(item, dict) and self._is_schedule_invasion_item(item):
+                continue
+            other_scheduled_at = entry.get("scheduled_at")
+            if not isinstance(other_scheduled_at, datetime):
+                continue
+            if abs((other_scheduled_at - scheduled_at).total_seconds()) <= safe_window_seconds:
+                return True
+        return False
+
+    def _get_schedule_countdown_start_notice_context(
+        self,
+        countdown_entry: dict[str, object],
+        countdown_alarm_items: list[dict[str, object]],
+        *,
+        countdown_start: int,
+        countdown_start_notice_seconds: int,
+    ) -> tuple[list[dict[str, object]], str, str] | None:
+        scheduled_at = countdown_entry.get("scheduled_at")
+        if not isinstance(scheduled_at, datetime):
+            return None
+        remaining_seconds = int(countdown_entry.get("remaining_seconds") or -1)
+        boss_name = str(countdown_entry.get("boss_name") or "").strip()
+        display_name = str(countdown_entry.get("display_name") or boss_name).strip()
+        item = countdown_entry.get("item")
+        if not boss_name:
+            return None
+        if isinstance(item, dict) and self._is_schedule_invasion_item(item):
+            main_countdown_active = any(
+                isinstance(other_entry.get("item"), dict)
+                and not self._is_schedule_invasion_item(other_entry.get("item"))
+                and 0 <= int(other_entry.get("remaining_seconds") or -1) <= countdown_start
+                for other_entry in countdown_alarm_items
+            )
+            if (
+                main_countdown_active
+                or self._is_schedule_voice_center_channel_active()
+                or self._has_nearby_main_countdown_item(countdown_alarm_items, scheduled_at)
+            ):
+                return None
+        overlap_countdown_active = any(
+            isinstance(other_entry.get("scheduled_at"), datetime)
+            and other_entry.get("scheduled_at") < scheduled_at
+            and 0 <= int(other_entry.get("remaining_seconds") or -1) <= countdown_start_notice_seconds
+            for other_entry in countdown_alarm_items
+        )
+        if overlap_countdown_active:
+            return None
+        same_time_group = self._get_schedule_countdown_same_time_group(
+            countdown_alarm_items,
+            scheduled_at,
+            remaining_seconds,
+        )
+        if same_time_group:
+            leader_entry = same_time_group[0]
+            leader_item = leader_entry.get("item")
+            leader_identity = self._get_schedule_alarm_event_identity(leader_item) if isinstance(leader_item, dict) else ""
+            current_identity = self._get_schedule_alarm_event_identity(item) if isinstance(item, dict) else ""
+            if leader_identity and current_identity and leader_identity != current_identity:
+                return None
+        else:
+            same_time_group = [countdown_entry]
+        group_identity = self._build_schedule_countdown_group_identity(same_time_group, boss_name)
+        group_display_text = self._build_schedule_countdown_group_display_text(same_time_group, display_name)
+        return same_time_group, group_identity, group_display_text
+
     def _get_schedule_alarm_configured_offsets(self) -> list[int]:
         offsets: list[int] = list(self._normalize_schedule_alarm_offsets(getattr(self, "schedule_alarm_common_offsets", [])))
         for raw_alarm_entry in getattr(self, "schedule_boss_alarm_settings", {}).values():
@@ -29200,19 +34594,21 @@ class BossTimerApp:
         countdown_enabled = bool(self.schedule_alarm_countdown_enabled_var.get())
         countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
         countdown_start_notice_seconds = countdown_start + 5
+        countdown_start_notice_presend_seconds = max(0, int(math.ceil(DISCORD_COUNTDOWN_START_NOTICE_PRESEND_SECONDS)))
         configured_alarm_offsets = self._get_schedule_alarm_configured_offsets()
         alarm_scan_horizon_seconds = max(
-            [countdown_start_notice_seconds, 610, 0] + configured_alarm_offsets
+            [countdown_start_notice_seconds + countdown_start_notice_presend_seconds, 610, 0] + configured_alarm_offsets
         ) + 120
         countdown_alarm_items = self._collect_schedule_countdown_alarm_items(
             current_second,
-            max_remaining_seconds=countdown_start_notice_seconds,
+            max_remaining_seconds=countdown_start_notice_seconds + countdown_start_notice_presend_seconds,
         ) if countdown_enabled else []
         return {
             "countdown_enabled": countdown_enabled,
-            "boss_ai_enabled": bool(self.schedule_alarm_boss_ai_voice_var.get()),
+            "boss_ai_enabled": bool(self.schedule_alarm_ai_recording_preferred_var.get()),
             "countdown_start": countdown_start,
             "countdown_start_notice_seconds": countdown_start_notice_seconds,
+            "countdown_start_notice_presend_seconds": countdown_start_notice_presend_seconds,
             "configured_alarm_offsets": configured_alarm_offsets,
             "alarm_scan_horizon_seconds": alarm_scan_horizon_seconds,
             "countdown_alarm_items": countdown_alarm_items,
@@ -29289,6 +34685,27 @@ class BossTimerApp:
             if bool(event.get("second_precision")) and isinstance(event.get("scheduled_at"), datetime)
         ]
 
+    def _get_schedule_pre_alert_spawn_collision_release_at(
+        self,
+        runtime_events: list[dict[str, object]],
+        target_time: datetime,
+        offset_seconds: int,
+    ) -> datetime | None:
+        """Keep a pre-alert behind a boss that spawns at its nominal alert time."""
+        if not isinstance(target_time, datetime):
+            return None
+        nominal_alert_second = (
+            target_time - timedelta(seconds=max(0, int(offset_seconds)))
+        ).replace(microsecond=0)
+        for runtime_event in runtime_events:
+            scheduled_at = runtime_event.get("scheduled_at")
+            if (
+                isinstance(scheduled_at, datetime)
+                and scheduled_at.replace(microsecond=0) == nominal_alert_second
+            ):
+                return nominal_alert_second + timedelta(milliseconds=250)
+        return None
+
     def _get_schedule_alarm_near_second_precision_block_until(
         self,
         second_precision_due_seconds: list[datetime],
@@ -29326,6 +34743,98 @@ class BossTimerApp:
     ) -> list[dict[str, object]]:
         return [event for event in runtime_events if bool(event.get("enabled"))]
 
+    def _get_schedule_fixed_alert_general_block_until(
+        self,
+        enabled_runtime_events: list[dict[str, object]],
+        fixed_scheduled_at: datetime,
+        offset_seconds: int,
+    ) -> datetime | None:
+        """Keep a same-time fixed alert behind its general boss/event alert."""
+        fixed_second = fixed_scheduled_at.replace(microsecond=0)
+        safe_offset_seconds = max(0, int(offset_seconds))
+        for runtime_event in enabled_runtime_events:
+            scheduled_at = runtime_event.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime) or scheduled_at.replace(microsecond=0) != fixed_second:
+                continue
+            try:
+                event_offsets = {int(value) for value in (runtime_event.get("offsets") or [])}
+            except (TypeError, ValueError):
+                continue
+            if safe_offset_seconds == 0 or safe_offset_seconds in event_offsets:
+                # 일반 알림은 마지막 시간 문구가 기준 시각에 걸리도록 미리
+                # 시작한다. 그 문구의 꼬리까지 끝난 다음 고정 알림을 보낸다.
+                return fixed_second - timedelta(seconds=safe_offset_seconds) + timedelta(seconds=2)
+        return None
+
+    def _build_schedule_fixed_pre_alert_rows(
+        self,
+        fixed_boss_alarm_rows: list[tuple],
+    ) -> list[tuple[datetime, str, bool]]:
+        rows: list[tuple[datetime, str, bool]] = []
+        for scheduled_at, boss_name, *_rest in fixed_boss_alarm_rows:
+            if not isinstance(scheduled_at, datetime):
+                continue
+            rows.append((scheduled_at, str(boss_name or "").strip(), False))
+            entry = self._get_schedule_fixed_boss_alarm_entry(boss_name)
+            configured_offsets = self._normalize_schedule_alarm_offsets(entry.get("offsets", []))
+            if (
+                bool(entry.get("enabled"))
+                and SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS in configured_offsets
+                and self._is_schedule_valhalla_battle_name(boss_name)
+            ):
+                rows.append(
+                    (
+                        scheduled_at + timedelta(seconds=SCHEDULE_VALHALLA_BATTLE_DURATION_SECONDS),
+                        str(boss_name or "").strip(),
+                        True,
+                    )
+                )
+        rows.sort(key=lambda row: (row[0], row[1], row[2]))
+        return rows
+
+    def _build_schedule_fixed_pre_alert_groups(
+        self,
+        fixed_pre_alert_rows: list[tuple[datetime, str, bool]],
+    ) -> dict[tuple[datetime, int, bool], list[str]]:
+        groups: dict[tuple[datetime, int, bool], list[str]] = {}
+        for scheduled_at, boss_name, is_valhalla_end_notice in fixed_pre_alert_rows:
+            entry = self._get_schedule_fixed_boss_alarm_entry(boss_name)
+            if not bool(entry.get("enabled")):
+                continue
+            offsets = (
+                [SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS]
+                if is_valhalla_end_notice
+                else self._normalize_schedule_alarm_offsets(entry.get("offsets", []))
+            )
+            for offset_seconds in offsets:
+                key = (scheduled_at.replace(microsecond=0), int(offset_seconds), bool(is_valhalla_end_notice))
+                group_names = groups.setdefault(key, [])
+                normalized_name = str(boss_name or "").strip()
+                if normalized_name and normalized_name not in group_names:
+                    group_names.append(normalized_name)
+        for group_names in groups.values():
+            group_names.sort()
+        return groups
+
+    def _build_schedule_fixed_due_time_groups(
+        self,
+        fixed_boss_alarm_rows: list[tuple],
+    ) -> dict[datetime, list[str]]:
+        groups: dict[datetime, list[str]] = {}
+        for scheduled_at, boss_name, *_rest in fixed_boss_alarm_rows:
+            if not isinstance(scheduled_at, datetime):
+                continue
+            entry = self._get_schedule_fixed_boss_alarm_entry(boss_name)
+            if not bool(entry.get("enabled")):
+                continue
+            group_names = groups.setdefault(scheduled_at.replace(microsecond=0), [])
+            normalized_name = str(boss_name or "").strip()
+            if normalized_name and normalized_name not in group_names:
+                group_names.append(normalized_name)
+        for group_names in groups.values():
+            group_names.sort()
+        return groups
+
     def _build_schedule_alarm_same_time_membership_by_offset(
         self,
         enabled_runtime_events: list[dict[str, object]],
@@ -29337,6 +34846,9 @@ class BossTimerApp:
                 for event in enabled_runtime_events
                 if grouped_offset_seconds in event.get("offsets", [])
             ]
+            # n분전은 젠 시각이 25초 이내로 가까우면 한 문장으로 묶는다.
+            # 9-1의 정확히 1분 차이 젠은 별도 안내로 남기고, 9-4의 1초
+            # 차이 젠은 "대표 보스 외 n개"로 통합한다.
             _groups, membership = self._build_schedule_alarm_cluster_membership(
                 [item for item in grouped_items if isinstance(item, dict)],
                 max_gap_seconds=25,
@@ -29381,8 +34893,6 @@ class BossTimerApp:
         return candidates
 
     def _process_schedule_alarm_tick(self, reference_now: datetime) -> None:
-        if not bool(self.schedule_alarm_master_var.get()):
-            return
         precise_reference_now = reference_now
         current_second = reference_now.replace(microsecond=0)
         if self.schedule_alarm_cached_cutoff_second != current_second:
@@ -29406,40 +34916,45 @@ class BossTimerApp:
         boss_ai_enabled = bool(alarm_context.get("boss_ai_enabled"))
         countdown_start = int(alarm_context.get("countdown_start") or 10)
         countdown_start_notice_seconds = int(alarm_context.get("countdown_start_notice_seconds") or countdown_start + 5)
+        countdown_start_notice_presend_seconds = int(alarm_context.get("countdown_start_notice_presend_seconds") or 0)
+        countdown_ai_enabled = bool(self.schedule_alarm_ai_recording_preferred_var.get())
         alarm_scan_horizon_seconds = int(alarm_context.get("alarm_scan_horizon_seconds") or countdown_start_notice_seconds + 120)
         countdown_alarm_items = [
             entry for entry in (alarm_context.get("countdown_alarm_items") or []) if isinstance(entry, dict)
         ]
         self.schedule_voice_broker_countdown_block_until = self._get_schedule_main_countdown_voice_block_until(
             countdown_alarm_items,
-            countdown_start_notice_seconds,
+            countdown_start_notice_seconds + countdown_start_notice_presend_seconds,
         )
         self._process_schedule_maintenance_alarm_tick(current_second)
         rapid_chain_warning_specs = (
             (610, 600, "10분전"),
         )
 
-        if (
-            not countdown_enabled
-            and self.schedule_alarm_countdown_audio_host_process is not None
-            and not self._has_active_schedule_countdown_window(current_second)
-        ):
-            self._stop_schedule_alarm_countdown_audio(close_host=True)
-
         dynamic_alarm_items = self._collect_schedule_alarm_runtime_events(
             current_second,
             cutoff_datetime,
             horizon_seconds=alarm_scan_horizon_seconds,
         )
+        self._prefetch_edge_tts_runtime_event_names(dynamic_alarm_items)
 
         dynamic_alarm_item_map = self._build_schedule_alarm_runtime_event_map(dynamic_alarm_items)
         enabled_dynamic_items = self._get_enabled_schedule_alarm_runtime_events(dynamic_alarm_items)
         same_time_cluster_membership_by_offset = self._build_schedule_alarm_same_time_membership_by_offset(enabled_dynamic_items)
         rapid_chain_groups = self._build_schedule_alarm_rapid_chain_groups(enabled_dynamic_items)
+        rapid_chain_member_identities = {
+            self._get_schedule_alarm_event_identity(grouped_item)
+            for group in rapid_chain_groups
+            for grouped_item in group
+            if self._get_schedule_alarm_event_identity(grouped_item)
+        }
         due_time_candidates = self._get_schedule_alarm_due_time_candidates(dynamic_alarm_items, precise_reference_now)
         second_precision_due_seconds = self._get_schedule_alarm_second_precision_due_seconds(dynamic_alarm_items)
         consumed_due_identities: set[str] = set()
-        due_merge_window_seconds = 60
+        # 젠 시각 안내는 정확히 같은 시각의 보스만 한 문장으로 묶는다.
+        # 다음 1분 알림까지 합치면 현재 젠과 미래 사전 알림을 함께 소비해
+        # 이후 알림이 모두 사라진다.
+        due_merge_window_seconds = 0
         for leader_entry in due_time_candidates:
             leader_scheduled_at = leader_entry.get("scheduled_at")
             if not isinstance(leader_scheduled_at, datetime):
@@ -29494,7 +35009,9 @@ class BossTimerApp:
             )
             if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                 continue
-            joined_names = ", ".join(self._get_schedule_alarm_group_display_names(group_items)).strip()
+            _primary_item, group_summary, _additional_count, _all_invasion = (
+                self._get_schedule_alarm_compact_group_context(group_items)
+            )
             invasion_lane = "center"
             invasion_volume = 1.0
             if group_is_invasion:
@@ -29531,7 +35048,8 @@ class BossTimerApp:
                 "target_time": leader_second,
                 "offset_sec": 0,
                 "clip_paths": clip_paths,
-                "fallback_text": f"곧 {joined_names} 타임입니다." if joined_names else "곧 타임입니다.",
+                "fallback_text": f"곧 {group_summary} 타임입니다." if group_summary else "곧 타임입니다.",
+                "tts_segments": ["곧", group_summary, "타임입니다."] if group_summary else ["곧 타임입니다."],
                 "category": "general",
                 "rate": 1,
                 "force_audio": bool(clip_paths),
@@ -29541,8 +35059,6 @@ class BossTimerApp:
                 "volume": invasion_volume,
                 "is_invasion": group_is_invasion,
             }
-            if group_is_invasion:
-                request_kwargs["fallback_text"] = f"침공 {joined_names} 타임입니다." if joined_names else "침공 타임입니다."
             self._submit_schedule_voice_request(**request_kwargs)
             for grouped_entry in group_entries:
                 grouped_identity = str(grouped_entry.get("identity") or "")
@@ -29588,6 +35104,7 @@ class BossTimerApp:
                     offset_sec=trigger_seconds,
                     clip_paths=clip_paths,
                     fallback_text=f"연속보스 감지 {spoken_offset_token}, 축 작업 하세요.",
+                    tts_segments=["연속보스 감지", spoken_offset_token, "축 작업 하세요."],
                     category="general",
                     rate=1,
                     force_audio=True,
@@ -29610,6 +35127,39 @@ class BossTimerApp:
                     )
                     self.schedule_alarm_fired_keys[member_event_key] = current_second
 
+        if countdown_enabled and countdown_ai_enabled and countdown_start_notice_presend_seconds > 0:
+            for countdown_entry in countdown_alarm_items:
+                scheduled_at = countdown_entry.get("scheduled_at")
+                if not isinstance(scheduled_at, datetime):
+                    continue
+                remaining_seconds = int(countdown_entry.get("remaining_seconds") or -1)
+                if not countdown_start_notice_seconds < remaining_seconds <= countdown_start_notice_seconds + countdown_start_notice_presend_seconds:
+                    continue
+                notice_context = self._get_schedule_countdown_start_notice_context(
+                    countdown_entry,
+                    countdown_alarm_items,
+                    countdown_start=countdown_start,
+                    countdown_start_notice_seconds=countdown_start_notice_seconds,
+                )
+                if notice_context is None:
+                    continue
+                same_time_group, group_identity, group_display_text = notice_context
+                clip_paths = self._build_schedule_countdown_group_audio_paths(
+                    same_time_group,
+                    info_tokens=["초읽기시작"],
+                )
+                clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general", countdown=True)
+                if not clip_paths:
+                    continue
+                self._append_discord_countdown_start_notice_bridge_request(
+                    scheduled_at=scheduled_at,
+                    countdown_start_notice_seconds=countdown_start_notice_seconds,
+                    countdown_start_seconds=countdown_start,
+                    group_identity=group_identity,
+                    display_text=group_display_text,
+                    clip_paths=clip_paths,
+                )
+
         if countdown_enabled:
             for countdown_entry in countdown_alarm_items:
                 scheduled_at = countdown_entry.get("scheduled_at")
@@ -29618,42 +35168,15 @@ class BossTimerApp:
                 remaining_seconds = int(countdown_entry.get("remaining_seconds") or -1)
                 if remaining_seconds != countdown_start_notice_seconds:
                     continue
-                boss_name = str(countdown_entry.get("boss_name") or "").strip()
-                display_name = str(countdown_entry.get("display_name") or boss_name).strip()
-                item = countdown_entry.get("item")
-                if isinstance(item, dict) and self._is_schedule_invasion_item(item):
-                    main_countdown_active = any(
-                        isinstance(other_entry.get("item"), dict)
-                        and not self._is_schedule_invasion_item(other_entry.get("item"))
-                        and 0 <= int(other_entry.get("remaining_seconds") or -1) <= countdown_start
-                        for other_entry in countdown_alarm_items
-                    )
-                    if main_countdown_active or self._is_schedule_voice_center_channel_active():
-                        continue
-                overlap_countdown_active = any(
-                    isinstance(other_entry.get("scheduled_at"), datetime)
-                    and other_entry.get("scheduled_at") < scheduled_at
-                    and 0 <= int(other_entry.get("remaining_seconds") or -1) <= countdown_start_notice_seconds
-                    for other_entry in countdown_alarm_items
-                )
-                if overlap_countdown_active:
-                    continue
-                same_time_group = self._get_schedule_countdown_same_time_group(
+                notice_context = self._get_schedule_countdown_start_notice_context(
+                    countdown_entry,
                     countdown_alarm_items,
-                    scheduled_at,
-                    remaining_seconds,
+                    countdown_start=countdown_start,
+                    countdown_start_notice_seconds=countdown_start_notice_seconds,
                 )
-                if same_time_group:
-                    leader_entry = same_time_group[0]
-                    leader_item = leader_entry.get("item")
-                    leader_identity = self._get_schedule_alarm_event_identity(leader_item) if isinstance(leader_item, dict) else ""
-                    current_identity = self._get_schedule_alarm_event_identity(item) if isinstance(item, dict) else ""
-                    if leader_identity and current_identity and leader_identity != current_identity:
-                        continue
-                else:
-                    same_time_group = [countdown_entry]
-                group_identity = self._build_schedule_countdown_group_identity(same_time_group, boss_name)
-                group_display_text = self._build_schedule_countdown_group_display_text(same_time_group, display_name)
+                if notice_context is None:
+                    continue
+                same_time_group, group_identity, group_display_text = notice_context
                 alert_key = self._build_schedule_alarm_due_key(
                     "countdown_start_notice",
                     group_identity,
@@ -29666,6 +35189,38 @@ class BossTimerApp:
                         info_tokens=["초읽기시작"],
                     )
                     clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general", countdown=True)
+                    discord_notice_prescheduled = bool(
+                        countdown_ai_enabled
+                        and self._has_discord_countdown_start_notice_bridge_for_target(
+                            scheduled_at,
+                            countdown_start_notice_seconds,
+                            group_identity,
+                        )
+                    )
+                    if countdown_ai_enabled and not discord_notice_prescheduled:
+                        self._append_discord_countdown_start_notice_bridge_request(
+                            scheduled_at=scheduled_at,
+                            countdown_start_notice_seconds=countdown_start_notice_seconds,
+                            countdown_start_seconds=countdown_start,
+                            group_identity=group_identity,
+                            display_text=group_display_text,
+                            clip_paths=clip_paths,
+                        )
+                        discord_notice_prescheduled = self._has_discord_countdown_start_notice_bridge_for_target(
+                            scheduled_at,
+                            countdown_start_notice_seconds,
+                            group_identity,
+                        )
+                    if discord_notice_prescheduled and self._should_mute_local_schedule_audio_for_discord_bot(True):
+                        self._write_schedule_alarm_voice_test_log(
+                            "countdown_start_notice_local_mute",
+                            target_time=scheduled_at,
+                            countdown_start_notice_seconds=countdown_start_notice_seconds,
+                            group_identity=group_identity,
+                            display_text=group_display_text,
+                            clip_paths=clip_paths,
+                        )
+                        continue
                     self._play_or_queue_schedule_alarm_audio_sequence(
                         clip_paths,
                         f"{group_display_text} 초읽기 시작",
@@ -29673,6 +35228,7 @@ class BossTimerApp:
                         category="general",
                         rate=1,
                         balance=0.0,
+                        allow_discord_bridge=not discord_notice_prescheduled,
                     )
 
         for alarm_entry in dynamic_alarm_items:
@@ -29693,7 +35249,11 @@ class BossTimerApp:
             identity = str(alarm_entry.get("identity") or "")
             fired_phrase_this_second = False
             for offset_seconds in offsets:
-                max_audio_lead_seconds = 90 if boss_ai_enabled else 0
+                # 연속보스 전용 10분전 안내가 일반 610초 안내보다 늦게 시작하므로,
+                # 같은 구성원의 일반 안내를 먼저 재생했다가 자르는 현상을 막는다.
+                if int(offset_seconds) == 610 and identity in rapid_chain_member_identities:
+                    continue
+                max_audio_lead_seconds = 90
                 if remaining_seconds < int(offset_seconds) or remaining_seconds > int(offset_seconds) + max_audio_lead_seconds:
                     continue
                 same_time_group = same_time_cluster_membership_by_offset.get(int(offset_seconds), {}).get(identity)
@@ -29705,32 +35265,52 @@ class BossTimerApp:
                     leader_info = dynamic_alarm_item_map.get(leader_identity)
                     if not isinstance(leader_info, dict):
                         continue
-                    joined_names = " ".join(self._get_schedule_alarm_group_display_names(same_time_group)).strip()
-                    no_auto_merge = False
+                    _primary_item, group_summary, _additional_count, _all_invasion = (
+                        self._get_schedule_alarm_compact_group_context(same_time_group)
+                    )
                     if int(offset_seconds) == 60:
                         clip_paths = self._build_schedule_alarm_custom_audio_paths(
                             boss_items=list(same_time_group),
-                            info_tokens=["연타임보스"],
+                            minute_seconds=60,
+                            minute_info_token="1분전",
+                            compact_boss_group=True,
                         )
-                        minute_clip = self._get_schedule_alarm_offset_audio_path(60, preferred_info_token="1분전")
-                        if minute_clip:
-                            clip_paths.append(minute_clip)
                         clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general")
-                        alert_message = f"{joined_names} 연타임보스 1분전".strip()
-                        no_auto_merge = True
+                        alert_message = f"{group_summary} 1분전입니다.".strip()
+                        tts_segments = [group_summary, "1분전입니다."]
                     else:
                         clip_paths = self._build_schedule_alarm_custom_audio_paths(
                             boss_items=list(same_time_group),
                             minute_seconds=offset_seconds,
+                            compact_boss_group=True,
                         )
                         clip_paths = self._with_schedule_alarm_chime_paths(clip_paths, "general")
-                        alert_message = f"{joined_names} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.".strip()
+                        alert_message = f"{group_summary} {self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.".strip()
+                        tts_segments = [
+                            group_summary,
+                            f"{self._format_schedule_alarm_remaining_speech(offset_seconds)} 남았습니다.",
+                        ]
                     target_remaining_seconds = offset_seconds
                     if boss_ai_enabled:
                         target_remaining_seconds += self._get_schedule_alarm_sequence_lead_seconds(clip_paths)
+                    else:
+                        target_remaining_seconds += self._get_schedule_alarm_tts_sequence_lead_seconds(
+                            alert_message,
+                            category="general",
+                            rate=1,
+                        )
                     if remaining_seconds != target_remaining_seconds:
                         continue
                     leader_scheduled_at = leader_info.get("scheduled_at")
+                    pre_alert_earliest_play_at = (
+                        self._get_schedule_pre_alert_spawn_collision_release_at(
+                            dynamic_alarm_items,
+                            leader_scheduled_at,
+                            offset_seconds,
+                        )
+                        if isinstance(leader_scheduled_at, datetime)
+                        else None
+                    )
                     alert_key = self._build_schedule_alarm_due_key(
                         "event_group",
                         self._build_schedule_alarm_event_group_identity(same_time_group),
@@ -29740,10 +35320,11 @@ class BossTimerApp:
                     if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                         continue
                     group_has_invasion = any(self._is_schedule_invasion_item(group_item) for group_item in same_time_group)
+                    # 사전 알림은 일반 보스 젠 안내와 겹쳐도 중앙 큐에서
+                    # 순서대로 재생한다. 침공의 우측 채널 분기는 초확정 젠
+                    # 충돌 처리 전용이다.
                     group_lane = "center"
                     group_volume = 1.0
-                    if group_has_invasion:
-                        group_lane, group_volume = self._get_schedule_invasion_voice_route()
                     self._submit_schedule_voice_request(
                         phase="PRE_ALERT",
                         boss_id=self._build_schedule_alarm_event_group_identity(same_time_group),
@@ -29751,12 +35332,14 @@ class BossTimerApp:
                         offset_sec=offset_seconds,
                         clip_paths=clip_paths,
                         fallback_text=alert_message,
+                        tts_segments=tts_segments,
                         category="general",
                         rate=1,
                         force_audio=boss_ai_enabled,
                         merge_items=list(same_time_group),
                         chime_key="general",
-                        no_auto_merge=no_auto_merge,
+                        no_auto_merge=False,
+                        earliest_play_at=pre_alert_earliest_play_at,
                         lane=group_lane,
                         volume=group_volume,
                         is_invasion=group_has_invasion,
@@ -29775,16 +35358,28 @@ class BossTimerApp:
                         "general",
                     )
                     target_remaining_seconds += self._get_schedule_alarm_sequence_lead_seconds(clip_paths)
+                else:
+                    clip_paths = self._with_schedule_alarm_chime_paths([], "general")
+                    target_remaining_seconds += self._get_schedule_alarm_tts_sequence_lead_seconds(
+                        alert_message,
+                        category="general",
+                        rate=1,
+                    )
                 if remaining_seconds != target_remaining_seconds:
                     continue
                 alert_key = self._build_schedule_alarm_due_key("event", boss_name, scheduled_at, offset_seconds)
                 if not self._should_fire_schedule_alarm_key(alert_key, current_second):
                     continue
                 item_is_invasion = self._is_schedule_invasion_item(item)
+                pre_alert_earliest_play_at = self._get_schedule_pre_alert_spawn_collision_release_at(
+                    dynamic_alarm_items,
+                    scheduled_at,
+                    offset_seconds,
+                )
+                # 침공 n분전도 동일 중앙 큐를 사용한다. 그래야 일반 젠시간
+                # 안내와 동시에 출력되지 않는다.
                 item_lane = "center"
                 item_volume = 1.0
-                if item_is_invasion:
-                    item_lane, item_volume = self._get_schedule_invasion_voice_route()
                 if boss_ai_enabled:
                     self._submit_schedule_voice_request(
                         phase="PRE_ALERT",
@@ -29798,6 +35393,7 @@ class BossTimerApp:
                         force_audio=True,
                         merge_items=[item],
                         chime_key="general",
+                        earliest_play_at=pre_alert_earliest_play_at,
                         lane=item_lane,
                         volume=item_volume,
                         is_invasion=item_is_invasion,
@@ -29808,12 +35404,13 @@ class BossTimerApp:
                         boss_id=identity or boss_name,
                         target_time=scheduled_at,
                         offset_sec=offset_seconds,
-                        clip_paths=[],
+                        clip_paths=clip_paths,
                         fallback_text=alert_message,
                         category="general",
                         rate=1,
                         merge_items=[item],
                         chime_key="general",
+                        earliest_play_at=pre_alert_earliest_play_at,
                         lane=item_lane,
                         volume=item_volume,
                         is_invasion=item_is_invasion,
@@ -29826,26 +35423,68 @@ class BossTimerApp:
                 and 0 <= int(entry.get("remaining_seconds") or -1) <= countdown_start
                 for entry in countdown_alarm_items
             )
-            countdown_notice_candidates = [
-                (
-                    entry.get("scheduled_at"),
-                    str(entry.get("boss_name") or "").strip(),
-                    int(entry.get("remaining_seconds") or -1),
-                    str(entry.get("display_name") or entry.get("boss_name") or "").strip(),
+            countdown_notice_candidates = []
+            for entry in countdown_alarm_items:
+                if not isinstance(entry, dict):
+                    continue
+                entry_remaining_seconds = int(entry.get("remaining_seconds") or -1)
+                if not 0 <= entry_remaining_seconds <= countdown_start_notice_seconds:
+                    continue
+                entry_scheduled_at = entry.get("scheduled_at")
+                entry_item = entry.get("item")
+                if (
+                    isinstance(entry_item, dict)
+                    and self._is_schedule_invasion_item(entry_item)
+                    and isinstance(entry_scheduled_at, datetime)
+                    and (
+                        main_countdown_active
+                        or self._is_schedule_voice_center_channel_active()
+                        or self._has_nearby_main_countdown_item(countdown_alarm_items, entry_scheduled_at)
+                    )
+                ):
+                    continue
+                countdown_notice_candidates.append(
+                    (
+                        entry_scheduled_at,
+                        str(entry.get("boss_name") or "").strip(),
+                        entry_remaining_seconds,
+                        str(entry.get("display_name") or entry.get("boss_name") or "").strip(),
+                    )
                 )
-                for entry in countdown_alarm_items
-                if 0 <= int(entry.get("remaining_seconds") or -1) <= countdown_start_notice_seconds
-                and not (
-                    isinstance(entry.get("item"), dict)
-                    and self._is_schedule_invasion_item(entry.get("item"))
-                    and (main_countdown_active or self._is_schedule_voice_center_channel_active())
-                )
-            ]
             countdown_candidates = [
                 candidate
                 for candidate in countdown_notice_candidates
-                if 0 <= int(candidate[2]) <= countdown_start
+                if 0 <= int(candidate[2]) <= countdown_start + 1
             ]
+            # 녹음파일 우선 모드뿐 아니라 Edge TTS 모드도 15초 진입 전에
+            # 캐시 전체를 Discord 봇에 미리 보낸다. 이 조건이 녹음파일 모드로
+            # 한정되면 목표가 처음부터 15초 안인 테스트만 Discord로 나가고,
+            # 그 밖의 초읽기는 로컬 TTS로 떨어져 경로와 음량이 달라진다.
+            if not countdown_candidates:
+                presend_candidates = sorted(
+                    (
+                        candidate
+                        for candidate in countdown_notice_candidates
+                        if isinstance(candidate[0], datetime)
+                        and countdown_start < int(candidate[2]) <= countdown_start_notice_seconds
+                    ),
+                    key=lambda item: (item[0], item[1]),
+                )
+                if presend_candidates:
+                    notice_scheduled_at, notice_boss_name, notice_remaining_seconds, notice_display_name = presend_candidates[0]
+                    same_time_group = self._get_schedule_countdown_same_time_group(
+                        countdown_alarm_items,
+                        notice_scheduled_at,
+                        int(notice_remaining_seconds),
+                    )
+                    group_identity = self._build_schedule_countdown_group_identity(same_time_group, notice_boss_name)
+                    group_display_text = self._build_schedule_countdown_group_display_text(same_time_group, notice_display_name)
+                    self._append_discord_countdown_sequence_bridge_request(
+                        scheduled_at=notice_scheduled_at,
+                        countdown_start_seconds=countdown_start,
+                        group_identity=group_identity,
+                        display_text=group_display_text,
+                    )
 
         if countdown_candidates:
             countdown_candidates.sort(key=lambda item: (item[0], item[1]))
@@ -29876,10 +35515,18 @@ class BossTimerApp:
                 countdown_start,
             )
             next_followup_name = ""
+            next_followup_scheduled_at: datetime | None = None
             if next_notice_candidate is not None:
-                _next_scheduled_at, next_boss_name, _next_remaining_seconds, next_display_name = next_notice_candidate
+                next_followup_scheduled_at, next_boss_name, _next_remaining_seconds, next_display_name = next_notice_candidate
                 next_followup_name = str(next_display_name or next_boss_name or "").strip()
-            followup_notice_needed = bool(next_notice_candidate is not None and next_followup_name)
+            followup_notice_needed = bool(
+                next_notice_candidate is not None
+                and next_followup_name
+                and self._should_schedule_next_countdown_boss_followup(
+                    scheduled_at,
+                    next_followup_scheduled_at,
+                )
+            )
             chained_countdown = next_chain_candidate is not None
             if followup_notice_needed and remaining_seconds in {1, 0}:
                 self._schedule_next_countdown_boss_followup(
@@ -29887,7 +35534,6 @@ class BossTimerApp:
                     delay_ms=0,
                     anchor_datetime=scheduled_at,
                 )
-            countdown_ai_enabled = bool(self.schedule_alarm_countdown_ai_voice_var.get())
             if chained_countdown and remaining_seconds == 0:
                 self._fire_schedule_alarm_countdown_completion(
                     scheduled_at=scheduled_at,
@@ -29902,22 +35548,46 @@ class BossTimerApp:
                     next_candidate=next_chain_candidate,
                 )
             else:
-                countdown_key = self._build_schedule_alarm_due_key("countdown", group_identity, scheduled_at, remaining_seconds)
-                if self._should_fire_schedule_alarm_key(countdown_key, current_second):
-                    expires_at = current_second + timedelta(milliseconds=950)
-                    if remaining_seconds == 0:
-                        self._fire_schedule_alarm_countdown_completion(
-                            scheduled_at=scheduled_at,
-                            boss_name=group_identity,
-                            prefer_audio=countdown_ai_enabled,
-                        )
-                    else:
-                        countdown_clip_paths = self._get_schedule_alarm_countdown_audio_paths(remaining_seconds) if countdown_ai_enabled else []
-                        if countdown_ai_enabled:
+                discord_countdown_prescheduled = bool(
+                    self._has_discord_countdown_sequence_bridge_for_target(scheduled_at)
+                    and self._should_mute_local_schedule_audio_for_discord_bot(True)
+                )
+                if 0 <= remaining_seconds <= countdown_start:
+                    countdown_key = self._build_schedule_alarm_due_key(
+                        "countdown",
+                        group_identity,
+                        scheduled_at,
+                        remaining_seconds,
+                    )
+                    if self._should_fire_schedule_alarm_key(countdown_key, current_second):
+                        expires_at = current_second + timedelta(milliseconds=950)
+                        if remaining_seconds == 0:
+                            self._fire_schedule_alarm_countdown_completion(
+                                scheduled_at=scheduled_at,
+                                boss_name=group_identity,
+                                prefer_audio=countdown_ai_enabled,
+                            )
+                        elif discord_countdown_prescheduled:
+                            self._write_schedule_alarm_voice_test_log(
+                                "discord_voice_bridge_local_mute",
+                                phase="COUNTDOWN_TICK",
+                                remaining_seconds=remaining_seconds,
+                                scheduled_at=scheduled_at,
+                                prescheduled=True,
+                            )
+                        else:
+                            countdown_clip_paths = (
+                                self._get_schedule_alarm_countdown_audio_paths(remaining_seconds)
+                                if countdown_ai_enabled
+                                else []
+                            )
                             if countdown_clip_paths:
-                                if self._start_schedule_alarm_countdown_audio(remaining_seconds):
-                                    self._drop_pending_schedule_alarm_queue_items(category="countdown")
-                                else:
+                                if not self._start_schedule_alarm_countdown_audio(
+                                    remaining_seconds,
+                                    scheduled_at=scheduled_at,
+                                    group_identity=group_identity,
+                                    display_text=group_display_text,
+                                ):
                                     self._queue_schedule_alarm_speech(
                                         self._format_schedule_alarm_countdown_speech(remaining_seconds),
                                         beep=False,
@@ -29928,51 +35598,113 @@ class BossTimerApp:
                                         expires_at=expires_at,
                                     )
                             else:
-                                self._drop_pending_schedule_alarm_queue_items(category="countdown")
-                        else:
+                                self._queue_schedule_alarm_speech(
+                                    self._format_schedule_alarm_countdown_speech(remaining_seconds),
+                                    beep=False,
+                                    category="countdown",
+                                    rate=3,
+                                    purge=True,
+                                    async_mode=True,
+                                    expires_at=expires_at,
+                                )
+                if not discord_countdown_prescheduled and 2 <= remaining_seconds <= countdown_start + 1:
+                    upcoming_seconds = remaining_seconds - 1
+                    upcoming_recording_paths = (
+                        self._get_schedule_alarm_countdown_audio_paths(upcoming_seconds)
+                        if countdown_ai_enabled
+                        else []
+                    )
+                    if not upcoming_recording_paths:
+                        upcoming_key = self._build_schedule_alarm_due_key(
+                            "countdown",
+                            group_identity,
+                            scheduled_at,
+                            upcoming_seconds,
+                        )
+                        if self._should_fire_schedule_alarm_key(upcoming_key, current_second):
+                            play_at = scheduled_at - timedelta(
+                                seconds=upcoming_seconds,
+                                milliseconds=SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS,
+                            )
                             self._queue_schedule_alarm_speech(
-                                self._format_schedule_alarm_countdown_speech(remaining_seconds),
+                                self._format_schedule_alarm_countdown_speech(upcoming_seconds),
                                 beep=False,
                                 category="countdown",
                                 rate=3,
                                 purge=True,
                                 async_mode=True,
-                                expires_at=expires_at,
+                                play_at=play_at,
+                                expires_at=play_at + timedelta(milliseconds=950),
+                                replace_pending=False,
                             )
-                        if remaining_seconds == 1 and not chained_countdown:
-                            self._schedule_schedule_alarm_countdown_completion(
-                                scheduled_at=scheduled_at,
-                                boss_name=group_identity,
-                                prefer_audio=countdown_ai_enabled,
+                            self._write_schedule_alarm_voice_test_log(
+                                "countdown_edge_tts_prescheduled",
+                                target_time=scheduled_at,
+                                remaining_seconds=upcoming_seconds,
+                                play_at=play_at,
+                                advance_ms=SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS,
                             )
+                if remaining_seconds == 1 and not chained_countdown:
+                    self._schedule_schedule_alarm_countdown_completion(
+                        scheduled_at=scheduled_at,
+                        boss_name=group_identity,
+                        prefer_audio=countdown_ai_enabled,
+                    )
 
         fixed_boss_alarm_rows = list(self._get_fixed_boss_schedule_rows_for_alarm(current_second))
+        self._prefetch_edge_tts_fixed_names(
+            fixed_boss_alarm_rows,
+            current_second,
+            horizon_seconds=alarm_scan_horizon_seconds,
+        )
+        fixed_due_time_groups = self._build_schedule_fixed_due_time_groups(fixed_boss_alarm_rows)
         if not bool(self.schedule_fixed_boss_skip_due_time_var.get()):
-            max_fixed_due_audio_lead_seconds = 90 if boss_ai_enabled else 0
+            max_fixed_due_audio_lead_seconds = 90
             for scheduled_at, boss_name, *_rest in fixed_boss_alarm_rows:
                 entry = self._get_schedule_fixed_boss_alarm_entry(boss_name)
                 if not bool(entry.get("enabled")):
                     continue
+                group_names = fixed_due_time_groups.get(scheduled_at.replace(microsecond=0), [boss_name])
+                if not group_names or str(boss_name or "").strip() != group_names[0]:
+                    continue
+                group_identity = "|".join(group_names)
                 remaining_seconds = int((scheduled_at - current_second).total_seconds())
                 if remaining_seconds < 0 or remaining_seconds > max_fixed_due_audio_lead_seconds:
                     continue
-                fixed_due_message = f"{str(boss_name or '').strip()} 타임입니다.".strip()
+                fixed_group_summary, _additional_count = self._summarize_schedule_alarm_group_names(group_names)
+                fixed_due_message = f"{fixed_group_summary} 타임입니다.".strip()
                 fixed_due_clip_paths: list[str] = []
                 target_remaining_seconds = 0
                 fixed_due_audio_lead_seconds = 0
                 if boss_ai_enabled:
-                    fixed_due_clip_paths = self._with_schedule_alarm_chime_paths(
-                        self._build_schedule_fixed_due_time_audio_paths(boss_name),
-                        "fixed",
+                    built_due_clip_paths = (
+                        self._build_schedule_fixed_due_time_group_audio_paths(group_names)
+                        if len(group_names) > 1
+                        else self._build_schedule_fixed_due_time_audio_paths(boss_name)
                     )
-                    if fixed_due_clip_paths:
+                    fixed_due_clip_paths = self._with_schedule_alarm_chime_paths(built_due_clip_paths, "fixed")
+                    if built_due_clip_paths:
                         fixed_due_audio_lead_seconds = self._get_schedule_alarm_sequence_lead_seconds(fixed_due_clip_paths)
-                        target_remaining_seconds += fixed_due_audio_lead_seconds
+                    else:
+                        fixed_due_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
+                            fixed_due_message,
+                            category="fixed",
+                            rate=1,
+                        )
+                    target_remaining_seconds += fixed_due_audio_lead_seconds
+                else:
+                    fixed_due_clip_paths = self._with_schedule_alarm_chime_paths([], "fixed")
+                    fixed_due_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
+                        fixed_due_message,
+                        category="fixed",
+                        rate=1,
+                    )
+                    target_remaining_seconds += fixed_due_audio_lead_seconds
                 if remaining_seconds != target_remaining_seconds:
                     continue
                 alert_key = self._build_schedule_alarm_due_key(
                     "fixed_due_time",
-                    boss_name,
+                    group_identity,
                     scheduled_at,
                     0,
                 )
@@ -29987,19 +35719,32 @@ class BossTimerApp:
                     scheduled_at,
                     due_overlap_window_seconds,
                 )
+                general_block_until = self._get_schedule_fixed_alert_general_block_until(
+                    enabled_dynamic_items,
+                    scheduled_at,
+                    0,
+                )
+                if isinstance(general_block_until, datetime):
+                    earliest_play_at = (
+                        max(earliest_play_at, general_block_until)
+                        if isinstance(earliest_play_at, datetime)
+                        else general_block_until
+                    )
                 self._write_schedule_alarm_voice_test_log(
                     "fixed_due_time_submit_ready",
-                    boss_id=boss_name,
+                    boss_id=group_identity,
+                    group_names=group_names,
                     target_time=scheduled_at,
                     remaining_seconds=remaining_seconds,
                     target_remaining_seconds=target_remaining_seconds,
                     fixed_due_audio_lead_seconds=fixed_due_audio_lead_seconds,
                     earliest_play_at=earliest_play_at,
+                    general_block_until=general_block_until,
                     clip_paths=fixed_due_clip_paths,
                 )
                 self._submit_schedule_voice_request(
                     phase="SPAWN_SOON",
-                    boss_id=boss_name,
+                    boss_id=group_identity,
                     target_time=scheduled_at,
                     offset_sec=0,
                     clip_paths=fixed_due_clip_paths,
@@ -30012,28 +35757,94 @@ class BossTimerApp:
                     lane="center",
                 )
 
-        for scheduled_at, boss_name, *_rest in fixed_boss_alarm_rows:
+        fixed_pre_alert_rows = self._build_schedule_fixed_pre_alert_rows(fixed_boss_alarm_rows)
+        fixed_pre_alert_groups = self._build_schedule_fixed_pre_alert_groups(fixed_pre_alert_rows)
+        for scheduled_at, boss_name, is_valhalla_end_notice in fixed_pre_alert_rows:
             entry = self._get_schedule_fixed_boss_alarm_entry(boss_name)
-            offsets = self._normalize_schedule_alarm_offsets(entry.get("offsets", []))
+            offsets = (
+                [SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS]
+                if is_valhalla_end_notice
+                else self._normalize_schedule_alarm_offsets(entry.get("offsets", []))
+            )
             if not bool(entry.get("enabled")) or not offsets:
                 continue
             remaining_seconds = int((scheduled_at - current_second).total_seconds())
-            max_fixed_audio_lead_seconds = 90 if boss_ai_enabled else 0
+            max_fixed_audio_lead_seconds = 90
             for offset_seconds in offsets:
                 if (
                     remaining_seconds < int(offset_seconds)
                     or remaining_seconds > int(offset_seconds) + max_fixed_audio_lead_seconds
                 ):
                     continue
-                fixed_message = self._build_schedule_fixed_alarm_message(current_second, scheduled_at, boss_name, offset_seconds)
+                group_key = (
+                    scheduled_at.replace(microsecond=0),
+                    int(offset_seconds),
+                    bool(is_valhalla_end_notice),
+                )
+                group_names = fixed_pre_alert_groups.get(group_key, [boss_name])
+                if not group_names or str(boss_name or "").strip() != group_names[0]:
+                    continue
+                group_identity = "|".join(group_names)
+                fixed_message = (
+                    self._build_schedule_valhalla_end_alarm_message(current_second, scheduled_at)
+                    if is_valhalla_end_notice
+                    else self._build_schedule_fixed_alarm_group_message(
+                        current_second,
+                        scheduled_at,
+                        group_names,
+                        offset_seconds,
+                    )
+                    if len(group_names) > 1
+                    else self._build_schedule_fixed_alarm_message(
+                        current_second,
+                        scheduled_at,
+                        boss_name,
+                        offset_seconds,
+                    )
+                )
                 fixed_clip_paths: list[str] = []
                 target_remaining_seconds = int(offset_seconds)
                 fixed_audio_lead_seconds = 0
-                if boss_ai_enabled:
-                    fixed_clip_paths = self._build_schedule_fixed_alarm_audio_paths(current_second, scheduled_at, boss_name, offset_seconds)
-                    fixed_clip_paths = self._with_schedule_alarm_chime_paths(fixed_clip_paths, "fixed")
-                    if fixed_clip_paths:
+                if is_valhalla_end_notice:
+                    # 종료+다음 보스 문장은 녹음 조각을 잘못 조립하지 않고
+                    # 완성된 Edge TTS 한 문장으로 로컬/Discord에 동일 전송한다.
+                    fixed_clip_paths = self._with_schedule_alarm_chime_paths([], "fixed")
+                    fixed_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
+                        fixed_message,
+                        category="fixed",
+                        rate=1,
+                    )
+                    target_remaining_seconds += fixed_audio_lead_seconds
+                elif boss_ai_enabled:
+                    built_fixed_clip_paths = (
+                        self._build_schedule_fixed_alarm_group_audio_paths(
+                            current_second,
+                            scheduled_at,
+                            group_names,
+                            offset_seconds,
+                        )
+                        if len(group_names) > 1
+                        else self._build_schedule_fixed_alarm_audio_paths(
+                            current_second,
+                            scheduled_at,
+                            boss_name,
+                            offset_seconds,
+                        )
+                    )
+                    if built_fixed_clip_paths:
+                        fixed_clip_paths = self._with_schedule_alarm_chime_paths(built_fixed_clip_paths, "fixed")
                         fixed_audio_lead_seconds = self._get_schedule_alarm_sequence_lead_seconds(fixed_clip_paths)
+                        target_remaining_seconds += fixed_audio_lead_seconds
+                    elif len(group_names) > 1 or "다음 보스는" in fixed_message:
+                        # 후속 보스/시간 녹음 중 하나라도 빠졌을 때 현재 고정보스
+                        # 부분만 재생하지 않는다. 완성 문장 전체를 Edge TTS로
+                        # 만들어 로컬과 Discord에 동일하게 전달한다.
+                        fixed_clip_paths = self._with_schedule_alarm_chime_paths([], "fixed")
+                        fixed_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
+                            fixed_message,
+                            category="fixed",
+                            rate=1,
+                        )
                         target_remaining_seconds += fixed_audio_lead_seconds
                     else:
                         fixed_clip_paths = self._with_schedule_alarm_chime_paths(
@@ -30045,11 +35856,19 @@ class BossTimerApp:
                         )
                         fixed_audio_lead_seconds = self._get_schedule_alarm_sequence_lead_seconds(fixed_clip_paths)
                         target_remaining_seconds += fixed_audio_lead_seconds
+                else:
+                    fixed_clip_paths = self._with_schedule_alarm_chime_paths([], "fixed")
+                    fixed_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
+                        fixed_message,
+                        category="fixed",
+                        rate=1,
+                    )
+                    target_remaining_seconds += fixed_audio_lead_seconds
                 if remaining_seconds != target_remaining_seconds:
                     continue
                 alert_key = self._build_schedule_alarm_due_key(
-                    "fixed",
-                    boss_name,
+                    "valhalla_end" if is_valhalla_end_notice else "fixed",
+                    group_identity,
                     scheduled_at,
                     offset_seconds,
                 )
@@ -30069,9 +35888,22 @@ class BossTimerApp:
                 )
                 if isinstance(countdown_block_until, datetime):
                     earliest_play_at = max(earliest_play_at, countdown_block_until) if isinstance(earliest_play_at, datetime) else countdown_block_until
+                general_block_until = self._get_schedule_fixed_alert_general_block_until(
+                    enabled_dynamic_items,
+                    scheduled_at,
+                    offset_seconds,
+                )
+                if isinstance(general_block_until, datetime):
+                    earliest_play_at = (
+                        max(earliest_play_at, general_block_until)
+                        if isinstance(earliest_play_at, datetime)
+                        else general_block_until
+                    )
                 self._write_schedule_alarm_voice_test_log(
                     "fixed_pre_alert_submit_ready",
-                    boss_id=boss_name,
+                    boss_id=group_identity,
+                    group_names=group_names,
+                    is_valhalla_end_notice=is_valhalla_end_notice,
                     target_time=scheduled_at,
                     offset_seconds=offset_seconds,
                     remaining_seconds=remaining_seconds,
@@ -30079,11 +35911,12 @@ class BossTimerApp:
                     fixed_audio_lead_seconds=fixed_audio_lead_seconds,
                     earliest_play_at=earliest_play_at,
                     countdown_block_until=countdown_block_until,
+                    general_block_until=general_block_until,
                 )
                 if boss_ai_enabled and fixed_clip_paths:
                     fixed_request_kwargs = {
                         "phase": "FIXED_PRE_ALERT",
-                        "boss_id": boss_name,
+                        "boss_id": f"{group_identity}:종료" if is_valhalla_end_notice else group_identity,
                         "target_time": scheduled_at,
                         "offset_sec": offset_seconds,
                         "clip_paths": fixed_clip_paths,
@@ -30094,21 +35927,23 @@ class BossTimerApp:
                         "chime_key": "fixed",
                         "earliest_play_at": earliest_play_at,
                         "lane": "center",
+                        "preserve_fixed_message": bool(is_valhalla_end_notice or len(group_names) > 1),
                     }
                     self._submit_schedule_voice_request(**fixed_request_kwargs)
                     continue
                 fixed_request_kwargs = {
                     "phase": "FIXED_PRE_ALERT",
-                    "boss_id": boss_name,
+                    "boss_id": f"{group_identity}:종료" if is_valhalla_end_notice else group_identity,
                     "target_time": scheduled_at,
                     "offset_sec": offset_seconds,
-                    "clip_paths": [],
+                    "clip_paths": fixed_clip_paths,
                     "fallback_text": fixed_message,
                     "category": "fixed",
                     "rate": 1,
                     "chime_key": "fixed",
                     "earliest_play_at": earliest_play_at,
                     "lane": "center",
+                    "preserve_fixed_message": bool(is_valhalla_end_notice or len(group_names) > 1),
                 }
                 self._submit_schedule_voice_request(**fixed_request_kwargs)
 
@@ -33199,7 +39034,15 @@ class BossTimerApp:
         current_meta = self.schedule_last_import_meta if isinstance(self.schedule_last_import_meta, dict) else {}
         current_server_id = str(current_meta.get("github_server_id") or "").strip()
         selected_server_id = str(entry.get("id") or "").strip()
-        if not force and current_server_id and selected_server_id and current_server_id == selected_server_id:
+        active_profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        selected_profile_id = self._normalize_schedule_server_profile_id(selected_server_id)
+        if (
+            not force
+            and current_server_id
+            and selected_server_id
+            and current_server_id == selected_server_id
+            and active_profile_id == selected_profile_id
+        ):
             return
         progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
             server_name,
@@ -33222,8 +39065,71 @@ class BossTimerApp:
         self._cancel_schedule_main_save_after()
         previous_switch_in_progress = bool(getattr(self, "schedule_github_server_switch_in_progress", False))
         self.schedule_github_server_switch_in_progress = True
+        changing_server_profile = bool(selected_profile_id and selected_profile_id != active_profile_id)
+        resume_discord_bot = bool(
+            changing_server_profile
+            and (
+                bool(getattr(self, "discord_bot_expected_running", False))
+                or bool(getattr(self, "discord_bot_last_status_payload", {}).get("ok"))
+                or self._is_discord_bot_process_alive()
+            )
+        )
+        discord_shutdown_confirmed = True
+
+        def schedule_discord_bot_resume() -> None:
+            if not resume_discord_bot or not discord_shutdown_confirmed:
+                return
+            validation_error = self._get_discord_bot_settings_validation_error(
+                token=str(getattr(self, "discord_bot_token", "") or ""),
+                application_id=str(getattr(self, "discord_bot_application_id", "") or ""),
+                server_id=str(getattr(self, "discord_bot_server_id", "") or ""),
+                voice_channel_id=str(getattr(self, "discord_bot_voice_channel_id", "") or ""),
+                text_channel_id=str(getattr(self, "discord_bot_text_channel_id", "") or ""),
+            )
+            if validation_error:
+                self.schedule_status_var.set(f"{server_name}: 디스코드 봇 설정이 비어 있어 자동 연결하지 않았습니다. 설정을 확인하세요.")
+                self._refresh_discord_bot_status_ui()
+                return
+
+            self.discord_bot_expected_running = True
+            self.schedule_status_var.set(f"{server_name}: 이전 채널에서 나왔습니다. 새 서버 설정으로 3초 후 디스코드 봇을 연결합니다.")
+            try:
+                self.root.after(3000, self._start_discord_bot_runtime)
+            except tk.TclError:
+                self.discord_bot_expected_running = False
+
         set_progress_status("PC에 저장된 서버 스케쥴을 확인하는 중입니다.")
         try:
+            if changing_server_profile:
+                # 열린 설정창은 이전 서버 값의 StringVar를 붙들고 있다. 그대로
+                # 저장되면 새 프로필을 다시 덮을 수 있으므로 전환 시 닫는다.
+                settings_dialog = getattr(self, "discord_bot_settings_window", None)
+                if self._widget_available(settings_dialog):
+                    self.discord_bot_settings_window = None
+                    try:
+                        settings_dialog.destroy()
+                    except tk.TclError:
+                        pass
+                # 설정 파일을 바꾸기 전에 구 서버의 봇을 반드시 종료한다.
+                # 같은 상태 포트를 쓰므로 이 순서가 뒤바뀌면 새 서버도 이전
+                # 채널 설정으로 접속할 수 있다.
+                self._save_discord_bot_settings()
+                if resume_discord_bot:
+                    set_progress_status("이전 서버의 디스코드 봇을 종료하는 중입니다.")
+                    self.discord_bot_expected_running = False
+                    discord_shutdown_confirmed = self._stop_discord_bot_runtime_core(
+                        graceful_timeout=2.5,
+                        force_timeout=1.0,
+                    )
+                    self._refresh_discord_bot_status_ui()
+                    if not discord_shutdown_confirmed:
+                        self._append_debug_log(
+                            f"discord_bot_server_switch_shutdown_failed from={active_profile_id} to={selected_profile_id}"
+                        )
+            if not active_profile_id and current_server_id:
+                self._migrate_legacy_schedule_runtime_to_server_profile(current_server_id)
+            if self._activate_schedule_server_profile(selected_server_id, server_name):
+                set_progress_status("서버별 보탐 설정을 불러오는 중입니다.")
             cache_load_started_at = time.perf_counter()
             payload, cache_path = self._load_github_local_schedule_payload(entry)
             cache_load_ms = (time.perf_counter() - cache_load_started_at) * 1000.0
@@ -33274,6 +39180,7 @@ class BossTimerApp:
                     )
                     self.schedule_status_var.set(f"{server_name}: PC에 저장된 스케쥴을 불러왔습니다. 최신 갱신은 동기화를 눌러주세요.")
                     self._set_schedule_github_controls_state(True)
+                    schedule_discord_bot_resume()
                 self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
                 return
             has_known_remote_schedule = self._github_entry_has_known_remote_schedule(entry)
@@ -33314,6 +39221,7 @@ class BossTimerApp:
                 else f"{server_name}: PC에 저장된 스케쥴이 없어 빈 페이지를 표시합니다."
             )
             self._set_schedule_github_controls_state(True)
+            schedule_discord_bot_resume()
             self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
         finally:
             self.schedule_github_server_switch_in_progress = previous_switch_in_progress
@@ -34744,6 +40652,17 @@ class BossTimerApp:
             self._process_schedule_alarm_tick(reference_now)
         except tk.TclError:
             return
+        except Exception as exc:
+            self._append_debug_log(f"schedule_alarm_tick_failed {type(exc).__name__}: {exc}")
+            try:
+                log_path = os.path.join(get_app_root(), "boss_timer_runtime_error.log")
+                with open(log_path, "a", encoding="utf-8") as error_file:
+                    error_file.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]\n")
+                    error_file.write("schedule alarm tick recovered after error\n")
+                    error_file.write(traceback.format_exc())
+                    error_file.write("\n")
+            except OSError:
+                pass
         try:
             next_tick_ms = 50 if getattr(self, "schedule_alarm_second_precision_gen_pending_keys", None) else 100
             delay_ms = self._get_wall_clock_aligned_delay_ms(
@@ -35724,7 +41643,7 @@ class BossTimerApp:
             if parsed_token is None:
                 return None
             hours, minutes, seconds, precision = parsed_token
-            if minutes > 59 or seconds > 59:
+            if hours > 23 or minutes > 59 or seconds > 59:
                 return None
             reference_datetime = self._get_schedule_reference_datetime()
             if day_text:
@@ -35770,14 +41689,18 @@ class BossTimerApp:
             parsed_token = self._parse_schedule_clock_token(control_first_match.group("token"))
             if parsed_token is not None and control_type is not None:
                 hours, minutes, seconds, precision = parsed_token
+                if hours > 47 or minutes > 59 or seconds > 59:
+                    return None
+                overflow_days, normalized_hour = divmod(hours, 24)
+                explicit_days = int(control_first_match.group("days") or 0)
                 return {
                     "state": "control",
                     "mode": "clock",
                     "control_type": control_type,
                     "display_name": self._get_schedule_control_display_name(control_text, control_type),
-                    "day_offset": int(control_first_match.group("days") or 0),
-                    "day_offset_explicit": bool(control_first_match.group("days")),
-                    "clock_hours": hours,
+                    "day_offset": explicit_days + overflow_days,
+                    "day_offset_explicit": bool(control_first_match.group("days")) or overflow_days > 0,
+                    "clock_hours": normalized_hour,
                     "clock_minutes": minutes,
                     "clock_seconds": seconds,
                     "precision": precision,
@@ -35827,16 +41750,18 @@ class BossTimerApp:
             if parsed_token is None:
                 return None
             hours, minutes, seconds, precision = parsed_token
-            if hours > 23 or minutes > 59 or seconds > 59:
+            if hours > 47 or minutes > 59 or seconds > 59:
                 return None
+            overflow_days, normalized_hour = divmod(hours, 24)
+            explicit_days = int(day_text or 0)
             boss_info = self._normalize_schedule_input_boss_name(time_first_match.group("boss"))
             return {
                 **boss_info,
                 "state": "scheduled",
                 "mode": "clock",
-                "day_offset": int(day_text) if day_text else 0,
-                "day_offset_explicit": bool(day_text),
-                "clock_hours": hours,
+                "day_offset": explicit_days + overflow_days,
+                "day_offset_explicit": bool(day_text) or overflow_days > 0,
+                "clock_hours": normalized_hour,
                 "clock_minutes": minutes,
                 "clock_seconds": seconds,
                 "precision": precision,
@@ -35925,7 +41850,10 @@ class BossTimerApp:
         if parsed_clock is None:
             return None
         hours, minutes, seconds, precision = parsed_clock
-        return int(match.group("days") or 0), hours, minutes, seconds, precision
+        if hours > 47 or minutes > 59 or seconds > 59:
+            return None
+        overflow_days, normalized_hour = divmod(hours, 24)
+        return int(match.group("days") or 0) + overflow_days, normalized_hour, minutes, seconds, precision
 
     def _resolve_schedule_seed_datetime(self, item: dict[str, object], reference_datetime: datetime) -> datetime | None:
         if str(item.get("state")) == "active":
@@ -37652,6 +43580,14 @@ class BossTimerApp:
         if not parsed_items:
             self.schedule_input_status_var.set("파싱 가능한 스케쥴 데이터가 없습니다.")
             return
+        input_tts_cache_names: set[str] = set()
+        for parsed_item in parsed_items:
+            if not isinstance(parsed_item, dict):
+                continue
+            for key in ("boss_name", "display_name", "raw_name"):
+                candidate_name = re.sub(r"^침공\s*", "", str(parsed_item.get(key) or "").strip()).strip()
+                if candidate_name:
+                    input_tts_cache_names.add(candidate_name)
         input_cut_focus_targets: list[tuple[str, datetime]] = []
         for item in parsed_items:
             if not isinstance(item, dict) or not bool(item.get("cut_applied")):
@@ -37706,6 +43642,7 @@ class BossTimerApp:
                 self.schedule_input_status_var.set(f"출현 중 컷시간 {applied_count}건을 적용했습니다.")
                 self._reset_schedule_input_mode_state()
                 self._update_schedule_input_undo_state()
+                self.close_schedule_input_window()
                 return
         if self.schedule_input_past_enabled and not self.schedule_input_edit_mode:
             for item in parsed_items:
@@ -37845,8 +43782,25 @@ class BossTimerApp:
             self.schedule_input_status_var.set(f"{current_status}{suffix}" if current_status else suffix.strip())
         if ocr1_error_context:
             self._show_schedule_input_ocr1_error_warning(ocr1_error_context, after_apply=True)
+        known_boss_names = {
+            str(name or "").strip()
+            for name in getattr(self, "schedule_boss_definitions", {})
+            if str(name or "").strip()
+        }
+        known_boss_names.update(
+            str(item.get("boss_name") or "").strip()
+            for item in getattr(self, "fixed_boss_entries", [])
+            if isinstance(item, dict) and str(item.get("boss_name") or "").strip()
+        )
+        uncatalogued_names = input_tts_cache_names - known_boss_names
+        if uncatalogued_names:
+            self._ensure_edge_tts_cache_for_names(
+                uncatalogued_names,
+                parent=self.schedule_window,
+            )
         self._reset_schedule_input_mode_state()
         self._update_schedule_input_undo_state()
+        self.close_schedule_input_window()
 
     def _update_schedule_input_undo_state(self) -> None:
         import_enabled = bool(self._get_schedule_input_import_undo_target())
@@ -38050,6 +44004,9 @@ class BossTimerApp:
 
     def _ensure_init_dir(self) -> None:
         os.makedirs(INIT_DIR, exist_ok=True)
+        profile_init_dir = self._get_schedule_server_profile_init_dir()
+        if profile_init_dir:
+            os.makedirs(profile_init_dir, exist_ok=True)
 
     def _seed_init_directory_from_resources(self) -> None:
         self._ensure_init_dir()
@@ -38092,6 +44049,7 @@ class BossTimerApp:
             (DEFAULT_SETTINGS_SEED_FILENAME, CONFIG_PATH),
             (DEFAULT_SCHEDULE_STATE_SEED_FILENAME, SCHEDULE_STATE_PATH),
             (DEFAULT_SCHEDULE_ALARM_SETTINGS_SEED_FILENAME, SCHEDULE_ALARM_SETTINGS_PATH),
+            (DEFAULT_EDGE_TTS_SETTINGS_SEED_FILENAME, EDGE_TTS_CONFIG_PATH),
         )
         for seed_filename, target_path in seed_targets:
             if os.path.exists(target_path):
@@ -38103,6 +44061,39 @@ class BossTimerApp:
                 shutil.copy2(source_path, target_path)
             except OSError:
                 continue
+
+    def _seed_runtime_edge_tts_cache_from_resources(self) -> None:
+        resource_cache_dir = os.path.join(get_resource_root(), "tts_캐쉬")
+        runtime_cache_dir = EDGE_TTS_CACHE_DIR
+        resource_manifest_path = os.path.join(resource_cache_dir, "manifest.json")
+        runtime_manifest_path = os.path.join(runtime_cache_dir, "manifest.json")
+        marker_path = EDGE_TTS_DISTRIBUTION_CACHE_SEED_MARKER_PATH
+        if os.path.isfile(marker_path) or not os.path.isfile(resource_manifest_path):
+            return
+
+        def mark_seed_checked() -> None:
+            try:
+                os.makedirs(os.path.dirname(marker_path), exist_ok=True)
+                with open(marker_path, "w", encoding="utf-8") as marker_file:
+                    marker_file.write("v5.0.0")
+            except OSError:
+                pass
+
+        if os.path.isfile(runtime_manifest_path):
+            mark_seed_checked()
+            return
+        try:
+            if os.path.abspath(resource_cache_dir) == os.path.abspath(runtime_cache_dir):
+                mark_seed_checked()
+                return
+            os.makedirs(runtime_cache_dir, exist_ok=True)
+            shutil.copytree(resource_cache_dir, runtime_cache_dir, dirs_exist_ok=True)
+            mark_seed_checked()
+        except OSError as exc:
+            try:
+                self._append_debug_log(f"edge_tts_distribution_cache_seed_failed {type(exc).__name__}: {exc}")
+            except Exception:
+                pass
 
     def _seed_runtime_assets_from_resources(self) -> None:
         resource_assets_dir = os.path.join(get_resource_root(), "assets")
@@ -38233,12 +44224,13 @@ class BossTimerApp:
         definitions = {name: dict(item) for name, item in defaults.items()}
         self._seed_init_file_from_resource(SCHEDULE_AREA_DEFINITIONS_FILENAME)
         self._ensure_init_dir()
-        if not os.path.exists(SCHEDULE_AREA_DEFINITIONS_PATH):
+        area_definitions_path = self._get_schedule_area_definitions_storage_path()
+        if not os.path.exists(area_definitions_path):
             self.schedule_area_definitions = definitions
             self._save_schedule_area_definitions()
             return definitions
         try:
-            with open(SCHEDULE_AREA_DEFINITIONS_PATH, "r", encoding="utf-8") as file:
+            with open(area_definitions_path, "r", encoding="utf-8") as file:
                 for raw_line in file:
                     line = self._normalize_schedule_definition_line(raw_line)
                     if not line or line.startswith("#"):
@@ -38278,7 +44270,9 @@ class BossTimerApp:
         ordered_area_names = self._get_schedule_area_values()
         if SCHEDULE_ABSOLUTE_GROUP_KEY in self.schedule_area_definitions:
             ordered_area_names.append(SCHEDULE_ABSOLUTE_GROUP_KEY)
-        with open(SCHEDULE_AREA_DEFINITIONS_PATH, "w", encoding="utf-8") as file:
+        area_definitions_path = self._get_schedule_area_definitions_storage_path()
+        os.makedirs(os.path.dirname(area_definitions_path), exist_ok=True)
+        with open(area_definitions_path, "w", encoding="utf-8") as file:
             file.write("# 지역이름|약칭|기본지역여부(1/0)|글자색|배경색\n")
             for area_name in ordered_area_names:
                 item = self.schedule_area_definitions.get(area_name)
@@ -38407,13 +44401,14 @@ class BossTimerApp:
         parsed_boss_names: set[str] = set()
         self._seed_init_file_from_resource(SCHEDULE_BOSS_DEFINITIONS_FILENAME)
         self._ensure_init_dir()
-        if not os.path.exists(SCHEDULE_BOSS_DEFINITIONS_PATH):
+        boss_definitions_path = self._get_schedule_boss_definitions_storage_path()
+        if not os.path.exists(boss_definitions_path):
             self.schedule_boss_deleted_builtin_names = set()
             self.schedule_boss_definitions = definitions
             self._save_schedule_boss_definitions()
             return definitions
         try:
-            with open(SCHEDULE_BOSS_DEFINITIONS_PATH, "r", encoding="utf-8") as file:
+            with open(boss_definitions_path, "r", encoding="utf-8") as file:
                 for raw_line in file:
                     line = self._normalize_schedule_definition_line(raw_line)
                     if not line:
@@ -38492,7 +44487,9 @@ class BossTimerApp:
 
     def _save_schedule_boss_definitions(self) -> None:
         self._ensure_init_dir()
-        with open(SCHEDULE_BOSS_DEFINITIONS_PATH, "w", encoding="utf-8") as file:
+        boss_definitions_path = self._get_schedule_boss_definitions_storage_path()
+        os.makedirs(os.path.dirname(boss_definitions_path), exist_ok=True)
+        with open(boss_definitions_path, "w", encoding="utf-8") as file:
             file.write("# 보스명|약칭|젠주기(HHH:MM)|지역이름|절대자여부(1/0)|글자색|배경색|별표여부(1/0)\n")
             deleted_builtin_names = sorted(
                 name
@@ -38569,6 +44566,13 @@ class BossTimerApp:
             if previous_dirty and self.schedule_boss_form_dirty:
                 return
         should_write_files = self.schedule_boss_definition_dirty or self._has_pending_schedule_boss_drafts()
+        cache_names: set[str] = set()
+        for draft_definition in getattr(self, "schedule_boss_draft_definitions", {}).values():
+            if isinstance(draft_definition, dict):
+                cache_names.add(str(draft_definition.get("boss_name") or "").strip())
+                cache_names.add(str(draft_definition.get("alias") or "").strip())
+        if self.schedule_boss_selected_name:
+            cache_names.add(str(self.schedule_boss_selected_name).strip())
         if self._has_pending_schedule_boss_drafts():
             self._save_pending_schedule_boss_drafts()
         if not should_write_files:
@@ -38578,6 +44582,12 @@ class BossTimerApp:
         self._set_schedule_boss_definition_dirty(False)
         self._refresh_schedule_view()
         self._populate_schedule_boss_definition_tree()
+        cache_names.discard("")
+        if cache_names:
+            self._ensure_edge_tts_cache_for_names(
+                cache_names,
+                parent=self.schedule_window,
+            )
 
     def _get_schedule_boss_form_definition(self) -> dict[str, str | bool]:
         boss_name = "" if self.schedule_boss_name_placeholder_active else (self.schedule_boss_name_var.get() or "").strip()
@@ -42363,6 +48373,9 @@ class BossTimerApp:
             return
         try:
             self._update_main_current_datetime_display()
+            self._reset_discord_schedule_monitor_if_due()
+            self._process_pending_schedule_share_discord_request()
+            self._process_pending_discord_schedule_requests()
         except (tk.TclError, AttributeError):
             return
         self._schedule_main_clock_tick()
@@ -43430,6 +49443,41 @@ class BossTimerApp:
             self.close_version_info_window()
             self.settings_window.destroy()
 
+    def _raise_schedule_window(self) -> None:
+        if not self._widget_available(self.schedule_window):
+            return
+        try:
+            self.schedule_window.deiconify()
+            self.schedule_window.lift(self.root)
+            self.schedule_window.focus_force()
+            self.schedule_window.attributes("-topmost", True)
+            self.root.after(160, lambda: self._clear_schedule_window_topmost())
+        except tk.TclError:
+            pass
+
+    def _clear_schedule_window_topmost(self) -> None:
+        if not self._widget_available(self.schedule_window):
+            return
+        try:
+            self.schedule_window.attributes("-topmost", False)
+        except tk.TclError:
+            pass
+
+    def _log_schedule_window_open_error(self, exc: BaseException) -> None:
+        try:
+            log_path = os.path.join(get_app_root(), "boss_timer_runtime_error.log")
+            with open(log_path, "a", encoding="utf-8") as error_file:
+                error_file.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]\n")
+                error_file.write("open_schedule_window failed\n")
+                error_file.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+                error_file.write("\n")
+        except Exception:
+            pass
+        try:
+            self.schedule_status_var.set(f"스케쥴 창 오류: {exc}")
+        except tk.TclError:
+            pass
+
     def open_schedule_window(self) -> None:
         if self.schedule_window_busy:
             return
@@ -43439,13 +49487,11 @@ class BossTimerApp:
             self._update_schedule_base_label()
             self._ensure_schedule_window()
             if self.schedule_window_open and self.schedule_window is not None and self.schedule_window.winfo_exists():
-                self.schedule_window.deiconify()
-                self.schedule_window.lift()
+                self._raise_schedule_window()
                 return
             self.schedule_window_open = True
             self._position_schedule_window()
-            self.schedule_window.deiconify()
-            self.schedule_window.lift()
+            self._raise_schedule_window()
             if first_open:
                 self._set_schedule_view_datetime_fields(self._get_schedule_reference_datetime())
                 self.schedule_window.update_idletasks()
@@ -43466,7 +49512,8 @@ class BossTimerApp:
             else:
                 self._move_schedule_view_to_today()
             self._schedule_schedule_summary_tick()
-        except tk.TclError:
+        except tk.TclError as exc:
+            self._log_schedule_window_open_error(exc)
             return
         finally:
             self.schedule_window_busy = False
@@ -43482,6 +49529,13 @@ class BossTimerApp:
             if self.schedule_summary_after_id is not None:
                 self.root.after_cancel(self.schedule_summary_after_id)
                 self.schedule_summary_after_id = None
+            if (
+                self.discord_bot_status_after_id is not None
+                and not bool(getattr(self, "discord_bot_expected_running", False))
+            ):
+                self.root.after_cancel(self.discord_bot_status_after_id)
+                self.discord_bot_status_after_id = None
+            self._cancel_discord_bot_status_blink()
             self.schedule_alarm_last_tick_second = None
             if self.schedule_window is not None and self.schedule_window.winfo_exists():
                 self.schedule_window.withdraw()
@@ -43732,6 +49786,15 @@ class BossTimerApp:
         else:
             self.schedule_boss_metrics_inline_status_var.set("")
         self._refresh_schedule_boss_metrics_apply_button_state()
+
+    def _bind_schedule_boss_metric_form_value_traces(self) -> None:
+        for variable in (
+            self.schedule_boss_metric_source_mode_var,
+            self.schedule_boss_metric_user_duration_var,
+            self.schedule_boss_metric_score_var,
+            self.schedule_boss_metric_war_score_var,
+        ):
+            variable.trace_add("write", self._on_schedule_boss_metric_form_value_changed)
 
     def _on_schedule_boss_metric_form_value_changed(self, *_args) -> None:
         if self.schedule_boss_metric_form_syncing:
@@ -44039,6 +50102,8 @@ class BossTimerApp:
         try:
             if bool(getattr(self, "schedule_alarm_voice_test_active", False)) or self._is_current_schedule_alarm_voice_test_dataset():
                 self._stop_schedule_alarm_voice_test()
+            else:
+                self._remove_schedule_alarm_voice_test_session_files()
             self._apply_schedule_alarm_global_options(show_status=False)
             if self.schedule_alarm_chime_window is not None and self.schedule_alarm_chime_window.winfo_exists():
                 self.schedule_alarm_chime_window.destroy()
@@ -44212,12 +50277,341 @@ class BossTimerApp:
         tk.Button(dialog, text="닫기", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=close_dialog, cursor="hand2").place(x=450, y=238, width=82, height=32)
         self.schedule_alarm_chime_status_var.set("이벤트 옆 파일명을 눌러 wave 폴더에서 차임벨을 선택하세요.")
 
+    def _open_edge_tts_settings_window(self) -> None:
+        existing = getattr(self, "edge_tts_settings_window", None)
+        if existing is not None and self._widget_available(existing):
+            existing.lift()
+            existing.focus_force()
+            return
+        self._prefetch_schedule_alarm_edge_tts_common_phrases()
+        parent = self.schedule_alarm_window if self.schedule_alarm_window is not None and self._widget_available(self.schedule_alarm_window) else self.root
+        dialog = tk.Toplevel(parent)
+        self.edge_tts_settings_window = dialog
+        dialog.title("edge-tts 음성 설정")
+        dialog.geometry("600x500")
+        dialog.resizable(False, False)
+        dialog.configure(bg="#eff6ff")
+        settings = getattr(self, "edge_tts_settings", EdgeTtsSettings()).normalized()
+        enabled_var = tk.BooleanVar(value=settings.enabled)
+        voice_var = tk.StringVar(value=settings.voice)
+        rate_var = tk.IntVar(value=settings.rate)
+        volume_var = tk.IntVar(value=settings.volume)
+        pitch_var = tk.IntVar(value=settings.pitch)
+        rate_label_var = tk.StringVar(value=f"{settings.rate:+d}%")
+        volume_label_var = tk.StringVar(value=f"{settings.volume:+d}%")
+        pitch_label_var = tk.StringVar(value=f"{settings.pitch:+d}Hz")
+        status_var = tk.StringVar(
+            value="현재 음성 모델·속도·음량·음높이 설정 1세트의 MP3만 저장하여 재사용합니다."
+            if edge_tts_available()
+            else f"TTS 모듈 설치 필요: {get_edge_tts_module_error()}"
+        )
+        voice_value_map: dict[str, str] = {}
+
+        tk.Label(dialog, text="edge-tts 온라인 음성", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=600, height=42)
+        tk.Checkbutton(
+            dialog,
+            text="edge-tts 음성 사용",
+            variable=enabled_var,
+            font=self.button_font,
+            bg="#eff6ff",
+            fg="#0f172a",
+            selectcolor="#ffffff",
+            activebackground="#eff6ff",
+            highlightthickness=0,
+            bd=0,
+        ).place(x=22, y=54, width=180, height=26)
+
+        tk.Label(dialog, text="음성 모델", font=self.button_font, bg="#eff6ff", fg="#334155", anchor="w").place(x=24, y=94, width=100, height=28)
+        voice_combo = ttk.Combobox(
+            dialog,
+            textvariable=voice_var,
+            state="readonly",
+            font=(self.current_font_family, 10),
+        )
+        voice_combo.place(x=126, y=94, width=338, height=28)
+
+        def apply_voice_records(records: object) -> None:
+            normalized_records = [item for item in records if isinstance(item, dict)] if isinstance(records, (list, tuple)) else []
+            current_voice = str(getattr(self, "edge_tts_settings", settings).voice or DEFAULT_EDGE_TTS_VOICE).strip()
+            voice_value_map.clear()
+            values: list[str] = []
+            selected_display = ""
+            gender_labels = {"Female": "여성", "Male": "남성"}
+            for item in normalized_records:
+                short_name = str(item.get("ShortName") or "").strip()
+                if not short_name:
+                    continue
+                gender = str(item.get("Gender") or "").strip()
+                display = f"{short_name} ({gender_labels.get(gender, gender or '음성')})"
+                voice_value_map[display] = short_name
+                values.append(display)
+                if short_name == current_voice:
+                    selected_display = display
+            if current_voice and not selected_display:
+                selected_display = current_voice
+                voice_value_map[current_voice] = current_voice
+                values.insert(0, current_voice)
+            voice_combo.configure(values=values)
+            voice_var.set(selected_display or (values[0] if values else DEFAULT_EDGE_TTS_VOICE))
+
+        apply_voice_records(list(EDGE_TTS_KOREAN_VOICES))
+
+        def refresh_voice_models() -> None:
+            if not edge_tts_available():
+                status_var.set("TTS 모듈을 먼저 설치해주세요.")
+                return
+            status_var.set("Microsoft 한국어 음성 모델 목록을 불러오는 중입니다...")
+
+            def worker() -> None:
+                try:
+                    records = list_edge_tts_voices("ko-KR")
+                    error_text = ""
+                except Exception as exc:
+                    records = []
+                    error_text = f"{type(exc).__name__}: {exc}"
+
+                def finish() -> None:
+                    if not self._widget_available(dialog):
+                        return
+                    if records:
+                        apply_voice_records(records)
+                        status_var.set(f"한국어 음성 모델 {len(records)}개를 불러왔습니다.")
+                    else:
+                        status_var.set(f"모델 조회 실패, 기본 목록을 사용합니다: {error_text or '응답 없음'}")
+
+                try:
+                    self.root.after(0, finish)
+                except tk.TclError:
+                    pass
+
+            threading.Thread(target=worker, name="edge-tts-voice-list", daemon=True).start()
+
+        tk.Button(
+            dialog,
+            text="모델 새로고침",
+            font=self.percent_font,
+            bg="#dbeafe",
+            fg="#1e3a8a",
+            command=refresh_voice_models,
+        ).place(x=474, y=94, width=104, height=28)
+
+        controls = (
+            ("말하기 속도", rate_var, -50, 100, rate_label_var, "%", 148),
+            ("음량", volume_var, -100, 100, volume_label_var, "%", 208),
+            ("음높이", pitch_var, -100, 100, pitch_label_var, "Hz", 268),
+        )
+        for label_text, variable, minimum, maximum, value_label_var, suffix, y in controls:
+            tk.Label(dialog, text=label_text, font=self.button_font, bg="#eff6ff", fg="#334155", anchor="w").place(x=24, y=y, width=100, height=28)
+            tk.Scale(
+                dialog,
+                from_=minimum,
+                to=maximum,
+                orient="horizontal",
+                resolution=5,
+                variable=variable,
+                showvalue=False,
+                bg="#eff6ff",
+                fg="#334155",
+                highlightthickness=0,
+                troughcolor="#cbd5e1",
+                command=lambda value, target=value_label_var, unit=suffix: target.set(f"{int(float(value)):+d}{unit}"),
+            ).place(x=126, y=y - 6, width=364, height=44)
+            tk.Label(dialog, textvariable=value_label_var, font=self.button_font, bg="#ffffff", fg="#0f172a", relief="solid", bd=1).place(x=504, y=y, width=72, height=28)
+
+        tk.Label(
+            dialog,
+            text=(
+                "설정 변경 시 전체 교체 · 새 문장/보스 또는 누락 파일만 추가 생성\n"
+                "동일 조건의 캐시가 모두 있으면 다시 생성하지 않습니다."
+            ),
+            font=self.percent_font,
+            bg="#eff6ff",
+            fg="#64748b",
+            anchor="nw",
+            justify="left",
+        ).place(x=24, y=320, width=552, height=38)
+        tk.Label(dialog, textvariable=status_var, font=self.percent_font, bg="#eff6ff", fg="#1e3a8a", anchor="w").place(x=24, y=360, width=552, height=34)
+
+        def collect_settings() -> EdgeTtsSettings:
+            selected_voice = str(voice_var.get() or "").strip()
+            voice_name = voice_value_map.get(selected_voice, selected_voice) or DEFAULT_EDGE_TTS_VOICE
+            return EdgeTtsSettings(
+                enabled=bool(enabled_var.get()),
+                voice=voice_name,
+                rate=int(rate_var.get()),
+                volume=int(volume_var.get()),
+                pitch=int(pitch_var.get()),
+            ).normalized()
+
+        def save_settings(*, close_after: bool) -> EdgeTtsSettings | None:
+            collected = collect_settings()
+            try:
+                save_edge_tts_settings(EDGE_TTS_CONFIG_PATH, collected)
+            except OSError as exc:
+                status_var.set(f"설정 저장 실패: {exc}")
+                return None
+            previous_settings = getattr(self, "edge_tts_settings", EdgeTtsSettings()).normalized()
+            settings_changed = collected != previous_settings
+            if settings_changed:
+                # MediaPlayer가 캐시 파일을 열고 있으면 Windows에서 삭제가 막힐 수 있으므로
+                # 먼저 로컬 재생 호스트를 종료한 뒤 이전 설정 캐시를 정리한다.
+                self._reload_schedule_alarm_audio_hosts(preload=False)
+            self.edge_tts_settings = collected
+            removed_count = self.edge_tts_cache.update_settings(collected)
+            self._refresh_schedule_alarm_voice_label()
+            if settings_changed:
+                status_var.set(
+                    f"edge-tts 설정을 저장하고 이전 캐시 {removed_count}개를 삭제했습니다. 새 설정으로 캐시를 생성하세요."
+                )
+            else:
+                status_var.set("edge-tts 설정을 저장했습니다.")
+            if close_after:
+                dialog.destroy()
+                self.edge_tts_settings_window = None
+            return collected
+
+        def test_voice() -> None:
+            collected = save_settings(close_after=False)
+            if collected is None or not collected.enabled:
+                return
+            if not edge_tts_available():
+                status_var.set("TTS 모듈 설치 여부를 확인하는 중입니다...")
+                self._request_edge_tts_module_install(
+                    parent=dialog,
+                    on_ready=test_voice,
+                )
+                return
+            status_var.set("edge-tts 테스트 음성을 생성하는 중입니다...")
+
+            def worker() -> None:
+                sample_text = "엣지 티티에스 음성 연결 테스트입니다."
+                clip_path = self.edge_tts_cache.synthesize(sample_text)
+
+                def finish() -> None:
+                    if not self._widget_available(dialog):
+                        return
+                    if clip_path:
+                        status_var.set("edge-tts 연결 성공: 테스트 음성을 재생합니다.")
+                        self._play_or_queue_schedule_alarm_audio_sequence(
+                            [clip_path],
+                            sample_text,
+                            beep=False,
+                            category="general",
+                            force_audio=True,
+                            allow_discord_bridge=False,
+                        )
+                    else:
+                        status_var.set(f"edge-tts 연결 실패: {self.edge_tts_cache.last_error or '응답 없음'}")
+
+                try:
+                    self.root.after(0, finish)
+                except tk.TclError:
+                    pass
+
+            threading.Thread(target=worker, name="edge-tts-voice-test", daemon=True).start()
+
+        def generate_cache_data() -> None:
+            if bool(getattr(self, "edge_tts_cache_generation_active", False)):
+                status_var.set("이미 TTS 캐시를 생성하고 있습니다.")
+                return
+            previous_settings = getattr(self, "edge_tts_settings", EdgeTtsSettings()).normalized()
+            requested_settings = collect_settings()
+            settings_changed = requested_settings != previous_settings
+            collected = save_settings(close_after=False)
+            if collected is None or not collected.enabled:
+                return
+            if not edge_tts_available():
+                status_var.set("TTS 모듈 설치 여부를 확인하는 중입니다...")
+                self._request_edge_tts_module_install(
+                    parent=dialog,
+                    on_ready=generate_cache_data,
+                )
+                return
+            jobs = self._build_edge_tts_cache_jobs()
+            ready_jobs, missing_jobs = self._partition_edge_tts_cache_jobs(jobs)
+            ready_count = len(ready_jobs)
+            missing_count = len(missing_jobs)
+            total_count = ready_count + missing_count
+            if missing_count <= 0:
+                status_var.set(f"생성 안 함: 현재 설정 캐시 {total_count}/{total_count}개가 모두 준비되어 있습니다.")
+                return
+            # 실제로 새 파일을 쓸 때만 재생 호스트를 종료한다.
+            self._reload_schedule_alarm_audio_hosts(preload=False)
+            if settings_changed:
+                status_var.set(f"음성 설정 변경: 새 설정 캐시 {missing_count}개를 전체 생성합니다.")
+            else:
+                status_var.set(
+                    f"기존 캐시 {ready_count}개 유지, 신규·누락 캐시 {missing_count}개만 생성합니다."
+                )
+
+            def complete(success: bool, generated: int, failed: int) -> None:
+                if not self._widget_available(dialog):
+                    return
+                if success:
+                    status_var.set(
+                        f"TTS 캐시 준비 완료: 기존 {ready_count}개 + 새로 생성 {generated}개"
+                    )
+                else:
+                    status_var.set(f"TTS 캐시 생성 완료: 성공 {generated}개, 실패 {failed}개")
+
+            self._start_edge_tts_cache_generation(
+                jobs,
+                parent=dialog,
+                completion_message="전체 TTS 캐시 생성을 완료했습니다.",
+                on_complete=complete,
+            )
+
+        def delete_cache_data() -> None:
+            if bool(getattr(self, "edge_tts_cache_generation_active", False)):
+                status_var.set("캐시 생성이 끝난 뒤 삭제해주세요.")
+                return
+            should_delete = self._ask_centered_yesno(
+                "TTS 캐시 삭제",
+                "tts_캐쉬 폴더의 임시·영구 음성 캐시를 모두 삭제할까요?\n삭제한 파일은 다시 캐싱 데이터생성을 해야 합니다.",
+                parent=dialog,
+            )
+            if not should_delete:
+                status_var.set("TTS 캐시 삭제를 취소했습니다.")
+                return
+            self._reload_schedule_alarm_audio_hosts(preload=False)
+            removed_count = self.edge_tts_cache.clear(persistent=True)
+            status_var.set(f"TTS 캐시 삭제 완료: {removed_count}개 파일을 삭제했습니다.")
+            if hasattr(self, "schedule_alarm_status_var"):
+                self.schedule_alarm_status_var.set("TTS 캐시를 삭제했습니다. 필요하면 캐싱 데이터생성을 실행하세요.")
+
+        def close_dialog() -> None:
+            self.edge_tts_settings_window = None
+            dialog.destroy()
+
+        def install_module() -> None:
+            status_var.set("TTS 모듈 설치 여부를 확인하는 중입니다...")
+            self._request_edge_tts_module_install(
+                parent=dialog,
+                force_prompt=True,
+                on_ready=lambda: (
+                    status_var.set("TTS 모듈 설치를 완료했습니다. 한국어 음성 목록을 불러옵니다..."),
+                    refresh_voice_models(),
+                ),
+            )
+
+        tk.Button(dialog, text="TTS 모듈 설치", font=self.button_font, bg="#dcfce7", fg="#166534", command=install_module).place(x=24, y=410, width=118, height=32)
+        tk.Button(dialog, text="캐쉬삭제", font=self.button_font, bg="#fee2e2", fg="#991b1b", command=delete_cache_data).place(x=154, y=410, width=90, height=32)
+        tk.Button(dialog, text="캐싱 데이터생성", font=self.button_font, bg="#fef3c7", fg="#92400e", command=generate_cache_data).place(x=256, y=410, width=132, height=32)
+        tk.Button(dialog, text="음성 테스트", font=self.button_font, bg="#dbeafe", fg="#1e3a8a", command=test_voice).place(x=400, y=410, width=104, height=32)
+        tk.Button(dialog, text="저장", font=self.button_font, bg="#16a34a", fg="#ffffff", command=lambda: save_settings(close_after=True)).place(x=386, y=452, width=88, height=32)
+        tk.Button(dialog, text="닫기", font=self.button_font, bg="#e2e8f0", fg="#334155", command=close_dialog).place(x=486, y=452, width=88, height=32)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+        try:
+            dialog.after(150, refresh_voice_models)
+        except tk.TclError:
+            pass
+
     def _create_schedule_alarm_runtime_settings_snapshot(self) -> dict[str, object]:
         return {
             "master_enabled": bool(self.schedule_alarm_master_var.get()),
+            "local_audio_enabled": True,
             "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_var.get()),
-            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_var.get()),
-            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_var.get()),
+            "ai_recording_preferred": bool(self.schedule_alarm_ai_recording_preferred_var.get()),
             "countdown_start_seconds": self.schedule_alarm_countdown_start_var.get(),
             "second_precision_expire_hours": self.schedule_second_precision_expire_hours_var.get(),
             "common_offsets": list(self.schedule_alarm_common_offsets),
@@ -44233,8 +50627,7 @@ class BossTimerApp:
         try:
             self.schedule_alarm_master_var.set(bool(snapshot.get("master_enabled", True)))
             self.schedule_alarm_countdown_enabled_var.set(bool(snapshot.get("countdown_enabled", False)))
-            self.schedule_alarm_countdown_ai_voice_var.set(bool(snapshot.get("countdown_ai_voice_enabled", True)))
-            self.schedule_alarm_boss_ai_voice_var.set(bool(snapshot.get("boss_ai_voice_enabled", True)))
+            self.schedule_alarm_ai_recording_preferred_var.set(bool(snapshot.get("ai_recording_preferred", False)))
             self.schedule_alarm_countdown_start_var.set(str(snapshot.get("countdown_start_seconds") or "15"))
             self.schedule_second_precision_expire_hours_var.set(str(snapshot.get("second_precision_expire_hours") or "24"))
         except tk.TclError:
@@ -44260,36 +50653,164 @@ class BossTimerApp:
             "fixed_boss_entries": [dict(item) for item in getattr(self, "fixed_boss_entries", []) if isinstance(item, dict)],
         }
 
+    def _write_schedule_alarm_voice_test_snapshot_file(
+        self,
+        path: str,
+        snapshot: dict[str, object],
+        *,
+        snapshot_type: str,
+    ) -> bool:
+        if not isinstance(snapshot, dict):
+            return False
+        temporary_path = ""
+        try:
+            target_dir = os.path.dirname(os.path.abspath(path))
+            os.makedirs(target_dir, exist_ok=True)
+            payload = {
+                "version": 1,
+                "snapshot_type": str(snapshot_type or "voice_test"),
+                "saved_at": datetime.now().replace(microsecond=0),
+                "snapshot": snapshot,
+            }
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=target_dir,
+                delete=False,
+                suffix=".tmp",
+            ) as file:
+                temporary_path = file.name
+                json.dump(
+                    self._serialize_schedule_state_value(payload),
+                    file,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            os.replace(temporary_path, path)
+            return True
+        except OSError as exc:
+            self._append_debug_log(
+                f"voice_test_snapshot_write_failed type={snapshot_type} "
+                f"error={type(exc).__name__}: {exc}"
+            )
+            if temporary_path:
+                try:
+                    os.remove(temporary_path)
+                except OSError:
+                    pass
+            return False
+
+    def _load_schedule_alarm_voice_test_original_snapshot(self) -> dict[str, object] | None:
+        original_path = self._get_schedule_alarm_voice_test_original_storage_path()
+        if not os.path.isfile(original_path):
+            return None
+        try:
+            with open(original_path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except (OSError, json.JSONDecodeError) as exc:
+            self._append_debug_log(
+                f"voice_test_original_read_failed {type(exc).__name__}: {exc}"
+            )
+            return None
+        restored = self._deserialize_schedule_state_value(payload)
+        if not isinstance(restored, dict):
+            return None
+        snapshot = restored.get("snapshot")
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("schedule"), dict):
+            return None
+        return snapshot
+
+    def _remove_schedule_alarm_voice_test_session_files(self) -> None:
+        for path in (
+            self._get_schedule_alarm_voice_test_runtime_storage_path(),
+            self._get_schedule_alarm_voice_test_original_storage_path(),
+        ):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                self._append_debug_log(
+                    f"voice_test_snapshot_remove_failed path={path} "
+                    f"error={type(exc).__name__}: {exc}"
+                )
+
+    def _save_schedule_alarm_voice_test_runtime_snapshot(self) -> bool:
+        return self._write_schedule_alarm_voice_test_snapshot_file(
+            self._get_schedule_alarm_voice_test_runtime_storage_path(),
+            self._create_schedule_alarm_voice_test_snapshot(),
+            snapshot_type="runtime",
+        )
+
     def _is_current_schedule_alarm_voice_test_dataset(self) -> bool:
         if bool(getattr(self, "schedule_alarm_voice_test_active", False)):
             return True
-        for item in list(getattr(self, "schedule_events", [])) + list(getattr(self, "schedule_control_events", [])):
-            if isinstance(item, dict) and (
+
+        def is_test_item(item: dict[str, object]) -> bool:
+            return (
                 str(item.get("raw_key") or "").startswith("voice-test")
+                or str(item.get("boss_name") or "").startswith("고정테스트_")
                 or bool(item.get("voice_test_marker"))
-            ):
-                return True
-        for item in getattr(self, "fixed_boss_entries", []):
-            if isinstance(item, dict) and (
-                str(item.get("boss_name") or "").startswith("고정테스트_")
-                or bool(item.get("voice_test_marker"))
-            ):
-                return True
-        return False
+            )
+
+        runtime_items = [
+            item
+            for item in (
+                list(getattr(self, "schedule_events", []))
+                + list(getattr(self, "schedule_control_events", []))
+                + list(getattr(self, "fixed_boss_entries", []))
+            )
+            if isinstance(item, dict)
+        ]
+        return bool(runtime_items) and all(is_test_item(item) for item in runtime_items)
 
     def _save_schedule_alarm_voice_test_backup(self) -> bool:
-        if self._is_current_schedule_alarm_voice_test_dataset() and isinstance(self.schedule_alarm_voice_test_backup_snapshot, dict):
+        if self._is_current_schedule_alarm_voice_test_dataset():
+            disk_backup = self._load_schedule_alarm_voice_test_original_snapshot()
+            if isinstance(disk_backup, dict):
+                self.schedule_alarm_voice_test_backup_snapshot = disk_backup
+                self.schedule_alarm_voice_test_backup_version = str(
+                    disk_backup.get("voice_rule_version") or SCHEDULE_ALARM_VOICE_RULE_VERSION
+                )
+            if not isinstance(self.schedule_alarm_voice_test_backup_snapshot, dict):
+                self._append_debug_log("voice_test_backup_refused current_dataset_without_original")
+                return False
             self._refresh_schedule_alarm_voice_test_restore_button_state()
             return True
-        if (
-            isinstance(self.schedule_alarm_voice_test_backup_snapshot, dict)
-            and self.schedule_alarm_voice_test_backup_version == SCHEDULE_ALARM_VOICE_RULE_VERSION
+
+        snapshot = self._create_schedule_alarm_voice_test_snapshot()
+        if not self._write_schedule_alarm_voice_test_snapshot_file(
+            self._get_schedule_alarm_voice_test_original_storage_path(),
+            snapshot,
+            snapshot_type="original",
         ):
-            self._refresh_schedule_alarm_voice_test_restore_button_state()
-            return True
-        self.schedule_alarm_voice_test_backup_snapshot = self._create_schedule_alarm_voice_test_snapshot()
+            return False
+        self.schedule_alarm_voice_test_backup_snapshot = snapshot
         self.schedule_alarm_voice_test_backup_version = SCHEDULE_ALARM_VOICE_RULE_VERSION
         self._refresh_schedule_alarm_voice_test_restore_button_state()
+        self._append_debug_log(
+            "voice_test_original_saved "
+            f"events={len(getattr(self, 'schedule_events', []))} "
+            f"active={len(getattr(self, 'schedule_active_entries', []))} "
+            f"controls={len(getattr(self, 'schedule_control_events', []))}"
+        )
+        return True
+
+    def _recover_schedule_alarm_voice_test_backup_on_startup(self) -> bool:
+        backup = self._load_schedule_alarm_voice_test_original_snapshot()
+        if not isinstance(backup, dict):
+            return False
+        self.schedule_alarm_voice_test_backup_snapshot = backup
+        self.schedule_alarm_voice_test_backup_version = str(
+            backup.get("voice_rule_version") or SCHEDULE_ALARM_VOICE_RULE_VERSION
+        )
+        if not self._apply_schedule_alarm_voice_test_snapshot(backup):
+            self._append_debug_log("voice_test_startup_recovery_failed")
+            return False
+        self.schedule_alarm_voice_test_backup_snapshot = None
+        self.schedule_alarm_voice_test_backup_version = ""
+        self._remove_schedule_alarm_voice_test_session_files()
+        self._append_debug_log("voice_test_startup_recovery_complete")
         return True
 
     def _apply_schedule_alarm_voice_test_snapshot(self, snapshot: dict[str, object]) -> bool:
@@ -44320,7 +50841,7 @@ class BossTimerApp:
 
     def _play_schedule_alarm_voice_test_notice(self, text: str, filename: str) -> None:
         clip_path = os.path.join(SCHEDULE_ALARM_CHIME_DIR, filename)
-        if os.path.isfile(clip_path):
+        if self._is_schedule_alarm_ai_recording_preferred() and os.path.isfile(clip_path):
             self._play_or_queue_schedule_alarm_audio_sequence(
                 [clip_path],
                 text,
@@ -44328,9 +50849,17 @@ class BossTimerApp:
                 category="general",
                 rate=1,
                 force_audio=True,
+                allow_discord_bridge=False,
             )
             return
-        self._speak_schedule_alarm_text(text, rate=0, purge=False, async_mode=True)
+        self._queue_schedule_alarm_speech(
+            text,
+            beep=False,
+            category="general",
+            rate=0,
+            purge=False,
+            async_mode=True,
+        )
 
     def _build_schedule_alarm_voice_test_event(
         self,
@@ -44474,21 +51003,25 @@ class BossTimerApp:
             (6, "초미확정 젠시간 알림", 3, "minute", False, [], [], {"countdown": False}, 8),
             (7, "침공 초미확정 젠시간 알림", 3, "minute", True, [], [], {"countdown": False}, 8),
             (8, "침공 1분전 알림", 60, "minute", True, [], [], {"countdown": False}, 8),
-            (9, "일반 보스 5분전", 300, "minute", False, [], [], {"countdown": False}, 8),
-            (9, "일반 보스 1분전", 60, "minute", False, [], [], {"countdown": False}, 8),
-            (10, "일반 n분전 초읽기 겹침", 60, "minute", False, [("중앙초읽기", 8, "second", False)], [], {"countdown": True}, 24),
-            (11, "동시간 보스 n분전", 300, "minute", False, [("동시간보스A", 300, "minute", False)], [], {"countdown": False}, 8),
-            (12, "연타임보스 1분전", 60, "minute", False, [("연타임보스A", 70, "minute", False), ("연타임보스B", 82, "minute", False)], [], {"countdown": False}, 8),
-            (13, "연속보스 감지", 610, "minute", False, [("연속보스A", 650, "minute", False), ("연속보스B", 690, "minute", False)], [], {"countdown": False}, 8),
-            (14, "고정보스 5분전", 300, "fixed", False, [], [300], {"countdown": False}, 8),
-            (14, "고정보스 1분전", 60, "fixed", False, [], [60], {"countdown": False}, 8),
-            (15, "고정보스 젠시간 알림", 4, "fixed", False, [], [60], {"countdown": False, "fixed_boss_skip_due_time": False}, 8),
-            (16, "고정보스 초읽기 겹침", 60, "fixed", False, [("고정겹침초읽기", 8, "second", False)], [60], {"countdown": True}, 12),
-            (17, "고정보스 초확정 근접", 60, "fixed", False, [("고정근접초확정", -2, "second", False)], [60], {"countdown": False}, 10),
-            (18, "고정보스 재생 직전 보정", 57, "fixed", False, [("고정보정초읽기", 16, "second", False)], [50], {"countdown": True}, 28),
-            (19, "고정보스 재생 직전 보정 반례", 70, "fixed", False, [("고정보정유지초읽기", 16, "second", False)], [60], {"countdown": True}, 28),
-            (20, "다음 보스 후속 안내", 8, "second", False, [("다음후속보스", 10, "second", False)], [], {"countdown": True}, 18),
-            (21, "차임벨 (기본)", 60, "minute", False, [], [], {"countdown": False}, 8),
+            (9, "일반·침공 복합 큐 (초미확정)", 6, "complex_minute", False, [], [], {"countdown": False}, 440),
+            (10, "일반·침공 복합 큐 (초확정)", 6, "complex_second", False, [], [], {"countdown": False}, 440),
+            (11, "동시간 묶음 기준 (초확정)", 6, "compact_second", False, [], [], {"countdown": False}, 150),
+            (12, "초확정 근접·동시간 복합 큐", 6, "compact_second_staggered", False, [], [], {"countdown": False}, 105),
+            (13, "일반 보스 5분전", 300, "minute", False, [], [], {"countdown": False}, 8),
+            (13, "일반 보스 1분전", 60, "minute", False, [], [], {"countdown": False}, 8),
+            (14, "일반 n분전 초읽기 겹침", 60, "minute", False, [("중앙초읽기", 8, "second", False)], [], {"countdown": True}, 24),
+            (15, "동시간 보스 n분전", 300, "minute", False, [("동시간보스A", 300, "minute", False)], [], {"countdown": False}, 8),
+            (16, "동시간 보스 1분전", 60, "minute", False, [("동시간1분A", 60, "minute", False), ("동시간1분B", 60, "minute", False)], [], {"countdown": False}, 8),
+            (17, "연속보스 감지", 610, "minute", False, [("연속보스A", 650, "minute", False), ("연속보스B", 690, "minute", False)], [], {"countdown": False}, 8),
+            (18, "고정보스 5분전", 306, "fixed", False, [], [300], {"countdown": False}, 14),
+            (18, "고정보스 1분전", 60, "fixed", False, [], [60], {"countdown": False}, 8),
+            (19, "고정보스 젠시간 알림", 4, "fixed", False, [], [60], {"countdown": False, "fixed_boss_skip_due_time": False}, 14),
+            (20, "고정보스 초읽기 겹침", 60, "fixed", False, [("고정겹침초읽기", 8, "second", False)], [60], {"countdown": True}, 20),
+            (21, "고정보스 초확정 근접", 60, "fixed", False, [("고정근접초확정", -2, "second", False)], [60], {"countdown": False}, 18),
+            (22, "고정보스 재생 직전 보정", 57, "fixed", False, [("고정보정초읽기", 18, "second", False)], [50], {"countdown": True}, 36),
+            (23, "고정보스 재생 직전 보정 반례", 70, "fixed", False, [("고정보정유지초읽기", 18, "second", False)], [60], {"countdown": True}, 36),
+            (24, "다음 보스 후속 안내", 8, "second", False, [("다음후속보스", 10, "second", False)], [], {"countdown": True}, 18),
+            (25, "차임벨 (기본)", 60, "minute", False, [], [], {"countdown": False}, 8),
         ]
         if selected_rule_index is not None:
             specs = [spec for spec in specs if int(spec[0]) == int(selected_rule_index)]
@@ -44499,6 +51032,9 @@ class BossTimerApp:
         for index, (rule_index, label, target_offset, kind, invasion, extras, fixed_offsets, settings, duration_seconds) in enumerate(specs):
             alert_at = next_alert_at
             target_at = alert_at + timedelta(seconds=int(target_offset))
+            if int(rule_index) in {0, 1, 9, 10, 11, 12}:
+                # 젠시간 알림은 긴 대기 없이 클릭 후 6초에 실제 알림이 오도록 한다.
+                target_at = now + timedelta(seconds=6)
             second_precision_extra_offsets = [
                 int(extra_offset)
                 for _extra_name, extra_offset, extra_precision, _extra_invasion in extras
@@ -44517,8 +51053,60 @@ class BossTimerApp:
             case_fixed_entries: list[dict[str, object]] = []
             case_normal_offsets: set[int] = set()
             if kind == "minute" and int(target_offset) >= 50:
-                case_normal_offsets.add(int(target_offset))
-            if kind == "fixed":
+                # 연속보스 테스트는 구성원을 활성화할 offset만 필요하다. 610을
+                # 넣으면 전용 안내 전에 첫 보스의 일반 안내가 선행 재생된다.
+                case_normal_offsets.add(60 if int(rule_index) == 17 else int(target_offset))
+            if kind in {"complex_minute", "complex_second", "compact_second", "compact_second_staggered"}:
+                # 실제 22:59~23:06 간격을 유지한다. 테스트 시작 6초 뒤를
+                # 22:59로 보고, 동시간·1분·5분·6분 뒤 이벤트를 그대로
+                # 생성해 일반/침공 큐가 섞이는 구간을 확인한다.
+                precision = "second" if kind in {"complex_second", "compact_second", "compact_second_staggered"} else "minute"
+                if kind == "compact_second":
+                    case_normal_offsets.add(60)
+                    complex_rows = (
+                        ("라이노르", 0, False),
+                        ("브륀힐드", 0, False),
+                        ("니드호그", 60, False),
+                        ("셀로비아", 60, False),
+                        ("라타토스크", 60, False),
+                        ("페티", 120, False),
+                    )
+                elif kind == "compact_second_staggered":
+                    case_normal_offsets.add(60)
+                    complex_rows = (
+                        ("라이노르", 0, False),
+                        ("브륀힐드", 2, False),
+                        ("니드호그", 60, False),
+                        ("셀로비아", 60, False),
+                        ("페티", 60, False),
+                        ("라타토스크", 61, False),
+                    )
+                else:
+                    # 9-1/9-2는 젠 알림뿐 아니라, 앞 그룹 재생 중 큐에 들어오는
+                    # 다음 그룹의 1분전과 페티의 5분전까지 함께 검증한다.
+                    case_normal_offsets.update({300, 60})
+                    complex_rows = (
+                        ("라이노르", 0, False),
+                        ("브륀힐드", 0, False),
+                        ("니드호그", 60, False),
+                        ("셀로비아", 60, False),
+                        ("라타토스크", 60, True),
+                        ("비요른", 60, True),
+                        ("헤르모드", 60, True),
+                        ("페티", 360, False),
+                        ("라이노르", 420, True),
+                    )
+                for complex_index, (complex_name, seconds_after_start, complex_invasion) in enumerate(complex_rows):
+                    case_events.append(
+                        self._build_schedule_alarm_voice_test_event(
+                            complex_name,
+                            target_at + timedelta(seconds=int(seconds_after_start)),
+                            index=(index * 100) + complex_index,
+                            precision=precision,
+                            invasion=complex_invasion,
+                        )
+                    )
+            elif kind == "fixed":
                 case_events.append(self._build_schedule_alarm_voice_test_fixed_dummy_event(now, index=index))
                 boss_name = pick_fixed_boss()
                 case_fixed_entries.append(self._build_schedule_alarm_voice_test_fixed_entry(boss_name, target_at))
@@ -44539,7 +51127,7 @@ class BossTimerApp:
                 )
             for extra_name, extra_offset, extra_precision, extra_invasion in extras:
                 extra_boss_name = pick_general_boss()
-                if kind == "minute" and str(extra_precision) == "minute":
+                if kind == "minute" and str(extra_precision) == "minute" and int(rule_index) != 17:
                     case_normal_offsets.add(int(target_offset))
                 case_events.append(
                     self._build_schedule_alarm_voice_test_event(
@@ -44576,8 +51164,6 @@ class BossTimerApp:
         countdown_enabled = bool(settings.get("countdown", False)) if isinstance(settings, dict) else False
         try:
             self.schedule_alarm_master_var.set(True)
-            self.schedule_alarm_boss_ai_voice_var.set(True)
-            self.schedule_alarm_countdown_ai_voice_var.set(True)
             self.schedule_alarm_countdown_enabled_var.set(countdown_enabled)
             self.schedule_alarm_countdown_start_var.set("15")
             self.schedule_second_precision_expire_hours_var.set("24")
@@ -44614,13 +51200,66 @@ class BossTimerApp:
         except tk.TclError:
             pass
         self.schedule_alarm_fired_keys = {}
+        self.schedule_alarm_last_tick_second = None
         self._reset_schedule_alarm_event_index()
         self._mark_schedule_events_normalized()
         self._bump_schedule_voice_broker_generation()
+        if not self._save_schedule_alarm_voice_test_runtime_snapshot():
+            self._append_debug_log("voice_test_runtime_snapshot_save_failed")
+        self._presend_schedule_alarm_voice_test_countdown(case)
         self._refresh_schedule_tree_scope()
         self._refresh_schedule_alarm_window()
         if self.fixed_boss_window_open:
             self._refresh_fixed_boss_list()
+
+    def _presend_schedule_alarm_voice_test_countdown(self, case: dict[str, object]) -> None:
+        settings = case.get("settings") if isinstance(case.get("settings"), dict) else {}
+        if not bool(settings.get("countdown")):
+            return
+        now_value = datetime.now()
+        countdown_start_seconds = min(
+            60,
+            max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 15)),
+        )
+        grouped_events: dict[datetime, list[dict[str, object]]] = {}
+        for event in self.schedule_events:
+            if not isinstance(event, dict) or self._is_schedule_invasion_item(event):
+                continue
+            scheduled_at = event.get("scheduled_at")
+            if not isinstance(scheduled_at, datetime):
+                continue
+            remaining_seconds = (scheduled_at - now_value).total_seconds()
+            if not 0.0 < remaining_seconds <= float(countdown_start_seconds):
+                continue
+            grouped_events.setdefault(scheduled_at.replace(microsecond=0), []).append(event)
+        if not grouped_events:
+            return
+        ordered_groups = sorted(grouped_events.items(), key=lambda item: item[0])
+        scheduled_at, events = ordered_groups[0]
+        group_identity = self._build_schedule_alarm_event_group_identity(events)
+        display_text = " ".join(self._get_schedule_alarm_group_display_names(events)).strip()
+        emitted = self._append_discord_countdown_sequence_bridge_request(
+            scheduled_at=scheduled_at,
+            countdown_start_seconds=countdown_start_seconds,
+            group_identity=group_identity,
+            display_text=display_text,
+        )
+        self._write_schedule_alarm_voice_test_log(
+            "voice_test_countdown_presend",
+            target_time=scheduled_at,
+            countdown_start_seconds=countdown_start_seconds,
+            group_identity=group_identity,
+            display_text=display_text,
+            emitted=emitted,
+        )
+        for skipped_at, skipped_events in ordered_groups[1:]:
+            self._write_schedule_alarm_voice_test_log(
+                "voice_test_countdown_presend_skip",
+                reason="later_chain_target",
+                target_time=skipped_at,
+                display_text=" ".join(self._get_schedule_alarm_group_display_names(skipped_events)).strip(),
+                leader_target_time=scheduled_at,
+            )
 
     def _set_schedule_alarm_voice_test_highlight(self, case_index: int | None) -> None:
         self.schedule_alarm_voice_test_current_index = -1 if case_index is None else int(case_index)
@@ -44655,6 +51294,7 @@ class BossTimerApp:
         self.schedule_alarm_voice_test_after_ids = []
 
     def _stop_schedule_alarm_voice_test_runtime(self, status_text: str = "") -> None:
+        self._cancel_schedule_alarm_voice_test_discord_bridge()
         self.schedule_alarm_voice_test_active = False
         self._cancel_schedule_alarm_voice_test_after_jobs()
         if self.schedule_alarm_voice_test_restore_after_id is not None:
@@ -44667,6 +51307,12 @@ class BossTimerApp:
         if status_text:
             self.schedule_alarm_voice_test_status_var.set(status_text)
         self._bump_schedule_voice_broker_generation()
+        self._drop_pending_schedule_alarm_queue_items(category="countdown")
+        self._drop_pending_schedule_alarm_queue_items(category="general")
+        self._stop_schedule_alarm_countdown_audio(close_host=False)
+        self._stop_schedule_alarm_second_precision_gen_audio_playback()
+        self._stop_schedule_alarm_boss_audio(close_host=False, force=True)
+        self.schedule_alarm_last_tick_second = None
 
     def _stop_schedule_alarm_voice_test(self) -> None:
         self._write_schedule_alarm_voice_test_log("test_stop_requested")
@@ -44711,7 +51357,10 @@ class BossTimerApp:
         button = getattr(self, "schedule_alarm_voice_test_restore_button", None)
         if button is None or not self._widget_available(button):
             return
-        enabled = isinstance(getattr(self, "schedule_alarm_voice_test_backup_snapshot", None), dict)
+        enabled = (
+            isinstance(getattr(self, "schedule_alarm_voice_test_backup_snapshot", None), dict)
+            or os.path.isfile(self._get_schedule_alarm_voice_test_original_storage_path())
+        )
         try:
             if enabled:
                 button.config(state="normal", bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", cursor="hand2")
@@ -44759,11 +51408,49 @@ class BossTimerApp:
         self._refresh_schedule_alarm_voice_test_button_state()
         return True
 
-    def _start_schedule_alarm_voice_test(self) -> None:
+    def _start_schedule_alarm_voice_test(self, *, cache_ready: bool = False) -> None:
         selected_rule_index = getattr(self, "schedule_alarm_voice_test_selected_rule_index", None)
         if selected_rule_index is None:
             self.schedule_alarm_voice_test_status_var.set("테스트할 경우를 먼저 선택하세요.")
             return
+        countdown_test_rule_indexes = {2, 3, 4, 5, 14, 20, 22, 23, 24}
+        edge_cache = getattr(self, "edge_tts_cache", None)
+        if (
+            not cache_ready
+            and int(selected_rule_index) in countdown_test_rule_indexes
+            and edge_cache is not None
+            and edge_cache.configured
+        ):
+            cache_jobs = self._build_edge_tts_cache_jobs(
+                include_catalogs=False,
+                include_seconds=True,
+                include_messages=True,
+            )
+            missing_jobs = self._get_missing_edge_tts_cache_jobs(cache_jobs)
+            if missing_jobs:
+                self.schedule_alarm_voice_test_status_var.set(
+                    f"초읽기 TTS 캐시 {len(missing_jobs)}개를 준비한 뒤 테스트를 시작합니다."
+                )
+
+                def continue_test(success: bool, _generated: int, failed: int) -> None:
+                    if not success:
+                        self.schedule_alarm_voice_test_status_var.set(
+                            f"초읽기 TTS 캐시 생성 실패 {failed}개로 테스트를 시작하지 않았습니다."
+                        )
+                        return
+                    self._start_schedule_alarm_voice_test(cache_ready=True)
+
+                if self._start_edge_tts_cache_generation(
+                    cache_jobs,
+                    parent=self.schedule_alarm_voice_rule_window,
+                    completion_message="초읽기 테스트용 TTS 캐시 준비를 완료했습니다.",
+                    on_complete=continue_test,
+                ):
+                    return
+                self.schedule_alarm_voice_test_status_var.set(
+                    "진행 중인 TTS 캐시 생성이 끝난 뒤 테스트를 다시 눌러주세요."
+                )
+                return
         if not self._begin_schedule_alarm_voice_test_button_cooldown():
             return
         self._stop_schedule_alarm_voice_test_runtime()
@@ -44779,15 +51466,16 @@ class BossTimerApp:
             self.schedule_alarm_voice_test_status_var.set("선택한 경우의 테스트 데이터를 만들 수 없습니다.")
             return
         self.schedule_alarm_voice_test_cases = [dict(case) for case in cases]
+        self.schedule_alarm_voice_test_bridge_scope_id = f"voice-test:{uuid.uuid4().hex}"
         self._open_schedule_alarm_voice_test_log(self.schedule_alarm_voice_test_cases[0], delay_seconds)
         self._write_schedule_alarm_voice_test_log(
             "test_start_requested",
             selected_rule_index=selected_rule_index,
             delay_seconds=delay_seconds,
+            bridge_scope_id=self.schedule_alarm_voice_test_bridge_scope_id,
             cases=self.schedule_alarm_voice_test_cases,
         )
         self.schedule_alarm_voice_test_active = True
-        self._play_schedule_alarm_voice_test_notice("테스트 시작", "테스트_시작.wav")
         self._apply_schedule_alarm_voice_test_case_schedule(self.schedule_alarm_voice_test_cases[0])
         self._set_schedule_alarm_voice_test_highlight(0)
         duration_seconds = max(
@@ -44805,7 +51493,8 @@ class BossTimerApp:
     def _restore_schedule_alarm_voice_test_backup(self, *, skip_runtime_stop: bool = False) -> bool:
         if not skip_runtime_stop:
             self._stop_schedule_alarm_voice_test_runtime()
-        backup = self.schedule_alarm_voice_test_backup_snapshot
+        disk_backup = self._load_schedule_alarm_voice_test_original_snapshot()
+        backup = disk_backup if isinstance(disk_backup, dict) else self.schedule_alarm_voice_test_backup_snapshot
         if not isinstance(backup, dict):
             self.schedule_alarm_voice_test_status_var.set("복원할 백업 스케쥴이 없습니다.")
             return False
@@ -44813,6 +51502,7 @@ class BossTimerApp:
             self.schedule_alarm_voice_test_status_var.set("기존 스케쥴을 복원했습니다.")
             self.schedule_alarm_voice_test_backup_snapshot = None
             self.schedule_alarm_voice_test_backup_version = ""
+            self._remove_schedule_alarm_voice_test_session_files()
             self._refresh_schedule_alarm_voice_test_restore_button_state()
             self._return_schedule_view_to_today_after_voice_test()
             return True
@@ -44828,7 +51518,10 @@ class BossTimerApp:
             self._append_debug_log(f"voice_test_today_trigger_failed {type(exc).__name__}: {exc}")
 
     def _restore_schedule_alarm_voice_test_backup_with_confirm(self) -> None:
-        if not isinstance(getattr(self, "schedule_alarm_voice_test_backup_snapshot", None), dict):
+        if (
+            not isinstance(getattr(self, "schedule_alarm_voice_test_backup_snapshot", None), dict)
+            and not os.path.isfile(self._get_schedule_alarm_voice_test_original_storage_path())
+        ):
             self._refresh_schedule_alarm_voice_test_restore_button_state()
             self.schedule_alarm_voice_test_status_var.set("복원할 백업 스케쥴이 없습니다.")
             return
@@ -45044,6 +51737,14 @@ class BossTimerApp:
             )
 
     def _open_schedule_alarm_voice_rule_window(self) -> None:
+        if not self._save_schedule_alarm_voice_test_backup():
+            self._show_centered_error(
+                "음성 설정",
+                "기존 스케쥴 원본을 별도 파일에 저장하지 못해 음성 설정을 열지 않았습니다.",
+                parent=self.schedule_alarm_window if self._widget_available(self.schedule_alarm_window) else self.root,
+            )
+            return
+        self._prepare_schedule_alarm_voice_output()
         if self.schedule_alarm_voice_rule_window is not None and self.schedule_alarm_voice_rule_window.winfo_exists():
             self.schedule_alarm_voice_rule_window.lift()
             self.schedule_alarm_voice_rule_window.focus_force()
@@ -45058,6 +51759,10 @@ class BossTimerApp:
             self._hide_schedule_alarm_voice_rule_tooltip()
             if bool(getattr(self, "schedule_alarm_voice_test_active", False)) or self._is_current_schedule_alarm_voice_test_dataset():
                 self._stop_schedule_alarm_voice_test()
+            else:
+                self._remove_schedule_alarm_voice_test_session_files()
+                self.schedule_alarm_voice_test_backup_snapshot = None
+                self.schedule_alarm_voice_test_backup_version = ""
             self.schedule_alarm_voice_rule_tree = None
             self.schedule_alarm_voice_architecture_doc_button = None
             self.schedule_alarm_voice_test_button = None
@@ -45340,9 +52045,7 @@ class BossTimerApp:
     def _refresh_schedule_alarm_window(self) -> None:
         self._sync_schedule_alarm_settings_with_boss_definitions()
         self._refresh_schedule_alarm_boss_tab_buttons()
-        self.schedule_alarm_voice_label_var.set(
-            f"기본 음성: {self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME}"
-        )
+        self._refresh_schedule_alarm_voice_label()
         self._refresh_schedule_alarm_common_listbox()
         self._refresh_schedule_alarm_boss_tree()
         if not self.schedule_alarm_selected_boss_name and self.schedule_alarm_boss_tree is not None and self._widget_available(self.schedule_alarm_boss_tree):
@@ -45543,8 +52246,7 @@ class BossTimerApp:
             "countdown_start_seconds": countdown_start,
             "second_precision_expire_hours": second_precision_expire_hours,
             "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_var.get()),
-            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_var.get()),
-            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_var.get()),
+            "ai_recording_preferred": bool(self.schedule_alarm_ai_recording_preferred_var.get()),
             "fixed_boss_skip_due_time": bool(self.schedule_fixed_boss_skip_due_time_var.get()),
         }
 
@@ -45553,8 +52255,7 @@ class BossTimerApp:
             "countdown_start_seconds": int(self.schedule_alarm_countdown_start_default),
             "second_precision_expire_hours": int(self.schedule_second_precision_expire_hours_default),
             "countdown_enabled": bool(self.schedule_alarm_countdown_enabled_default),
-            "countdown_ai_voice_enabled": bool(self.schedule_alarm_countdown_ai_voice_enabled_default),
-            "boss_ai_voice_enabled": bool(self.schedule_alarm_boss_ai_voice_enabled_default),
+            "ai_recording_preferred": bool(self.schedule_alarm_ai_recording_preferred_default),
             "fixed_boss_skip_due_time": bool(getattr(self, "schedule_fixed_boss_skip_due_time_default", True)),
         }
 
@@ -45578,29 +52279,27 @@ class BossTimerApp:
         self.schedule_alarm_countdown_start_default = countdown_start
         self.schedule_second_precision_expire_hours_default = second_precision_expire_hours
         self.schedule_alarm_countdown_enabled_default = bool(self.schedule_alarm_countdown_enabled_var.get())
-        self.schedule_alarm_countdown_ai_voice_enabled_default = bool(self.schedule_alarm_countdown_ai_voice_var.get())
-        self.schedule_alarm_boss_ai_voice_enabled_default = bool(self.schedule_alarm_boss_ai_voice_var.get())
+        self.schedule_alarm_ai_recording_preferred_default = bool(self.schedule_alarm_ai_recording_preferred_var.get())
         self.schedule_fixed_boss_skip_due_time_default = bool(self.schedule_fixed_boss_skip_due_time_var.get())
-        countdown_ai_enabled = self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_countdown_ai_voice_enabled_default
-        boss_audio_enabled = self.schedule_alarm_boss_ai_voice_enabled_default
-        active_countdown_window = False
-        try:
-            active_countdown_window = self._has_active_schedule_countdown_window(self._get_schedule_reference_datetime())
-        except Exception:
-            active_countdown_window = False
+        countdown_ai_enabled = self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_ai_recording_preferred_default
+        boss_audio_enabled = self.schedule_alarm_ai_recording_preferred_default
         if not countdown_ai_enabled:
             self._drop_pending_schedule_alarm_queue_items(category="countdown")
-            self._stop_schedule_alarm_countdown_audio(close_host=not active_countdown_window)
+            self._stop_schedule_alarm_countdown_audio(close_host=False)
         elif self._schedule_alarm_countdown_requires_audio_host():
             self._ensure_schedule_alarm_countdown_audio_host_process()
         if not boss_audio_enabled:
             self._stop_schedule_alarm_boss_audio(close_host=True)
+            self._stop_schedule_alarm_near_boss_audio_host()
+            self._stop_schedule_alarm_second_precision_gen_audio_host()
         else:
-            self._ensure_schedule_alarm_boss_audio_host_process()
+            self._prepare_schedule_alarm_voice_output()
+        if not boss_audio_enabled:
+            self._prefetch_schedule_alarm_edge_tts_common_phrases()
         self._save_schedule_alarm_settings()
         self._save_settings()
         if show_status:
-            self.schedule_alarm_status_var.set("초읽기와 음성 설정을 저장했습니다.")
+            self.schedule_alarm_status_var.set("초읽기와 AI 녹음파일 우선 사용 설정을 저장했습니다.")
         self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
         if self.schedule_tree is not None and self.schedule_tree.winfo_exists():
             self._refresh_schedule_tree_scope()
@@ -45779,7 +52478,9 @@ class BossTimerApp:
 
     def _write_fixed_boss_definitions_file(self, entries: list[dict[str, object]]) -> None:
         self._ensure_init_dir()
-        with open(SCHEDULE_FIXED_BOSSES_PATH, "w", encoding="utf-8") as file:
+        fixed_bosses_path = self._get_schedule_fixed_bosses_storage_path()
+        os.makedirs(os.path.dirname(fixed_bosses_path), exist_ok=True)
+        with open(fixed_bosses_path, "w", encoding="utf-8") as file:
             file.write("# 보스명|시간(HH:MM:SS)|요일(월,화,...)|반복(weekly/biweekly_current/biweekly_next)|기준일(YYYY-MM-DD)|사용여부(1/0)|글자색(#RRGGBB)|배경색(#RRGGBB)\n")
             for item in entries:
                 file.write(
@@ -45795,12 +52496,13 @@ class BossTimerApp:
 
     def _load_fixed_boss_definitions(self) -> list[dict[str, object]]:
         self._ensure_init_dir()
-        if not os.path.exists(SCHEDULE_FIXED_BOSSES_PATH):
+        fixed_bosses_path = self._get_schedule_fixed_bosses_storage_path()
+        if not os.path.exists(fixed_bosses_path):
             return []
         entries: list[dict[str, object]] = []
         changed = False
         try:
-            with open(SCHEDULE_FIXED_BOSSES_PATH, "r", encoding="utf-8") as file:
+            with open(fixed_bosses_path, "r", encoding="utf-8") as file:
                 for raw_line in file:
                     line = self._normalize_schedule_definition_line(raw_line)
                     if not line or line.startswith("#"):
@@ -46905,6 +53607,10 @@ class BossTimerApp:
         self.fixed_boss_status_var.set(f"{str(entry.get('boss_name') or '')} 고정보스를 수정했습니다.")
         self._reset_fixed_boss_form()
         self._set_fixed_boss_add_button_active(False)
+        self._ensure_edge_tts_cache_for_names(
+            {str(entry.get("boss_name") or "").strip()},
+            parent=self.schedule_window,
+        )
 
     def _apply_fixed_boss_add(self) -> None:
         entry = self._build_fixed_boss_entry_from_form()
@@ -46925,6 +53631,10 @@ class BossTimerApp:
         self.fixed_boss_status_var.set(f"{str(entry.get('boss_name') or '')} 고정보스를 추가했습니다.")
         self._reset_fixed_boss_form()
         self._set_fixed_boss_add_button_active(False)
+        self._ensure_edge_tts_cache_for_names(
+            {str(entry.get("boss_name") or "").strip()},
+            parent=self.schedule_window,
+        )
 
     def _position_schedule_window(self) -> None:
         if self.schedule_window is None or not self.schedule_window.winfo_exists() or not self.schedule_window_open:
@@ -48692,9 +55402,11 @@ class BossTimerApp:
             ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
             ("동기화", "#0ea5e9", "#ffffff", self._sync_selected_github_schedule, 280, 46, 58),
             ("서버 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
-            ("내PC에 저장", "#16a34a", "#ffffff", self._save_current_schedule_shared_archive, 18, 80, 102),
-            ("PC에서 불러오기", "#2563eb", "#ffffff", self._load_schedule_from_shared_archive, 128, 80, 132),
-            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 268, 80, 84),
+            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 468, 46, 64),
+            ("디스코드봇 실행", "#5865f2", "#ffffff", self._toggle_discord_bot_runtime, 18, 80, 132),
+            ("설정", "#475569", "#ffffff", self.open_discord_bot_settings_window, 158, 80, 62),
+            ("보탐 로그", "#475569", "#ffffff", self._open_discord_schedule_monitor_window, 228, 80, 90),
+            ("초대링크", "#16a34a", "#ffffff", self.open_discord_bot_invite_window, 326, 80, 86),
             ("서버 추가/삭제", "#0ea5e9", "#ffffff", self._open_github_server_manage_dialog, 672, 10, 112),
             ("고정 보스", "#f8f1df", "#7c2d12", self.open_fixed_boss_window, 794, 46, 110),
             ("보스 설정", "#f59e0b", "#ffffff", self.open_schedule_boss_config_window, 914, 46, 110),
@@ -48723,12 +55435,17 @@ class BossTimerApp:
                 self.schedule_github_sync_button = button
             elif command == self._open_github_data_upload_dialog:
                 self.schedule_github_upload_button = button
+            elif command == self._toggle_discord_bot_runtime:
+                self.discord_bot_toggle_button = button
+                self.schedule_discord_bot_button = button
             hover_bg = (
                 "#1d4ed8" if bg == "#2563eb"
                 else "#bae6fd" if bg == "#e0f2fe"
                 else "#0284c7" if bg == "#0ea5e9"
                 else "#0369a1" if bg == "#0284c7"
                 else "#15803d" if bg == "#16a34a"
+                else "#4752c4" if bg == "#5865f2"
+                else "#334155" if bg == "#475569"
                 else "#d97706" if bg == "#f59e0b"
                 else "#6d28d9" if bg == "#7c3aed"
                 else "#b91c1c" if bg == "#dc2626"
@@ -48736,6 +55453,17 @@ class BossTimerApp:
                 else "#115e59"
             )
             self._bind_hover_button(button, bg, hover_bg, fg, fg)
+        self.discord_bot_status_label = tk.Label(
+            top_frame,
+            textvariable=self.discord_bot_status_var,
+            font=self.percent_font,
+            bg="#dbeafe",
+            fg="#334155",
+            anchor="w",
+        )
+        self.discord_bot_status_label.place(x=420, y=86, width=136, height=18)
+        self._refresh_discord_bot_status_ui_async()
+        self._schedule_discord_bot_status_poll()
         self.schedule_github_server_combo = ttk.Combobox(
             top_frame,
             textvariable=self.schedule_github_server_var,
@@ -50813,8 +57541,8 @@ class BossTimerApp:
         countdown_entry.bind("<Return>", lambda _event: self._apply_schedule_alarm_global_options())
         tk.Checkbutton(
             right_frame,
-            text="초읽기 AI 음성",
-            variable=self.schedule_alarm_countdown_ai_voice_var,
+            text="AI 녹음파일 우선 사용",
+            variable=self.schedule_alarm_ai_recording_preferred_var,
             command=self._apply_schedule_alarm_global_options,
             font=self.percent_font,
             bg="#eff6ff",
@@ -50826,21 +57554,6 @@ class BossTimerApp:
             bd=0,
             cursor="hand2",
         ).place(x=18, y=492)
-        tk.Checkbutton(
-            right_frame,
-            text="보스 알람 AI 음성",
-            variable=self.schedule_alarm_boss_ai_voice_var,
-            command=self._apply_schedule_alarm_global_options,
-            font=self.percent_font,
-            bg="#eff6ff",
-            fg="#0f172a",
-            selectcolor="#ffffff",
-            activebackground="#eff6ff",
-            activeforeground="#0f172a",
-            highlightthickness=0,
-            bd=0,
-            cursor="hand2",
-        ).place(x=156, y=492)
         countdown_reload_test_button = tk.Button(
             right_frame,
             text="초읽기 Reload/Test",
@@ -50893,7 +57606,25 @@ class BossTimerApp:
             bg="#eff6ff",
             fg="#475569",
             anchor="w",
-        ).place(x=18, y=546, width=458, height=14)
+            justify="left",
+            wraplength=450,
+        ).place(x=18, y=540, width=458, height=32)
+        edge_tts_settings_button = tk.Button(
+            right_frame,
+            text="edge-tts 설정",
+            font=self.percent_font,
+            bg="#dcfce7",
+            fg="#166534",
+            activebackground="#bbf7d0",
+            activeforeground="#14532d",
+            relief="raised",
+            bd=1,
+            highlightthickness=0,
+            command=self._open_edge_tts_settings_window,
+            cursor="hand2",
+        )
+        edge_tts_settings_button.place(x=314, y=456, width=156, height=28)
+        self._bind_hover_button(edge_tts_settings_button, "#dcfce7", "#bbf7d0", "#166534", "#14532d")
         self.schedule_alarm_window_status_label = tk.Label(
             right_frame,
             textvariable=self.schedule_alarm_status_var,
@@ -50902,9 +57633,9 @@ class BossTimerApp:
             fg="#1e3a8a",
             anchor="w",
         )
-        self.schedule_alarm_window_status_label.place(x=18, y=564, width=458, height=14)
+        self.schedule_alarm_window_status_label.place(x=18, y=570, width=458, height=14)
 
-        self.schedule_alarm_voice_label_var.set(f"기본 음성: {self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME}")
+        self._refresh_schedule_alarm_voice_label()
         self.schedule_alarm_status_var.set("공통 알람 시간을 추가한 뒤 전체 적용으로 배포할 수 있습니다.")
         self._refresh_schedule_alarm_window()
 
@@ -57557,6 +64288,8 @@ class BossTimerApp:
 
     def on_close(self) -> None:
         self._reset_master_developer_author_clicks()
+        if not bool(getattr(self, "scheduler_worker_mode", False)):
+            self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
         self.running = False
         self._cancel_update()
         if self.main_clock_after_id is not None:
@@ -57584,6 +64317,14 @@ class BossTimerApp:
         self._stop_expected_blink()
         self._stop_record_label_blink()
         self._stop_remaining_time_intro_blink()
+        if bool(getattr(self, "schedule_alarm_voice_test_active", False)) or self._is_current_schedule_alarm_voice_test_dataset():
+            self._stop_schedule_alarm_voice_test_runtime()
+            restored = self._restore_schedule_alarm_voice_test_backup(skip_runtime_stop=True)
+            self._append_debug_log(f"voice_test_shutdown_restore restored={int(bool(restored))}")
+        else:
+            self._remove_schedule_alarm_voice_test_session_files()
+            self.schedule_alarm_voice_test_backup_snapshot = None
+            self.schedule_alarm_voice_test_backup_version = ""
         self._stop_background_music()
         self._update_window_positions()
         self._save_record_book_average_cache()
@@ -57600,6 +64341,10 @@ class BossTimerApp:
                 pass
             self.schedule_alarm_after_id = None
         self._shutdown_schedule_alarm_tts_worker()
+        self._shutdown_edge_tts()
+        edge_tts_window = getattr(self, "edge_tts_settings_window", None)
+        if edge_tts_window is not None and self._widget_available(edge_tts_window):
+            edge_tts_window.destroy()
         if self.schedule_alarm_chime_window is not None and self.schedule_alarm_chime_window.winfo_exists():
             self.schedule_alarm_chime_window.destroy()
         if self.settings_notice_after_id is not None and hasattr(self, "settings_window") and self.settings_window.winfo_exists():

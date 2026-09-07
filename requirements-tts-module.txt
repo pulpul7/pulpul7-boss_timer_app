@@ -1,0 +1,2 @@
+# Optional online TTS engine. This is intentionally not part of the main EXE.
+edge-tts>=7.2.8,<8

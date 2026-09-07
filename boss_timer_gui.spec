@@ -34,14 +34,23 @@ python_root = Path(sys.executable).resolve().parent
 dll_dir = python_root / "DLLs"
 tcl_root = python_root / "tcl"
 project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
-BUILD_VERSION = "v3.0.0"
-BUILD_LAST_UPDATED = "2026-04-17"
+BUILD_VERSION = "v5.0.0"
+BUILD_LAST_UPDATED = "2026-09-02"
 DISTRIBUTION_DEFAULT_SETTING_OVERRIDES = {
     "schedule_share_exclude_elapsed": "True",
 }
 DISTRIBUTION_DEFAULT_ALARM_OVERRIDES = {
-    "countdown_ai_voice_enabled": True,
-    "boss_ai_voice_enabled": True,
+    "ai_recording_preferred": True,
+}
+# 배포본은 음성 캐시만 기본 데이터로 포함한다. 아래 파일은 사용자의 서버,
+# 봇 채널, 스케쥴을 담을 수 있으므로 어떤 경우에도 패키지에 들어가면 안 된다.
+DISTRIBUTION_PRIVATE_RUNTIME_FILENAMES = {
+    "discord_bot.ini",
+    "discord_voice_commands.json",
+    "active_server_profile.json",
+    "schedule_state.json",
+    "schedule_delete_history.json",
+    "discord_voice_queue.jsonl",
 }
 
 
@@ -108,6 +117,7 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
             alarm_payload = None
         if isinstance(alarm_payload, dict):
             alarm_payload.update(DISTRIBUTION_DEFAULT_ALARM_OVERRIDES)
+            alarm_payload["version"] = BUILD_VERSION
             alarm_seed_path = staging_dir / "default_schedule_alarm_settings.json"
             alarm_seed_path.write_text(
                 json.dumps(alarm_payload, ensure_ascii=False, indent=2),
@@ -133,14 +143,11 @@ def read_git_text(args: list[str]) -> str:
 
 
 def write_build_metadata() -> Path:
-    latest_tag = read_git_text(["tag", "--sort=-creatordate"])
     last_updated = read_git_text(["log", "-1", "--format=%cs"])
-    detail_version = read_git_text(["describe", "--tags", "--always", "--dirty"])
     working_tree_dirty = bool(read_git_text(["status", "--porcelain"]))
     build_datetime = datetime.now()
-    resolved_version = latest_tag.splitlines()[0].strip() if latest_tag else ""
-    if not resolved_version:
-        resolved_version = BUILD_VERSION
+    resolved_version = BUILD_VERSION
+    detail_version = resolved_version
     metadata = {
         "author": "\ub098\uce20",
         "version": resolved_version,
@@ -151,6 +158,17 @@ def write_build_metadata() -> Path:
     metadata_path = project_root / "build_metadata.json"
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=True, indent=2), encoding="utf-8")
     return metadata_path
+
+
+def assert_distribution_has_no_private_runtime_data(datas: list[tuple[str, str]]) -> None:
+    """Fail the build instead of accidentally shipping a developer's server data."""
+    for source_path, _destination in datas:
+        source = Path(source_path)
+        normalized_parts = {part.casefold() for part in source.parts}
+        if source.name.casefold() in DISTRIBUTION_PRIVATE_RUNTIME_FILENAMES:
+            raise RuntimeError(f"Private runtime file must not be packaged: {source}")
+        if "server_profiles" in normalized_parts:
+            raise RuntimeError(f"Server profile data must not be packaged: {source}")
 
 
 distribution_default_datas = build_distribution_default_seed_datas()
@@ -169,8 +187,11 @@ datas += distribution_default_datas
 datas += collect_tree(project_root / "icons", "icons")
 datas += collect_tree(project_root / "voice", "voice")
 datas += collect_tree(project_root / "wave", "wave")
+datas += collect_tree(project_root / "user_voice", "user_voice")
+datas += collect_tree(project_root / "tts_캐쉬", "tts_캐쉬")
 datas += collect_tree(tcl_root / "tcl8.6", "_tcl_data")
 datas += collect_tree(tcl_root / "tk8.6", "_tk_data")
+assert_distribution_has_no_private_runtime_data(datas)
 
 binaries = []
 for dll_name in ("tcl86t.dll", "tk86t.dll"):

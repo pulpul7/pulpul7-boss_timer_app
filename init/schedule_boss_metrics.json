@@ -97,7 +97,7 @@
   },
   "스바르트": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
@@ -157,7 +157,7 @@
   },
   "신마라": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 10,
     "war_score": 10
   },
@@ -325,7 +325,7 @@
   },
   "발할라 대전": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1200,
     "score": null,
     "war_score": null
   },

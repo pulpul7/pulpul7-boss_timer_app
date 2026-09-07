@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-30 22:50:29",
+  "updated_at": "2026-09-07 12:56:14",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1450,6 +1450,62 @@
         277004
       ],
       "duration_ms": 1571
+    },
+    "c:\\mycode\\bosstimer\\tts_캐쉬\\__silence_200ms.wav": {
+      "signature": [
+        1788238353170453000,
+        8864
+      ],
+      "duration_ms": 200
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\외.wav": {
+      "signature": [
+        1788363865854355600,
+        49108
+      ],
+      "duration_ms": 279
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\6개.wav": {
+      "signature": [
+        1788363219679530200,
+        103004
+      ],
+      "duration_ms": 584
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\4개.wav": {
+      "signature": [
+        1788363089102275400,
+        85700
+      ],
+      "duration_ms": 486
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\1개.wav": {
+      "signature": [
+        1788362884508767100,
+        87956
+      ],
+      "duration_ms": 499
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\2개.wav": {
+      "signature": [
+        1788362950922304800,
+        71512
+      ],
+      "duration_ms": 406
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\5개.wav": {
+      "signature": [
+        1788363162838314400,
+        104132
+      ],
+      "duration_ms": 591
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\3개.wav": {
+      "signature": [
+        1788363036217975100,
+        121052
+      ],
+      "duration_ms": 686
     }
   }
 }
