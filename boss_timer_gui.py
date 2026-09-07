@@ -10057,8 +10057,14 @@ class BossTimerApp:
             pass
         normalized_method = str(method_name or "showinfo").strip()
         result = {"value": None}
-        width = 440
-        height = 190
+        width = 500
+        # tk.Message has no reliable requested-height calculation before it is
+        # mapped. Estimate wrapped lines so longer install/error descriptions
+        # never get clipped above or below the button row.
+        raw_lines = str(message or "").splitlines() or [""]
+        estimated_lines = sum(max(1, math.ceil(max(1, len(line)) / 42)) for line in raw_lines)
+        message_height = max(56, min(176, (estimated_lines * 20) + 12))
+        height = max(190, message_height + 114)
 
         def close_with(value) -> None:
             result["value"] = value
@@ -10083,8 +10089,8 @@ class BossTimerApp:
         title_fg = "#991b1b" if normalized_method == "showerror" else "#92400e" if normalized_method == "showwarning" else "#0f172a"
         dialog.protocol("WM_DELETE_WINDOW", lambda: close_with(default_close_value))
         self._center_window_over_parent(dialog, owner, width, height)
-        tk.Label(dialog, text=str(title or ""), font=self.button_font, bg="#f8fafc", fg=title_fg, anchor="center").place(x=20, y=18, width=400, height=24)
-        tk.Message(dialog, text=str(message or ""), font=self.percent_font, bg="#f8fafc", fg="#334155", width=390, justify="center", anchor="center").place(x=24, y=52, width=392, height=76)
+        tk.Label(dialog, text=str(title or ""), font=self.button_font, bg="#f8fafc", fg=title_fg, anchor="center").place(x=20, y=18, width=460, height=24)
+        tk.Message(dialog, text=str(message or ""), font=self.percent_font, bg="#f8fafc", fg="#334155", width=450, justify="center", anchor="center").place(x=24, y=52, width=452, height=message_height)
         total_width = (len(buttons) * 92) + ((len(buttons) - 1) * 12)
         start_x = (width - total_width) // 2
         for index, (button_text, button_value, bg_color, fg_color) in enumerate(buttons):
@@ -10101,7 +10107,7 @@ class BossTimerApp:
                 highlightthickness=0,
                 command=lambda value=button_value: close_with(value),
                 cursor="hand2",
-            ).place(x=start_x + (index * 104), y=142, width=92, height=30)
+            ).place(x=start_x + (index * 104), y=height - 48, width=92, height=30)
         dialog.bind("<Escape>", lambda _event: close_with(default_close_value))
         dialog.focus_force()
         dialog.wait_window()
@@ -29078,8 +29084,6 @@ class BossTimerApp:
         if bool(getattr(self, "edge_tts_module_install_prompt_suppressed", False)) and not force_prompt:
             return False
         dialog_parent = parent if parent is not None and self._widget_available(parent) else self.root
-        module_status = get_edge_tts_module_status(EDGE_TTS_MODULE_DIR)
-        detail = module_status.reason or get_edge_tts_module_error()
         if callable(on_ready):
             self.edge_tts_module_install_ready_callbacks = [on_ready]
         self.edge_tts_module_install_prompt_open = True
@@ -29088,8 +29092,7 @@ class BossTimerApp:
                 "TTS 모듈 설치",
                 "edge-tts 온라인 음성 모듈이 설치되어 있지 않습니다.\n\n"
                 "GitHub Releases에서 별도 TTS 모듈을 내려받아 설치할까요?\n"
-                "설치 후 현재 캐시 생성 작업을 자동으로 다시 시도합니다.\n\n"
-                f"상태: {detail}",
+                "설치 후 현재 캐시 생성 작업을 자동으로 다시 시도합니다.",
                 parent=dialog_parent,
             )
         finally:
@@ -29122,7 +29125,7 @@ class BossTimerApp:
                 callbacks = list(getattr(self, "edge_tts_module_install_ready_callbacks", []))
                 self.edge_tts_module_install_ready_callbacks = []
                 if error_text:
-                    messagebox.showerror(
+                    self._show_centered_error(
                         "TTS 모듈 설치 실패",
                         "TTS 모듈을 설치하지 못했습니다. 인터넷 연결과 GitHub Releases 파일을 확인해주세요.\n\n"
                         f"{error_text}",

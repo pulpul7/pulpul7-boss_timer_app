@@ -22,7 +22,7 @@ from pathlib import Path
 EDGE_TTS_MODULE_VERSION = "1.0.0"
 EDGE_TTS_MODULE_ASSET_NAME = f"boss_timer_edge_tts_module-v{EDGE_TTS_MODULE_VERSION}.zip"
 EDGE_TTS_MODULE_RELEASE_URL = (
-    "https://github.com/pulpul7/pulpul7-boss_timer_app/releases/download/"
+    "https://github.com/pulpul7/boss_timer/releases/download/"
     f"tts-module-v{EDGE_TTS_MODULE_VERSION}/{EDGE_TTS_MODULE_ASSET_NAME}"
 )
 MODULE_MANIFEST_FILENAME = "module.json"
