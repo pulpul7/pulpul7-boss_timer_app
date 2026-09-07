@@ -50,7 +50,11 @@ def get_edge_tts_module_status(module_dir: str | None = None) -> EdgeTtsModuleSt
     root = Path(module_dir or get_default_edge_tts_module_dir()).expanduser()
     manifest_path = root / MODULE_MANIFEST_FILENAME
     package_dir = root / "packages" / "edge_tts"
-    if not manifest_path.is_file() or not package_dir.is_dir():
+    try:
+        is_installed_layout = manifest_path.is_file() and package_dir.is_dir()
+    except OSError as exc:
+        return EdgeTtsModuleStatus(False, str(root), reason=f"TTS 모듈 폴더에 접근할 수 없습니다: {exc}")
+    if not is_installed_layout:
         return EdgeTtsModuleStatus(False, str(root), reason="설치된 TTS 모듈이 없습니다.")
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))

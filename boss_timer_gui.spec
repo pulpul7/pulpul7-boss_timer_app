@@ -205,7 +205,22 @@ a = Analysis(
     pathex=[],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["tkinter", "_tkinter"],
+    # edge-tts itself remains in the optional module ZIP.  aiohttp inside that
+    # ZIP imports these stdlib modules dynamically, so PyInstaller cannot see
+    # them while analysing the main program.
+    hiddenimports=[
+        "tkinter",
+        "_tkinter",
+        "http.cookies",
+        "http.client",
+        "email",
+        "email.feedparser",
+        "email.message",
+        "email.parser",
+        "mimetypes",
+        "netrc",
+        "ssl",
+    ],
     hookspath=["pyinstaller_hooks"],
     hooksconfig={},
     runtime_hooks=["pyi_rth_tkinter_fix.py"],
