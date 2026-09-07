@@ -184,9 +184,30 @@ def load_custom_discord_voice_commands(
     return commands
 
 
+def load_disabled_builtin_discord_voice_commands(
+    path: Path = DISCORD_VOICE_COMMANDS_PATH,
+) -> set[str]:
+    """Load server-scoped built-in commands hidden by /음성삭제."""
+    payload = load_json(path)
+    raw_names = payload.get("disabled_builtin_commands") if isinstance(payload, dict) else None
+    if not isinstance(raw_names, list):
+        return set()
+    builtin_keys = {
+        normalize_discord_voice_command_name(command_name)
+        for command_name in BUILTIN_DISCORD_VOICE_COMMANDS
+    }
+    return {
+        normalized
+        for normalized in (normalize_discord_voice_command_name(raw_name) for raw_name in raw_names)
+        if normalized in builtin_keys
+    }
+
+
 def save_custom_discord_voice_commands(
     commands: dict[str, tuple[str, str]],
     path: Path = DISCORD_VOICE_COMMANDS_PATH,
+    *,
+    disabled_builtin_commands: set[str] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
@@ -203,8 +224,20 @@ def save_custom_discord_voice_commands(
         )
         if valid:
             serializable_commands.add((name_or_error, parsed_tts_text))
+    builtin_names_by_key = {
+        normalize_discord_voice_command_name(command_name): command_name
+        for command_name in BUILTIN_DISCORD_VOICE_COMMANDS
+    }
+    disabled_builtin_names = sorted(
+        {
+            builtin_names_by_key[normalized]
+            for normalized in (disabled_builtin_commands or set())
+            if normalized in builtin_names_by_key
+        },
+        key=str.casefold,
+    )
     payload = {
-        "version": 1,
+        "version": 2,
         "commands": [
             {"name": name, "tts_text": tts_text}
             for name, tts_text in sorted(
@@ -212,6 +245,7 @@ def save_custom_discord_voice_commands(
                 key=lambda item: item[0].casefold(),
             )
         ],
+        "disabled_builtin_commands": disabled_builtin_names,
     }
     try:
         temporary_path.write_text(
@@ -1046,6 +1080,7 @@ class DiscordScheduleBot:
         self.config = load_config()
         self.voice_channel_panel_message_id = str(self.config.get("voice_panel_message_id") or "").strip()
         self.custom_voice_commands = load_custom_discord_voice_commands()
+        self.disabled_builtin_voice_commands = load_disabled_builtin_discord_voice_commands()
         self.alarm_settings: dict[str, Any] = {}
         STATUS.update(
             guild_id=str(self.config.get("server_id") or "").strip(),
@@ -1076,7 +1111,10 @@ class DiscordScheduleBot:
         if not normalized:
             return None
         for name, tts_text in BUILTIN_DISCORD_VOICE_COMMANDS.items():
-            if normalize_discord_voice_command_name(name) == normalized:
+            if (
+                normalize_discord_voice_command_name(name) == normalized
+                and normalized not in set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
+            ):
                 return name, tts_text
         custom_commands = getattr(self, "custom_voice_commands", {})
         command_data = custom_commands.get(normalized) if isinstance(custom_commands, dict) else None
@@ -1103,11 +1141,37 @@ class DiscordScheduleBot:
             return False, name_or_error, "", ""
         name = name_or_error
         normalized = normalize_discord_voice_command_name(name)
+        builtin_keys = {
+            normalize_discord_voice_command_name(command_name)
+            for command_name in BUILTIN_DISCORD_VOICE_COMMANDS
+        }
+        if normalized in builtin_keys:
+            disabled_commands = set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
+            if normalized not in disabled_commands:
+                return False, f"이미 등록된 기본 음성 명령입니다: {name}", name, tts_text
+            disabled_commands.discard(normalized)
+            save_custom_discord_voice_commands(
+                dict(getattr(self, "custom_voice_commands", {}) or {}),
+                disabled_builtin_commands=disabled_commands,
+            )
+            self.disabled_builtin_voice_commands = disabled_commands
+            builtin_tts_text = next(
+                (
+                    str(default_text or "")
+                    for builtin_name, default_text in BUILTIN_DISCORD_VOICE_COMMANDS.items()
+                    if normalize_discord_voice_command_name(builtin_name) == normalized
+                ),
+                "",
+            )
+            return True, f"기본 음성 명령을 다시 활성화했습니다: {name}", name, builtin_tts_text
         if self._resolve_discord_voice_command(name) is not None:
             return False, f"이미 등록된 음성 명령입니다: {name}", name, tts_text
         commands = dict(getattr(self, "custom_voice_commands", {}) or {})
         commands[normalized] = (name, tts_text)
-        save_custom_discord_voice_commands(commands)
+        save_custom_discord_voice_commands(
+            commands,
+            disabled_builtin_commands=set(getattr(self, "disabled_builtin_voice_commands", set()) or set()),
+        )
         self.custom_voice_commands = commands
         target_text = tts_text or "파일 전용 (TTS 없음)"
         return True, f"음성 명령을 추가했습니다: {name} → {target_text}", name, tts_text
@@ -1121,12 +1185,24 @@ class DiscordScheduleBot:
             normalize_discord_voice_command_name(name) for name in BUILTIN_DISCORD_VOICE_COMMANDS
         }
         if normalized in builtin_keys:
-            return False, "기본 음성 명령은 삭제할 수 없습니다."
+            disabled_commands = set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
+            if normalized in disabled_commands:
+                return False, f"이미 삭제된 기본 음성 명령입니다: {name_or_error}"
+            disabled_commands.add(normalized)
+            save_custom_discord_voice_commands(
+                dict(getattr(self, "custom_voice_commands", {}) or {}),
+                disabled_builtin_commands=disabled_commands,
+            )
+            self.disabled_builtin_voice_commands = disabled_commands
+            return True, f"기본 음성 명령을 삭제했습니다: {name_or_error}"
         commands = dict(getattr(self, "custom_voice_commands", {}) or {})
         removed_command = commands.pop(normalized, None)
         if not removed_command:
             return False, f"등록되지 않은 음성 명령입니다: {name_or_error}"
-        save_custom_discord_voice_commands(commands)
+        save_custom_discord_voice_commands(
+            commands,
+            disabled_builtin_commands=set(getattr(self, "disabled_builtin_voice_commands", set()) or set()),
+        )
         self.custom_voice_commands = commands
         removed_name = removed_command[0] if isinstance(removed_command, tuple) else removed_command
         return True, f"음성 명령을 삭제했습니다: {removed_name}"
@@ -1135,9 +1211,10 @@ class DiscordScheduleBot:
         """Return built-in and this server's custom commands for the click UI."""
         entries: list[tuple[str, str, str]] = []
         seen: set[str] = set()
+        disabled_builtin_commands = set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
         for command_name, tts_text in BUILTIN_DISCORD_VOICE_COMMANDS.items():
             normalized = normalize_discord_voice_command_name(command_name)
-            if not normalized or normalized in seen:
+            if not normalized or normalized in seen or normalized in disabled_builtin_commands:
                 continue
             seen.add(normalized)
             entries.append((normalized, str(command_name), str(tts_text or "")))

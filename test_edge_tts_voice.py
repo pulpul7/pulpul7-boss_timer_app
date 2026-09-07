@@ -26,6 +26,8 @@ from boss_timer_discord_bot import (
     VoiceBridgeReader,
     compact_alert_names,
     load_custom_discord_voice_commands,
+    load_disabled_builtin_discord_voice_commands,
+    normalize_discord_voice_command_name,
     parse_discord_schedule_message,
     save_custom_discord_voice_commands,
 )
@@ -1440,14 +1442,35 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         self.assertEqual(restored, commands)
         self.assertNotIn("광역체크", restored)
 
-    def test_builtin_voice_commands_cannot_be_deleted(self):
+    def test_builtin_voice_commands_can_be_deleted_per_server(self):
         bot = object.__new__(DiscordScheduleBot)
         bot.custom_voice_commands = {}
+        bot.disabled_builtin_voice_commands = set()
 
-        deleted, result = bot._delete_discord_voice_command("광역체크")
+        with mock.patch("boss_timer_discord_bot.save_custom_discord_voice_commands"):
+            deleted, result = bot._delete_discord_voice_command("광역체크")
 
-        self.assertFalse(deleted)
-        self.assertIn("기본", result)
+        self.assertTrue(deleted)
+        self.assertIn("광역", result)
+        self.assertIn(normalize_discord_voice_command_name("광역체크"), bot.disabled_builtin_voice_commands)
+        self.assertIsNone(bot._resolve_discord_voice_command("광역체크"))
+        self.assertNotIn(
+            "광역체크",
+            {name for _normalized, name, _tts_text in bot._get_discord_voice_command_menu_entries()},
+        )
+
+    def test_disabled_builtin_voice_command_registry_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry_path = Path(temp_dir) / "voice_commands.json"
+            disabled = {normalize_discord_voice_command_name("광역체크")}
+            save_custom_discord_voice_commands(
+                {},
+                registry_path,
+                disabled_builtin_commands=disabled,
+            )
+            restored = load_disabled_builtin_discord_voice_commands(registry_path)
+
+        self.assertEqual(restored, disabled)
 
     def test_interaction_owner_check_accepts_only_configured_server(self):
         bot = object.__new__(DiscordScheduleBot)

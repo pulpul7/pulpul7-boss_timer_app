@@ -16,15 +16,24 @@ def collect_tree(
     dest_root: str,
     *,
     excluded_relative_paths: set[str] | None = None,
+    excluded_relative_prefixes: set[str] | None = None,
 ) -> list[tuple[str, str]]:
     if not src_dir.exists():
         return []
     excluded = {str(path).replace("\\", "/") for path in (excluded_relative_paths or set())}
+    excluded_prefixes = {
+        str(path).replace("\\", "/").strip("/")
+        for path in (excluded_relative_prefixes or set())
+    }
     collected: list[tuple[str, str]] = []
     for item in src_dir.rglob("*"):
         if item.is_file():
             relative_path = item.relative_to(src_dir)
-            if relative_path.as_posix() in excluded:
+            relative_text = relative_path.as_posix()
+            if relative_text in excluded or any(
+                relative_text == prefix or relative_text.startswith(f"{prefix}/")
+                for prefix in excluded_prefixes
+            ):
                 continue
             relative_parent = relative_path.parent
             target_dir = Path(dest_root) / relative_parent
@@ -219,7 +228,13 @@ datas += collect_tree(project_root / "icons", "icons")
 datas += collect_tree(project_root / "voice", "voice")
 datas += collect_tree(project_root / "wave", "wave")
 datas += collect_tree(project_root / "user_voice", "user_voice")
-datas += collect_tree(project_root / "tts_캐쉬", "tts_캐쉬")
+# The command/ subtree is produced by Discord soundboard TTS requests at
+# runtime.  It is server/user activity, not a distribution cache seed.
+datas += collect_tree(
+    project_root / "tts_캐쉬",
+    "tts_캐쉬",
+    excluded_relative_prefixes={"command"},
+)
 datas += collect_tree(tcl_root / "tcl8.6", "_tcl_data")
 datas += collect_tree(tcl_root / "tk8.6", "_tk_data")
 assert_distribution_has_no_private_runtime_data(datas)
