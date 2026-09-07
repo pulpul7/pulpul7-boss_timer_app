@@ -1523,7 +1523,7 @@ class BossTimerApp:
         self.schedule_fixed_boss_skip_due_time_default = bool(payload.get("fixed_boss_skip_due_time", True))
         self.schedule_second_precision_expire_hours_default = max(
             0,
-            self._parse_int(str(payload.get("second_precision_expire_hours") or "24"), 24),
+            self._parse_int(str(payload.get("second_precision_expire_hours") or "168"), 168),
         )
         self.schedule_alarm_voice_name = str(payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
         self.schedule_alarm_chime_settings = self._normalize_schedule_alarm_chime_settings(payload.get("chime_settings", {}))
@@ -2091,7 +2091,7 @@ class BossTimerApp:
         self.schedule_alarm_countdown_start_default = int(schedule_alarm_payload.get("countdown_start_seconds", 10) or 10)
         self.schedule_fixed_boss_alarm_enabled_default = bool(schedule_alarm_payload.get("fixed_boss_enabled", False))
         self.schedule_fixed_boss_skip_due_time_default = bool(schedule_alarm_payload.get("fixed_boss_skip_due_time", True))
-        self.schedule_second_precision_expire_hours_default = max(0, self._parse_int(str(schedule_alarm_payload.get("second_precision_expire_hours") or "24"), 24))
+        self.schedule_second_precision_expire_hours_default = max(0, self._parse_int(str(schedule_alarm_payload.get("second_precision_expire_hours") or "168"), 168))
         self.schedule_alarm_voice_rule_version = str(schedule_alarm_payload.get("voice_rule_version") or SCHEDULE_ALARM_VOICE_RULE_VERSION).strip() or SCHEDULE_ALARM_VOICE_RULE_VERSION
         self.schedule_alarm_voice_name = str(schedule_alarm_payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
         self.schedule_alarm_chime_settings = self._normalize_schedule_alarm_chime_settings(schedule_alarm_payload.get("chime_settings", {}))
@@ -3188,7 +3188,7 @@ class BossTimerApp:
         saved_schedule_boss_metric_bulk_apply_user_duration = settings.getboolean("schedule_boss_metric_bulk_apply_user_duration", fallback=self.schedule_boss_metric_bulk_apply_user_duration_default)
         saved_schedule_boss_metric_bulk_apply_score = settings.getboolean("schedule_boss_metric_bulk_apply_score", fallback=self.schedule_boss_metric_bulk_apply_score_default)
         saved_schedule_boss_metric_bulk_apply_war_score = settings.getboolean("schedule_boss_metric_bulk_apply_war_score", fallback=self.schedule_boss_metric_bulk_apply_war_score_default)
-        saved_schedule_second_precision_expire_hours = settings.get("schedule_second_precision_expire_hours", str(getattr(self, "schedule_second_precision_expire_hours_default", 24))).strip()
+        saved_schedule_second_precision_expire_hours = settings.get("schedule_second_precision_expire_hours", str(getattr(self, "schedule_second_precision_expire_hours_default", 168))).strip()
         saved_schedule_time_sync_last_success_at = settings.get("schedule_time_sync_last_success_at", "").strip()
         saved_schedule_time_sync_last_attempt_at = settings.get("schedule_time_sync_last_attempt_at", "").strip()
         saved_schedule_time_sync_last_status = settings.get("schedule_time_sync_last_status", "").strip()
@@ -3299,7 +3299,7 @@ class BossTimerApp:
         self.schedule_boss_metric_bulk_apply_user_duration_default = saved_schedule_boss_metric_bulk_apply_user_duration
         self.schedule_boss_metric_bulk_apply_score_default = saved_schedule_boss_metric_bulk_apply_score
         self.schedule_boss_metric_bulk_apply_war_score_default = saved_schedule_boss_metric_bulk_apply_war_score
-        self.schedule_second_precision_expire_hours_default = max(0, self._parse_int(saved_schedule_second_precision_expire_hours, getattr(self, "schedule_second_precision_expire_hours_default", 24)))
+        self.schedule_second_precision_expire_hours_default = max(0, self._parse_int(saved_schedule_second_precision_expire_hours, getattr(self, "schedule_second_precision_expire_hours_default", 168)))
         if hasattr(self, "schedule_second_precision_expire_hours_var") and self.schedule_second_precision_expire_hours_var is not None:
             try:
                 self.schedule_second_precision_expire_hours_var.set(str(self.schedule_second_precision_expire_hours_default))
@@ -3479,9 +3479,9 @@ class BossTimerApp:
             "local_audio_enabled": True,
             "common_offsets": default_offsets,
             "countdown_enabled": False,
-            "ai_recording_preferred": False,
+            "ai_recording_preferred": True,
             "countdown_start_seconds": 15,
-            "second_precision_expire_hours": 24,
+            "second_precision_expire_hours": 168,
             "fixed_boss_enabled": True,
             "fixed_boss_skip_due_time": True,
             "voice_name": SCHEDULE_ALARM_FEMALE_VOICE_NAME,
@@ -3595,7 +3595,7 @@ class BossTimerApp:
                 and loaded.get("boss_ai_voice_enabled", payload["ai_recording_preferred"])
             )
         payload["countdown_start_seconds"] = min(60, max(1, self._parse_int(str(loaded.get("countdown_start_seconds") or "10"), 10)))
-        payload["second_precision_expire_hours"] = max(0, self._parse_int(str(loaded.get("second_precision_expire_hours") or "24"), 24))
+        payload["second_precision_expire_hours"] = max(0, self._parse_int(str(loaded.get("second_precision_expire_hours") or "168"), 168))
         payload["fixed_boss_enabled"] = bool(loaded.get("fixed_boss_enabled", payload["fixed_boss_enabled"]))
         payload["fixed_boss_skip_due_time"] = bool(loaded.get("fixed_boss_skip_due_time", payload["fixed_boss_skip_due_time"]))
         payload["voice_name"] = str(loaded.get("voice_name") or payload["voice_name"]).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
@@ -4691,6 +4691,7 @@ class BossTimerApp:
         self.discord_bot_server_id = str(payload.get("server_id", "") or "").strip()
         self.discord_bot_voice_channel_id = str(payload.get("voice_channel_id", "") or "").strip()
         self.discord_bot_text_channel_id = str(payload.get("text_channel_id", "") or "").strip()
+        self.discord_bot_voice_panel_channel_id = str(payload.get("voice_panel_channel_id", "") or "").strip()
         invite_links = payload.get("invite_links", {})
         self.discord_bot_invite_links = dict(invite_links) if isinstance(invite_links, dict) else {}
         self.discord_bot_invite_url = self._normalize_discord_bot_invite_url(
@@ -4729,6 +4730,7 @@ class BossTimerApp:
             "server_id": str(section.get("server_id", "") or "").strip(),
             "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
             "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
+            "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
             "invite_url": invite_url,
             "invite_links": invite_links,
             "voice_bridge_enabled": section.getboolean("voice_bridge_enabled", fallback=True),
@@ -4738,6 +4740,19 @@ class BossTimerApp:
     def _save_discord_bot_settings(self) -> bool:
         config_path = self._get_discord_bot_config_storage_path()
         config = configparser.ConfigParser(interpolation=None)
+        persisted_voice_panel_channel_id = ""
+        persisted_voice_panel_message_id = ""
+        try:
+            config.read(config_path, encoding="utf-8")
+            if config.has_section("discord_bot"):
+                persisted_voice_panel_channel_id = str(
+                    config["discord_bot"].get("voice_panel_channel_id", "") or ""
+                ).strip()
+                persisted_voice_panel_message_id = str(
+                    config["discord_bot"].get("voice_panel_message_id", "") or ""
+                ).strip()
+        except (OSError, configparser.Error):
+            pass
         application_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
         invite_links = getattr(self, "discord_bot_invite_links", {})
         if not isinstance(invite_links, dict):
@@ -4755,12 +4770,18 @@ class BossTimerApp:
             invite_url = ""
         self.discord_bot_invite_links = invite_links
         self.discord_bot_invite_url = invite_url
+        voice_panel_channel_id = str(
+            getattr(self, "discord_bot_voice_panel_channel_id", "") or persisted_voice_panel_channel_id
+        ).strip()
+        self.discord_bot_voice_panel_channel_id = voice_panel_channel_id
         config["discord_bot"] = {
             "bot_token": self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")),
             "application_id": application_id,
             "server_id": str(getattr(self, "discord_bot_server_id", "") or "").strip(),
             "voice_channel_id": str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip(),
             "text_channel_id": str(getattr(self, "discord_bot_text_channel_id", "") or "").strip(),
+            "voice_panel_channel_id": voice_panel_channel_id,
+            "voice_panel_message_id": persisted_voice_panel_message_id,
             "invite_url": invite_url,
             "voice_bridge_enabled": "1",
             "mute_pc_audio_when_online": "1" if bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)) else "0",
@@ -12631,8 +12652,52 @@ class BossTimerApp:
             }
         metrics_path = self._get_schedule_boss_metrics_storage_path()
         os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
-        with open(metrics_path, "w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, indent=2)
+
+        def has_meaningful_metric_values(metric_payload: object) -> bool:
+            if not isinstance(metric_payload, dict):
+                return False
+            for raw_entry in metric_payload.values():
+                if not isinstance(raw_entry, dict):
+                    continue
+                try:
+                    duration_seconds = int(raw_entry.get("user_duration_seconds") or 0)
+                except (TypeError, ValueError):
+                    duration_seconds = 0
+                if duration_seconds > 0:
+                    return True
+                if raw_entry.get("score") is not None or raw_entry.get("war_score") is not None:
+                    return True
+            return False
+
+        # A normal boss-definition save may rebuild this file.  Never silently
+        # discard a populated metric table if that rebuild unexpectedly becomes
+        # an all-default table; keep a recoverable snapshot first.
+        if os.path.isfile(metrics_path) and has_meaningful_metric_values(payload) is False:
+            try:
+                with open(metrics_path, "r", encoding="utf-8") as existing_file:
+                    existing_payload = json.load(existing_file)
+                if has_meaningful_metric_values(existing_payload):
+                    backup_name = (
+                        f"{SCHEDULE_BOSS_METRICS_FILENAME}.before_empty_overwrite_"
+                        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    )
+                    backup_path = os.path.join(os.path.dirname(metrics_path), backup_name)
+                    shutil.copy2(metrics_path, backup_path)
+                    self._append_debug_log(f"schedule_boss_metrics_empty_overwrite_backup path={backup_path}")
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        temporary_path = f"{metrics_path}.tmp"
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as file:
+                json.dump(payload, file, ensure_ascii=False, indent=2)
+            os.replace(temporary_path, metrics_path)
+        finally:
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except OSError:
+                pass
 
     def _sync_schedule_boss_metrics_with_definitions(self, old_name: str | None = None, new_name: str | None = None) -> None:
         defaults = self._build_default_schedule_boss_metrics()
@@ -21679,7 +21744,7 @@ class BossTimerApp:
         self._register_schedule_input_ocr_addon_hotkeys()
         self.schedule_input_ocr_addon_capture_button = tk.Button(
             window,
-            text="스샷찍기",
+            text="스샷찍기 (F2)",
             font=self.button_font,
             bg="#0f766e",
             fg="#ffffff",
@@ -47416,7 +47481,7 @@ class BossTimerApp:
             schedule_boss_metric_bulk_apply_score_value = bool(self.schedule_boss_metric_bulk_apply_score_var.get())
         if hasattr(self, "schedule_boss_metric_bulk_apply_war_score_var") and self.schedule_boss_metric_bulk_apply_war_score_var is not None:
             schedule_boss_metric_bulk_apply_war_score_value = bool(self.schedule_boss_metric_bulk_apply_war_score_var.get())
-        schedule_second_precision_expire_hours_value = max(0, self._parse_int(str(getattr(self, "schedule_second_precision_expire_hours_default", 24)), 24))
+        schedule_second_precision_expire_hours_value = max(0, self._parse_int(str(getattr(self, "schedule_second_precision_expire_hours_default", 168)), 168))
         if hasattr(self, "schedule_second_precision_expire_hours_var") and self.schedule_second_precision_expire_hours_var is not None:
             schedule_second_precision_expire_hours_value = max(0, self._parse_int(self.schedule_second_precision_expire_hours_var.get(), schedule_second_precision_expire_hours_value))
         schedule_invasion_weekday_value = self.schedule_invasion_weekday_default
@@ -50311,7 +50376,8 @@ class BossTimerApp:
         dialog = tk.Toplevel(parent)
         self.edge_tts_settings_window = dialog
         dialog.title("edge-tts 음성 설정")
-        dialog.geometry("600x500")
+        self._center_window_over_parent(dialog, parent, 600, 500)
+        dialog.transient(parent)
         dialog.resizable(False, False)
         dialog.configure(bg="#eff6ff")
         settings = getattr(self, "edge_tts_settings", EdgeTtsSettings()).normalized()
@@ -50607,6 +50673,9 @@ class BossTimerApp:
             dialog.destroy()
 
         def install_module() -> None:
+            if edge_tts_available():
+                status_var.set("TTS 모듈이 이미 설치되어 있습니다. 음성 테스트 또는 캐싱 데이터생성을 실행하세요.")
+                return
             status_var.set("TTS 모듈 설치 여부를 확인하는 중입니다...")
             self._request_edge_tts_module_install(
                 parent=dialog,
@@ -50617,7 +50686,7 @@ class BossTimerApp:
                 ),
             )
 
-        tk.Button(dialog, text="TTS 모듈 설치", font=self.button_font, bg="#dcfce7", fg="#166534", command=install_module).place(x=24, y=410, width=118, height=32)
+        tk.Button(dialog, text="TTS 모듈 설치/확인", font=self.button_font, bg="#dcfce7", fg="#166534", command=install_module).place(x=24, y=410, width=118, height=32)
         tk.Button(dialog, text="캐쉬삭제", font=self.button_font, bg="#fee2e2", fg="#991b1b", command=delete_cache_data).place(x=154, y=410, width=90, height=32)
         tk.Button(dialog, text="캐싱 데이터생성", font=self.button_font, bg="#fef3c7", fg="#92400e", command=generate_cache_data).place(x=256, y=410, width=132, height=32)
         tk.Button(dialog, text="음성 테스트", font=self.button_font, bg="#dbeafe", fg="#1e3a8a", command=test_voice).place(x=400, y=410, width=104, height=32)
@@ -50652,7 +50721,7 @@ class BossTimerApp:
             self.schedule_alarm_countdown_enabled_var.set(bool(snapshot.get("countdown_enabled", False)))
             self.schedule_alarm_ai_recording_preferred_var.set(bool(snapshot.get("ai_recording_preferred", False)))
             self.schedule_alarm_countdown_start_var.set(str(snapshot.get("countdown_start_seconds") or "15"))
-            self.schedule_second_precision_expire_hours_var.set(str(snapshot.get("second_precision_expire_hours") or "24"))
+            self.schedule_second_precision_expire_hours_var.set(str(snapshot.get("second_precision_expire_hours") or "168"))
         except tk.TclError:
             pass
         self.schedule_alarm_common_offsets = self._normalize_schedule_alarm_offsets(snapshot.get("common_offsets", []))

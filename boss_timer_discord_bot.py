@@ -101,7 +101,9 @@ BUILTIN_DISCORD_VOICE_COMMANDS = {
     "웃음": "하하하..",
 }
 DISCORD_VOICE_COMMAND_MAX_LENGTH = 40
-DISCORD_VOICE_COMMAND_MENU_PAGE_SIZE = 25
+# A Discord message has at most five component rows.  Reserve the last row
+# for previous/next controls so the soundboard can always be paged.
+DISCORD_VOICE_COMMAND_MENU_PAGE_SIZE = 20
 DISCORD_VOICE_CHANNEL_MENU_PAGE_SIZE = 25
 DISCORD_VOICE_COMMAND_INVALID_CHARS = frozenset('/\\:*?"<>|')
 
@@ -319,6 +321,8 @@ def load_config() -> dict[str, str]:
         "server_id": str(section.get("server_id", "") or "").strip(),
         "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
         "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
+        "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
+        "voice_panel_message_id": str(section.get("voice_panel_message_id", "") or "").strip(),
         "invite_url": invite_url,
         "voice_bridge_enabled": str(section.get("voice_bridge_enabled", "1") or "1").strip(),
     }
@@ -1039,8 +1043,8 @@ class DiscordScheduleBot:
         self.gateway_disconnected_at: float | None = None
         self.last_voice_reconnect_attempt_at = 0.0
         self.schedule_request_lock = asyncio.Lock()
-        self.voice_channel_panel_message_id = ""
         self.config = load_config()
+        self.voice_channel_panel_message_id = str(self.config.get("voice_panel_message_id") or "").strip()
         self.custom_voice_commands = load_custom_discord_voice_commands()
         self.alarm_settings: dict[str, Any] = {}
         STATUS.update(
@@ -1150,10 +1154,15 @@ class DiscordScheduleBot:
                 entries.append((str(normalized), command_name, str(tts_text or "").strip()))
         return entries
 
-    def _build_discord_voice_command_menu_view(self, *, owner_id: str = "") -> Any:
-        """Create a paged Discord select menu that enqueues one voice command."""
+    def _build_discord_voice_command_menu_view(
+        self,
+        *,
+        owner_id: str = "",
+        persistent: bool = False,
+    ) -> Any:
+        """Create a paged button-grid soundboard that enqueues one voice command."""
         entries = self._get_discord_voice_command_menu_entries()
-        view = self.discord.ui.View(timeout=180)
+        view = self.discord.ui.View(timeout=None if persistent else 300)
         entry_by_key = {key: (name, tts_text) for key, name, tts_text in entries}
         page_size = DISCORD_VOICE_COMMAND_MENU_PAGE_SIZE
         page_count = max(1, (len(entries) + page_size - 1) // page_size)
@@ -1168,7 +1177,9 @@ class DiscordScheduleBot:
                 await interaction.response.send_message("음성 명령을 찾지 못했습니다. 목록을 다시 여세요.", ephemeral=True)
                 return
             command_name, tts_text = command_data
-            await interaction.response.defer(ephemeral=True, thinking=True)
+            # A component acknowledgement is enough.  Do not create an
+            # ephemeral "voice requested" message for every button click.
+            await interaction.response.defer()
             request_payload = {
                 "operation": "voice_play",
                 "voice_command": command_name,
@@ -1191,46 +1202,57 @@ class DiscordScheduleBot:
                 log(f"voice_menu_request_write_failed command={command_name} error={exc}")
                 await interaction.followup.send("로컬 보스 타이머에 송출 요청을 전달하지 못했습니다.", ephemeral=True)
                 return
-            await interaction.followup.send(f"{command_name} 음성 송출을 요청했습니다.", ephemeral=True)
+            asyncio.create_task(
+                self._cleanup_voice_panel_after_activity(getattr(interaction, "channel", None))
+            )
 
         def render_page(page: int) -> None:
             nonlocal current_page
             current_page = max(0, min(page_count - 1, int(page)))
             view.clear_items()
             page_entries = entries[current_page * page_size:(current_page + 1) * page_size]
-            options = []
-            for command_key, command_name, tts_text in page_entries:
-                description = tts_text or "파일 전용 · 동일 이름 WAV/MP4 재생"
-                options.append(
-                    self.discord.SelectOption(
-                        label=command_name[:100],
-                        value=command_key[:100],
-                        description=description[:100],
-                    )
+            builtin_keys = {
+                normalize_discord_voice_command_name(command_name)
+                for command_name in BUILTIN_DISCORD_VOICE_COMMANDS
+            }
+            for index, (command_key, command_name, tts_text) in enumerate(page_entries):
+                is_builtin = command_key in builtin_keys
+                emoji = "📢" if is_builtin else ("🔊" if tts_text else "📁")
+                button = self.discord.ui.Button(
+                    label=command_name[:80],
+                    emoji=emoji,
+                    style=(
+                        self.discord.ButtonStyle.primary
+                        if is_builtin
+                        else (self.discord.ButtonStyle.success if tts_text else self.discord.ButtonStyle.secondary)
+                    ),
+                    row=index // 5,
+                    custom_id=(
+                        f"boss_timer_voice:{current_page}:{index}:{command_key}"[:100]
+                        if persistent
+                        else None
+                    ),
                 )
-            select = self.discord.ui.Select(
-                placeholder=f"재생할 음성 선택 ({current_page + 1}/{page_count})",
-                options=options,
-                min_values=1,
-                max_values=1,
-            )
 
-            async def on_select(interaction: Any) -> None:
-                selected_values = list(getattr(select, "values", []) or [])
-                await queue_selected_command(interaction, str(selected_values[0] if selected_values else ""))
+                async def on_button(interaction: Any, selected_key: str = command_key) -> None:
+                    await queue_selected_command(interaction, selected_key)
 
-            select.callback = on_select
-            view.add_item(select)
+                button.callback = on_button
+                view.add_item(button)
             if page_count > 1:
                 previous_button = self.discord.ui.Button(
                     label="◀ 이전",
                     style=self.discord.ButtonStyle.secondary,
                     disabled=current_page <= 0,
+                    row=4,
+                    custom_id=(f"boss_timer_voice_page:{current_page}:previous" if persistent else None),
                 )
                 next_button = self.discord.ui.Button(
                     label="다음 ▶",
                     style=self.discord.ButtonStyle.secondary,
                     disabled=current_page >= page_count - 1,
+                    row=4,
+                    custom_id=(f"boss_timer_voice_page:{current_page}:next" if persistent else None),
                 )
 
                 async def previous_page(interaction: Any) -> None:
@@ -1292,33 +1314,25 @@ class DiscordScheduleBot:
         )
 
     def _build_discord_voice_channel_panel_view(self, guild: Any) -> Any:
-        """Show the actual bot channel; channel changes are made by moving the bot."""
+        """Build the pinned, always-visible button-grid soundboard."""
+        del guild  # The entries are server-scoped when the bot instance is started.
+        return self._build_discord_voice_command_menu_view(persistent=True)
+
+    def _get_current_voice_channel_name(self) -> str:
         current_channel = getattr(getattr(self, "voice_client", None), "channel", None)
         current_channel_id = str(
             getattr(current_channel, "id", "") or self.config.get("voice_channel_id") or ""
         ).strip()
         current_channel_name = str(getattr(current_channel, "name", "") or "").strip()
-        if not current_channel_name:
+        if current_channel_name:
+            return current_channel_name
+        configured_guild_id = self._get_configured_server_id()
+        guild = self.client.get_guild(int(configured_guild_id)) if configured_guild_id.isdigit() else None
+        if guild is not None:
             for channel_id, channel_name in self._get_discord_voice_channel_menu_entries(guild):
                 if channel_id == current_channel_id:
-                    current_channel_name = channel_name
-                    break
-        current_channel_name = current_channel_name or "음성채널 미연결"
-        view = self.discord.ui.View(timeout=None)
-        status_select = self.discord.ui.Select(
-            placeholder="현재 보탐매니저 음성채널 (변경 불가)",
-            options=[
-                self.discord.SelectOption(
-                    label=current_channel_name[:100],
-                    value=(current_channel_id or "unassigned")[:100],
-                    description="보탐매니저를 음성채널에서 직접 이동하면 자동으로 반영됩니다.",
-                    default=True,
-                )
-            ],
-            disabled=True,
-        )
-        view.add_item(status_select)
-        return view
+                    return channel_name
+        return "음성채널 미연결"
 
     async def _cleanup_bot_text_channel_messages(self, channel: Any, *, keep_count: int = 2) -> None:
         """Keep the channel compact without ever deleting user or pinned messages."""
@@ -1345,24 +1359,130 @@ class DiscordScheduleBot:
         except Exception as exc:
             log(f"text_channel_cleanup_failed channel_id={getattr(channel, 'id', '')} error={exc}")
 
+    async def _cleanup_voice_panel_channel_messages(self, channel: Any) -> None:
+        """Keep a dedicated soundboard channel readable: panel + one newest message."""
+        if channel is None or not hasattr(channel, "history"):
+            return
+        bot_user_id = str(getattr(getattr(self.client, "user", None), "id", "") or "")
+        protected_panel_id = str(getattr(self, "voice_channel_panel_message_id", "") or "")
+        if not bot_user_id or not protected_panel_id:
+            return
+        retained_messages = 0
+        try:
+            async for message in channel.history(limit=80):
+                message_id = str(getattr(message, "id", "") or "")
+                if message_id == protected_panel_id or bool(getattr(message, "pinned", False)):
+                    continue
+                if retained_messages < 1:
+                    retained_messages += 1
+                    continue
+                try:
+                    await message.delete()
+                except Exception:
+                    # The panel still works without Manage Messages; Discord simply
+                    # keeps the old message in that case.
+                    continue
+        except Exception as exc:
+            log(f"voice_panel_channel_cleanup_failed channel_id={getattr(channel, 'id', '')} error={exc}")
+
+    async def _cleanup_voice_panel_after_activity(self, channel: Any) -> None:
+        """Let Discord post an acknowledgement, then compact the soundboard channel."""
+        if channel is None:
+            return
+        configured_panel_channel_id = str(self.config.get("voice_panel_channel_id") or "").strip()
+        if configured_panel_channel_id != str(getattr(channel, "id", "") or ""):
+            return
+        # A local request can add its own notice just after the component
+        # interaction.  Waiting briefly makes one cleanup cover both messages.
+        await asyncio.sleep(1.5)
+        await self._cleanup_voice_panel_channel_messages(channel)
+
+    @staticmethod
+    async def _delete_interaction_response_after_delay(interaction: Any, delay_seconds: float = 5.0) -> None:
+        """Remove a short-lived ephemeral command result without user action."""
+        await asyncio.sleep(max(0.0, float(delay_seconds)))
+        try:
+            await interaction.delete_original_response()
+        except Exception:
+            # Discord can already have expired or dismissed an ephemeral response.
+            pass
+
     async def _publish_discord_voice_channel_panel(self, channel: Any, guild: Any) -> tuple[bool, str]:
         view = self._build_discord_voice_channel_panel_view(guild)
         if view is None:
             return False, "선택할 음성채널이 없습니다."
-        panel_title = "🔊 보탐매니저 음성채널"
-        panel_content = f"{panel_title}\n아래 목록에서 음성채널을 선택하면 즉시 연결합니다. 이 메시지는 고정되어 유지됩니다."
+        panel_title = "🔊 보탐매니저 음성 사운드보드"
+        current_voice_channel_name = self._get_current_voice_channel_name()
+        entry_count = len(self._get_discord_voice_command_menu_entries())
+        panel_content = (
+            f"{panel_title}\n"
+            f"현재 송출 음성채널: **{current_voice_channel_name}**\n"
+            f"등록 음성 {entry_count}개 · 버튼을 누르면 즉시 송출합니다. "
+            "이 메시지는 고정되어 유지됩니다."
+        )
         panel_message = None
+        bot_user_id = str(getattr(getattr(self.client, "user", None), "id", "") or "")
+        panel_titles = (panel_title, "🔊 보탐매니저 음성채널")
+        known_panel_ids: set[str] = set()
+        saved_panel_id = str(
+            self.voice_channel_panel_message_id or self.config.get("voice_panel_message_id") or ""
+        ).strip()
+        if saved_panel_id.isdigit() and hasattr(channel, "fetch_message"):
+            try:
+                candidate = await channel.fetch_message(int(saved_panel_id))
+                if (
+                    str(getattr(getattr(candidate, "author", None), "id", "") or "") == bot_user_id
+                    and str(getattr(candidate, "content", "") or "").startswith(panel_titles)
+                ):
+                    panel_message = candidate
+                    known_panel_ids.add(saved_panel_id)
+            except Exception:
+                pass
         try:
             pinned_messages = await channel.pins()
         except Exception:
             pinned_messages = []
-        bot_user_id = str(getattr(getattr(self.client, "user", None), "id", "") or "")
         for candidate in pinned_messages:
             if str(getattr(getattr(candidate, "author", None), "id", "") or "") != bot_user_id:
                 continue
-            if str(getattr(candidate, "content", "") or "").startswith(panel_title):
-                panel_message = candidate
-                break
+            if str(getattr(candidate, "content", "") or "").startswith(panel_titles):
+                candidate_id = str(getattr(candidate, "id", "") or "")
+                if panel_message is None:
+                    panel_message = candidate
+                    known_panel_ids.add(candidate_id)
+                elif candidate_id not in known_panel_ids:
+                    known_panel_ids.add(candidate_id)
+                    try:
+                        await candidate.unpin(reason="중복 보탐매니저 음성 사운드보드 정리")
+                    except Exception:
+                        pass
+                    try:
+                        await candidate.delete()
+                    except Exception:
+                        pass
+        if hasattr(channel, "history"):
+            try:
+                async for candidate in channel.history(limit=80):
+                    if str(getattr(getattr(candidate, "author", None), "id", "") or "") != bot_user_id:
+                        continue
+                    if not str(getattr(candidate, "content", "") or "").startswith(panel_titles):
+                        continue
+                    candidate_id = str(getattr(candidate, "id", "") or "")
+                    if panel_message is None:
+                        panel_message = candidate
+                        known_panel_ids.add(candidate_id)
+                    elif candidate_id not in known_panel_ids:
+                        known_panel_ids.add(candidate_id)
+                        try:
+                            await candidate.unpin(reason="중복 보탐매니저 음성 사운드보드 정리")
+                        except Exception:
+                            pass
+                        try:
+                            await candidate.delete()
+                        except Exception:
+                            pass
+            except Exception as exc:
+                log(f"voice_panel_history_lookup_failed channel_id={getattr(channel, 'id', '')} error={exc}")
         try:
             if panel_message is not None:
                 await panel_message.edit(content=panel_content, view=view)
@@ -1373,8 +1493,14 @@ class DiscordScheduleBot:
                 except Exception:
                     pass
             self.voice_channel_panel_message_id = str(getattr(panel_message, "id", "") or "")
-            await self._cleanup_bot_text_channel_messages(channel, keep_count=2)
-            return True, "음성채널 선택 UI를 고정했습니다."
+            self.config["voice_panel_message_id"] = self.voice_channel_panel_message_id
+            save_config_value("voice_panel_message_id", self.voice_channel_panel_message_id)
+            configured_panel_channel_id = str(self.config.get("voice_panel_channel_id") or "").strip()
+            if configured_panel_channel_id == str(getattr(channel, "id", "") or ""):
+                await self._cleanup_voice_panel_channel_messages(channel)
+            else:
+                await self._cleanup_bot_text_channel_messages(channel, keep_count=1)
+            return True, "음성 사운드보드 버튼 UI를 고정했습니다."
         except Exception as exc:
             log(f"voice_channel_panel_publish_failed channel_id={getattr(channel, 'id', '')} error={exc}")
             return False, "음성채널 UI를 표시하지 못했습니다."
@@ -1410,7 +1536,7 @@ class DiscordScheduleBot:
             await self._disconnect_stale_configured_voice_session()
             await self._connect_configured_voice_channel()
             try:
-                text_channel = await self._resolve_text_channel()
+                text_channel = await self._resolve_voice_panel_channel()
                 configured_guild = self.client.get_guild(int(self._get_configured_server_id())) if self._get_configured_server_id() else None
                 if text_channel is not None and configured_guild is not None:
                     await self._publish_discord_voice_channel_panel(text_channel, configured_guild)
@@ -1466,7 +1592,7 @@ class DiscordScheduleBot:
                 last_error="",
             )
             try:
-                text_channel = await self._resolve_text_channel(getattr(after_channel, "guild", None))
+                text_channel = await self._resolve_voice_panel_channel(getattr(after_channel, "guild", None))
                 if text_channel is not None:
                     await self._publish_discord_voice_channel_panel(text_channel, getattr(after_channel, "guild", None))
             except Exception as exc:
@@ -1474,6 +1600,9 @@ class DiscordScheduleBot:
 
         @self.client.event
         async def on_message(message: Any) -> None:
+            asyncio.create_task(
+                self._cleanup_voice_panel_after_activity(getattr(message, "channel", None))
+            )
             await self._handle_schedule_text_message(message)
 
     def _write_disconnect_only_result(self, disconnected: bool) -> None:
@@ -1734,32 +1863,42 @@ class DiscordScheduleBot:
                 except Exception:
                     pass
 
-        @self.tree.command(name="음성채널", description="현재 보탐매니저 음성채널을 고정 UI로 확인합니다.")
-        async def select_voice_channel(interaction: Any) -> None:
+        @self.tree.command(name="음성채널", description="음성 사운드보드 버튼을 표시할 텍스트 채널을 지정합니다.")
+        async def select_voice_channel(interaction: Any, 채널이름: str = "") -> None:
             if not self._should_handle_interaction(interaction):
                 return
-            text_channel = getattr(interaction, "channel", None)
             guild = getattr(interaction, "guild", None)
-            if text_channel is None or guild is None or not hasattr(text_channel, "send"):
+            current_text_channel = getattr(interaction, "channel", None)
+            if current_text_channel is None or guild is None or not hasattr(current_text_channel, "send"):
                 await interaction.response.send_message("서버의 텍스트 채널에서 실행하세요.", ephemeral=True)
+                return
+            requested_name = str(채널이름 or "").strip()
+            text_channel = (
+                self._find_text_channel_by_name(guild, requested_name)
+                if requested_name
+                else current_text_channel
+            )
+            if text_channel is None:
+                await interaction.response.send_message(
+                    f"텍스트 채널 `{requested_name}`을 찾지 못했습니다. 채널 이름, #채널이름 또는 채널 ID를 입력하세요.",
+                    ephemeral=True,
+                )
                 return
             channel_id = str(getattr(text_channel, "id", "") or "").strip()
             if not channel_id.isdigit():
                 await interaction.response.send_message("텍스트 채널 ID를 확인할 수 없습니다.", ephemeral=True)
                 return
-            configured_text_channel_id = str(self.config.get("text_channel_id") or "").strip()
-            if configured_text_channel_id and configured_text_channel_id != channel_id:
-                await interaction.response.send_message(
-                    f"음성채널 UI는 현재 보탐매니저 채널(<#{configured_text_channel_id}>)에 고정되어 있습니다.",
-                    ephemeral=True,
-                )
-                return
-            if not configured_text_channel_id:
-                self.config["text_channel_id"] = channel_id
-                save_config_value("text_channel_id", channel_id)
+            self.config["voice_panel_channel_id"] = channel_id
+            save_config_value("voice_panel_channel_id", channel_id)
+            await interaction.response.defer(ephemeral=True, thinking=True)
             ok, result_text = await self._publish_discord_voice_channel_panel(text_channel, guild)
-            await interaction.response.send_message(
-                result_text if ok else f"{result_text}\n/음성채널을 다시 실행해 보세요.",
+            await interaction.followup.send(
+                (
+                    f"{getattr(text_channel, 'mention', '#음성패널')}에 {result_text}\n"
+                    "이 채널은 음성 버튼 패널과 가장 최근 메시지 1개만 남기도록 정리합니다."
+                    if ok
+                    else f"{result_text}\n/음성채널을 다시 실행해 보세요."
+                ),
                 ephemeral=True,
             )
 
@@ -1832,9 +1971,11 @@ class DiscordScheduleBot:
                     f"음성 명령 저장에 실패했습니다: {exc}",
                     ephemeral=True,
                 )
+                asyncio.create_task(self._delete_interaction_response_after_delay(interaction))
                 return
             if not added:
                 await interaction.response.send_message(result_text, ephemeral=True)
+                asyncio.create_task(self._delete_interaction_response_after_delay(interaction))
                 return
             author = getattr(interaction, "user", None)
             channel = getattr(interaction, "channel", None)
@@ -1858,7 +1999,9 @@ class DiscordScheduleBot:
             except OSError as exc:
                 log(f"voice_command_prepare_queue_failed error={exc}")
                 result_text += " (등록은 완료했지만 로컬 TTS 준비 요청은 실패했습니다.)"
+            asyncio.create_task(self._refresh_discord_voice_panel(getattr(interaction, "guild", None)))
             await interaction.response.send_message(result_text, ephemeral=True)
+            asyncio.create_task(self._delete_interaction_response_after_delay(interaction))
 
         @self.tree.command(name="음성삭제", description="추가한 보탐매니저 음성 명령을 삭제합니다.")
         async def delete_voice_command(interaction: Any, 이름: str) -> None:
@@ -1869,7 +2012,9 @@ class DiscordScheduleBot:
             except OSError as exc:
                 log(f"voice_command_delete_save_failed error={exc}")
                 result_text = f"음성 명령 저장에 실패했습니다: {exc}"
+            asyncio.create_task(self._refresh_discord_voice_panel(getattr(interaction, "guild", None)))
             await interaction.response.send_message(result_text, ephemeral=True)
+            asyncio.create_task(self._delete_interaction_response_after_delay(interaction))
 
         @self.tree.command(name="음성목록", description="클릭해서 재생할 수 있는 보탐매니저 음성 목록을 엽니다.")
         async def voice_command_list(interaction: Any) -> None:
@@ -1882,7 +2027,8 @@ class DiscordScheduleBot:
             owner_id = str(getattr(getattr(interaction, "user", None), "id", "") or "")
             view = self._build_discord_voice_command_menu_view(owner_id=owner_id)
             await interaction.response.send_message(
-                "재생할 음성을 선택하세요. 파일 전용 항목은 같은 이름의 WAV/MP4만 재생합니다.",
+                f"등록 음성 {len(entries)}개입니다. 📢 기본 · 🔊 사용자 TTS · 📁 파일 전용\n"
+                "사운드보드 버튼을 누르면 바로 송출합니다. 20개를 넘으면 이전/다음으로 넘길 수 있습니다.",
                 view=view,
                 ephemeral=True,
             )
@@ -1924,6 +2070,61 @@ class DiscordScheduleBot:
         except Exception as exc:
             STATUS.update(last_error=f"명령어 동기화 실패: {exc}")
             log(f"command_sync_failed error={exc}")
+
+    async def _resolve_voice_panel_channel(self, guild: Any = None) -> Any | None:
+        """Get the dedicated text channel that hosts the pinned soundboard."""
+        configured_server_id = self._get_configured_server_id()
+        if not configured_server_id:
+            return None
+        if guild is not None and not self._is_configured_guild(guild):
+            return None
+        target_guild = guild if guild is not None else self.client.get_guild(int(configured_server_id))
+        if target_guild is None or not self._is_configured_guild(target_guild):
+            return None
+        configured_id = str(self.config.get("voice_panel_channel_id") or "").strip()
+        if configured_id.isdigit():
+            channel = self.client.get_channel(int(configured_id))
+            if channel is None:
+                try:
+                    channel = await self.client.fetch_channel(int(configured_id))
+                except Exception:
+                    channel = None
+            if channel is not None and hasattr(channel, "send"):
+                channel_guild_id = str(getattr(getattr(channel, "guild", None), "id", "") or "")
+                if channel_guild_id == configured_server_id:
+                    return channel
+        # Preserve the former behavior until the administrator explicitly
+        # chooses a dedicated soundboard channel with /음성채널 채널이름.
+        return await self._resolve_text_channel(target_guild)
+
+    @staticmethod
+    def _find_text_channel_by_name(guild: Any, requested_name: str) -> Any | None:
+        """Resolve an exact channel name (or an ID/mention) within one guild."""
+        raw = str(requested_name or "").strip()
+        if not raw:
+            return None
+        channel_id = raw.strip("<#>")
+        for channel in list(getattr(guild, "text_channels", []) or []):
+            candidate_id = str(getattr(channel, "id", "") or "")
+            candidate_name = str(getattr(channel, "name", "") or "").strip()
+            if channel_id.isdigit() and candidate_id == channel_id:
+                return channel
+            if candidate_name and candidate_name.casefold() == raw.lstrip("#").casefold():
+                return channel
+        return None
+
+    async def _refresh_discord_voice_panel(self, guild: Any = None) -> None:
+        """Refresh the pinned button list after a custom voice command changes."""
+        try:
+            target_guild = guild
+            if target_guild is None:
+                server_id = self._get_configured_server_id()
+                target_guild = self.client.get_guild(int(server_id)) if server_id.isdigit() else None
+            channel = await self._resolve_voice_panel_channel(target_guild)
+            if channel is not None and target_guild is not None:
+                await self._publish_discord_voice_channel_panel(channel, target_guild)
+        except Exception as exc:
+            log(f"voice_panel_refresh_failed error={exc}")
 
     async def _resolve_text_channel(self, guild: Any = None) -> Any | None:
         """Get the configured text channel, or the default channel named 보탐매니저."""

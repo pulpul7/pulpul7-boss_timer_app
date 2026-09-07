@@ -3,6 +3,8 @@
 import ast
 import configparser
 import json
+import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 import subprocess
@@ -41,6 +43,7 @@ DISTRIBUTION_DEFAULT_SETTING_OVERRIDES = {
 }
 DISTRIBUTION_DEFAULT_ALARM_OVERRIDES = {
     "ai_recording_preferred": True,
+    "second_precision_expire_hours": 168,
 }
 # 배포본은 음성 캐시만 기본 데이터로 포함한다. 아래 파일은 사용자의 서버,
 # 봇 채널, 스케쥴을 담을 수 있으므로 어떤 경우에도 패키지에 들어가면 안 된다.
@@ -124,6 +127,34 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
                 encoding="utf-8",
             )
             generated_datas.append((str(alarm_seed_path), "init"))
+
+    # The score/duration table is safe to distribute as a shared gameplay
+    # baseline, unlike schedules and Discord/server credentials.  Seed it from
+    # the currently active local server profile when available.
+    appdata_root = Path(os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or "") / "BossTimer"
+    active_profile_path = appdata_root / "active_server_profile.json"
+    metrics_source_path: Path | None = None
+    try:
+        active_profile = json.loads(active_profile_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        active_profile = None
+    if isinstance(active_profile, dict):
+        server_id = str(active_profile.get("server_id") or "").strip()
+        season_key = str(active_profile.get("season_key") or "").strip()
+        candidate_dirs = []
+        if server_id and season_key:
+            candidate_dirs.append(appdata_root / "server_profiles" / season_key / server_id / "init")
+        if server_id:
+            candidate_dirs.append(appdata_root / "server_profiles" / server_id / "init")
+        for candidate_dir in candidate_dirs:
+            candidate = candidate_dir / "schedule_boss_metrics.json"
+            if candidate.is_file():
+                metrics_source_path = candidate
+                break
+    if metrics_source_path is not None:
+        metrics_seed_path = staging_dir / "schedule_boss_metrics.json"
+        shutil.copy2(metrics_source_path, metrics_seed_path)
+        generated_datas.append((str(metrics_seed_path), "init"))
     return generated_datas
 
 

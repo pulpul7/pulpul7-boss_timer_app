@@ -1,5 +1,5 @@
 {
-  "version": "v4.2.0",
+  "version": "v4.3.3",
   "voice_rule_version": "2026-09-07.68",
   "master_enabled": true,
   "local_audio_enabled": true,
@@ -10,7 +10,7 @@
   "countdown_enabled": false,
   "ai_recording_preferred": true,
   "countdown_start_seconds": 15,
-  "second_precision_expire_hours": 49,
+  "second_precision_expire_hours": 24,
   "fixed_boss_enabled": true,
   "fixed_boss_skip_due_time": true,
   "voice_name": "Microsoft Heami Desktop - Korean",
@@ -379,126 +379,5 @@
       ]
     }
   },
-  "fixed_boss_overrides": {
-    "공성전": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "공성전 공격대상 선택": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "공성전 입찰시작": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "길드 쟁탈전 신청마감": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "닻": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "발할라 대전": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "방어전": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "방어전 신청": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "방어전 신청마감": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "성채": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "월드보스": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "쟁탈전": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "점령전": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "점령전 신청": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "점령전 신청마감": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "지옥 성채": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "지옥성채 정예": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "트리니티 리그": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "핏빛고블린": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    },
-    "황금고블린": {
-      "enabled": true,
-      "offsets": [
-        60
-      ]
-    }
-  }
+  "fixed_boss_overrides": {}
 }
