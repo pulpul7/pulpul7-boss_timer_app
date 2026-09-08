@@ -10,6 +10,8 @@ venv/
 dist/
 build/
 build_discord_bot/
+build_release_discord_bot/
+build_release_gui/
 build_current/
 dist_current/
 dist_current_clean/
