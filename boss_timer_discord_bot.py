@@ -658,6 +658,8 @@ class BotStatus:
         self.voice_bridge_offset = 0
         self.voice_bridge_last_id = ""
         self.text_commands_enabled = True
+        self.nacl_available = False
+        self.nacl_import_error = ""
         self.shutdown_requested = threading.Event()
         self.lock = threading.Lock()
 
@@ -678,6 +680,8 @@ class BotStatus:
                 "voice_bridge_offset": self.voice_bridge_offset,
                 "voice_bridge_last_id": self.voice_bridge_last_id,
                 "text_commands_enabled": self.text_commands_enabled,
+                "nacl_available": self.nacl_available,
+                "nacl_import_error": self.nacl_import_error,
                 "shutdown_requested": self.shutdown_requested.is_set(),
                 "started_at": self.started_at.isoformat(timespec="seconds"),
             }
@@ -3941,6 +3945,14 @@ def main() -> int:
     if server is None:
         return 1
     try:
+        import nacl.secret  # type: ignore[import-not-found]
+        import nacl.utils  # type: ignore[import-not-found]
+    except Exception as exc:
+        STATUS.update(nacl_import_error=f"{type(exc).__name__}: {exc}")
+        log(f"pynacl_import_failed type={type(exc).__name__} error={exc}")
+    else:
+        log("pynacl_import_preload_ok")
+    try:
         import discord  # type: ignore[import-not-found]
     except Exception as exc:
         STATUS.update(last_error=f"discord.py 또는 PyNaCl 설치가 필요합니다: {exc}")
@@ -3950,6 +3962,9 @@ def main() -> int:
         server.shutdown()
         server.server_close()
         return 1
+    nacl_available = bool(getattr(getattr(discord, "voice_client", None), "has_nacl", False))
+    STATUS.update(nacl_available=nacl_available)
+    log(f"pynacl_available={int(nacl_available)}")
     disconnect_only = str(os.environ.get("BOSS_TIMER_DISCORD_DISCONNECT_ONLY") or "").strip() == "1"
     enable_message_content = not disconnect_only
     while not STATUS.shutdown_requested.is_set():

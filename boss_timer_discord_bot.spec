@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import shutil
+from PyInstaller.utils.hooks import collect_all
 
 
 def collect_tree(src_dir: Path, dest_root: str) -> list[tuple[str, str]]:
@@ -31,11 +32,13 @@ if ffmpeg_path is None or not ffmpeg_path.is_file():
 datas = []
 datas.extend(collect_tree(project_root / "voice", "voice"))
 datas.extend(collect_tree(project_root / "wave", "wave"))
+nacl_datas, nacl_binaries, nacl_hiddenimports = collect_all("nacl")
+datas.extend(nacl_datas)
 
 a = Analysis(
     ["boss_timer_discord_bot.py"],
     pathex=[],
-    binaries=[(str(ffmpeg_path), ".")],
+    binaries=[(str(ffmpeg_path), "."), *nacl_binaries],
     datas=datas,
     hiddenimports=[
         "discord",
@@ -44,6 +47,9 @@ a = Analysis(
         "nacl",
         "nacl.secret",
         "nacl.utils",
+        "cffi",
+        "_cffi_backend",
+        *nacl_hiddenimports,
     ],
     hookspath=[],
     hooksconfig={},
