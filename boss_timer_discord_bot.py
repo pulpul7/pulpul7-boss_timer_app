@@ -1105,6 +1105,7 @@ class DiscordScheduleBot:
         self.shutdown_task: asyncio.Task[Any] | None = None
         self.command_sync_task: asyncio.Task[Any] | None = None
         self.gateway_recovery_task: asyncio.Task[Any] | None = None
+        self.voice_panel_startup_task: asyncio.Task[Any] | None = None
         self.gateway_disconnected_at: float | None = None
         self.last_voice_reconnect_attempt_at = 0.0
         self.schedule_request_lock = asyncio.Lock()
@@ -1613,6 +1614,24 @@ class DiscordScheduleBot:
             log(f"voice_channel_panel_publish_failed channel_id={getattr(channel, 'id', '')} error={exc}")
             return False, "음성채널 UI를 표시하지 못했습니다."
 
+    async def _initialize_voice_panel_after_ready(self) -> None:
+        try:
+            text_channel = await asyncio.wait_for(self._resolve_voice_panel_channel(), timeout=5.0)
+            server_id = self._get_configured_server_id()
+            configured_guild = self.client.get_guild(int(server_id)) if server_id else None
+            if text_channel is None or configured_guild is None:
+                return
+            await asyncio.wait_for(
+                self._publish_discord_voice_channel_panel(text_channel, configured_guild),
+                timeout=12.0,
+            )
+        except asyncio.TimeoutError:
+            log("voice_channel_panel_startup_timeout")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log(f"voice_channel_panel_startup_failed error={exc}")
+
     def _should_handle_interaction(self, interaction: Any) -> bool:
         guild_id = str(getattr(interaction, "guild_id", "") or "").strip()
         if self._is_configured_server_id(guild_id):
@@ -1643,13 +1662,10 @@ class DiscordScheduleBot:
                 return
             await self._disconnect_stale_configured_voice_session()
             await self._connect_configured_voice_channel()
-            try:
-                text_channel = await self._resolve_voice_panel_channel()
-                configured_guild = self.client.get_guild(int(self._get_configured_server_id())) if self._get_configured_server_id() else None
-                if text_channel is not None and configured_guild is not None:
-                    await self._publish_discord_voice_channel_panel(text_channel, configured_guild)
-            except Exception as exc:
-                log(f"voice_channel_panel_startup_failed error={exc}")
+            # Start the bridge and shutdown watchers before any Discord message
+            # maintenance. Fetching/deleting the persistent soundboard panel can
+            # be delayed by Discord rate limits; it must never block heartbeats
+            # or graceful shutdown.
             if self.schedule_task is None or self.schedule_task.done():
                 self.schedule_task = self.client.loop.create_task(self._schedule_loop())
             if self.play_task is None or self.play_task.done():
@@ -1661,6 +1677,10 @@ class DiscordScheduleBot:
             if self.gateway_recovery_task is None or self.gateway_recovery_task.done():
                 self.gateway_recovery_task = self.client.loop.create_task(self._gateway_recovery_loop())
             log(f"discord_ready user={self.client.user} edge_tts_gain={EDGE_TTS_PLAYBACK_GAIN:.2f}")
+            if self.voice_panel_startup_task is None or self.voice_panel_startup_task.done():
+                self.voice_panel_startup_task = self.client.loop.create_task(
+                    self._initialize_voice_panel_after_ready()
+                )
 
         @self.client.event
         async def on_disconnect() -> None:
