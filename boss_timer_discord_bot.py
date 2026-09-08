@@ -593,6 +593,12 @@ class VoiceBridgeReader:
                 action=action,
                 scope_id=scope_id,
             )
+        if action == "heartbeat":
+            return VoiceBridgeControl(
+                id=job_id,
+                created_at=created_at,
+                action=action,
+            )
         if action == "text_notice":
             message = str(payload.get("message") or "").strip()
             if message:
@@ -657,6 +663,7 @@ class BotStatus:
         self.voice_bridge_timed_clips = True
         self.voice_bridge_offset = 0
         self.voice_bridge_last_id = ""
+        self.voice_bridge_last_heartbeat_id = ""
         self.text_commands_enabled = True
         self.nacl_available = False
         self.nacl_import_error = ""
@@ -679,6 +686,7 @@ class BotStatus:
                 "voice_bridge_timed_clips": self.voice_bridge_timed_clips,
                 "voice_bridge_offset": self.voice_bridge_offset,
                 "voice_bridge_last_id": self.voice_bridge_last_id,
+                "voice_bridge_last_heartbeat_id": self.voice_bridge_last_heartbeat_id,
                 "text_commands_enabled": self.text_commands_enabled,
                 "nacl_available": self.nacl_available,
                 "nacl_import_error": self.nacl_import_error,
@@ -2956,6 +2964,9 @@ class DiscordScheduleBot:
         return True, waited_ms, joined
 
     async def _handle_voice_bridge_control(self, control: VoiceBridgeControl) -> None:
+        if control.action == "heartbeat":
+            STATUS.update(voice_bridge_last_heartbeat_id=control.id)
+            return
         if control.action == "text_notice":
             channel = await self._resolve_text_channel()
             if channel is None:
@@ -3944,6 +3955,53 @@ def main() -> int:
     server = start_status_server()
     if server is None:
         return 1
+    parent_pid_text = str(os.environ.get("BOSS_TIMER_PARENT_PID") or "").strip()
+    try:
+        parent_pid = int(parent_pid_text)
+    except ValueError:
+        parent_pid = 0
+
+    if parent_pid > 0 and parent_pid != os.getpid():
+        def parent_process_is_alive(pid: int) -> bool:
+            if os.name == "nt":
+                try:
+                    import ctypes
+                    from ctypes import wintypes
+
+                    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                    open_process = kernel32.OpenProcess
+                    open_process.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+                    open_process.restype = wintypes.HANDLE
+                    close_handle = kernel32.CloseHandle
+                    close_handle.argtypes = (wintypes.HANDLE,)
+                    close_handle.restype = wintypes.BOOL
+                    handle = open_process(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+                    if not handle:
+                        return False
+                    close_handle(handle)
+                    return True
+                except Exception:
+                    return False
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                # A live process may reject inspection by a non-elevated app.
+                return True
+            except OSError:
+                return False
+            return True
+
+        def watch_parent_process() -> None:
+            while not STATUS.shutdown_requested.wait(1.0):
+                if not parent_process_is_alive(parent_pid):
+                    log(f"parent_process_exited pid={parent_pid}")
+                    STATUS.shutdown_requested.set()
+                    force_process_exit_after_shutdown(0.75)
+                    return
+
+        threading.Thread(target=watch_parent_process, name="boss-timer-parent-watch", daemon=True).start()
     try:
         import nacl.secret  # type: ignore[import-not-found]
         import nacl.utils  # type: ignore[import-not-found]

@@ -5401,7 +5401,15 @@ class BossTimerApp:
             consumed_offset = int(payload.get("voice_bridge_offset") or 0)
         except (TypeError, ValueError):
             consumed_offset = 0
-        if pending_id and pending_offset > 0 and consumed_offset >= pending_offset:
+        acknowledged_heartbeat_id = str(payload.get("voice_bridge_last_heartbeat_id") or "").strip()
+        if pending_id and acknowledged_heartbeat_id == pending_id:
+            self.discord_bot_voice_bridge_heartbeat_pending_id = ""
+            self.discord_bot_voice_bridge_heartbeat_pending_offset = 0
+            self.discord_bot_voice_bridge_heartbeat_sent_at = 0.0
+            self.discord_bot_voice_bridge_heartbeat_failure_count = 0
+            pending_id = ""
+        elif pending_id and pending_offset > 0 and consumed_offset >= pending_offset:
+            # Backward-compatible acknowledgement for an older companion EXE.
             self.discord_bot_voice_bridge_heartbeat_pending_id = ""
             self.discord_bot_voice_bridge_heartbeat_pending_offset = 0
             self.discord_bot_voice_bridge_heartbeat_sent_at = 0.0
@@ -6350,6 +6358,7 @@ class BossTimerApp:
             env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
             env["BOSS_TIMER_APP_ROOT"] = get_app_root()
             env["BOSS_TIMER_RESOURCE_ROOT"] = get_resource_root()
+            env["BOSS_TIMER_PARENT_PID"] = str(os.getpid())
             env["BOSS_TIMER_DISCORD_STATUS_PORT"] = str(DISCORD_BOT_STATUS_PORT)
             env["BOSS_TIMER_DISCORD_VOICE_QUEUE"] = DISCORD_VOICE_BRIDGE_PATH
             env["BOSS_TIMER_DISCORD_DISCONNECT_ONLY"] = "1"
