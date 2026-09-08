@@ -48,6 +48,11 @@ DISCORD_STARTUP_AUDIO_WARMUP_SEC = 1.5
 # Edge TTS 원본은 녹음 WAV보다 체감 음량이 작다. 모든 Edge 캐시를 기존
 # 10/11초 보정 수준으로 재생해 초읽기와 연쇄 안내의 음량이 바뀌지 않게 한다.
 EDGE_TTS_PLAYBACK_GAIN = 1.80
+# Recorded invasion sequences are assembled as a timed PCM stream.  The GUI
+# intentionally sends a colliding right-lane invasion at 0.8 volume; cancel
+# that attenuation here and give standalone Discord playback the small gain
+# needed to match the same WAV files played by the local WPF host.
+DISCORD_INVASION_SEQUENCE_GAIN = 1.25
 TIMED_REPLACE_CURRENT_AUDIO_PHASES = {
     "COUNTDOWN_SEQUENCE",
     # 10초 이내 초확정 젠은 로컬과 동일하게 차임벨 한 번 뒤
@@ -72,12 +77,23 @@ def get_app_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def get_resource_root() -> Path:
+    """Return the packaged resource directory without losing the writable app root."""
+    env_root = os.environ.get("BOSS_TIMER_RESOURCE_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
+    return Path(__file__).resolve().parent
+
+
 def get_user_config_dir() -> Path:
     base_dir = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home())
     return Path(base_dir) / "BossTimer"
 
 
 APP_ROOT = get_app_root()
+RESOURCE_ROOT = get_resource_root()
 CONFIG_PATH = Path(os.environ.get("BOSS_TIMER_DISCORD_CONFIG") or get_user_config_dir() / "discord_bot.ini")
 VOICE_BRIDGE_PATH = Path(os.environ.get("BOSS_TIMER_DISCORD_VOICE_QUEUE") or get_user_config_dir() / "discord_voice_queue.jsonl")
 SCHEDULE_STATE_PATH = APP_ROOT / "schedule_state.json"
@@ -405,7 +421,9 @@ def resolve_clip(relative_or_absolute: str) -> str:
     if not raw_path:
         return ""
     candidates = [Path(raw_path)]
-    candidates.append(APP_ROOT / raw_path.replace("/", os.sep))
+    relative_path = raw_path.replace("/", os.sep)
+    candidates.append(RESOURCE_ROOT / relative_path)
+    candidates.append(APP_ROOT / relative_path)
     for candidate in candidates:
         try:
             resolved = candidate if candidate.is_absolute() else candidate.resolve()
@@ -417,14 +435,15 @@ def resolve_clip(relative_or_absolute: str) -> str:
 
 
 def voice_file(subdir: str, stem: str) -> str:
-    target_dir = APP_ROOT / "voice" / subdir
-    if not target_dir.is_dir():
-        return ""
     wanted = str(stem or "").strip()
-    for extension in (".wav", ".mp3", ".m4a", ".aac", ".mp4"):
-        path = target_dir / f"{wanted}{extension}"
-        if path.is_file():
-            return str(path)
+    for root_dir in (RESOURCE_ROOT, APP_ROOT):
+        target_dir = root_dir / "voice" / subdir
+        if not target_dir.is_dir():
+            continue
+        for extension in (".wav", ".mp3", ".m4a", ".aac", ".mp4"):
+            path = target_dir / f"{wanted}{extension}"
+            if path.is_file():
+                return str(path)
     return ""
 
 
@@ -1067,7 +1086,7 @@ class DiscordScheduleBot:
         self.current_voice_player_thread: Any = None
         self.current_timed_composite_source: Any = None
         self.current_timed_composite_scope_id = ""
-        self.timed_pcm_cache: dict[tuple[str, int, int, int], bytes] = {}
+        self.timed_pcm_cache: dict[tuple[str, int, int, int, str], bytes] = {}
         self.timed_pcm_cache_lock = threading.Lock()
         self.schedule_task: asyncio.Task[Any] | None = None
         self.play_task: asyncio.Task[Any] | None = None
@@ -2790,7 +2809,14 @@ class DiscordScheduleBot:
 
     async def _play_timed_bridge_clips(self, job: VoiceBridgeJob) -> None:
         try:
-            if job.phase == "COUNTDOWN_SEQUENCE":
+            # 초읽기 중 0초 젠(침공 포함)도 같은 Discord PCM 스트림으로
+            # 합성해야 한다. 별도 timed clip으로 재생하면 뒤 요청이 현재
+            # 초읽기를 교체해 이름/15초가 사라진다.
+            if job.phase in {
+                "COUNTDOWN_SEQUENCE",
+                "SPAWN_CONFIRMED_SEQUENCE",
+                "SPAWN_CONFIRMED_NEAR_SEQUENCE",
+            }:
                 try:
                     if await self._play_timed_bridge_composite(job):
                         return
@@ -3041,6 +3067,19 @@ class DiscordScheduleBot:
             playback_volume *= EDGE_TTS_PLAYBACK_GAIN
         return max(0.0, min(2.0, playback_volume))
 
+    @staticmethod
+    def _get_timed_job_playback_volume(job: VoiceBridgeJob) -> float:
+        try:
+            playback_volume = float(job.volume)
+        except (TypeError, ValueError):
+            playback_volume = 1.0
+        if (
+            str(job.phase or "").strip().upper() == "SPAWN_CONFIRMED_SEQUENCE"
+            and str(job.fallback_text or "").lstrip().startswith("침공")
+        ):
+            playback_volume *= DISCORD_INVASION_SEQUENCE_GAIN
+        return max(0.0, min(2.0, playback_volume))
+
     def _cleanup_audio_source(self, source: Any) -> None:
         if source is None:
             return
@@ -3049,12 +3088,34 @@ class DiscordScheduleBot:
         except Exception:
             pass
 
-    def _read_timed_clip_pcm(self, clip_path: str, volume: float) -> bytes:
+    @staticmethod
+    def _apply_timed_pcm_lane(pcm: bytes, lane: str) -> bytes:
+        normalized_lane = str(lane or "center").strip().lower()
+        if normalized_lane not in {"left", "right"} or not pcm:
+            return pcm
+        if audioop is not None:
+            mono = audioop.tomono(pcm, 2, 0.5, 0.5)
+            return (
+                audioop.tostereo(mono, 2, 1.0, 0.0)
+                if normalized_lane == "left"
+                else audioop.tostereo(mono, 2, 0.0, 1.0)
+            )
+        # discord.py consumes stereo signed 16-bit little-endian PCM.  Keep
+        # the requested channel and silence the opposite channel when the
+        # stdlib audioop compatibility module is unavailable.
+        balanced = bytearray(pcm)
+        silent_offset = 2 if normalized_lane == "left" else 0
+        for frame_offset in range(0, len(balanced) - 3, 4):
+            balanced[frame_offset + silent_offset:frame_offset + silent_offset + 2] = b"\x00\x00"
+        return bytes(balanced)
+
+    def _read_timed_clip_pcm(self, clip_path: str, volume: float, lane: str = "center") -> bytes:
         path = Path(clip_path)
         stat = path.stat()
         playback_volume = self._get_clip_playback_volume(str(path), volume)
         volume_key = int(round(playback_volume * 1000.0))
-        cache_key = (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size), volume_key)
+        normalized_lane = str(lane or "center").strip().lower()
+        cache_key = (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size), volume_key, normalized_lane)
         with self.timed_pcm_cache_lock:
             cached = self.timed_pcm_cache.get(cache_key)
         if cached is not None:
@@ -3070,7 +3131,7 @@ class DiscordScheduleBot:
                 chunks.append(bytes(chunk))
         finally:
             self._cleanup_audio_source(source)
-        pcm = b"".join(chunks)
+        pcm = self._apply_timed_pcm_lane(b"".join(chunks), normalized_lane)
         with self.timed_pcm_cache_lock:
             if len(self.timed_pcm_cache) >= 512:
                 oldest_key = next(iter(self.timed_pcm_cache), None)
@@ -3085,8 +3146,9 @@ class DiscordScheduleBot:
             raise RuntimeError("timed clips are empty")
         stream_start_at = timed_clips[0][0] - timedelta(seconds=DISCORD_COUNTDOWN_COMPOSITE_WARMUP_SEC)
         timeline = bytearray()
+        job_playback_volume = self._get_timed_job_playback_volume(job)
         for play_at, clip_path in timed_clips:
-            pcm = self._read_timed_clip_pcm(clip_path, job.volume)
+            pcm = self._read_timed_clip_pcm(clip_path, job_playback_volume, job.lane)
             offset_frames = max(
                 0,
                 int(round((play_at - stream_start_at).total_seconds() * 48000.0)),
@@ -3173,6 +3235,138 @@ class DiscordScheduleBot:
                     self.idle_until = max(
                         time.monotonic() + DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC,
                         self.start_monotonic + duration_sec + DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC,
+                    )
+                if previous_done is not done:
+                    self._signal_done(previous_done)
+
+            def merge_stream(
+                self,
+                *,
+                data: bytes,
+                start_monotonic: float,
+                scope_id: str,
+                done: asyncio.Event,
+            ) -> None:
+                """현재 출력 중인 시간축에 새 예약 음성을 겹쳐 넣는다.
+
+                Discord 음성 클라이언트는 실제 재생 스트림을 하나만 가질 수
+                있다. 따라서 2초 차이 초읽기나 침공 젠을 별도 ``play``로
+                보내면 뒤 요청이 앞의 초읽기를 교체한다. 현재 재생 위치를
+                기준점으로 남은 PCM과 새 PCM을 하나의 시간축으로 합성한다.
+                """
+                previous_done = None
+                incoming_data = bytes(data or b"")
+                if not incoming_data:
+                    self._signal_done(done)
+                    return
+                with self.lock:
+                    if not self.data or self.closed:
+                        # 재생할 스트림이 없으면 일반 설정과 동일하다.
+                        self.data = incoming_data
+                        self.offset = 0
+                        self.start_monotonic = float(start_monotonic)
+                        self.scope_id = str(scope_id or "").strip()
+                        self.stream_done = done
+                        self.stream_started = False
+                        self.closed = False
+                        duration_sec = len(incoming_data) / float(DISCORD_PCM_BYTES_PER_SECOND)
+                        self.idle_until = max(
+                            time.monotonic() + DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC,
+                            self.start_monotonic + duration_sec + DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC,
+                        )
+                        return
+
+                    previous_done = self.stream_done
+                    now_monotonic = time.monotonic()
+                    if self.stream_started:
+                        # read()가 이미 지나간 PCM은 버리고, 지금부터 남은
+                        # 시간축을 새 기준점으로 삼는다.
+                        base_start = now_monotonic
+                        existing_data = bytes(self.data[self.offset:])
+                        existing_offset = 0
+                    else:
+                        base_start = min(float(self.start_monotonic), float(start_monotonic))
+                        existing_data = bytes(self.data)
+                        existing_offset = max(
+                            0,
+                            int(round((float(self.start_monotonic) - base_start) * DISCORD_PCM_BYTES_PER_SECOND)),
+                        )
+
+                    incoming_start = float(start_monotonic)
+                    if incoming_start < base_start:
+                        # Timed sources contain a 1.2-second silent warm-up.
+                        # When such a source is merged into an already running
+                        # countdown, its nominal start is normally in the past.
+                        # Keeping those elapsed bytes delayed invasion/name
+                        # audio by about 1.5 seconds and made it collide with
+                        # the next countdown clips.  Mirror read()'s late-start
+                        # behaviour and discard the elapsed, frame-aligned PCM.
+                        elapsed_bytes = int(round(
+                            (base_start - incoming_start) * DISCORD_PCM_BYTES_PER_SECOND
+                        ))
+                        elapsed_bytes = max(0, (elapsed_bytes // 4) * 4)
+                        incoming_data = incoming_data[min(len(incoming_data), elapsed_bytes):]
+                        incoming_offset = 0
+                    else:
+                        incoming_offset = max(
+                            0,
+                            int(round((incoming_start - base_start) * DISCORD_PCM_BYTES_PER_SECOND)),
+                        )
+                    merged_size = max(
+                        existing_offset + len(existing_data),
+                        incoming_offset + len(incoming_data),
+                    )
+                    merged = bytearray(merged_size)
+                    merged[existing_offset:existing_offset + len(existing_data)] = existing_data
+                    overlap_start = max(existing_offset, incoming_offset)
+                    overlap_end = min(
+                        existing_offset + len(existing_data),
+                        incoming_offset + len(incoming_data),
+                    )
+                    if overlap_end > overlap_start:
+                        existing_pcm = bytes(merged[overlap_start:overlap_end])
+                        incoming_start = overlap_start - incoming_offset
+                        incoming_pcm = incoming_data[incoming_start:incoming_start + (overlap_end - overlap_start)]
+                        if audioop is not None:
+                            # This runs in C.  Mixing several seconds sample by
+                            # sample in Python blocked Discord's event loop long
+                            # enough to skip a countdown number when an invasion
+                            # spawn arrived during a countdown.
+                            mixed_pcm = audioop.add(existing_pcm, incoming_pcm, 2)
+                        else:
+                            mixed_buffer = bytearray(len(existing_pcm))
+                            for sample_offset in range(0, len(existing_pcm) - 1, 2):
+                                existing_sample = int.from_bytes(
+                                    existing_pcm[sample_offset:sample_offset + 2], "little", signed=True
+                                )
+                                incoming_sample = int.from_bytes(
+                                    incoming_pcm[sample_offset:sample_offset + 2], "little", signed=True
+                                )
+                                mixed_sample = max(-32768, min(32767, existing_sample + incoming_sample))
+                                mixed_buffer[sample_offset:sample_offset + 2] = int(mixed_sample).to_bytes(
+                                    2, "little", signed=True
+                                )
+                            mixed_pcm = bytes(mixed_buffer)
+                        merged[overlap_start:overlap_end] = mixed_pcm
+                    # 겹치지 않는 새 구간은 그대로 채운다. 겹치는 구간은 위에서
+                    # 합성했으므로 제외한다.
+                    if incoming_offset < overlap_start:
+                        merged[incoming_offset:overlap_start] = incoming_data[:overlap_start - incoming_offset]
+                    if overlap_end < incoming_offset + len(incoming_data):
+                        source_start = overlap_end - incoming_offset
+                        merged[overlap_end:incoming_offset + len(incoming_data)] = incoming_data[source_start:]
+
+                    self.data = bytes(merged)
+                    self.offset = 0
+                    self.start_monotonic = base_start
+                    self.scope_id = str(scope_id or "").strip()
+                    self.stream_done = done
+                    self.stream_started = False
+                    self.closed = False
+                    duration_sec = len(self.data) / float(DISCORD_PCM_BYTES_PER_SECOND)
+                    self.idle_until = max(
+                        now_monotonic + DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC,
+                        base_start + duration_sec + DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC,
                     )
                 if previous_done is not done:
                     self._signal_done(previous_done)
@@ -3275,7 +3469,9 @@ class DiscordScheduleBot:
         log(
             f"bridge_composite_prepared id={job.id} scope={job.scope_id} "
             f"clips={len(job.timed_clips)} duration_ms={duration_ms} "
-            f"output_lead_ms={DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS}"
+            f"output_lead_ms={DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS} "
+            f"lane={job.lane} source_volume={job.volume:.2f} "
+            f"playback_volume={self._get_timed_job_playback_volume(job):.2f}"
         )
         stream_done = asyncio.Event()
         temporary_source = source
@@ -3293,6 +3489,7 @@ class DiscordScheduleBot:
                     return True
                 existing_source = self.current_timed_composite_source
                 configure_existing = getattr(existing_source, "configure_stream", None)
+                merge_existing = getattr(existing_source, "merge_stream", None)
                 can_accept_existing = getattr(existing_source, "can_accept_stream", None)
                 player = self.current_voice_player_thread or getattr(self.voice_client, "_player", None)
                 player_alive = bool(player is not None and getattr(player, "is_alive", lambda: False)())
@@ -3305,12 +3502,20 @@ class DiscordScheduleBot:
                     and (self.voice_client.is_playing() or self.voice_client.is_paused())
                 )
                 if can_reuse:
-                    configure_existing(
-                        data=source.export_data(),
-                        start_monotonic=start_monotonic,
-                        scope_id=job.scope_id,
-                        done=stream_done,
-                    )
+                    if callable(merge_existing):
+                        merge_existing(
+                            data=source.export_data(),
+                            start_monotonic=start_monotonic,
+                            scope_id=job.scope_id,
+                            done=stream_done,
+                        )
+                    else:
+                        configure_existing(
+                            data=source.export_data(),
+                            start_monotonic=start_monotonic,
+                            scope_id=job.scope_id,
+                            done=stream_done,
+                        )
                     active_source = existing_source
                     reused_player = True
                     self.current_voice_scope_id = str(job.scope_id or "").strip()

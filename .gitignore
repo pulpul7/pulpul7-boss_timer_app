@@ -9,6 +9,7 @@ venv/
 # build output
 dist/
 build/
+build_discord_bot/
 build_current/
 dist_current/
 dist_current_clean/

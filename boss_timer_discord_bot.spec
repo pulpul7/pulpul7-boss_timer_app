@@ -17,17 +17,20 @@ def collect_tree(src_dir: Path, dest_root: str) -> list[tuple[str, str]]:
 
 
 project_root = Path(globals().get("__file__", "boss_timer_discord_bot.spec")).resolve().parent
+bundled_ffmpeg_path = project_root / "ffmpeg.exe"
 ffmpeg_path_text = str(os.environ.get("BOSS_TIMER_FFMPEG") or shutil.which("ffmpeg") or "").strip()
-ffmpeg_path = Path(ffmpeg_path_text) if ffmpeg_path_text else None
+ffmpeg_path = Path(ffmpeg_path_text) if ffmpeg_path_text else bundled_ffmpeg_path
 if ffmpeg_path is None or not ffmpeg_path.is_file():
     raise RuntimeError(
         "ffmpeg.exe를 찾지 못했습니다. PATH에 FFmpeg를 추가하거나 "
         "BOSS_TIMER_FFMPEG 환경변수로 ffmpeg.exe 경로를 지정하세요."
     )
 
+# Bundle the base clips as well.  That keeps direct Discord soundboard commands
+# usable even when the GUI resource temporary directory is no longer available.
 datas = []
-datas += collect_tree(project_root / "voice", "voice")
-datas += collect_tree(project_root / "wave", "wave")
+datas.extend(collect_tree(project_root / "voice", "voice"))
+datas.extend(collect_tree(project_root / "wave", "wave"))
 
 a = Analysis(
     ["boss_timer_discord_bot.py"],

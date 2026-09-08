@@ -1292,7 +1292,7 @@ class DiscordTimedCompositeTests(unittest.TestCase):
         second_sample = int(2000).to_bytes(2, "little", signed=True)
         first_pcm = first_sample * (48000 * 2 * 4 // 100)
         second_pcm = second_sample * (48000 * 2 * 2 // 100)
-        bot._read_timed_clip_pcm = lambda path, _volume: first_pcm if path == "first" else second_pcm
+        bot._read_timed_clip_pcm = lambda path, _volume, _lane="center": first_pcm if path == "first" else second_pcm
         first_at = datetime(2026, 8, 31, 12, 0, 0)
         job = VoiceBridgeJob(
             id="overlap-test",
@@ -1343,6 +1343,29 @@ class DiscordTimedCompositeTests(unittest.TestCase):
             pcm = bot._read_timed_clip_pcm(str(clip_path), 1.0)
 
         self.assertEqual(pcm, b"pcm")
+
+    def test_timed_composite_pans_right_lane_pcm(self):
+        frame = int(1200).to_bytes(2, "little", signed=True) * 2
+
+        balanced = DiscordScheduleBot._apply_timed_pcm_lane(frame, "right")
+
+        self.assertEqual(int.from_bytes(balanced[0:2], "little", signed=True), 0)
+        self.assertEqual(int.from_bytes(balanced[2:4], "little", signed=True), 1200)
+
+    def test_discord_invasion_timed_sequence_cancels_right_lane_attenuation(self):
+        job = VoiceBridgeJob(
+            id="invasion-volume",
+            created_at=datetime.now(),
+            phase="SPAWN_CONFIRMED_SEQUENCE",
+            category="general",
+            lane="right",
+            volume=0.8,
+            clip_paths=(),
+            timed_clips=(),
+            fallback_text="침공 비요른 젠",
+        )
+
+        self.assertAlmostEqual(DiscordScheduleBot._get_timed_job_playback_volume(job), 1.0)
 
 
 class DiscordGatewayRecoveryTests(unittest.TestCase):
@@ -1655,6 +1678,8 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
 
         request = app.schedule_voice_broker_queue.get_nowait()
         self.assertTrue(request["preserve_fixed_message"])
+        self.assertFalse(request["recording_preferred"])
+        self.assertFalse(request["countdown_enabled_at_submit"])
 
     def test_alarm_tick_reschedules_after_non_tk_runtime_error(self):
         app = object.__new__(BossTimerApp)
@@ -2102,6 +2127,91 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
 
 
 class ScheduleAlarmOrderingTests(unittest.TestCase):
+    def test_fixed_due_world_boss_uses_recorded_boss_and_time_clips(self):
+        app = object.__new__(BossTimerApp)
+        app._get_schedule_alarm_boss_voice_path = lambda *, boss_name="", **_kwargs: (
+            "boss:월드보스.wav" if boss_name == "월드보스" else None
+        )
+        app._get_schedule_alarm_info_audio_path = lambda token: "info:타임입니다.wav" if token == "타임입니다" else None
+        app._get_schedule_alarm_random_voice_path_by_prefix = lambda _folder, _token: None
+
+        self.assertEqual(
+            app._build_schedule_fixed_due_time_audio_paths("월드보스"),
+            ["boss:월드보스.wav", "info:타임입니다.wav"],
+        )
+
+    def test_invasion_confirmed_bridge_does_not_overlap_short_lead_clips(self):
+        app = object.__new__(BossTimerApp)
+        captured = {}
+        app._get_schedule_alarm_voice_duration_ms = lambda path: {
+            "chime.wav": 1000,
+            "invasion.wav": 500,
+            "boss.wav": 600,
+            "gen.wav": 700,
+        }[path]
+        app._append_discord_voice_bridge_request = lambda **kwargs: captured.update(kwargs) or True
+        target_at = datetime.now() + timedelta(seconds=10)
+
+        self.assertTrue(app._append_discord_second_precision_spawn_bridge_request(
+            target_time=target_at,
+            lead_clip_paths=["chime.wav", "invasion.wav", "boss.wav"],
+            gen_clip_path="gen.wav",
+        ))
+
+        timed = captured["timed_clip_paths"]
+        self.assertEqual(timed[1][0] - timed[0][0], timedelta(milliseconds=1000))
+        self.assertEqual(timed[2][0] - timed[1][0], timedelta(milliseconds=500))
+        self.assertEqual(timed[-1], (target_at, "gen.wav"))
+
+    def test_delayed_fixed_group_switches_to_soon_after_chime_enters_40_seconds(self):
+        app = object.__new__(BossTimerApp)
+        target_at = datetime(2026, 9, 8, 18, 1, 0)
+        app._get_schedule_reference_datetime = lambda: target_at - timedelta(seconds=41)
+        app._is_schedule_alarm_chime_clip_path = lambda path: path == "fixed-chime.wav"
+        app._get_schedule_alarm_voice_duration_ms = lambda path: 1973 if path == "fixed-chime.wav" else 700
+        app._summarize_schedule_alarm_group_names = lambda names: (" ".join(names), max(0, len(names) - 1))
+        app._get_schedule_alarm_info_audio_path = lambda token: f"info:{token}"
+        app._get_schedule_alarm_random_voice_path_by_prefix = lambda _folder, token: f"info:{token}"
+        app._get_schedule_alarm_boss_voice_path = lambda *, boss_name="", **_kwargs: f"boss:{boss_name}"
+        app._with_schedule_alarm_chime_paths = lambda paths, _category: ["fixed-chime.wav", *paths]
+        app._write_schedule_alarm_voice_test_log = mock.Mock()
+        request = {
+            "target_time": target_at,
+            "offset_sec": 60,
+            "countdown_enabled_at_submit": True,
+            "recording_preferred": True,
+            "boss_id": "지옥성채 정예|핏빛고블린",
+            "fixed_group_names": ["지옥성채 정예", "핏빛고블린"],
+            "fallback_text": "지옥성채 정예 핏빛고블린 일분 전입니다.",
+            "clip_paths": ["fixed-chime.wav", "old.wav"],
+            "chime_key": "fixed",
+        }
+
+        self.assertTrue(app._adjust_schedule_fixed_voice_request_for_playback(request))
+
+        self.assertEqual(request["fallback_text"], "곧 지옥성채 정예 핏빛고블린 타임입니다.")
+        self.assertEqual(request["clip_paths"], [
+            "fixed-chime.wav", "info:곧", "boss:지옥성채 정예", "boss:핏빛고블린", "info:타임입니다",
+        ])
+
+    def test_delayed_fixed_alert_keeps_one_minute_message_without_countdown(self):
+        app = object.__new__(BossTimerApp)
+        target_at = datetime(2026, 9, 8, 18, 1, 0)
+        app._get_schedule_reference_datetime = lambda: target_at - timedelta(seconds=30)
+        request = {
+            "target_time": target_at,
+            "offset_sec": 60,
+            "countdown_enabled_at_submit": False,
+            "recording_preferred": True,
+            "boss_id": "지옥성채 정예",
+            "fallback_text": "지옥성채 정예 1분 전입니다.",
+            "clip_paths": ["fixed-chime.wav", "boss:지옥성채 정예", "info:1분전"],
+        }
+
+        self.assertTrue(app._adjust_schedule_fixed_voice_request_for_playback(request))
+        self.assertEqual(request["fallback_text"], "지옥성채 정예 1분 전입니다.")
+        self.assertEqual(request["clip_paths"], ["fixed-chime.wav", "boss:지옥성채 정예", "info:1분전"])
+
     def test_exact_time_clusters_do_not_consume_next_minute_group(self):
         app = object.__new__(BossTimerApp)
         app._get_schedule_boss_display_name = lambda item, **_kwargs: item["name"]
@@ -2135,7 +2245,7 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
 
         self.assertEqual(release_at, current_spawn_at + timedelta(milliseconds=250))
 
-    def test_one_minute_pre_alert_expires_below_forty_seconds_remaining(self):
+    def test_pre_alert_expiration_follows_delayed_barrier(self):
         app = object.__new__(BossTimerApp)
         app.schedule_voice_broker_generation = 3
         target_at = datetime(2026, 9, 7, 18, 1, 0)
@@ -2149,11 +2259,11 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
 
         self.assertFalse(app._schedule_voice_broker_request_is_stale(
             request,
-            target_at - timedelta(seconds=40),
+            target_at + timedelta(seconds=49),
         ))
         self.assertTrue(app._schedule_voice_broker_request_is_stale(
             request,
-            target_at - timedelta(seconds=39),
+            target_at + timedelta(seconds=51),
         ))
 
     def test_second_precision_same_time_group_submits_once(self):
@@ -2361,21 +2471,92 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
             "chime", "boss:라이노르", "boss:브륀힐드", "info:젠",
         ])
 
-    def test_countdown_followup_does_not_play_name_only_inside_near_spawn_cluster(self):
+    def test_countdown_followup_is_owned_by_primary_stream_through_ten_seconds(self):
+        app = object.__new__(BossTimerApp)
         current_at = datetime(2026, 9, 7, 18, 0, 0)
+        app._is_schedule_invasion_item = lambda _item: False
+        countdown_items = [{"item": {}, "scheduled_at": current_at}]
 
-        self.assertFalse(
-            BossTimerApp._should_schedule_next_countdown_boss_followup(
-                current_at,
+        self.assertTrue(
+            app._is_schedule_near_countdown_followup_target(
                 current_at + timedelta(seconds=1),
+                countdown_items,
             )
         )
         self.assertTrue(
-            BossTimerApp._should_schedule_next_countdown_boss_followup(
-                current_at,
-                current_at + timedelta(seconds=11),
+            app._is_schedule_near_countdown_followup_target(
+                current_at + timedelta(seconds=10),
+                countdown_items,
             )
         )
+        self.assertFalse(
+            app._is_schedule_near_countdown_followup_target(
+                current_at + timedelta(seconds=11),
+                countdown_items,
+            )
+        )
+
+    def test_countdown_followup_chain_uses_adjacent_ten_second_gap(self):
+        app = object.__new__(BossTimerApp)
+        primary_at = datetime(2026, 9, 8, 18, 0, 0)
+        app._is_schedule_invasion_item = lambda _item: False
+        app._is_schedule_alarm_ai_recording_preferred = lambda: True
+        app._get_schedule_alarm_countdown_audio_paths = lambda second: [f"sec:{second}"]
+        app._get_schedule_alarm_countdown_completion_audio_paths = lambda: ["info:젠"]
+        app._get_schedule_alarm_boss_voice_path = lambda *, item=None, **_kwargs: f"boss:{item['boss_name']}"
+        app._get_schedule_alarm_clip_sequence_duration_ms = lambda paths: len(paths) * 500
+        app._get_schedule_alarm_voice_duration_ms = lambda _path: 500
+        countdown_items = [
+            {"item": {"boss_name": "니드호그"}, "boss_name": "니드호그", "scheduled_at": primary_at + timedelta(seconds=3)},
+            {"item": {"boss_name": "셀로비아"}, "boss_name": "셀로비아", "scheduled_at": primary_at + timedelta(seconds=13)},
+            {"item": {"boss_name": "라타토스크"}, "boss_name": "라타토스크", "scheduled_at": primary_at + timedelta(seconds=24)},
+        ]
+
+        timed, claimed = app._build_discord_near_countdown_followup_timed_clips(
+            scheduled_at=primary_at,
+            countdown_alarm_items=countdown_items,
+        )
+
+        self.assertTrue(any(path == "boss:니드호그" for _at, path in timed))
+        self.assertTrue(any(path == "boss:셀로비아" for _at, path in timed))
+        self.assertFalse(any(path == "boss:라타토스크" for _at, path in timed))
+        self.assertEqual(len(claimed), 2)
+
+    def test_countdown_start_notice_deduplicates_same_target_with_changed_group_identity(self):
+        app = object.__new__(BossTimerApp)
+        scheduled_at = datetime.now() + timedelta(seconds=20)
+        notice_at = scheduled_at - timedelta(seconds=20)
+        existing_key = (
+            f"{notice_at.isoformat(timespec='seconds')}|"
+            f"{scheduled_at.isoformat(timespec='seconds')}|라이노르+브륀힐드"
+        )
+        app.discord_countdown_start_notice_bridge_keys = {existing_key}
+
+        emitted = app._append_discord_countdown_start_notice_bridge_request(
+            scheduled_at=scheduled_at,
+            countdown_start_notice_seconds=20,
+            countdown_start_seconds=15,
+            group_identity="라이노르",
+            display_text="라이노르",
+            clip_paths=["unused.wav"],
+        )
+
+        self.assertTrue(emitted)
+        self.assertEqual(app.discord_countdown_start_notice_bridge_keys, {existing_key})
+
+    def test_online_discord_countdown_skips_temporary_local_name_route(self):
+        app = object.__new__(BossTimerApp)
+        app._should_mute_local_schedule_audio_for_discord_bot = lambda _allow: True
+        app._has_discord_countdown_sequence_bridge_for_target = lambda _target: True
+        app._write_schedule_alarm_voice_test_log = mock.Mock()
+        app._submit_schedule_voice_request = mock.Mock()
+
+        app._schedule_temp_local_side_countdown_preannounces(
+            scheduled_at=datetime(2026, 9, 7, 18, 0, 0),
+            countdown_alarm_items=[],
+        )
+
+        app._submit_schedule_voice_request.assert_not_called()
 
     def test_near_confirmed_sequence_uses_discord_transition_timeline(self):
         app = object.__new__(BossTimerApp)
@@ -2496,6 +2677,68 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
             ["info:곧", "boss:니드호그", "info:외", "count:4", "info:타임입니다"],
         )
 
+    def test_non_second_due_group_collects_forty_seconds_but_keeps_invasion_separate(self):
+        app = object.__new__(BossTimerApp)
+        app.schedule_alarm_fired_keys = {}
+        started_at = datetime(2026, 9, 9, 12, 0, 0)
+        candidates = [
+            {"identity": "normal:a", "scheduled_at": started_at, "display_name": "라이노르", "is_invasion": False},
+            {"identity": "normal:b", "scheduled_at": started_at + timedelta(seconds=25), "display_name": "브륀힐드", "is_invasion": False},
+            {"identity": "normal:c", "scheduled_at": started_at + timedelta(seconds=40), "display_name": "니드호그", "is_invasion": False},
+            {"identity": "normal:d", "scheduled_at": started_at + timedelta(seconds=41), "display_name": "셀로비아", "is_invasion": False},
+            # 35초 뒤의 브륀힐드를 기준으로 보면 가깝지만, 대표 보스
+            # 라이노르를 기준으로는 70초라서 절대 이 그룹에 들어오면 안 된다.
+            {"identity": "normal:e", "scheduled_at": started_at + timedelta(seconds=70), "display_name": "라타토스크", "is_invasion": False},
+            {"identity": "invasion:f", "scheduled_at": started_at + timedelta(seconds=10), "display_name": "침공 비요른", "is_invasion": True},
+        ]
+
+        grouped = app._get_schedule_alarm_non_second_due_group_entries(
+            candidates[0],
+            candidates,
+            set(),
+        )
+
+        self.assertEqual(
+            [entry["identity"] for entry in grouped],
+            ["normal:a", "normal:b", "normal:c"],
+        )
+
+        # The group loop stores this per-member form after the first submit.
+        # A later tick must not form a suffix group from the same entries.
+        for entry in grouped:
+            app.schedule_alarm_fired_keys[
+                app._build_schedule_alarm_due_key(
+                    "non_second_due_time_group",
+                    entry["identity"],
+                    entry["scheduled_at"],
+                    0,
+                )
+            ] = started_at
+        self.assertEqual(
+            app._get_schedule_alarm_non_second_due_group_entries(
+                candidates[0],
+                candidates,
+                set(),
+            ),
+            [],
+        )
+
+    def test_non_second_three_boss_group_uses_primary_plus_extra_count(self):
+        app = object.__new__(BossTimerApp)
+        app._get_schedule_boss_display_name = lambda item, **_kwargs: str(item["display_name"])
+        app._is_schedule_alarm_audio_invasion = lambda *, item=None, **_kwargs: bool(item.get("is_invasion"))
+        items = [
+            {"display_name": "라이노르", "is_invasion": False},
+            {"display_name": "브륀힐드", "is_invasion": False},
+            {"display_name": "니드호그", "is_invasion": False},
+        ]
+
+        _primary, summary, additional_count, all_invasion = app._get_schedule_alarm_compact_group_context(items)
+
+        self.assertEqual(summary, "라이노르 외 2개")
+        self.assertEqual(additional_count, 2)
+        self.assertFalse(all_invasion)
+
     def test_group_count_uses_many_clip_for_ten_or_more_additional_bosses(self):
         app = object.__new__(BossTimerApp)
         app._get_schedule_alarm_voice_file_by_stem = mock.Mock(return_value="count:many")
@@ -2565,10 +2808,46 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
         self.assertIsNone(
             app._get_schedule_fixed_alert_general_block_until(
                 runtime_events,
-                scheduled_at + timedelta(minutes=1),
+                scheduled_at + timedelta(minutes=2),
                 60,
             )
         )
+
+    def test_fixed_pre_alert_waits_for_near_non_second_due_group(self):
+        app = object.__new__(BossTimerApp)
+        fixed_scheduled_at = datetime(2026, 9, 9, 18, 1, 0)
+        runtime_events = [
+            {
+                "enabled": True,
+                "scheduled_at": datetime(2026, 9, 9, 18, 0, 8),
+                "offsets": [300, 60],
+                "second_precision": False,
+            }
+        ]
+
+        block_until = app._get_schedule_fixed_alert_general_block_until(
+            runtime_events,
+            fixed_scheduled_at,
+            60,
+        )
+
+        self.assertEqual(block_until, datetime(2026, 9, 9, 18, 0, 2))
+
+    def test_valhalla_start_pre_alert_retries_canonical_recording_name(self):
+        app = object.__new__(BossTimerApp)
+        app._get_schedule_alarm_boss_audio_paths = mock.Mock(return_value=[])
+        app._get_schedule_alarm_voice_file_by_stem = mock.Mock(return_value="voice/boss/발할라 대전.wav")
+        app._get_schedule_alarm_offset_audio_path = mock.Mock(return_value="voice/min/1min01.wav")
+        scheduled_at = datetime(2026, 9, 9, 18, 0, 0)
+
+        paths = app._build_schedule_fixed_alarm_audio_paths(
+            scheduled_at - timedelta(minutes=1),
+            scheduled_at,
+            "발할라대전",
+            60,
+        )
+
+        self.assertEqual(paths, ["voice/boss/발할라 대전.wav", "voice/min/1min01.wav"])
 
 
 class DiscordBotLifecycleTests(unittest.TestCase):

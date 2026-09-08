@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-07 12:56:14",
+  "updated_at": "2026-09-08 17:36:32",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1506,6 +1506,13 @@
         121052
       ],
       "duration_ms": 686
+    },
+    "c:\\mycode\\bosstimer\\voice\\count\\다수.wav": {
+      "signature": [
+        1788363508412718200,
+        76404
+      ],
+      "duration_ms": 433
     }
   }
 }
