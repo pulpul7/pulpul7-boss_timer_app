@@ -5208,6 +5208,14 @@
       "updated_at": 1788858650,
       "volume_steps": 0
     },
+    "78a75cce4dce9f61a7a7461057f9ee3fc36ff1d4a45c3108e15058cf8c3ff0d3": {
+      "path": "command/dd1d6b3c70f22eec700ec3b4.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "광떴어요",
+      "updated_at": 1788950213,
+      "volume_steps": 0
+    },
     "78a939118c6a27b5d5eeb6eb9177022f8c247a997a9fc5e1309a949c66921262": {
       "path": "boss/04476c669cfd8c5392e768a5.mp3",
       "rate_steps": 1,

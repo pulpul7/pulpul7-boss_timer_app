@@ -2329,6 +2329,7 @@ class BossTimerApp:
         self.edge_tts_module_install_prompt_open = False
         self.edge_tts_module_install_prompt_suppressed = False
         self.edge_tts_module_install_ready_callbacks: list[object] = []
+        self.edge_tts_module_install_progress_window: tk.Toplevel | None = None
         self.edge_tts_settings = load_edge_tts_settings(EDGE_TTS_CONFIG_PATH)
         self.edge_tts_cache = EdgeTtsCache(
             self.edge_tts_settings,
@@ -29651,6 +29652,57 @@ class BossTimerApp:
         if hasattr(self, "schedule_alarm_status_var"):
             self.schedule_alarm_status_var.set("TTS 모듈을 다운로드하여 설치하는 중입니다...")
 
+        # Downloading the optional package can take a while on a first run.
+        # Keep a visible, non-dismissible indication open so the user does not
+        # mistake the background worker for a stalled button.
+        progress_window = getattr(self, "edge_tts_module_install_progress_window", None)
+        if not self._widget_available(progress_window):
+            progress_window = tk.Toplevel(dialog_parent)
+            self.edge_tts_module_install_progress_window = progress_window
+            progress_window.title("TTS 모듈 설치 중")
+            progress_window.resizable(False, False)
+            progress_window.transient(dialog_parent)
+            progress_window.configure(bg="#eff6ff")
+            progress_window.protocol("WM_DELETE_WINDOW", progress_window.bell)
+            self._center_window_over_parent(progress_window, dialog_parent, 390, 158)
+            tk.Label(
+                progress_window,
+                text="edge-tts 음성 모듈을 설치하고 있습니다",
+                font=self.header_font,
+                bg="#eff6ff",
+                fg="#1e3a8a",
+            ).place(x=24, y=24, width=342, height=26)
+            tk.Label(
+                progress_window,
+                text="다운로드 · 압축 해제 · 설치 확인을 순서대로 진행합니다.\n잠시만 기다려주세요.",
+                font=self.percent_font,
+                bg="#eff6ff",
+                fg="#475569",
+                justify="center",
+            ).place(x=24, y=57, width=342, height=38)
+            progress_bar = ttk.Progressbar(progress_window, mode="indeterminate", length=316)
+            progress_bar.place(x=37, y=108, width=316, height=16)
+            progress_bar.start(12)
+            progress_window.grab_set()
+            progress_window.lift()
+            progress_window.focus_force()
+        else:
+            progress_window.lift()
+
+        def close_progress_window() -> None:
+            active_window = getattr(self, "edge_tts_module_install_progress_window", None)
+            self.edge_tts_module_install_progress_window = None
+            if not self._widget_available(active_window):
+                return
+            try:
+                for child in active_window.winfo_children():
+                    if isinstance(child, ttk.Progressbar):
+                        child.stop()
+                active_window.grab_release()
+                active_window.destroy()
+            except tk.TclError:
+                pass
+
         def worker() -> None:
             try:
                 status = install_edge_tts_module(EDGE_TTS_MODULE_DIR)
@@ -29667,6 +29719,7 @@ class BossTimerApp:
 
             def finish() -> None:
                 self.edge_tts_module_installing = False
+                close_progress_window()
                 callbacks = list(getattr(self, "edge_tts_module_install_ready_callbacks", []))
                 self.edge_tts_module_install_ready_callbacks = []
                 if error_text:
@@ -29681,6 +29734,13 @@ class BossTimerApp:
                 if hasattr(self, "schedule_alarm_status_var"):
                     self.schedule_alarm_status_var.set(f"TTS 모듈 {version_text} 설치를 완료했습니다.")
                 self._refresh_schedule_alarm_voice_label()
+                self._show_centered_messagebox(
+                    "showinfo",
+                    "TTS 모듈 설치 완료",
+                    f"edge-tts 음성 모듈 {version_text} 설치를 완료했습니다.\n\n"
+                    "이제 음성 테스트 또는 캐싱 데이터생성을 사용할 수 있습니다.",
+                    parent=dialog_parent,
+                )
                 for callback in callbacks:
                     try:
                         callback()

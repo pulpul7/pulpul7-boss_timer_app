@@ -44,7 +44,6 @@ DISCORD_PCM_BYTES_PER_SECOND = 48000 * 2 * 2
 DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS = 250
 DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC = 10.0
 DISCORD_COUNTDOWN_COMPOSITE_WARMUP_SEC = 1.2
-DISCORD_STARTUP_AUDIO_WARMUP_SEC = 1.5
 # Edge TTS 원본은 녹음 WAV보다 체감 음량이 작다. 모든 Edge 캐시를 기존
 # 10/11초 보정 수준으로 재생해 초읽기와 연쇄 안내의 음량이 바뀌지 않게 한다.
 EDGE_TTS_PLAYBACK_GAIN = 1.80
@@ -193,9 +192,9 @@ def load_custom_discord_voice_commands(
         if not valid:
             continue
         normalized = normalize_discord_voice_command_name(name_or_error)
-        if normalized and normalized not in {
-            normalize_discord_voice_command_name(name) for name in BUILTIN_DISCORD_VOICE_COMMANDS
-        }:
+        # Keep built-in names as explicit overrides as well.  Previously they
+        # were discarded during load, so a replacement vanished after restart.
+        if normalized:
             commands[normalized] = (name_or_error, tts_text)
     return commands
 
@@ -253,7 +252,7 @@ def save_custom_discord_voice_commands(
         key=str.casefold,
     )
     payload = {
-        "version": 2,
+        "version": 3,
         "commands": [
             {"name": name, "tts_text": tts_text}
             for name, tts_text in sorted(
@@ -1142,12 +1141,12 @@ class DiscordScheduleBot:
         normalized = normalize_discord_voice_command_name(value)
         if not normalized:
             return None
-        for name, tts_text in BUILTIN_DISCORD_VOICE_COMMANDS.items():
-            if (
-                normalize_discord_voice_command_name(name) == normalized
-                and normalized not in set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
-            ):
-                return name, tts_text
+        # A deleted built-in stays hidden even when an old override is still
+        # present in the registry file.
+        if normalized in set(getattr(self, "disabled_builtin_voice_commands", set()) or set()):
+            return None
+        # User entries have priority.  This makes /음성추가 with a built-in
+        # name a real overwrite instead of an operation that only logs success.
         custom_commands = getattr(self, "custom_voice_commands", {})
         command_data = custom_commands.get(normalized) if isinstance(custom_commands, dict) else None
         if isinstance(command_data, tuple) and len(command_data) == 2:
@@ -1155,8 +1154,10 @@ class DiscordScheduleBot:
             if str(display_name).strip():
                 return str(display_name), str(tts_text)
         if command_data:
-            # v5.0.0 초기 형식(이름만 저장)도 읽을 수 있게 유지한다.
             return str(command_data), str(command_data)
+        for name, tts_text in BUILTIN_DISCORD_VOICE_COMMANDS.items():
+            if normalize_discord_voice_command_name(name) == normalized:
+                return name, tts_text
         return None
 
     def _add_discord_voice_command(
@@ -1179,23 +1180,17 @@ class DiscordScheduleBot:
         }
         if normalized in builtin_keys:
             disabled_commands = set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
-            if normalized not in disabled_commands:
-                return False, f"이미 등록된 기본 음성 명령입니다: {name}", name, tts_text
             disabled_commands.discard(normalized)
+            commands = dict(getattr(self, "custom_voice_commands", {}) or {})
+            commands[normalized] = (name, tts_text)
             save_custom_discord_voice_commands(
-                dict(getattr(self, "custom_voice_commands", {}) or {}),
+                commands,
                 disabled_builtin_commands=disabled_commands,
             )
+            self.custom_voice_commands = commands
             self.disabled_builtin_voice_commands = disabled_commands
-            builtin_tts_text = next(
-                (
-                    str(default_text or "")
-                    for builtin_name, default_text in BUILTIN_DISCORD_VOICE_COMMANDS.items()
-                    if normalize_discord_voice_command_name(builtin_name) == normalized
-                ),
-                "",
-            )
-            return True, f"기본 음성 명령을 다시 활성화했습니다: {name}", name, builtin_tts_text
+            target_text = tts_text or "파일 전용 (TTS 없음)"
+            return True, f"기본 음성 명령을 덮어썼습니다: {name} → {target_text}", name, tts_text
         if self._resolve_discord_voice_command(name) is not None:
             return False, f"이미 등록된 음성 명령입니다: {name}", name, tts_text
         commands = dict(getattr(self, "custom_voice_commands", {}) or {})
@@ -1221,10 +1216,15 @@ class DiscordScheduleBot:
             if normalized in disabled_commands:
                 return False, f"이미 삭제된 기본 음성 명령입니다: {name_or_error}"
             disabled_commands.add(normalized)
+            commands = dict(getattr(self, "custom_voice_commands", {}) or {})
+            # Do not reveal the original phrase after deleting an overridden
+            # command; the command must disappear from the panel completely.
+            commands.pop(normalized, None)
             save_custom_discord_voice_commands(
-                dict(getattr(self, "custom_voice_commands", {}) or {}),
+                commands,
                 disabled_builtin_commands=disabled_commands,
             )
+            self.custom_voice_commands = commands
             self.disabled_builtin_voice_commands = disabled_commands
             return True, f"기본 음성 명령을 삭제했습니다: {name_or_error}"
         commands = dict(getattr(self, "custom_voice_commands", {}) or {})
@@ -1244,16 +1244,14 @@ class DiscordScheduleBot:
         entries: list[tuple[str, str, str]] = []
         seen: set[str] = set()
         disabled_builtin_commands = set(getattr(self, "disabled_builtin_voice_commands", set()) or set())
-        for command_name, tts_text in BUILTIN_DISCORD_VOICE_COMMANDS.items():
-            normalized = normalize_discord_voice_command_name(command_name)
-            if not normalized or normalized in seen or normalized in disabled_builtin_commands:
-                continue
-            seen.add(normalized)
-            entries.append((normalized, str(command_name), str(tts_text or "")))
         custom_commands = getattr(self, "custom_voice_commands", {})
+        # User entries go first so an identical built-in name is represented by
+        # its saved replacement text in both the panel and /음성목록.
         if isinstance(custom_commands, dict):
             for normalized, command_data in sorted(custom_commands.items(), key=lambda item: str(item[0]).casefold()):
-                if normalized in seen or not isinstance(command_data, tuple) or len(command_data) != 2:
+                if normalized in seen or normalized in disabled_builtin_commands:
+                    continue
+                if not isinstance(command_data, tuple) or len(command_data) != 2:
                     continue
                 command_name, tts_text = command_data
                 command_name = str(command_name or "").strip()
@@ -1261,6 +1259,12 @@ class DiscordScheduleBot:
                     continue
                 seen.add(normalized)
                 entries.append((str(normalized), command_name, str(tts_text or "").strip()))
+        for command_name, tts_text in BUILTIN_DISCORD_VOICE_COMMANDS.items():
+            normalized = normalize_discord_voice_command_name(command_name)
+            if not normalized or normalized in seen or normalized in disabled_builtin_commands:
+                continue
+            seen.add(normalized)
+            entries.append((normalized, str(command_name), str(tts_text or "")))
         return entries
 
     def _build_discord_voice_command_menu_view(
@@ -1324,8 +1328,13 @@ class DiscordScheduleBot:
                 normalize_discord_voice_command_name(command_name)
                 for command_name in BUILTIN_DISCORD_VOICE_COMMANDS
             }
+            overridden_builtin_keys = {
+                command_key
+                for command_key in builtin_keys
+                if command_key in set(getattr(self, "custom_voice_commands", {}) or {})
+            }
             for index, (command_key, command_name, tts_text) in enumerate(page_entries):
-                is_builtin = command_key in builtin_keys
+                is_builtin = command_key in builtin_keys and command_key not in overridden_builtin_keys
                 emoji = "📢" if is_builtin else ("🔊" if tts_text else "📁")
                 button = self.discord.ui.Button(
                     label=command_name[:80],
@@ -1950,8 +1959,6 @@ class DiscordScheduleBot:
             save_config_value("voice_channel_id", channel_id)
             await interaction.response.defer(ephemeral=True, thinking=True)
             ok, message = await self._connect_voice_channel(channel_id)
-            if ok:
-                await self._warmup_voice_output()
             await interaction.followup.send(
                 f"{target_description}을 사용합니다.\n{message}"
                 + ("\n보스스케쥴 프로그램에 봇 재접속을 요청했습니다." if ok else ""),
@@ -2073,7 +2080,7 @@ class DiscordScheduleBot:
             await self._send_schedule_plain_text(channel)
             await interaction.followup.send(f"복사용 스케쥴을 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.", ephemeral=True)
 
-        @self.tree.command(name="음성추가", description="이름과 읽을 음성을 따로 입력해 보탐매니저 음성 명령을 추가합니다.")
+        @self.tree.command(name="음성추가", description="이름과 읽을 음성을 입력합니다. 기본 음성 이름은 덮어씁니다.")
         async def add_voice_command(interaction: Any, 이름: str, 음성: str = "") -> None:
             if not self._should_handle_interaction(interaction):
                 return
@@ -2131,7 +2138,7 @@ class DiscordScheduleBot:
             await interaction.response.send_message(result_text, ephemeral=True)
             asyncio.create_task(self._delete_interaction_response_after_delay(interaction))
 
-        @self.tree.command(name="음성삭제", description="추가한 보탐매니저 음성 명령을 삭제합니다.")
+        @self.tree.command(name="음성삭제", description="보탐매니저 음성 명령을 삭제합니다. 기본 음성도 삭제할 수 있습니다.")
         async def delete_voice_command(interaction: Any, 이름: str) -> None:
             if not self._should_handle_interaction(interaction):
                 return
@@ -2689,48 +2696,7 @@ class DiscordScheduleBot:
             log("voice_channel_not_configured")
             return False
         connected, _message = await self._connect_voice_channel(channel_id)
-        if connected:
-            await self._warmup_voice_output()
         return bool(connected)
-
-    async def _warmup_voice_output(self) -> None:
-        if self.voice_client is None or not self.voice_client.is_connected():
-            return
-        if self.voice_client.is_playing() or self.voice_client.is_paused():
-            return
-        discord_module = self.discord
-        frame_count = max(1, int(round(DISCORD_STARTUP_AUDIO_WARMUP_SEC * 50.0)))
-        done = asyncio.Event()
-
-        class BossTimerStartupSilenceSource(discord_module.AudioSource):
-            def __init__(self, frames: int) -> None:
-                self.frames_left = int(frames)
-
-            def read(self) -> bytes:
-                if self.frames_left <= 0:
-                    return b""
-                self.frames_left -= 1
-                return b"\x00" * DISCORD_PCM_FRAME_BYTES
-
-            def is_opus(self) -> bool:
-                return False
-
-        def after_warmup(error: Exception | None) -> None:
-            if error:
-                log(f"voice_startup_warmup_error error={error}")
-            self.client.loop.call_soon_threadsafe(done.set)
-
-        try:
-            warmup_source: Any = BossTimerStartupSilenceSource(frame_count)
-            # 연결 직후의 오디오 장치/디코더 초기화 잡음까지 완전히 막는다.
-            # 원본 PCM도 무음이지만, 재생기에 0 볼륨을 명시해 이중으로 보장한다.
-            if hasattr(discord_module, "PCMVolumeTransformer"):
-                warmup_source = discord_module.PCMVolumeTransformer(warmup_source, volume=0.0)
-            self.voice_client.play(warmup_source, after=after_warmup)
-            await asyncio.wait_for(done.wait(), timeout=DISCORD_STARTUP_AUDIO_WARMUP_SEC + 2.0)
-            log(f"voice_startup_warmup_complete duration_ms={int(DISCORD_STARTUP_AUDIO_WARMUP_SEC * 1000)}")
-        except (asyncio.TimeoutError, RuntimeError) as exc:
-            log(f"voice_startup_warmup_failed error={exc}")
 
     async def _connect_voice_channel(self, channel_id: str) -> tuple[bool, str]:
         channel_id = str(channel_id or "").strip()
@@ -2837,7 +2803,7 @@ class DiscordScheduleBot:
                     await self._play_clip(clip_path)
             except Exception as exc:
                 STATUS.update(last_error=f"재생 실패: {exc}")
-                log(f"play_loop_failed error={exc}")
+                log(f"play_loop_failed type={type(exc).__name__} error={exc!r}")
 
     async def _play_timed_bridge_clips(self, job: VoiceBridgeJob) -> None:
         try:
@@ -2855,7 +2821,7 @@ class DiscordScheduleBot:
                 except Exception as exc:
                     log(
                         f"bridge_composite_failed id={job.id} scope={job.scope_id} "
-                        f"phase={job.phase} error={exc} fallback=individual"
+                        f"phase={job.phase} type={type(exc).__name__} error={exc!r} fallback=individual"
                     )
             for play_at, clip_path in job.timed_clips:
                 if self._is_voice_bridge_scope_cancelled(job.scope_id):
@@ -3654,7 +3620,7 @@ class DiscordScheduleBot:
         except Exception as exc:
             self._clear_current_voice_playback(playback_token)
             self._cleanup_audio_source(source)
-            log(f"timed_clip_play_failed path={clip_path} error={exc}")
+            log(f"timed_clip_play_failed path={clip_path} type={type(exc).__name__} error={exc!r}")
 
     def _build_clips_for_job(self, job: AlertJob) -> list[str]:
         self.alarm_settings = load_json(ALARM_SETTINGS_PATH)
@@ -4040,6 +4006,14 @@ def main() -> int:
         server.shutdown()
         server.server_close()
         return 1
+    try:
+        if not discord.opus.is_loaded() and not discord.opus._load_default():
+            raise RuntimeError("Discord Opus 인코더 DLL을 불러오지 못했습니다.")
+    except Exception as exc:
+        STATUS.update(last_error=f"Discord Opus 인코더를 초기화하지 못했습니다: {exc}")
+        log(f"discord_opus_load_failed type={type(exc).__name__} error={exc!r}")
+    else:
+        log("discord_opus_load_ok")
     nacl_available = bool(getattr(getattr(discord, "voice_client", None), "has_nacl", False))
     STATUS.update(nacl_available=nacl_available)
     log(f"pynacl_available={int(nacl_available)}")

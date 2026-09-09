@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 import shutil
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
 
 def collect_tree(src_dir: Path, dest_root: str) -> list[tuple[str, str]]:
@@ -34,11 +34,12 @@ datas.extend(collect_tree(project_root / "voice", "voice"))
 datas.extend(collect_tree(project_root / "wave", "wave"))
 nacl_datas, nacl_binaries, nacl_hiddenimports = collect_all("nacl")
 datas.extend(nacl_datas)
+discord_binaries = collect_dynamic_libs("discord")
 
 a = Analysis(
     ["boss_timer_discord_bot.py"],
     pathex=[],
-    binaries=[(str(ffmpeg_path), "."), *nacl_binaries],
+    binaries=[(str(ffmpeg_path), "."), *nacl_binaries, *discord_binaries],
     datas=datas,
     hiddenimports=[
         "discord",
