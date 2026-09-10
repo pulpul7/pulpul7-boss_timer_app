@@ -95,10 +95,15 @@ APP_ROOT = get_app_root()
 RESOURCE_ROOT = get_resource_root()
 CONFIG_PATH = Path(os.environ.get("BOSS_TIMER_DISCORD_CONFIG") or get_user_config_dir() / "discord_bot.ini")
 VOICE_BRIDGE_PATH = Path(os.environ.get("BOSS_TIMER_DISCORD_VOICE_QUEUE") or get_user_config_dir() / "discord_voice_queue.jsonl")
-SCHEDULE_STATE_PATH = APP_ROOT / "schedule_state.json"
-ALARM_SETTINGS_PATH = APP_ROOT / "schedule_alarm_settings.json"
-FIXED_BOSSES_PATH = APP_ROOT / "init" / "schedule_fixed_bosses.txt"
-SCHEDULE_BOSS_DEFINITIONS_PATH = APP_ROOT / "init" / "schedule_boss_definitions.txt"
+# The GUI keeps schedule data per game-server profile.  The bot is launched as
+# a separate process, so it must receive those resolved paths explicitly rather
+# than falling back to the installation directory.
+SCHEDULE_STATE_PATH = Path(os.environ.get("BOSS_TIMER_SCHEDULE_STATE") or APP_ROOT / "schedule_state.json")
+ALARM_SETTINGS_PATH = Path(os.environ.get("BOSS_TIMER_SCHEDULE_ALARM_SETTINGS") or APP_ROOT / "schedule_alarm_settings.json")
+FIXED_BOSSES_PATH = Path(os.environ.get("BOSS_TIMER_SCHEDULE_FIXED_BOSSES") or APP_ROOT / "init" / "schedule_fixed_bosses.txt")
+SCHEDULE_BOSS_DEFINITIONS_PATH = Path(
+    os.environ.get("BOSS_TIMER_SCHEDULE_BOSS_DEFINITIONS") or APP_ROOT / "init" / "schedule_boss_definitions.txt"
+)
 SCHEDULE_SHARE_LATEST_IMAGE_PATH = APP_ROOT / "schedule_share_latest.png"
 SCHEDULE_SHARE_DISCORD_IMAGE_REQUEST_PATH = APP_ROOT / "schedule_share_discord_request.json"
 SCHEDULE_SHARE_DISCORD_IMAGE_RESPONSE_PREFIX = "schedule_share_discord_response_"

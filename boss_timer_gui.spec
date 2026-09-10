@@ -137,12 +137,13 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
             )
             generated_datas.append((str(alarm_seed_path), "init"))
 
-    # The score/duration table is safe to distribute as a shared gameplay
-    # baseline, unlike schedules and Discord/server credentials.  Seed it from
-    # the currently active local server profile when available.
+    # These are shared gameplay/display defaults, unlike schedules and
+    # Discord/server credentials.  Seed them from the currently active local
+    # server profile when available so a fresh distribution starts with the
+    # verified boss and break-time configuration.
     appdata_root = Path(os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or "") / "BossTimer"
     active_profile_path = appdata_root / "active_server_profile.json"
-    metrics_source_path: Path | None = None
+    profile_init_dir: Path | None = None
     try:
         active_profile = json.loads(active_profile_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
@@ -156,14 +157,23 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
         if server_id:
             candidate_dirs.append(appdata_root / "server_profiles" / server_id / "init")
         for candidate_dir in candidate_dirs:
-            candidate = candidate_dir / "schedule_boss_metrics.json"
-            if candidate.is_file():
-                metrics_source_path = candidate
+            if candidate_dir.is_dir():
+                profile_init_dir = candidate_dir
                 break
-    if metrics_source_path is not None:
-        metrics_seed_path = staging_dir / "schedule_boss_metrics.json"
-        shutil.copy2(metrics_source_path, metrics_seed_path)
-        generated_datas.append((str(metrics_seed_path), "init"))
+    if profile_init_dir is not None:
+        for filename in (
+            "schedule_boss_metrics.json",
+            "schedule_break_rules.json",
+            "schedule_boss_definitions.txt",
+            "schedule_area_definitions.txt",
+            "schedule_fixed_bosses.txt",
+        ):
+            source_path = profile_init_dir / filename
+            if not source_path.is_file():
+                continue
+            seed_path = staging_dir / filename
+            shutil.copy2(source_path, seed_path)
+            generated_datas.append((str(seed_path), "init"))
     return generated_datas
 
 

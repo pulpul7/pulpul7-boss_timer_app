@@ -220,6 +220,16 @@ DISCORD_BUILTIN_VOICE_COMMAND_PHRASES = (
     "집결지 모여주세요.",
     "하하하..",
 )
+
+
+def ensure_discord_voice_command_media_dir() -> str:
+    """Create the writable soundboard-media folder beside the application."""
+    target_dir = os.path.join(get_app_root(), DISCORD_VOICE_COMMAND_MEDIA_DIRNAME)
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError:
+        return ""
+    return target_dir
 SCHEDULE_ARCHIVE_MAX_FILES = 3
 SEASON_PRESTART_ARCHIVE_DIRNAME = "season_prestart_logs"
 LOG_VALIDATION_TOLERANCE_SECONDS = 1.0
@@ -1439,6 +1449,11 @@ class BossTimerApp:
     def _get_schedule_state_storage_path(self) -> str:
         return self._get_schedule_server_profile_path(SCHEDULE_STATE_FILENAME, SCHEDULE_STATE_PATH)
 
+    @staticmethod
+    def _should_seed_schedule_server_profile_from_cache(profile_state_exists: bool) -> bool:
+        """Only seed a brand-new profile; never overwrite a saved schedule."""
+        return not bool(profile_state_exists)
+
     def _get_discord_bot_config_storage_path(self) -> str:
         """Return the Discord bot settings file for the active game server.
 
@@ -2134,12 +2149,16 @@ class BossTimerApp:
         self._seed_runtime_edge_tts_cache_from_resources()
         self._seed_runtime_assets_from_resources()
         self._seed_runtime_wave_from_resources()
+        # Always leave a visible drop location for user-created Discord
+        # soundboard files, including on a brand-new release installation.
+        ensure_discord_voice_command_media_dir()
         if self._reset_outdated_runtime_config_files_for_upgrade():
             self._seed_init_directory_from_resources()
             self._seed_runtime_default_files_from_resource_init()
             self._seed_runtime_edge_tts_cache_from_resources()
             self._seed_runtime_assets_from_resources()
             self._seed_runtime_wave_from_resources()
+            ensure_discord_voice_command_media_dir()
         self._load_settings()
         self.schedule_break_entries: list[dict[str, object]] = self._load_schedule_break_rules()
         self._load_season_history()
@@ -6357,6 +6376,10 @@ class BossTimerApp:
             env = os.environ.copy()
             env["BOSS_TIMER_DISCORD_CONFIG"] = self._get_discord_bot_config_storage_path()
             env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
+            env["BOSS_TIMER_SCHEDULE_STATE"] = self._get_schedule_state_storage_path()
+            env["BOSS_TIMER_SCHEDULE_ALARM_SETTINGS"] = self._get_schedule_alarm_settings_storage_path()
+            env["BOSS_TIMER_SCHEDULE_FIXED_BOSSES"] = self._get_schedule_fixed_bosses_storage_path()
+            env["BOSS_TIMER_SCHEDULE_BOSS_DEFINITIONS"] = self._get_schedule_boss_definitions_storage_path()
             env["BOSS_TIMER_APP_ROOT"] = get_app_root()
             env["BOSS_TIMER_RESOURCE_ROOT"] = get_resource_root()
             env["BOSS_TIMER_PARENT_PID"] = str(os.getpid())
@@ -6461,6 +6484,10 @@ class BossTimerApp:
             env = os.environ.copy()
             env["BOSS_TIMER_DISCORD_CONFIG"] = self._get_discord_bot_config_storage_path()
             env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
+            env["BOSS_TIMER_SCHEDULE_STATE"] = self._get_schedule_state_storage_path()
+            env["BOSS_TIMER_SCHEDULE_ALARM_SETTINGS"] = self._get_schedule_alarm_settings_storage_path()
+            env["BOSS_TIMER_SCHEDULE_FIXED_BOSSES"] = self._get_schedule_fixed_bosses_storage_path()
+            env["BOSS_TIMER_SCHEDULE_BOSS_DEFINITIONS"] = self._get_schedule_boss_definitions_storage_path()
             env["BOSS_TIMER_APP_ROOT"] = get_app_root()
             env["BOSS_TIMER_RESOURCE_ROOT"] = get_resource_root()
             env["BOSS_TIMER_DISCORD_STATUS_PORT"] = str(DISCORD_BOT_STATUS_PORT)
@@ -12887,11 +12914,10 @@ class BossTimerApp:
             max_gap = min((24 * 60), min_gap + 29)
             midpoint = (min_gap + max_gap) // 2
             rounded_minutes = self._round_schedule_break_minutes_to_half_hour(midpoint)
+            # New or repaired profiles must not resurrect former test labels.
+            # Every generated entry starts with the neutral label; users can
+            # still assign a custom label to an individual rule in the UI.
             label_text = "휴식"
-            if rounded_minutes == 90:
-                label_text = "꿀잠시간"
-            elif rounded_minutes == 150:
-                label_text = "자유시간"
             display_mode = "actual" if min_gap == 50 else "fixed"
             display_text = "" if display_mode == "actual" else self._format_schedule_break_duration_text(rounded_minutes * 60)
             entries.append(
@@ -12925,7 +12951,10 @@ class BossTimerApp:
             row_scale = float(entry.get("row_scale") or 1.0)
         except (TypeError, ValueError):
             row_scale = 1.0
-        row_scale = min(3.0, max(0.5, row_scale))
+        # Long breaks frequently need more than three visual rows in the
+        # schedule-copy image.  The old 3.0 ceiling silently rewrote values
+        # entered for the 290-minute-and-later rules back to 3.0.
+        row_scale = min(12.0, max(0.5, row_scale))
         font_size = min(24, max(8, self._parse_int(str(entry.get("font_size") or "10"), 10)))
         return {
             "min_gap_minutes": min_gap,
@@ -40443,6 +40472,23 @@ class BossTimerApp:
                 self._migrate_legacy_schedule_runtime_to_server_profile(current_server_id)
             if self._activate_schedule_server_profile(selected_server_id, server_name):
                 set_progress_status("서버별 보탐 설정을 불러오는 중입니다.")
+            profile_state_path = self._get_schedule_state_storage_path()
+            profile_state_exists = os.path.isfile(profile_state_path)
+            if not self._should_seed_schedule_server_profile_from_cache(profile_state_exists):
+                # A server change is a profile switch, not a cache restore.
+                # Applying the GitHub cache here used to replace the schedule
+                # just loaded from this profile with an older cached copy.
+                self._refresh_schedule_view()
+                self.schedule_status_var.set(f"{server_name}: 이 서버에 저장된 스케쥴을 불러왔습니다.")
+                self._set_schedule_github_controls_state(True)
+                self._append_debug_log(
+                    "schedule_server_profile_load "
+                    f"server={selected_server_id} source=profile path={profile_state_path} "
+                    f"total_ms={(time.perf_counter() - switch_started_at) * 1000.0:.1f}"
+                )
+                schedule_discord_bot_resume()
+                self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
+                return
             cache_load_started_at = time.perf_counter()
             payload, cache_path = self._load_github_local_schedule_payload(entry)
             cache_load_ms = (time.perf_counter() - cache_load_started_at) * 1000.0
