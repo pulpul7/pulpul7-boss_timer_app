@@ -13,7 +13,7 @@ import zlib
 from precision_time_tracker import (PrecisionConfig,Rect,Pixels,Sample,Tick,TickBuffer,
                                     RoiChangeDetector,BossTimeTracker,GameClockTracker,precision_result)
 from precision_screen_capture import png_data
-from precision_capture_session import PrecisionCaptureSession,numeric_roi,duration_seconds,CANDIDATES
+from precision_capture_session import PrecisionCaptureSession,numeric_roi,duration_seconds,CANDIDATES,timer_bounds
 from precision_capture_ui import apply_measurements
 
 
@@ -94,8 +94,32 @@ class TrackerTests(unittest.TestCase):
         board=dict(left=176,top=190,right=1410,bottom=709)
         for area in gui.SCHEDULE_OCR_SLOT_GRID:
             for r in app._get_schedule_ocr_slot_rects(area,1600,900,window_rect=board):
-                timer=Rect(r['timer_left'],r['timer_top']-8,r['timer_right'],r['timer_bottom']+4)
+                timer=timer_bounds(r)
                 self.assertTrue(any(c.contains(timer) for c in CANDIDATES),(area,timer))
+
+    def test_split_digits_and_unit_joined_to_suffix(self):
+        words=[dict(text=t,left=x,top=10,width=width,height=16)
+               for t,x,width in [('1',40,8),('8',50,8),('분 남음',60,40)]]
+        roi=numeric_roi(words,Rect(0,0,200,40),'분')
+        self.assertEqual(roi,Rect(38,8,60,28))
+
+    def test_odd_chapter_omits_empty_lower_slots(self):
+        import boss_timer_gui as gui
+        app=object.__new__(gui.BossTimerApp)
+        slots=app._get_precision_capture_slots()
+        for area,top,bottom in [('니플하임',3,2),('바나하임',3,2),('무스펠하임',4,3)]:
+            self.assertEqual(len(slots[area]),top+bottom)
+            self.assertEqual(sum(s['timer_top']<600 for s in slots[area]),top)
+
+    def test_layout_insets_and_boss_list_updates(self):
+        from precision_capture_layout import chapter_slots,GAME_CLOCK_BOUNDS,CHAPTER_OBSERVATION_RECTS
+        self.assertEqual(GAME_CLOCK_BOUNDS,Rect(190,256,420,306))
+        self.assertEqual(CHAPTER_OBSERVATION_RECTS['요툰하임'][0],Rect(463,462,635,492))
+        changed=chapter_slots({'무스펠하임':['boss']*5})['무스펠하임']
+        self.assertEqual(len(changed),5)
+        self.assertEqual(sum(r['timer_top']<600 for r in changed),3)
+        with self.assertRaisesRegex(ValueError,'8칸'):
+            chapter_slots({'new':['boss']*9})
 
     def test_unconfirmed_input_stays_original_and_warns(self):
         original=dict(slot_results=[dict(boss_name='boss',state='TIMED',remaining_seconds=4000,rendered_text='12:10 boss')])
@@ -160,10 +184,10 @@ class FakeApp:
         if pixels.rect==CANDIDATES[0]:
             n=pixels.crop(CLOCK).rgb[0]//40
             return {'text':f'12:00:{n:02d}'}
-        if pixels.rect.left==420:
-            n=pixels.crop(MINUTE).rgb[0]//40
+        if pixels.rect==timer_bounds(SLOTS['test'][0]):
+            n=pixels.crop(Rect(520,475,521,476)).rgb[0]//40
             return {'text':f'4시간 {18-n:02d}분'}
-        n=pixels.crop(SECOND).rgb[0]//40
+        n=pixels.crop(Rect(760,475,761,476)).rgb[0]//40
         remaining=123-n
         return {'text':f'{remaining//60:02d}분 {remaining%60:02d}초'}
 
@@ -179,9 +203,22 @@ class FakeApp:
 
 
 class SessionTests(unittest.TestCase):
-    def test_twelve_hz_keeps_early_history_until_delayed_ocr_finishes(self):
+    def test_verbose_logs_are_opt_in_without_losing_in_memory_trace(self):
+        app=FakeApp()
+        session=PrecisionCaptureSession(app,0,SLOTS)
+        session.log('roi_capture example')
+        self.assertTrue(session.events.empty())
+        self.assertIn('precision roi_capture example',session.trace)
+        session.log('error example')
+        self.assertEqual(session.events.get_nowait(),('log','precision error example'))
+        app.precision_debug_logging=True
+        session=PrecisionCaptureSession(app,0,SLOTS)
+        session.log('roi_capture example')
+        self.assertEqual(session.events.get_nowait(),('log','precision roi_capture example'))
+
+    def test_ten_hz_keeps_early_history_until_delayed_ocr_finishes(self):
         app=FakeApp(); capture=FakeCapture(0)
-        s=PrecisionCaptureSession(app,0,SLOTS,config=PrecisionConfig.from_rate(12),capture_factory=lambda hwnd:capture)
+        s=PrecisionCaptureSession(app,0,SLOTS,config=PrecisionConfig.from_rate(10),capture_factory=lambda hwnd:capture)
         events=[]
         with patch('precision_capture_session.png_data',side_effect=lambda pixels:{'pixels':pixels}):
             s.start()
@@ -193,6 +230,8 @@ class SessionTests(unittest.TestCase):
         self.assertEqual({r['boss_name'] for r in report['results']},{'minute','second'})
         self.assertGreater(sum(report['t0']<at<report['t0']+1.2 for r,at in capture.samples),20)
         self.assertTrue(any('ocr1_start' in line for line in report['milestones']))
+        classification = next(line for line in report['milestones'] if 'classification_start elapsed=' in line)
+        self.assertGreaterEqual(float(classification.split('elapsed=')[1]), 4.0)
 
     def test_delayed_ocr_parallel_sampling_early_rollover_and_early_stop(self):
         app=FakeApp()
@@ -216,6 +255,36 @@ class SessionTests(unittest.TestCase):
         self.assertLess(minute['ticks'][0]['midpoint']-report['t0'],1.2)
         self.assertEqual(len(app.calls),4)  # one full OCR plus one confirmation per target and clock
         self.assertTrue(report['clock_verified'])
+        self.assertEqual(report['total'],3)
+        self.assertEqual(report['completed'],3)
+        self.assertEqual(report['excluded'],1)
+        for kind,data in events:
+            if kind=='progress' and data[1] is not None:
+                _,total,remaining,completed=data
+                self.assertEqual(total,remaining+completed)
+
+    def test_missing_numeric_roi_retries_only_initial_small_crop(self):
+        class RetryApp(FakeApp):
+            def _run_schedule_windows_ocr(self,item,scale):
+                result=super()._run_schedule_windows_ocr(item,scale)
+                pixels=item['pixels']
+                if pixels.rect.width==1600:
+                    result['words']=[w for w in result['words'] if w['text']!='18분']
+                elif pixels.rect==timer_bounds(SLOTS['test'][0]) and result['text']=='4시간 18분':
+                    result['words']=[dict(text='18분',left=510-pixels.rect.left,
+                                          top=470-pixels.rect.top,width=30,height=16)]
+                return result
+        app=RetryApp(); capture=FakeCapture(0)
+        s=PrecisionCaptureSession(app,0,SLOTS,config=PrecisionConfig(interval=.25,duration=7),capture_factory=lambda hwnd:capture)
+        with patch('precision_capture_session.png_data',side_effect=lambda pixels:{'pixels':pixels}):
+            s.run()
+        events=[]
+        while not s.events.empty(): events.append(s.events.get_nowait())
+        self.assertFalse([data for kind,data in events if kind=='error'])
+        report=next(data[1] for kind,data in events if kind=='done')
+        self.assertEqual({r['boss_name'] for r in report['results']},{'minute','second'})
+        self.assertTrue(any('roi_retry name=minute ok=True' in line for line in report['milestones']))
+        self.assertEqual(sum(rect.width==1600 for rect,at in app.calls),1)
 
     def test_cancel_during_ocr_keeps_no_results(self):
         app=FakeApp()
@@ -233,7 +302,7 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(any(kind=='done' for kind,data in events))
         self.assertTrue(any(kind=='cancelled' for kind,data in events))
 
-    def test_only_day_bosses_stop_after_initial_ocr(self):
+    def test_only_day_bosses_stop_after_four_second_collection(self):
         class DayApp(FakeApp):
             def _build_schedule_input_ocr_result_for_item(self,item,index):
                 self._run_schedule_windows_ocr(item,1)
@@ -247,7 +316,8 @@ class SessionTests(unittest.TestCase):
         while not s.events.empty(): events.append(s.events.get_nowait())
         report=next(data[1] for kind,data in events if kind=='done')
         self.assertEqual(report['results'],[])
-        self.assertLess(report['ended_at']-report['t0'],1)
+        self.assertGreaterEqual(report['ended_at']-report['t0'],4)
+        self.assertLess(report['ended_at']-report['t0'],6)
         self.assertEqual(len(app.calls),1)
 
     def test_timeout_never_labels_missing_ticks_as_precise(self):

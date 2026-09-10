@@ -49,43 +49,43 @@
   },
   "라이노르": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
   "헤르모드": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
   "브륀힐드": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
   "수드리": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
   "비요른": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
   "스칼라니르": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
   "라타토스크": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
@@ -103,25 +103,25 @@
   },
   "모네가름": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 0,
     "war_score": 10
   },
   "굴베이그": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 0,
     "war_score": 10
   },
   "두라스로르": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 0,
     "war_score": 10
   },
   "드라우그": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 0,
     "war_score": 10
   },
@@ -133,19 +133,19 @@
   },
   "메기르": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 10,
     "war_score": 10
   },
   "헤르가름": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 10,
     "war_score": 10
   },
   "엘드룬": {
     "source_mode": "user_first",
-    "user_duration_seconds": 2,
+    "user_duration_seconds": 3,
     "score": 10,
     "war_score": 10
   },
@@ -157,25 +157,25 @@
   },
   "신마라": {
     "source_mode": "user_first",
-    "user_duration_seconds": 2,
+    "user_duration_seconds": 3,
     "score": 10,
     "war_score": 10
   },
   "탕그리스니르": {
     "source_mode": "user_first",
-    "user_duration_seconds": 2,
+    "user_duration_seconds": 4,
     "score": 10,
     "war_score": 10
   },
   "우로보로스": {
     "source_mode": "user_first",
-    "user_duration_seconds": 2,
+    "user_duration_seconds": 4,
     "score": 10,
     "war_score": 10
   },
   "발리": {
     "source_mode": "average_first",
-    "user_duration_seconds": 4,
+    "user_duration_seconds": 6,
     "score": null,
     "war_score": null
   },
@@ -187,19 +187,19 @@
   },
   "그로아": {
     "source_mode": "average_first",
-    "user_duration_seconds": 15,
+    "user_duration_seconds": 12,
     "score": null,
     "war_score": null
   },
   "노트": {
     "source_mode": "average_first",
-    "user_duration_seconds": 20,
+    "user_duration_seconds": 15,
     "score": null,
     "war_score": null
   },
   "스칼드메르": {
     "source_mode": "average_first",
-    "user_duration_seconds": 20,
+    "user_duration_seconds": 18,
     "score": null,
     "war_score": null
   },
@@ -211,67 +211,67 @@
   },
   "히로킨": {
     "source_mode": "average_first",
-    "user_duration_seconds": 40,
+    "user_duration_seconds": 45,
     "score": null,
     "war_score": null
   },
   "헤이드": {
     "source_mode": "average_first",
-    "user_duration_seconds": 60,
+    "user_duration_seconds": 90,
     "score": null,
     "war_score": null
   },
   "이미르": {
     "source_mode": "average_first",
-    "user_duration_seconds": 120,
+    "user_duration_seconds": 150,
     "score": null,
     "war_score": null
   },
   "호드": {
     "source_mode": "average_first",
-    "user_duration_seconds": 50,
+    "user_duration_seconds": 90,
     "score": null,
     "war_score": null
   },
   "프레이": {
     "source_mode": "average_first",
-    "user_duration_seconds": 60,
+    "user_duration_seconds": 210,
     "score": null,
     "war_score": null
   },
   "엘디르": {
     "source_mode": "average_first",
-    "user_duration_seconds": 330,
+    "user_duration_seconds": 630,
     "score": null,
     "war_score": null
   },
   "스쿨드": {
     "source_mode": "average_first",
-    "user_duration_seconds": 3000,
+    "user_duration_seconds": 630,
     "score": null,
     "war_score": null
   },
   "에기르": {
     "source_mode": "average_first",
-    "user_duration_seconds": 3600,
+    "user_duration_seconds": 630,
     "score": null,
     "war_score": null
   },
   "안나": {
     "source_mode": "average_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 630,
     "score": null,
     "war_score": null
   },
   "스카디": {
     "source_mode": "average_first",
-    "user_duration_seconds": 3000,
+    "user_duration_seconds": 630,
     "score": null,
     "war_score": null
   },
   "4층": {
     "source_mode": "user_first",
-    "user_duration_seconds": 0,
+    "user_duration_seconds": 1,
     "score": 0,
     "war_score": 10
   },
@@ -283,25 +283,25 @@
   },
   "최하층강글": {
     "source_mode": "average_first",
-    "user_duration_seconds": 45,
+    "user_duration_seconds": 90,
     "score": 30,
     "war_score": 60
   },
   "7층": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1,
+    "user_duration_seconds": 2,
     "score": 0,
     "war_score": 10
   },
   "최하층굴베": {
     "source_mode": "average_first",
-    "user_duration_seconds": 40,
+    "user_duration_seconds": 80,
     "score": 30,
     "war_score": 60
   },
   "최하층스네르": {
     "source_mode": "average_first",
-    "user_duration_seconds": 180,
+    "user_duration_seconds": 150,
     "score": 50,
     "war_score": 100
   },
@@ -325,19 +325,19 @@
   },
   "발할라 대전": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1200,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
   "핏빛고블린": {
     "source_mode": "user_first",
-    "user_duration_seconds": 480,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
   "황금고블린": {
     "source_mode": "user_first",
-    "user_duration_seconds": 480,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
@@ -373,7 +373,7 @@
   },
   "공성전": {
     "source_mode": "user_first",
-    "user_duration_seconds": 3600,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
@@ -385,13 +385,13 @@
   },
   "성채": {
     "source_mode": "user_first",
-    "user_duration_seconds": 300,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
   "쟁탈전": {
     "source_mode": "user_first",
-    "user_duration_seconds": 900,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },
@@ -409,7 +409,7 @@
   },
   "지옥 성채": {
     "source_mode": "user_first",
-    "user_duration_seconds": 1800,
+    "user_duration_seconds": 0,
     "score": null,
     "war_score": null
   },

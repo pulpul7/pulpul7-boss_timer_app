@@ -35,6 +35,7 @@ from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox
 from tkinter import font as tkfont
 from tkinter import ttk
+from schedule_precision import DEFAULT_CAPTURE_RATE
 
 from audio_pipeline import AudioPipeline, OutputConditionEvaluator, OutputDecision, OutputTarget, PlaybackRequest
 from voice_test_scenarios import VOICE_TEST_SCENARIOS, build_voice_test_plan
@@ -696,6 +697,8 @@ DEFAULT_RECORD_BOOK_SEED_FILENAME = "default_boss_capture_records.json"
 GITHUB_TOKEN_RUNTIME_SETTING_KEYS = ("github_data_token",)
 DEFAULT_SETTINGS_SEED_KEYS = (
     "precision_capture_rate",
+    "precision_debug_logging",
+    "precision_show_regions",
     "background_path",
     "font_family",
     "background_alignment",
@@ -2182,7 +2185,7 @@ class BossTimerApp:
         self.show_hodulgap_banner_var = tk.BooleanVar(value=self.show_hodulgap_banner)
         self.show_elapsed_brush_var = tk.BooleanVar(value=self.show_elapsed_brush)
         self.elapsed_brush_color_var = tk.StringVar(value=self.elapsed_brush_color_name)
-        self.precision_capture_rate_var = tk.StringVar(value=str(getattr(self, "precision_capture_rate", 2)))
+        self.precision_capture_rate_var = tk.StringVar(value=str(getattr(self, "precision_capture_rate", DEFAULT_CAPTURE_RATE)))
 
         self.running = False
         self.base_elapsed_seconds = 0.0
@@ -3418,7 +3421,9 @@ class BossTimerApp:
             return
         settings = config["settings"]
         from schedule_precision import normalize_capture_rate
-        self.precision_capture_rate = normalize_capture_rate(settings.get("precision_capture_rate", "2"))
+        self.precision_capture_rate = normalize_capture_rate(settings.get("precision_capture_rate", str(DEFAULT_CAPTURE_RATE)))
+        self.precision_debug_logging = str(settings.get("precision_debug_logging", "false")).lower() == "true"
+        self.precision_show_regions = str(settings.get("precision_show_regions", "false")).lower() == "true"
         if hasattr(self, "precision_capture_rate_var"):
             self.precision_capture_rate_var.set(str(self.precision_capture_rate))
         saved_bg = settings.get("background_path", DEFAULT_BG_KEY)
@@ -5240,30 +5245,40 @@ class BossTimerApp:
         return "#1d4ed8"
 
     def _apply_discord_bot_status_label_style(self, status_kind: str | None = None) -> None:
+        from discord_connection_visual import visual_state, FRAME_INTERVAL_MS
         label = getattr(self, "discord_bot_status_label", None)
-        if not self._widget_available(label):
+        if not self._widget_available(label) or not bool(getattr(self, "schedule_window_open", False)):
             self._cancel_discord_bot_status_blink()
             return
         status_kind = status_kind or self._get_discord_bot_status_kind()
+        if status_kind != getattr(self, "_discord_visual_kind", None):
+            self._cancel_discord_bot_status_blink()
+            self._discord_visual_tick = 0
+        self._discord_visual_kind = status_kind
+        stopping = bool((getattr(self, "discord_bot_last_status_payload", {}) or {}).get("shutdown_requested"))
+        frame,color,button_text,animate = visual_state(status_kind,getattr(self,"_discord_visual_tick",0),stopping)
         try:
-            if status_kind in {"online", "offline"}:
-                self._cancel_discord_bot_status_blink()
-                label.configure(
-                    font=self.percent_font,
-                    fg=self._get_discord_bot_status_active_color(status_kind),
-                )
-                return
-            label.configure(
-                font=self.percent_font,
-                fg=self._get_discord_bot_status_active_color(status_kind) if self.discord_bot_status_blink_on else "#dbeafe",
-            )
+            frames = getattr(self, "discord_bot_connection_frames", ())
+            if frames:
+                label.configure(image=frames[frame], text='', textvariable='')
+            else:
+                label.configure(text=self._get_discord_bot_status_text(), textvariable='', fg=color)
+            button = getattr(self, "discord_bot_toggle_button", None)
+            if self._widget_available(button):
+                if button_text is None:
+                    button_text = '오류 · 봇 종료' if self._is_discord_bot_process_alive() else '오류 · 다시 실행'
+                button.configure(text=button_text,bg=color,activebackground=color,
+                                 fg='#ffffff',activeforeground='#ffffff',disabledforeground='#ffffff')
         except tk.TclError:
+            self._cancel_discord_bot_status_blink()
+            return
+        if not animate:
             self._cancel_discord_bot_status_blink()
             return
         if self.discord_bot_status_blink_after_id is None:
             try:
                 self.discord_bot_status_blink_after_id = self.root.after(
-                    500,
+                    FRAME_INTERVAL_MS,
                     self._blink_discord_bot_status_label,
                 )
             except tk.TclError:
@@ -5271,11 +5286,12 @@ class BossTimerApp:
 
     def _blink_discord_bot_status_label(self) -> None:
         self.discord_bot_status_blink_after_id = None
-        if not self._widget_available(self.schedule_window) or not self._widget_available(self.discord_bot_status_label):
+        if (not bool(getattr(self,"schedule_window_open",False)) or not self._widget_available(self.schedule_window)
+                or not self._widget_available(self.discord_bot_status_label)):
             self.discord_bot_status_blink_on = True
             return
-        self.discord_bot_status_blink_on = not bool(getattr(self, "discord_bot_status_blink_on", True))
-        self._apply_discord_bot_status_label_style()
+        self._discord_visual_tick = (getattr(self,"_discord_visual_tick",0)+1)%18
+        self._apply_discord_bot_status_label_style(getattr(self,"_discord_visual_kind",None))
 
     def _is_discord_bot_process_alive(self) -> bool:
         process = getattr(self, "discord_bot_process", None)
@@ -6147,12 +6163,6 @@ class BossTimerApp:
             except tk.TclError:
                 pass
         self._apply_discord_bot_status_label_style()
-        button = getattr(self, "discord_bot_toggle_button", None)
-        if self._widget_available(button):
-            try:
-                button.configure(text="디스코드봇 종료" if is_alive else "디스코드봇 실행")
-            except tk.TclError:
-                pass
         last_error = str(payload.get("last_error") or "").strip()
         if last_error and self._widget_available(self.schedule_window):
             try:
@@ -6517,6 +6527,7 @@ class BossTimerApp:
         self._reset_discord_voice_bridge_health_tracking()
         self.discord_bot_voice_bridge_recovery_grace_until = time.monotonic() + DISCORD_BOT_RECOVERY_GRACE_SEC
         self._set_discord_bot_toggle_locked(True, seconds=7.0)
+        self._apply_discord_bot_status_label_style('pending')
         self._refresh_discord_bot_status_ui_async()
         self._schedule_discord_bot_status_poll()
         self.schedule_status_var.set("디스코드 봇을 실행했습니다. 연결 상태는 봇상태 표시로 확인하세요.")
@@ -22143,6 +22154,8 @@ class BossTimerApp:
             return
 
     def _open_schedule_input_ocr_addon_restore_delay_dialog(self) -> None:
+        from schedule_precision import normalize_capture_rate
+        from precision_capture_ui import clear_preview, show_preview
         host = self.schedule_input_ocr_addon_window if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists() else self.root
         if host is None:
             return
@@ -22157,15 +22170,23 @@ class BossTimerApp:
             return
         dialog = tk.Toplevel(host)
         self.schedule_input_ocr_addon_settings_window = dialog
-        dialog.title("후딜레이 설정")
+        dialog.title("촬영 설정")
         dialog.resizable(False, False)
         dialog.configure(bg="#eff6ff")
         dialog.transient(host)
-        self._center_window_over_parent(dialog, host, 248, 128)
+        self._center_window_over_parent(dialog, host, 340, 206)
 
-        delay_var = tk.StringVar(value=f"{self._normalize_schedule_input_ocr_addon_restore_delay_seconds(self.schedule_input_ocr_addon_restore_delay_seconds):.2f}")
+        rate_var = tk.StringVar(value=str(getattr(self, "precision_capture_rate", DEFAULT_CAPTURE_RATE)))
+        regions_var = tk.BooleanVar(value=getattr(self, "precision_show_regions", False))
+        preview_slots = self._get_precision_capture_slots()
+        last_area = (getattr(self, "schedule_input_precision_report", None) or {}).get("area")
+        area_var = tk.StringVar(value=last_area if last_area in preview_slots else next(iter(preview_slots)))
+
+        def refresh_preview(*_args) -> None:
+            show_preview(self, dialog, preview_slots, area_var.get(), regions_var.get())
 
         def close_dialog() -> None:
+            clear_preview(self)
             try:
                 dialog.grab_release()
             except tk.TclError:
@@ -22176,49 +22197,26 @@ class BossTimerApp:
                 pass
             self.schedule_input_ocr_addon_settings_window = None
 
-        def apply_value(raw_value: object) -> None:
-            normalized_value = self._normalize_schedule_input_ocr_addon_restore_delay_seconds(
-                raw_value,
-                fallback=self.schedule_input_ocr_addon_restore_delay_seconds,
-            )
-            self.schedule_input_ocr_addon_restore_delay_seconds = normalized_value
-            delay_var.set(f"{normalized_value:.2f}")
-            self._save_settings()
-
         def confirm() -> None:
-            apply_value(delay_var.get())
+            self.precision_capture_rate = normalize_capture_rate(rate_var.get())
+            self.precision_capture_rate_var.set(str(self.precision_capture_rate))
+            self.precision_show_regions = bool(regions_var.get())
+            self._save_settings()
             close_dialog()
 
-        def reset_to_default() -> None:
-            apply_value(SCHEDULE_INPUT_OCR_ADDON_RESTORE_DELAY_DEFAULT_SECONDS)
-
-        tk.Label(dialog, text="후딜레이 (초)", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=16, y=14, width=120, height=22)
-        entry = tk.Entry(
-            dialog,
-            textvariable=delay_var,
-            font=(self.current_font_family, 11, "bold"),
-            bg="#ffffff",
-            fg="#0f172a",
-            relief="solid",
-            bd=1,
-            justify="center",
-        )
-        entry.place(x=16, y=42, width=92, height=28)
-        tk.Label(dialog, text="0.00 ~ 1.00", font=self.percent_font, bg="#eff6ff", fg="#475569", anchor="w").place(x=118, y=45, width=104, height=20)
-        tk.Button(
-            dialog,
-            text="기본값",
-            font=self.button_font,
-            bg="#e2e8f0",
-            fg="#334155",
-            activebackground="#cbd5e1",
-            activeforeground="#334155",
-            relief="raised",
-            bd=1,
-            highlightthickness=0,
-            command=reset_to_default,
-            cursor="hand2",
-        ).place(x=16, y=84, width=82, height=28)
+        tk.Label(dialog, text="연속촬영 · 1초당 감지 횟수", font=self.button_font,
+                 bg="#eff6ff", fg="#0f172a").place(x=16, y=14)
+        rate_menu = ttk.Combobox(dialog, textvariable=rate_var,
+                                values=tuple(str(n) for n in range(2, 11)), state="readonly", width=5)
+        rate_menu.place(x=222, y=14, width=60, height=26)
+        tk.Checkbutton(dialog, text="감지영역 미리보기", variable=regions_var, command=refresh_preview,
+                       font=self.button_font, bg="#eff6ff").place(x=12, y=52)
+        tk.Label(dialog, text="미리볼 챕터", font=self.button_font, bg="#eff6ff").place(x=16, y=88)
+        chapter_menu = ttk.Combobox(dialog, textvariable=area_var, values=tuple(preview_slots), state="readonly")
+        chapter_menu.place(x=124, y=86, width=190, height=26)
+        chapter_menu.bind("<<ComboboxSelected>>", refresh_preview)
+        tk.Label(dialog, text="촬영 중에는 숨김 · 실제 챕터는 OCR 자동 판독",
+                 font=self.percent_font, bg="#eff6ff", fg="#475569").place(x=16, y=120)
         tk.Button(
             dialog,
             text="확인",
@@ -22232,15 +22230,16 @@ class BossTimerApp:
             highlightthickness=0,
             command=confirm,
             cursor="hand2",
-        ).place(x=150, y=84, width=82, height=28)
+        ).place(x=232, y=162, width=82, height=28)
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
         dialog.bind("<Return>", lambda _event: confirm())
         try:
             dialog.grab_set()
         except tk.TclError:
             pass
-        entry.focus_set()
-        entry.selection_range(0, tk.END)
+        rate_menu.focus_set()
+        dialog.bind("<Destroy>", lambda event: clear_preview(self) if event.widget is dialog else None)
+        refresh_preview()
 
     def _ensure_schedule_input_ocr_addon_window(self) -> None:
         if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists():
@@ -22348,12 +22347,13 @@ class BossTimerApp:
         self._position_schedule_input_ocr_addon_window()
         self._schedule_input_ocr_addon_tick()
 
+    def _get_precision_capture_slots(self) -> dict:
+        from precision_capture_layout import chapter_slots
+        return chapter_slots(RECORD_BOOK_BOSS_ORDER)
+
     def _start_schedule_precision_capture(self) -> None:
         from precision_capture_ui import start
-        fixed_board = {"left": 176, "top": 190, "right": 1410, "bottom": 709}
-        slots = {area: self._get_schedule_ocr_slot_rects(area, 1600, 900, window_rect=fixed_board)
-                 for area in SCHEDULE_OCR_SLOT_GRID}
-        start(self, slots)
+        start(self, self._get_precision_capture_slots())
 
     def _open_schedule_input_ocr_addon(self) -> None:
         self._ensure_schedule_input_ocr_addon_window()
@@ -43521,35 +43521,41 @@ class BossTimerApp:
             return True
         if state != "scheduled":
             return False
-        if str(item.get("mode") or "") != "duration":
-            return False
-        return int(item.get("remaining_seconds") or 0) >= 86400
+        return (bool(item.get("input_uncertainty_reason"))
+                or str(item.get("precision") or "") in {"minute", "hour"}
+                or (str(item.get("mode") or "") == "duration"
+                    and int(item.get("remaining_seconds") or 0) >= 86400))
 
     def _get_schedule_uncertain_overwrite_display_text(self, item: dict[str, object]) -> str:
         boss_name = self._get_schedule_boss_display_name(item, prefer_alias=True) or self._get_schedule_boss_display_name(item)
         if str(item.get("state") or "") == "active":
             return f"{boss_name} 출현 중".strip()
+        reason = str(item.get("input_uncertainty_reason") or "")
+        if not reason:
+            reason = "1일 이상" if int(item.get("remaining_seconds") or 0)>=86400 else "초 미확정"
+        source_text = str(item.get("source_text") or "").strip()
+        if source_text:
+            return f"{source_text} — {reason}"
         remaining_seconds = int(item.get("remaining_seconds") or 0)
         return f"{boss_name} {self._format_schedule_long_remaining_text(remaining_seconds)}".strip()
 
     def _collect_schedule_uncertain_overwrite_items(self, parsed_items: list[dict[str, object]]) -> list[dict[str, object]]:
-        existing_keys = {
-            str(item.get("raw_key") or "").strip()
-            for item in self.schedule_events
-            if isinstance(item, dict) and str(item.get("raw_key") or "").strip()
-        }
-        existing_keys.update(
-            str(item.get("raw_key") or "").strip()
-            for item in self.schedule_active_entries
-            if isinstance(item, dict) and str(item.get("raw_key") or "").strip()
-        )
+        # Use the actual rendered text + severity snapshot, including sorted
+        # and invasion output. Never attach stale warnings by boss name alone.
+        warning_lines = set()
+        severities = getattr(self, "schedule_input_ocr_mode_line_severities", {})
+        for mode, text in getattr(self, "schedule_input_ocr_mode_render_texts", {}).items():
+            for number, line in enumerate(text.splitlines(), start=1):
+                if severities.get(mode, {}).get(number) in {"warn", "error"}:
+                    warning_lines.add(" ".join(line.split()))
         candidates: list[dict[str, object]] = []
         seen_keys: set[str] = set()
         for item in parsed_items:
+            item = dict(item)
+            if " ".join(str(item.get("source_text") or "").split()) in warning_lines:
+                item["input_uncertainty_reason"] = "OCR 경고 / 정밀 미확정"
             raw_key = str(item.get("raw_key") or "").strip()
             if not raw_key or raw_key in seen_keys:
-                continue
-            if raw_key not in existing_keys:
                 continue
             if not self._is_schedule_uncertain_overwrite_item(item):
                 continue
@@ -43584,7 +43590,7 @@ class BossTimerApp:
         tk.Label(dialog, text="불확실 데이터 포함 여부", font=self.header_font, bg="#eff6ff", fg="#0f172a").place(x=18, y=16)
         tk.Label(
             dialog,
-            text="다음 보스들은 출현 중 또는 1일 이상 데이터입니다. 포함하면 이미 등록된 스케쥴 정확도를 낮출 수 있습니다.",
+            text="출현 중·1일 이상·초 미확정·OCR 경고 항목입니다. 신규 보스도 포함합니다. 포함하면 부정확한 시간이 등록될 수 있습니다.",
             font=self.button_font,
             bg="#eef2ff",
             fg="#1e3a8a",
@@ -48942,7 +48948,9 @@ class BossTimerApp:
             "schedule_color_data_enabled": str(schedule_color_data_enabled_value),
             "fixed_boss_color_data_enabled": str(fixed_boss_color_data_enabled_value),
             "schedule_ocr_learning_enabled": str(schedule_ocr_learning_enabled_value),
-            "precision_capture_rate": str(getattr(self, "precision_capture_rate", 2)),
+            "precision_capture_rate": str(getattr(self, "precision_capture_rate", DEFAULT_CAPTURE_RATE)),
+            "precision_debug_logging": str(getattr(self, "precision_debug_logging", False)).lower(),
+            "precision_show_regions": str(getattr(self, "precision_show_regions", False)).lower(),
             "schedule_share_use_boss_colors": str(schedule_share_use_boss_colors_value),
             "schedule_share_use_fixed_boss_colors": str(schedule_share_use_fixed_boss_colors_value),
             "schedule_share_include_break_rows": str(schedule_share_include_break_rows_value),
@@ -50921,7 +50929,7 @@ class BossTimerApp:
         tk.Label(self.settings_window, text="정밀 캡처: 초당 추적 횟수", font=self.button_font,
                  bg="#000001", fg="#f8fafc").place(x=18, y=470)
         ttk.Combobox(self.settings_window, textvariable=self.precision_capture_rate_var,
-                     values=tuple(str(n) for n in range(2, 13)), state="readonly", width=5).place(x=260, y=470)
+                     values=tuple(str(n) for n in range(2, 11)), state="readonly", width=5).place(x=260, y=470)
         self.save_notice_label = tk.Label(self.settings_window, text="", font=self.button_font, bg="#f8f1df", fg="#b45309")
         author_label = tk.Label(self.settings_window, text=f"Made by {AUTHOR_NAME}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309")
         author_label.place(x=18, y=404)
@@ -56960,7 +56968,11 @@ class BossTimerApp:
                 else "#efe2c5" if bg == "#f8f1df"
                 else "#115e59"
             )
-            self._bind_hover_button(button, bg, hover_bg, fg, fg)
+            if command == self._toggle_discord_bot_runtime:
+                button.bind('<Enter>', lambda _event: self._apply_discord_bot_status_label_style())
+                button.bind('<Leave>', lambda _event: self._apply_discord_bot_status_label_style())
+            else:
+                self._bind_hover_button(button, bg, hover_bg, fg, fg)
         self.discord_bot_status_label = tk.Label(
             top_frame,
             textvariable=self.discord_bot_status_var,
@@ -56969,7 +56981,14 @@ class BossTimerApp:
             fg="#334155",
             anchor="w",
         )
-        self.discord_bot_status_label.place(x=420, y=86, width=136, height=18)
+        self.discord_bot_status_label.place(x=420, y=80, width=136, height=30)
+        from discord_connection_visual import load_frames
+        try:
+            self.discord_bot_connection_frames = load_frames(self.root, os.path.join(get_resource_root(), 'assets', 'discord_plug_connection.png'))
+        except (tk.TclError, OSError) as exc:
+            self.discord_bot_connection_frames = []
+            self._append_debug_log(f'discord_connection_image_load_failed {exc}')
+        self.discord_bot_status_label.bind('<Enter>', lambda _event: self.schedule_status_var.set(self._get_discord_bot_status_text()))
         self._refresh_discord_bot_status_ui_async()
         self._schedule_discord_bot_status_poll()
         self.schedule_github_server_combo = ttk.Combobox(

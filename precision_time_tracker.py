@@ -9,13 +9,15 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from statistics import median
+from schedule_precision import DEFAULT_CAPTURE_RATE
 
 
 @dataclass(frozen=True)
 class PrecisionConfig:
-    interval: float = 0.5  # Change only here to try 0.25 seconds.
+    interval: float = 1.0 / DEFAULT_CAPTURE_RATE
     duration: float = 65.0
-    buffer_samples: int = 32
+    warmup_seconds: float = 4.0
+    buffer_samples: int = 16 * DEFAULT_CAPTURE_RATE
     second_ticks: int = 4
     pixel_delta: int = 35
     changed_pixels: int = 6

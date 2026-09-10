@@ -28,6 +28,8 @@ def collect_tree(
     collected: list[tuple[str, str]] = []
     for item in src_dir.rglob("*"):
         if item.is_file():
+            if item.suffix.lower() in {".log", ".jsonl", ".tmp", ".pyc"} or item.name == "precision_capture_latest.json":
+                continue
             relative_path = item.relative_to(src_dir)
             relative_text = relative_path.as_posix()
             if relative_text in excluded or any(
@@ -48,6 +50,9 @@ project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().
 BUILD_VERSION = "v5.0.0"
 BUILD_LAST_UPDATED = "2026-09-02"
 DISTRIBUTION_DEFAULT_SETTING_OVERRIDES = {
+    "precision_capture_rate": "5",
+    "precision_debug_logging": "false",
+    "precision_show_regions": "false",
     "schedule_share_exclude_elapsed": "True",
 }
 DISTRIBUTION_DEFAULT_ALARM_OVERRIDES = {
@@ -107,6 +112,17 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
                 for key in setting_keys
                 if key in runtime_settings
             }
+            pinned_path = project_root / 'init' / 'default_settings.ini'
+            if pinned_path.is_file():
+                from promote_current_defaults import selected_setting
+                pinned = configparser.ConfigParser()
+                pinned.read(pinned_path, encoding='utf-8-sig')
+                for key in set(seed_config['settings']) | set(pinned['settings']):
+                    if key in setting_keys and selected_setting(key):
+                        if key in pinned['settings']:
+                            seed_config['settings'][key] = pinned['settings'][key]
+                        else:
+                            seed_config['settings'].pop(key, None)
             seed_config["settings"].update(DISTRIBUTION_DEFAULT_SETTING_OVERRIDES)
             background_path = str(seed_config["settings"].get("background_path", "") or "").strip()
             if background_path:
@@ -121,14 +137,19 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
                 seed_config.write(file)
             generated_datas.append((str(settings_seed_path), "init"))
 
-    runtime_alarm_path = project_root / "schedule_alarm_settings.json"
+    # A release must use the deliberately promoted defaults, not whichever
+    # server happened to be active (or an old runtime mirror) during build.
+    runtime_alarm_path = project_root / "init" / "default_schedule_alarm_settings.json"
+    if not runtime_alarm_path.exists():
+        runtime_alarm_path = project_root / "schedule_alarm_settings.json"
     if runtime_alarm_path.exists():
         try:
             alarm_payload = json.loads(runtime_alarm_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             alarm_payload = None
         if isinstance(alarm_payload, dict):
-            alarm_payload.update(DISTRIBUTION_DEFAULT_ALARM_OVERRIDES)
+            if runtime_alarm_path.parent == project_root:
+                alarm_payload.update(DISTRIBUTION_DEFAULT_ALARM_OVERRIDES)
             alarm_payload["version"] = BUILD_VERSION
             alarm_seed_path = staging_dir / "default_schedule_alarm_settings.json"
             alarm_seed_path.write_text(
@@ -168,6 +189,9 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
             "schedule_area_definitions.txt",
             "schedule_fixed_bosses.txt",
         ):
+            if filename in {"schedule_boss_metrics.json", "schedule_boss_definitions.txt",
+                            "schedule_area_definitions.txt", "schedule_fixed_bosses.txt"} and (project_root / "init" / filename).is_file():
+                continue
             source_path = profile_init_dir / filename
             if not source_path.is_file():
                 continue

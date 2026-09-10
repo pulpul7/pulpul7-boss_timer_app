@@ -1,6 +1,8 @@
 """Lossless clock text helpers; display rounding must never mutate a datetime."""
 import re
 
+DEFAULT_CAPTURE_RATE = 5
+
 FRACTIONAL_INPUT = re.compile(
     r'(?P<prefix>(?:\d+\s*일\s+)?)(?P<clock>\d{6}|\d{1,2}:\d{2}:\d{2})'
     r'\.(?P<fraction>\d{1,6})(?P<suffix>\s+.+)')
@@ -25,6 +27,6 @@ def clock_text(value, *, compact=False):
 
 def normalize_capture_rate(value):
     try:
-        return min(12,max(2,int(value)))
+        return min(10,max(2,int(value)))
     except (TypeError,ValueError):
-        return 2
+        return DEFAULT_CAPTURE_RATE

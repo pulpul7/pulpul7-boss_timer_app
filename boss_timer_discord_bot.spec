@@ -12,6 +12,8 @@ def collect_tree(src_dir: Path, dest_root: str) -> list[tuple[str, str]]:
     collected: list[tuple[str, str]] = []
     for item in src_dir.rglob("*"):
         if item.is_file():
+            if item.suffix.lower() in {".log", ".jsonl", ".tmp", ".pyc"} or item.name == "precision_capture_latest.json":
+                continue
             target_dir = Path(dest_root) / item.relative_to(src_dir).parent
             collected.append((str(item), str(target_dir)))
     return collected

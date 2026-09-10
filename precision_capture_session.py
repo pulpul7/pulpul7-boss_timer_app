@@ -11,12 +11,12 @@ import threading
 import time
 
 from precision_screen_capture import ScreenCapture, png_data
+from precision_capture_layout import CANDIDATES, timer_bounds
 from precision_time_tracker import (PrecisionConfig, Rect, Sample, TickBuffer,
                                     RoiChangeDetector, BossTimeTracker, GameClockTracker, precision_result)
 
 # Client coordinates for the existing 1600x900 Odin timetable.  These contain
 # all 3/4-column timer candidates BEFORE OCR discovers the selected region.
-CANDIDATES = (Rect(178, 246, 420, 316), Rect(400, 435, 1420, 510), Rect(400, 640, 1420, 710))
 TITLE_GUARD = Rect(730, 202, 900, 227)
 TAB_GUARD = Rect(450, 235, 1370, 266)
 
@@ -53,6 +53,27 @@ Unrecognized units are rejected rather than measuring a whole card.
         left = max(bounds.left, int(rect.left+rect.width*start/len(text))-2)
         right = min(bounds.right, int(rect.left+rect.width*end/len(text))+2)
         return Rect(left, max(bounds.top, rect.top-2), right, min(bounds.bottom, rect.bottom+2))
+    if unit:
+        # OCR can split '18분' into '1', '8', '분 남음', or join the
+        # number to '시간'. Reconstruct adjacent text with glyph positions.
+        unique = {(str(w.get('text','')).strip(), word_rect(w)): w for w in candidates}
+        for first in unique.values():
+            row = sorted((w for w in unique.values() if abs(word_rect(w).top-word_rect(first).top)<=5),
+                         key=lambda w: word_rect(w).left)
+            positions = []
+            previous = None
+            for w in row:
+                text = str(w.get('text','')).strip(); r = word_rect(w)
+                if previous is not None and (r.left < previous.right-2 or r.left-previous.right>18):
+                    positions.append(('|',0,0,r))
+                positions.extend((ch,r.left+r.width*i/max(1,len(text)),r.left+r.width*(i+1)/max(1,len(text)),r)
+                                 for i,ch in enumerate(text) if not ch.isspace())
+                previous = r
+            match = re.search(r'(?<!\d)(\d{1,2})'+re.escape(unit), ''.join(p[0] for p in positions))
+            if match:
+                selected = positions[match.start(1):match.end(1)]
+                return Rect(max(bounds.left,int(selected[0][1])-2),max(bounds.top,min(p[3].top for p in selected)-2),
+                            min(bounds.right,int(selected[-1][2])+2),min(bounds.bottom,max(p[3].bottom for p in selected)+2))
     if not unit:
         # Handle an OCR line split as HH / : / MM / : / SS as well.
         unique = {(str(w.get('text','')).strip(),word_rect(w)):w for w in candidates}
@@ -88,6 +109,8 @@ class PrecisionCaptureSession:
         self.events = queue.Queue()
         self.ocr_results = queue.Queue()
         self.verify_jobs, self.verify_results = queue.Queue(), queue.Queue()
+        self.overlay_handles = set()
+        self.debug_logging = bool(getattr(app, 'precision_debug_logging', False))
         # Isolate per-run OCR attributes.  Do not monkey-patch the live GUI or
         # change either OCR1 or OCR2.  UI integration locks competing OCR jobs.
         self.ocr = copy.copy(app)
@@ -118,7 +141,9 @@ class PrecisionCaptureSession:
         self.trace.append(line)
         if not message.startswith('roi_capture'):
             self.milestones.append(line)
-        self.events.put(('log', line))
+        verbose = message.startswith(('roi_capture', 'tick key=', 'candidate ', 'roi_unresolved'))
+        if self.debug_logging or not verbose:
+            self.events.put(('log', line))
 
     def start(self):
         threading.Thread(target=self.run, name='PrecisionCapture', daemon=True).start()
@@ -151,6 +176,36 @@ class PrecisionCaptureSession:
             # finishes after midnight.  OCR values still refer to T0.
             self.ocr._get_schedule_reference_datetime = lambda: self.wall0
             result = self.ocr._build_schedule_input_ocr_result_for_item(item, 0)
+            self.log(f'ocr1_analysis_done duration={time.perf_counter()-started:.6f}')
+            # Retry unresolved numeric locations once, using ONLY T0's small
+            # timer crop. Capture continues independently while this runs.
+            for slot in result.get('slot_results', []):
+                remaining = slot.get('remaining_seconds')
+                if (self.cancel.is_set() or slot.get('state')!='TIMED' or slot.get('severity')=='error'
+                        or not isinstance(remaining,int) or not 0<remaining<86400):
+                    continue
+                rect = next((r for r in self.slots.get(result.get('area'),[])
+                             if r['slot_index']==slot.get('slot_index')), None)
+                if rect is None:
+                    continue
+                bounds = timer_bounds(rect)
+                unit = '분' if remaining>=3600 else '초'
+                if numeric_roi(self.raw_words,bounds,unit) is not None:
+                    continue
+                nearby = [w for w in self.raw_words if bounds.contains(word_rect(w))]
+                self.log(f'roi_unresolved name={slot.get("boss_name")} bounds={bounds} words={nearby}')
+                try:
+                    retry = self.raw_ocr(png_data(first.pixels.crop(bounds)),3.0)
+                    text = str(retry.get('text') or '')
+                    adjusted = [dict(w,left=float(w['left'])+bounds.left,top=float(w['top'])+bounds.top)
+                                for w in retry.get('words',[])]
+                    recovered = numeric_roi(adjusted,bounds,unit)
+                    ok = duration_seconds(text)==remaining and recovered is not None
+                    if ok:
+                        self.raw_words.extend(adjusted)
+                    self.log(f'roi_retry name={slot.get("boss_name")} ok={ok} text={text!r} roi={recovered}')
+                except Exception as exc:
+                    self.log(f'roi_retry name={slot.get("boss_name")} error={exc}')
             self.ocr_results.put((result, list(self.raw_words)))
         except Exception as exc:
             self.ocr_results.put(exc)
@@ -194,6 +249,7 @@ class PrecisionCaptureSession:
             self.events.put(('cancelled', None))
             return
         capture = self.capture_factory(self.hwnd)
+        capture.overlay_handles = self.overlay_handles
         first = capture.grab(Rect(0,0,1600,900), check_visible=False)
         self.t0 = first.at
         self.wall0 = datetime.now() - timedelta(seconds=time.perf_counter()-self.t0)
@@ -208,10 +264,13 @@ class PrecisionCaptureSession:
         # sampling immediately; no OCR result/join is awaited here.
         threading.Thread(target=self.analyse, args=(first,), name='PrecisionOCR1', daemon=True).start()
         del first
+        self.events.put(('regions', list(CANDIDATES)))
         threading.Thread(target=self.verify_worker, name='PrecisionVerify', daemon=True).start()
         observations, result, clock = {}, None, None
         next_at = self.t0 + self.config.interval
         verified = {}
+        total = None
+        visible_regions = None
         while not self.cancel.is_set() and time.perf_counter()-self.t0 <= self.config.duration:
             if self.cancel.wait(max(0, next_at-time.perf_counter())):
                 break
@@ -224,16 +283,23 @@ class PrecisionCaptureSession:
             if result is None:
                 for rect, buffer in buffers.items():
                     buffer.append(self.measured_grab(capture,rect))
-                try:
-                    output = self.ocr_results.get_nowait()
-                except queue.Empty:
-                    output = None
+                # Keep ALL fixed candidate bands from T0 for at least four
+                # seconds. OCR may finish earlier, but cannot exclude a slot
+                # or stop a detector before this history has been collected.
+                output = None
+                if time.perf_counter()-self.t0 >= self.config.warmup_seconds:
+                    try:
+                        output = self.ocr_results.get_nowait()
+                    except queue.Empty:
+                        pass
                 if isinstance(output, Exception):
                     raise output
                 if output:
                     if any(b.overflow for b in buffers.values()):
                         raise RuntimeError('최초 OCR 대기 버퍼 초과: 정밀 측정을 확정하지 않았습니다.')
                     result, words = output
+                    total = max(len(self.slots.get(result.get('area'),[])),len(result.get('slot_results',[])))
+                    self.log(f'classification_start elapsed={time.perf_counter()-self.t0:.6f}')
                     base = result.get('base_datetime')
                     if not isinstance(base, datetime):
                         raise RuntimeError('최초 게임시계를 읽지 못했습니다.')
@@ -263,7 +329,7 @@ class PrecisionCaptureSession:
                         rect = next((r for r in self.slots.get(result.get('area'),[]) if r['slot_index']==slot.get('slot_index')), None)
                         if rect is None:
                             continue
-                        bounds = Rect(rect['timer_left'],rect['timer_top']-8,rect['timer_right'],rect['timer_bottom']+4)
+                        bounds = timer_bounds(rect)
                         roi = numeric_roi(words, bounds, '분' if mode=='minute' else '초')
                         container = next((r for r in CANDIDATES if roi and r.contains(roi)), None)
                         if not roi or container is None or remaining % (60 if mode=='minute' else 1):
@@ -298,8 +364,16 @@ class PrecisionCaptureSession:
                 verified[key] = ok
                 self.log(f'verify key={key} ok={ok} text={text!r} completed_at={time.perf_counter():.6f}')
             targets = [key for key in observations if key!='clock']
+            if result is not None:
+                active_regions = tuple(obs['roi'] for obs in observations.values()
+                                       if not obs['pending'] and not obs['error'])
+                if active_regions != visible_regions:
+                    self.events.put(('regions', list(active_regions)))
+                    visible_regions = active_regions
             completed = sum(key in verified or bool(observations[key]['error']) for key in targets)
-            self.events.put(('progress', (time.perf_counter()-self.t0,len(targets)-completed,completed)))
+            remaining_count = len(targets)-completed
+            self.events.put(('progress', (time.perf_counter()-self.t0,total,remaining_count,
+                                         total-remaining_count if total is not None else 0)))
             if targets and completed==len(targets) and ('clock' in verified or observations['clock']['error']):
                 break
             next_at += self.config.interval
@@ -319,11 +393,13 @@ class PrecisionCaptureSession:
             if key!='clock' and not any(p['boss_name']==key for p in precise):
                 self.log(f'unconfirmed name={key} reason={obs["error"] or "timeout_or_clock_verification"}')
         report = dict(t0=self.t0, ended_at=time.perf_counter(), config=asdict(self.config),
+                      total=total, completed=total, excluded=(total-len(precise)) if total is not None else 0,
                       max_capture_interval=self.max_interval, max_jitter=self.max_jitter, results=precise,
                       game_clock_initial=clock.initial.isoformat() if clock else None,
                       game_clock_ticks=[asdict(t) for t in clock.ticks] if clock else [],
                       clock_verified=bool(verified.get('clock')), trace=list(self.trace),
                       milestones=list(self.milestones), capture_stats=self.capture_stats)
+        self.events.put(('progress',(time.perf_counter()-self.t0,total,0,total or 0)))
         self.events.put(('done',(result,report)))
 
     def feed(self,key,obs,sample,clock,buffered,capture=None):

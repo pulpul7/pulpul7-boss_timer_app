@@ -65,7 +65,9 @@ class ScreenCapture:
             for px, py in ((rect.left+1, rect.top+1), (rect.right-2, rect.bottom-2),
                            ((rect.left+rect.right)//2, (rect.top+rect.bottom)//2)):
                 window = self.u.WindowFromPoint(w.POINT(x+px, y+py))
-                if self.u.GetAncestor(window, 2) != self.u.GetAncestor(self.hwnd, 2):
+                ancestor = self.u.GetAncestor(window, 2)
+                if (ancestor != self.u.GetAncestor(self.hwnd, 2)
+                        and ancestor not in getattr(self, 'overlay_handles', ())):
                     raise RuntimeError('시간 ROI가 다른 창에 가려졌습니다. 오딘 시간표를 보이게 해주세요.')
         screen = self.u.GetDC(None)
         dc = bitmap = old = None

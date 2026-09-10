@@ -9,9 +9,35 @@ from pathlib import Path
 import queue
 import tkinter as tk
 
-from precision_capture_session import PrecisionCaptureSession
+from precision_capture_session import PrecisionCaptureSession, CANDIDATES, timer_bounds
 from precision_time_tracker import PrecisionConfig
-from schedule_precision import clock_text
+from schedule_precision import clock_text, DEFAULT_CAPTURE_RATE
+from precision_region_overlay import RegionOverlay
+
+
+def clear_preview(app):
+    preview = getattr(app, '_precision_preview', None)
+    if preview is not None:
+        preview.clear()
+    app._precision_preview = None
+
+
+def show_preview(app, owner, slots, area, enabled):
+    clear_preview(app)
+    if not enabled:
+        return
+    hwnd = app._get_preferred_odin_window_handle()
+    rect = app._get_odin_client_screen_rect(hwnd) if hwnd else None
+    if not rect or (rect.get('width'),rect.get('height')) != (1600,900):
+        app.schedule_input_status_var.set('영역 미리보기: 오딘 창을 1600×900으로 맞춰주세요.')
+        return
+    try:
+        overlay = RegionOverlay(owner,(int(rect['left']),int(rect['top'])),set())
+        app._precision_preview = overlay
+        overlay.show([CANDIDATES[0]]+[timer_bounds(slot) for slot in slots.get(area,[])])
+    except Exception as exc:
+        clear_preview(app)
+        app.schedule_input_status_var.set(f'감지영역 미리보기 실패: {exc}')
 
 
 def apply_measurements(result, report):
@@ -36,6 +62,7 @@ def apply_measurements(result, report):
 def start(app, slots):
     if getattr(app, '_precision_session', None) or app.schedule_input_ocr_worker_active or app.schedule_input_ocr_addon_busy:
         return
+    clear_preview(app)
     hwnd = app._get_preferred_odin_window_handle()
     if not hwnd:
         app.schedule_input_status_var.set('오딘 창을 찾지 못했습니다.')
@@ -45,7 +72,7 @@ def start(app, slots):
         app.schedule_input_status_var.set('초단위 찍기는 오딘 클라이언트 1600×900에서만 지원합니다.')
         return
     session = PrecisionCaptureSession(app,hwnd,slots,
-        config=PrecisionConfig.from_rate(getattr(app,'precision_capture_rate',2)))
+        config=PrecisionConfig.from_rate(getattr(app,'precision_capture_rate',DEFAULT_CAPTURE_RATE)))
     input_window = app.schedule_input_window
     profile = app._get_schedule_server_profile_dir()
     target = app._get_schedule_input_ocr_text_widget_for_mode('ocr')
@@ -98,6 +125,16 @@ def start(app, slots):
         for window,state in restored:
             if window.winfo_exists() and state!='withdrawn':
                 window.state(state)
+        if app.schedule_input_window is input_window and input_window is not None and input_window.winfo_exists():
+            input_window.deiconify()
+            was_topmost = input_window.attributes('-topmost')
+            input_window.attributes('-topmost', True)
+            input_window.lift()
+            input_window.focus_force()
+            def restore_topmost():
+                if input_window.winfo_exists():
+                    input_window.attributes('-topmost', was_topmost)
+            app.root.after(250,restore_topmost)
 
     def poll():
         if terminal:
@@ -110,8 +147,10 @@ def start(app, slots):
                 if kind=='log':
                     app._append_debug_log(data)
                 elif kind=='progress' and dialog.winfo_exists():
-                    elapsed,tracking,completed = data
-                    label.config(text=f'초단위 정밀 스캔 중... {elapsed:.0f} / {session.config.duration:.0f}초\n추적 {tracking} / 완료 {completed}')
+                    elapsed,total,tracking,completed = data
+                    phase = ('총: 분석 중 · 전체 후보 수집 중' if total is None else
+                             f'총: {total}개  남은추적: {tracking}개 / 완료: {completed}개 (배제 포함)')
+                    label.config(text=f'초단위 정밀 스캔 중... {elapsed:.0f} / {session.config.duration:.0f}초\n{phase}')
                 elif kind=='error':
                     app.schedule_input_status_var.set(f'정밀 스캔 중단: {data}')
                 elif kind=='cancelled':
@@ -125,7 +164,7 @@ def start(app, slots):
                         # No screenshots on disk. Save only the most recent numeric
                         # report for this server profile, never a global schedule.
                         save_error = ''
-                        if profile:
+                        if profile and session.debug_logging:
                             try:
                                 path = Path(profile)/'precision_capture_latest.json'
                                 temporary = path.with_suffix('.json.tmp')
@@ -144,7 +183,7 @@ def start(app, slots):
                         app._set_schedule_input_ocr_loading_lock(False)
                         app._render_schedule_input_ocr_text('ocr')
                         app.schedule_input_status_var.set(
-                            f"정밀 스캔 완료: {len(report['results'])}개 확정 · 미확정은 OCR1 값 유지 · 최대 캡처 간격 {report['max_capture_interval']:.3f}s"+save_error)
+                            f"정밀 스캔 완료: 총 {report['total']}개 · 정밀 확정 {len(report['results'])}개 · 배제/미확정 {report['excluded']}개 · 미확정은 OCR1 값 유지"+save_error)
                     else:
                         app.schedule_input_status_var.set('정밀 결과를 반영하지 않았습니다: 입력창/서버 변경 또는 OCR 결과 없음.')
                     # Rendering changed the text intentionally; the next poll

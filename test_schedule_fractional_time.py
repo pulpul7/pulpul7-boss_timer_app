@@ -22,6 +22,30 @@ class FractionalScheduleTests(unittest.TestCase):
             self.assertEqual(item['precision'],'second')
             self.assertEqual(self.app._resolve_schedule_seed_datetime(item,self.now),datetime(2026,9,10,16,43,2,550000))
 
+    def test_uncertain_dialog_includes_new_bosses_and_minute_values(self):
+        items=[dict(raw_key='active',state='active'),
+               dict(raw_key='day',state='scheduled',mode='duration',remaining_seconds=90000),
+               dict(raw_key='minute',state='scheduled',mode='clock',precision='minute'),
+               dict(raw_key='exact',state='scheduled',mode='clock',precision='second',clock_microsecond=550000)]
+        self.app.schedule_events=[]
+        self.app.schedule_active_entries=[]
+        found=self.app._collect_schedule_uncertain_overwrite_items(items)
+        self.assertEqual({x['raw_key'] for x in found},{'active','day','minute'})
+
+    def test_uncertain_ocr_warning_survives_text_but_not_manual_time_edit(self):
+        line='16:43:02.55 파르바'
+        self.app.schedule_input_ocr_mode_render_texts={'ocr':line}
+        self.app.schedule_input_ocr_mode_line_severities={'ocr':{1:'warn'}}
+        parsed=self.app._parse_schedule_input_line(line)
+        found=self.app._collect_schedule_uncertain_overwrite_items([parsed])
+        self.assertEqual(len(found),1)
+        self.assertIn('OCR 경고',found[0]['input_uncertainty_reason'])
+        self.assertNotIn('input_uncertainty_reason',parsed)
+        edited=self.app._parse_schedule_input_line('16:43:03.55 파르바')
+        self.assertEqual(self.app._collect_schedule_uncertain_overwrite_items([edited]),[])
+        self.app.schedule_input_ocr_mode_line_severities={'ocr':{1:'normal'}}
+        self.assertEqual(self.app._collect_schedule_uncertain_overwrite_items([parsed]),[])
+
     def test_six_digit_capture_is_not_reduced_to_centiseconds(self):
         exact=datetime(2026,9,10,16,43,1,508488)
         text=clock_text(exact)+' 파르바'
@@ -97,14 +121,16 @@ class FractionalScheduleTests(unittest.TestCase):
         self.assertEqual(self.app._get_schedule_cut_token_from_datetime(exact,'minute'),'164300.55')
 
     def test_rates_and_buffer_duration(self):
-        for rate in range(2,13):
+        for rate in range(2,11):
             config=PrecisionConfig.from_rate(rate)
             self.assertAlmostEqual(config.interval*rate,1)
             self.assertGreaterEqual(config.buffer_samples*config.interval,15)
-        self.assertEqual(normalize_capture_rate(None),2)
+        self.assertEqual(normalize_capture_rate(None),5)
         self.assertEqual(normalize_capture_rate(1),2)
-        self.assertEqual(normalize_capture_rate(360),12)
+        self.assertEqual(normalize_capture_rate(360),10)
         self.assertEqual(PrecisionConfig.from_rate(2).interval,.5)
+        self.assertEqual(PrecisionConfig().interval,.2)
+        self.assertEqual(PrecisionConfig().buffer_samples,80)
 
 
 if __name__=='__main__':

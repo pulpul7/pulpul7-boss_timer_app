@@ -112,6 +112,14 @@
       "updated_at": 1788329995,
       "volume_steps": 0
     },
+    "0248c5092657792a1b18e456d43b7d1ff20aedfa540c18a234c33863c2c4e6e4": {
+      "path": "message/c7bbe116c898520d7fa5a5f9.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "프레이 호드 5분 남았습니다.",
+      "updated_at": 1789041704,
+      "volume_steps": 0
+    },
     "0267ee990e4ecb1320302452af7cd974674582f0372057d48f44e654b7be994d": {
       "path": "message/0267ee990e4ecb1320302452af7cd974674582f0372057d48f44e654b7be994d.mp3",
       "rate_steps": 1,
@@ -440,6 +448,14 @@
       "updated_at": 1788367406,
       "volume_steps": 0
     },
+    "08888daee7a05c658961af5daf8bdb6e76aa8dd236874f836a6e6e1760e320cb": {
+      "path": "message/08888daee7a05c658961af5daf8bdb6e76aa8dd236874f836a6e6e1760e320cb.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "오딘 이미르",
+      "updated_at": 1789041153,
+      "volume_steps": 0
+    },
     "08a78f81cda8d05be3de4a5fe4cc5bfcaefde5c8fd50d811e4bf76e6dbbb84b0": {
       "path": "message/7fb4ca6383f060aed0f58c01.mp3",
       "rate_steps": 1,
@@ -486,6 +502,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 티르 5분 남았습니다.",
       "updated_at": 1788327358,
+      "volume_steps": 0
+    },
+    "099f56aecd417e085646dd217624aaabd76e35599b379ca6936b8b561910be6f": {
+      "path": "message/ab0b0cd35854b9b5580591e6.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 외 2개 5분 남았습니다.",
+      "updated_at": 1789041709,
       "volume_steps": 0
     },
     "09aa050d531fc244c5528565601e193b044e8c8285d1b77ad30c860cd1bfbec0": {
@@ -616,6 +640,14 @@
       "updated_at": 1788773290,
       "volume_steps": 0
     },
+    "0c4a999d391af6fab3c1d9360c16a5a1ea234a77d6ee851298025bd990b6fc5b": {
+      "path": "message/0c4a999d391af6fab3c1d9360c16a5a1ea234a77d6ee851298025bd990b6fc5b.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "그로아 미미르",
+      "updated_at": 1789041156,
+      "volume_steps": 0
+    },
     "0c60b0229b1546f4d12799dd054de72b4578dece50f63ef03fed3d81dcf3af56": {
       "path": "message/0c60b0229b1546f4d12799dd054de72b4578dece50f63ef03fed3d81dcf3af56.mp3",
       "rate_steps": 0,
@@ -638,6 +670,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "10분 남았습니다.",
       "updated_at": 1788320816,
+      "volume_steps": 0
+    },
+    "0cb63670cc2d5ad21277d46c8ec8d018f5d4ad5aba49c2f94c5105e9941d6942": {
+      "path": "message/1ca2e4b9a24693ce353cf814.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 외 2개",
+      "updated_at": 1789041707,
       "volume_steps": 0
     },
     "0ccfc06d4755bdefc6139b376ba67de587611f35b26ff0e54abcf342d2f3d1c4": {
@@ -776,6 +816,14 @@
       "updated_at": 1788355736,
       "volume_steps": 0
     },
+    "0fbff788b4d5d0eea416c7cd701ff16c01b343b6e87512fe029b0ab611ec82ca": {
+      "path": "message/90c923bbdb4a350e5ddae04d.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "스칼드메르 헤이드 1분전입니다.",
+      "updated_at": 1789041714,
+      "volume_steps": 0
+    },
     "0fd49adff98e222df342a835edf52dc27bc8d55d73d2dcecd97f99cd9845cbd5": {
       "path": "boss/14cd3f4c1921d3acc36caa08.mp3",
       "rate_steps": 1,
@@ -806,6 +854,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 침공 이미르 타임입니다.",
       "updated_at": 1788330061,
+      "volume_steps": 0
+    },
+    "109a0567423fc3ebbfd6a71f0c1be5e500606e9d179cad0dc0ea9c521974fde0": {
+      "path": "message/109a0567423fc3ebbfd6a71f0c1be5e500606e9d179cad0dc0ea9c521974fde0.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 노트 발리 타임입니다.",
+      "updated_at": 1789041158,
       "volume_steps": 0
     },
     "10d354fdf498ac60372b7259c09dd1f89010caf4b25dd0bd2a214aa9e5f8a1e6": {
@@ -1022,6 +1078,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 히로킨 타임입니다.",
       "updated_at": 1788330156,
+      "volume_steps": 0
+    },
+    "14b48f78c6c015528520e7318726c3ecbf8f271bcc021a4aebbc961880c0fc02": {
+      "path": "message/14b48f78c6c015528520e7318726c3ecbf8f271bcc021a4aebbc961880c0fc02.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "황금고블린 일분 전입니다.",
+      "updated_at": 1789050537,
       "volume_steps": 0
     },
     "150dbdbc35ed0a4ec09f6fb3ff577cb43ab5d1d0cb8d1ce1045f499d9d83e488": {
@@ -1336,6 +1400,14 @@
       "updated_at": 1788330127,
       "volume_steps": 0
     },
+    "1a5dfe07881a51d95e8de528603e365a6ac6496a050e3c4ef7bcf7bbcd2ddd51": {
+      "path": "message/1a5dfe07881a51d95e8de528603e365a6ac6496a050e3c4ef7bcf7bbcd2ddd51.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "비요른 일분 남았습니다.",
+      "updated_at": 1789059971,
+      "volume_steps": 0
+    },
     "1a5eef1c66b7f75c31b85a2754dbb42c49cb24794a47e8a61114a250e38d66b4": {
       "path": "message/1a5eef1c66b7f75c31b85a2754dbb42c49cb24794a47e8a61114a250e38d66b4.mp3",
       "rate_steps": 1,
@@ -1398,6 +1470,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "1분전입니다.",
       "updated_at": 1788749744,
+      "volume_steps": 0
+    },
+    "1c20ada89efef46d2f4babc96bb3f2fdf9f126548dfed8c85f5eead7e570bdba": {
+      "path": "message/247c81542657a50ce142d4c4.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 오딘 이미르 타임입니다.",
+      "updated_at": 1789041699,
       "volume_steps": 0
     },
     "1c4dd62123ae5a9e020c8a5eb2fd87767e2c7783da9a43c72629f630e8a577ae": {
@@ -1512,6 +1592,14 @@
       "updated_at": 1788327238,
       "volume_steps": 0
     },
+    "1ee4d4c33db3569acba3e1aed5ca12b72184b98aba3e923d834ce6ce2ccfa7fb": {
+      "path": "message/1ee4d4c33db3569acba3e1aed5ca12b72184b98aba3e923d834ce6ce2ccfa7fb.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "황금고블린 일분 전입니다.",
+      "updated_at": 1789050538,
+      "volume_steps": 0
+    },
     "1f346e28d125759a02d796fbbeb180964e655890021aa871c4742aa88faf9727": {
       "path": "message/e3bbecb86341e632214b06f8.mp3",
       "rate_steps": 1,
@@ -1598,6 +1686,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "브륀힐드 외 5개",
       "updated_at": 1788400737,
+      "volume_steps": 0
+    },
+    "219a7792d422992d0aac0b7d56ad5e8481b26a377114572dd394fc3b9af54222": {
+      "path": "message/d0c805b991c9511dc9ce733f.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "오딘 이미르 1분전입니다.",
+      "updated_at": 1789041700,
       "volume_steps": 0
     },
     "21bd371004ac9236b073a6a276fc52eba7d140a7949a42e01deac6c8c4b244f9": {
@@ -1904,6 +2000,14 @@
       "updated_at": 1788330076,
       "volume_steps": 0
     },
+    "27ab020d5d71d320331f880f513c1858cb2971f428273f7f6c4a4118cfc779ef": {
+      "path": "message/27ab020d5d71d320331f880f513c1858cb2971f428273f7f6c4a4118cfc779ef.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "굴베이그 일분 남았습니다.",
+      "updated_at": 1789045078,
+      "volume_steps": 0
+    },
     "27c0fc81037cd07e3340102b85e37a7471264a3207e3e01153500ddbb63037b2": {
       "path": "message/27c0fc81037cd07e3340102b85e37a7471264a3207e3e01153500ddbb63037b2.mp3",
       "rate_steps": 1,
@@ -1918,6 +2022,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "최하층스네르 1분 전입니다.",
       "updated_at": 1788329977,
+      "volume_steps": 0
+    },
+    "28208dcdf6f5a981636746df1420e112006fe46db4ad3d629dd3a996f6a12cfd": {
+      "path": "message/28208dcdf6f5a981636746df1420e112006fe46db4ad3d629dd3a996f6a12cfd.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 11분 후 성채입니다.",
+      "updated_at": 1789042735,
       "volume_steps": 0
     },
     "28c0d12817acf0043e2cf81a784ff028f039a0ff01808bcdae13548e7750ad53": {
@@ -2160,6 +2272,22 @@
       "updated_at": 1788367415,
       "volume_steps": 0
     },
+    "2e14c43e54899e6ec69f7ff2fdd8217a7f65d9198029bbd5667f87f31a4faef7": {
+      "path": "message/ae18f87a11fecc8ee5419eb9.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 프레이 호드 타임입니다.",
+      "updated_at": 1789041702,
+      "volume_steps": 0
+    },
+    "2e19368e3c6ec6dcd4e9b8b9624595b0058e16a1baf2f34097e54d2c9361283a": {
+      "path": "message/2e19368e3c6ec6dcd4e9b8b9624595b0058e16a1baf2f34097e54d2c9361283a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "성채 일분 전입니다. 다음 보스는 29분 후 굴베이그입니다.",
+      "updated_at": 1789043336,
+      "volume_steps": 0
+    },
     "2e3942cc0a40397171dfae438d478b264fe8f75c910366532ef974c8146e6272": {
       "path": "message/2e3942cc0a40397171dfae438d478b264fe8f75c910366532ef974c8146e6272.mp3",
       "rate_steps": 1,
@@ -2264,6 +2392,14 @@
       "updated_at": 1788318641,
       "volume_steps": 0
     },
+    "303773743c7098158c679daf89006bfff88016d3b617725c9ebec620f0f8df3a": {
+      "path": "message/303773743c7098158c679daf89006bfff88016d3b617725c9ebec620f0f8df3a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 프레이 호드 타임입니다.",
+      "updated_at": 1789041155,
+      "volume_steps": 0
+    },
     "3047625475e1ca46bd87690f576138d233becec20a558a56da1c9e069f82ba1a": {
       "path": "message/53748c6f6a58d0f40e823860.mp3",
       "rate_steps": 1,
@@ -2334,6 +2470,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 닻 타임입니다.",
       "updated_at": 1788329798,
+      "volume_steps": 0
+    },
+    "3137faf5f9d1d00f2387973d5256b10116f25c61e6abc0762f41dbc7413f0fda": {
+      "path": "message/3137faf5f9d1d00f2387973d5256b10116f25c61e6abc0762f41dbc7413f0fda.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "성채 일분 전입니다. 다음 보스는 29분 후 굴베이그입니다.",
+      "updated_at": 1789043335,
       "volume_steps": 0
     },
     "317841487f2515e176a399aefb6cb44737105f8df8fff1c9fb274a540ee57f11": {
@@ -2478,6 +2622,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "발리 5분 전입니다.",
       "updated_at": 1788329833,
+      "volume_steps": 0
+    },
+    "34e087daf9bc0a36dd551d6818326cf5d214dae67b8dcb0e5aa4a2c28d374285": {
+      "path": "message/34e087daf9bc0a36dd551d6818326cf5d214dae67b8dcb0e5aa4a2c28d374285.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 11분 후 성채입니다.",
+      "updated_at": 1789042650,
       "volume_steps": 0
     },
     "34ea247c03db203e68c31f64b4892d09568134d3b792c6d78b9acd2d2142d686": {
@@ -2712,6 +2864,14 @@
       "updated_at": 1788330112,
       "volume_steps": 0
     },
+    "3b01f6d87280a284343526a0020aae342d10231c26bad5baeff6588b35c1d594": {
+      "path": "message/c48336796978f2385a1d27de.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "그로아 미미르 5분 남았습니다.",
+      "updated_at": 1789041707,
+      "volume_steps": 0
+    },
     "3b6d7e02469fe647ec0a97cb199bd2d767068e95b086bf30710a57a61548585c": {
       "path": "boss/a287ac89695156b99252df29.mp3",
       "rate_steps": 1,
@@ -2750,6 +2910,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 니드호그 외 4개 타임입니다.",
       "updated_at": 1788373267,
+      "volume_steps": 0
+    },
+    "3bd4fd7c511aa0a2f73f75c0536fc1117a07e76dbf7c8f1fcc2148ff34a6a615": {
+      "path": "message/f2a7ef77f872229d36867e10.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 수르트 일분 남았습니다.",
+      "updated_at": 1789041717,
       "volume_steps": 0
     },
     "3bd5145ae0aef4d2d6fb39e6d79488b3c5fba7b696e14ffd78252457d0982552": {
@@ -3544,6 +3712,14 @@
       "updated_at": 1788329765,
       "volume_steps": 0
     },
+    "4bcba1f36bf62048eea1bba51c35f8b04908e51c253a61853ec3723f03823c2d": {
+      "path": "message/4bcba1f36bf62048eea1bba51c35f8b04908e51c253a61853ec3723f03823c2d.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 스칼드메르 헤이드 타임입니다.",
+      "updated_at": 1789041159,
+      "volume_steps": 0
+    },
     "4bd26980fbacfe9a7674fdc04444f413cdad199883085d5fde8218c06744103d": {
       "path": "boss/50b8d2fd61c7cbfe71baf3f3.mp3",
       "rate_steps": 1,
@@ -3584,12 +3760,28 @@
       "updated_at": 1788329949,
       "volume_steps": 0
     },
+    "4c88438dc0a4171b4c6c12e576221c104eeee3773cffc2c529da0bcfa68fa21e": {
+      "path": "message/5e9b31d12a915659911dca47.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 발리 1분전입니다.",
+      "updated_at": 1789041711,
+      "volume_steps": 0
+    },
     "4c8cdcfe0c2c14d1d94e869c3087c8a0de06030f4f9a223eeb5998af41b62ca3": {
       "path": "message/0a2759785e4ba9506e17384e.mp3",
       "rate_steps": 1,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "외 9개",
       "updated_at": 1788373129,
+      "volume_steps": 0
+    },
+    "4ca6b334f214f517367e17273096589a742236068db7f6bbee2593b7861ac67e": {
+      "path": "fixed/469a93e95d8d0aa4da761d78.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "탕그 일분 전입니다.",
+      "updated_at": 1789041153,
       "volume_steps": 0
     },
     "4cd3fd1713e73538595f51a3caf79fffd3b331b6dc8ae13d0ae1f42dd5fcfd0d": {
@@ -3832,6 +4024,14 @@
       "updated_at": 1788862168,
       "volume_steps": 0
     },
+    "52a8f048becd0150d725db4543310cb4a2918bdedeebb1f474613636602b7056": {
+      "path": "message/c21abb4fb0cad7c4e3a9cf15.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "프레이 호드 1분전입니다.",
+      "updated_at": 1789041703,
+      "volume_steps": 0
+    },
     "52fcba22d5263c1603fd61c9751a653a8e5e7b7ab1bef328d983ad8d73ffccb4": {
       "path": "boss/3687dad09bfc1057f14476c8.mp3",
       "rate_steps": 1,
@@ -3862,6 +4062,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "월드보스 1분 전입니다.",
       "updated_at": 1788329934,
+      "volume_steps": 0
+    },
+    "54b4ae57ed66f1896b1ec28d86112fca50f75b2fd3e43184242f8efca8681ed1": {
+      "path": "message/54b4ae57ed66f1896b1ec28d86112fca50f75b2fd3e43184242f8efca8681ed1.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 오딘 이미르 타임입니다.",
+      "updated_at": 1789041154,
       "volume_steps": 0
     },
     "54c63d1a19c131030662a43690a72762fd91cfa07f23d7269fc60487a4a1a654": {
@@ -4046,6 +4254,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "길드 쟁탈전 신청마감 1분 전입니다.",
       "updated_at": 1788329786,
+      "volume_steps": 0
+    },
+    "593a42beab049b796c7518d3d8797b68bd94fb7ee784708e0456f52ae7c4bc76": {
+      "path": "message/ce8712062aeb40d79464045f.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 발리 5분 남았습니다.",
+      "updated_at": 1789041712,
       "volume_steps": 0
     },
     "595f16c83ece232c0ae86896ad2df3934438f7536882b111c97bd787ff314992": {
@@ -4384,6 +4600,14 @@
       "updated_at": 1788329976,
       "volume_steps": 0
     },
+    "5f6f7ff535212d8210ad2f394adfd19df0791eeec9c0729351cb80bcd124b2ef": {
+      "path": "message/4b0c8538aee9337d98799b1e.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "그로아 미미르 1분전입니다.",
+      "updated_at": 1789041706,
+      "volume_steps": 0
+    },
     "5ff5ffcd901423269fd79a61e2ff6807eb81559c8948da68bcdb1705065b84f6": {
       "path": "boss/ceb3919561d96a85e4eaaf49.mp3",
       "rate_steps": 1,
@@ -4446,6 +4670,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "안나 외 1개",
       "updated_at": 1788749681,
+      "volume_steps": 0
+    },
+    "61ba52c2136c0e5d354864d791efc27ef2a8887f13796af32fb702ca6548342f": {
+      "path": "message/61ba52c2136c0e5d354864d791efc27ef2a8887f13796af32fb702ca6548342f.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 그로아 미미르 타임입니다.",
+      "updated_at": 1789041156,
       "volume_steps": 0
     },
     "61c9ee0863fa68aed0547028a5d7fcb0493008d74773b48ede41203b82fdbb48": {
@@ -4542,6 +4774,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "곧 두라스로르 외 1개 타임입니다.",
       "updated_at": 1788367423,
+      "volume_steps": 0
+    },
+    "6300d02046057e93b70dfa51b488b68d05b6939114fe65dee18cc5b53121f26b": {
+      "path": "message/6300d02046057e93b70dfa51b488b68d05b6939114fe65dee18cc5b53121f26b.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "지옥 성채 일분 전입니다. 다음 보스는 1시간 후 황금고블린입니다.",
+      "updated_at": 1789046850,
       "volume_steps": 0
     },
     "6331542c2393197108111a7f671442e9cc09180c44b7ec06cd0d44e507c0c644": {
@@ -4862,6 +5102,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스칼라니르 1분 전입니다.",
       "updated_at": 1788329895,
+      "volume_steps": 0
+    },
+    "6aaaf4bc9d0a0957e350fd203adb1b45c180c9b383d1677ebec83273563d055a": {
+      "path": "message/6aaaf4bc9d0a0957e350fd203adb1b45c180c9b383d1677ebec83273563d055a.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "바우티 일분 남았습니다.",
+      "updated_at": 1789054975,
       "volume_steps": 0
     },
     "6ad919afbd95eabebe13ef15d9ab03573199306ef71ab9e8692ab519432c95c7": {
@@ -5216,6 +5464,14 @@
       "updated_at": 1788329838,
       "volume_steps": 0
     },
+    "74653aa73dd1f701cae2994d85ca9aa017bf14e03462070b7d18b2e297208dab": {
+      "path": "message/2bf81c7e6668d06cfe011944.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 발리 일분 남았습니다.",
+      "updated_at": 1789041712,
+      "volume_steps": 0
+    },
     "74771e4cf33d37fe429e904ee9098c7a50ebb78909e4316b0d0e47959bdfaf77": {
       "path": "message/74771e4cf33d37fe429e904ee9098c7a50ebb78909e4316b0d0e47959bdfaf77.mp3",
       "rate_steps": 0,
@@ -5350,6 +5606,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스칼드메르 초읽기 시작",
       "updated_at": 1788329890,
+      "volume_steps": 0
+    },
+    "7782cabf7d8d3e216485b2f3ad014ed5cdf367568694898ab20d12b8bc0cb0fb": {
+      "path": "message/7782cabf7d8d3e216485b2f3ad014ed5cdf367568694898ab20d12b8bc0cb0fb.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "스칼드메르 헤이드",
+      "updated_at": 1789041159,
       "volume_steps": 0
     },
     "778b2384fb13cc017ff63ff8ef3a01296bd52bc210db8952706e4d8d56e9007c": {
@@ -5678,6 +5942,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "탕그 외 1개",
       "updated_at": 1788367418,
+      "volume_steps": 0
+    },
+    "7ca89a8381d985ce4d7e947ef9eba951682a18e76988d511509fa9d3a604437f": {
+      "path": "message/7ca89a8381d985ce4d7e947ef9eba951682a18e76988d511509fa9d3a604437f.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "라타토스크 일분 남았습니다.",
+      "updated_at": 1789061815,
       "volume_steps": 0
     },
     "7cc1b1bcfc7170f8da431bc3597c32497973f506a2857ba4cc20c516ab230f11": {
@@ -6024,6 +6296,14 @@
       "updated_at": 1788891085,
       "volume_steps": 0
     },
+    "86522024aeed1da05e59c5c210f7be07295acff52a87469396a2efaaca466237": {
+      "path": "message/c70e18dba8d598660d8a06ab.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 외 2개 1분전입니다.",
+      "updated_at": 1789041708,
+      "volume_steps": 0
+    },
     "868ca0c3ea6536cfee7b6b1c90d8c2cc32edff534e1a386653eaee20aff0a6e9": {
       "path": "boss/3b22814376fcd3d59933eb0d.mp3",
       "rate_steps": 1,
@@ -6328,6 +6608,14 @@
       "updated_at": 1788329894,
       "volume_steps": 0
     },
+    "8cf96f5ae34bcb990e977165867bb2436fbb6ad83105215962ec91a20277ea63": {
+      "path": "message/8cf96f5ae34bcb990e977165867bb2436fbb6ad83105215962ec91a20277ea63.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 노트 수르트 타임입니다.",
+      "updated_at": 1789041160,
+      "volume_steps": 0
+    },
     "8cfa5b7789648402e15c1fdf075554ddebee6a0edf37dc8580fa783a51ea2bda": {
       "path": "boss/b4ee9c3dfcdd04dc5f2c3302.mp3",
       "rate_steps": 1,
@@ -6398,6 +6686,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "미미르 1분 남았습니다.",
       "updated_at": 1788329825,
+      "volume_steps": 0
+    },
+    "8dc11c99a547dfd51ef35eee9eb36da4ca4fdace69efaaa12dd54563d2f1b2f6": {
+      "path": "message/d3496c456bcd4ce893eb98ab.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "스칼드메르 헤이드 일분 남았습니다.",
+      "updated_at": 1789041715,
       "volume_steps": 0
     },
     "8dd36c93120584df86dca1f4d6f4e20ae40366d39cf6fe0b492502beebe96998": {
@@ -6494,6 +6790,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "초읽기 시작",
       "updated_at": 1788320812,
+      "volume_steps": 0
+    },
+    "8f5ea2b2bb0c450feb303adf40d5509571060c9687b290277fd186eeefdc2be9": {
+      "path": "message/c816718afd7672ec67fcf699.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 노트 외 2개 타임입니다.",
+      "updated_at": 1789041708,
       "volume_steps": 0
     },
     "8fc8dea8558fc3fe90b970878a79dd553ee91e87fb84329e71e0985b14184f59": {
@@ -6774,6 +7078,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스카디 타임입니다.",
       "updated_at": 1788329886,
+      "volume_steps": 0
+    },
+    "960160957f15bf1030ef4aed337ff772ff490fd839c2857521da3904f716abcc": {
+      "path": "message/00d0759bb9452cdc9e30f1d3.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 외 2개 일분 남았습니다.",
+      "updated_at": 1789041709,
       "volume_steps": 0
     },
     "960534a475a7347326404ff6615acf36d437235c1e22aff33dab708651f428f3": {
@@ -7296,6 +7608,14 @@
       "updated_at": 1788329924,
       "volume_steps": 0
     },
+    "a1c6d16ee0dcfba476f83faf5f43725f48ee8fbd345e580ec47bbd18fe8e8078": {
+      "path": "message/a1c6d16ee0dcfba476f83faf5f43725f48ee8fbd345e580ec47bbd18fe8e8078.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "지옥 성채 일분 전입니다. 다음 보스는 1시간 후 황금고블린입니다.",
+      "updated_at": 1789046935,
+      "volume_steps": 0
+    },
     "a224e50b268402396afe3ce44468d8d285a1baef1793fe06602481a7c127fdfc": {
       "path": "boss/1764d10cc6774d3bbe99f8c5.mp3",
       "rate_steps": 1,
@@ -7472,6 +7792,14 @@
       "updated_at": 1788318670,
       "volume_steps": 0
     },
+    "a6b1654c16eb9f6db7d1f4a2c34766b6a89b10b5164aabd4edce22813c23a259": {
+      "path": "message/3e8d54d8c9de2d782d7465ea.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "그로아 미미르 일분 남았습니다.",
+      "updated_at": 1789041706,
+      "volume_steps": 0
+    },
     "a6d9db4c32d54a503b9988bdab1786fa0ff9dd22ae36af5dab6978c713931468": {
       "path": "message/190a14209c3821adea9cb0cd.mp3",
       "rate_steps": 1,
@@ -7558,6 +7886,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "탕그 1분 남았습니다.",
       "updated_at": 1788318966,
+      "volume_steps": 0
+    },
+    "a8c302a6e109b9ab94012501ab7c5f0c7d651af6122c53798045522585007e25": {
+      "path": "message/a8c302a6e109b9ab94012501ab7c5f0c7d651af6122c53798045522585007e25.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "노트 외 2개",
+      "updated_at": 1789041157,
       "volume_steps": 0
     },
     "a93edff9ae21ef550aaca9b22018a1e9e621e50bbfbcc0407b05ace06caeea28": {
@@ -8104,6 +8440,14 @@
       "updated_at": 1788773312,
       "volume_steps": 0
     },
+    "b3e768b9e1949defd7b99bbef5396559b0b11d8c23cd650245222b9961a29e7f": {
+      "path": "message/b3e768b9e1949defd7b99bbef5396559b0b11d8c23cd650245222b9961a29e7f.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "흐니르 외 2개",
+      "updated_at": 1789050340,
+      "volume_steps": 0
+    },
     "b454d7dc31ada7ff7b051c30a0ecde138b447d21e6dfd59411ba69d7ca0d764b": {
       "path": "message/b454d7dc31ada7ff7b051c30a0ecde138b447d21e6dfd59411ba69d7ca0d764b.mp3",
       "rate_steps": 0,
@@ -8176,6 +8520,14 @@
       "updated_at": 1788850888,
       "volume_steps": 0
     },
+    "b6bc3a3de68c2374ac7bebd7de2a51d4a7af15130087bb514009d09599099d60": {
+      "path": "message/b6bc3a3de68c2374ac7bebd7de2a51d4a7af15130087bb514009d09599099d60.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "노트 수르트",
+      "updated_at": 1789041160,
+      "volume_steps": 0
+    },
     "b6c30e5fd9370ec666b65ffa4c32364dda00f510500ee49b2bb84bfc13cd8725": {
       "path": "message/b6c30e5fd9370ec666b65ffa4c32364dda00f510500ee49b2bb84bfc13cd8725.mp3",
       "rate_steps": 1,
@@ -8222,6 +8574,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "엘드룬 최하층강글 1분전입니다.",
       "updated_at": 1788850876,
+      "volume_steps": 0
+    },
+    "b763310b1224a2d157a935009bd9596aa4aa55fbaf8a11e2d1299f412ba01fb0": {
+      "path": "message/37f153143b6a2281fb16a7f1.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 스칼드메르 헤이드 타임입니다.",
+      "updated_at": 1789041713,
       "volume_steps": 0
     },
     "b76e977e5a15ec7d4c4eb21b5d124ec4f19044b4ca7b35f591c8859264031802": {
@@ -8376,6 +8736,14 @@
       "updated_at": 1788329857,
       "volume_steps": 0
     },
+    "ba88252e047ab3acee8dcd3cff70124e7ba9a513bfb845cc72183657148bcc03": {
+      "path": "message/e3e074eb45f779da01b9b195.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 노트 발리 타임입니다.",
+      "updated_at": 1789041710,
+      "volume_steps": 0
+    },
     "bb0b84ec946db3da6e5bb9f07d41cebdec92e757cb2e37e79aa292afc849c61d": {
       "path": "fixed/ae790079f42cfe61db90e7e8.mp3",
       "rate_steps": 1,
@@ -8520,6 +8888,14 @@
       "updated_at": 1788330136,
       "volume_steps": 0
     },
+    "bcf40a43c071752ef262feafa9f4b98110f46216907d1e2a074cab26ef1d9201": {
+      "path": "message/42aa635d31d207b2e62f4643.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 발리",
+      "updated_at": 1789041710,
+      "volume_steps": 0
+    },
     "bcf50726ef7e0a201ddf67d9edfeabf7cc52bb571c2e6116cb3f6d8c2960c8ec": {
       "path": "boss/352d35b7193114b5142e3eb6.mp3",
       "rate_steps": 1,
@@ -8646,6 +9022,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+30%|+0%|+15Hz",
       "text": "사십일",
       "updated_at": 1788318663,
+      "volume_steps": 0
+    },
+    "bf31718237f95746072c957f31f822fd98053738a031f6d6e2e1881d145b5fc7": {
+      "path": "message/432f8d977b9082d6b6440df1.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 수르트",
+      "updated_at": 1789041716,
       "volume_steps": 0
     },
     "bf5b0ec273e5d94e9ad06a8ddd3a9284e8c211bf646d55575b6781257fa90113": {
@@ -9352,6 +9736,22 @@
       "updated_at": 1788774571,
       "volume_steps": 0
     },
+    "cd7527388888ab4882c3fa57021f8679e15b302fcdd5b2b6910db66e423c7cd5": {
+      "path": "message/03c19ec068d0e0f96a77fb42.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 노트 수르트 타임입니다.",
+      "updated_at": 1789041716,
+      "volume_steps": 0
+    },
+    "cd83a51d60fa57bbe41b1ec0f03e2ea1c83aab0f6fe5a47231a9b18246a80b3c": {
+      "path": "message/242decd88dd9c2a098918ff7.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "오딘 이미르",
+      "updated_at": 1789041699,
+      "volume_steps": 0
+    },
     "cda6d45f2630f2f5c2f7c72612f9b391518d0c1a1ec62cea1f4a1089190aaddf": {
       "path": "message/93279001afd5928a3a045a6c.mp3",
       "rate_steps": 1,
@@ -9368,12 +9768,28 @@
       "updated_at": 1788329990,
       "volume_steps": 0
     },
+    "cdbc316a69c383533aedcf67c2bfd607e41bc24704624d1fca051a3596dcc3f9": {
+      "path": "message/cdbc316a69c383533aedcf67c2bfd607e41bc24704624d1fca051a3596dcc3f9.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 노트 외 2개 타임입니다.",
+      "updated_at": 1789041157,
+      "volume_steps": 0
+    },
     "cdc41af8c9f9deb90d907f58ee3f28e870149e8c6ba4e7507e75ff8b06fde169": {
       "path": "boss/ccb122bd6fad68476406579b.mp3",
       "rate_steps": 1,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "공성전 공격대상 선택",
       "updated_at": 1788329767,
+      "volume_steps": 0
+    },
+    "cde1ec25131af31074f4fd9030a7e2d126bf806b38daacf247026c34e959b877": {
+      "path": "message/08c38f958bb635fb368a56e2.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 수르트 1분전입니다.",
+      "updated_at": 1789041717,
       "volume_steps": 0
     },
     "cdfaea9fa3009a00e2044580b3ff66e78131f2e92df7c59a7cfdf9274d3dd0bf": {
@@ -9438,6 +9854,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "헤이드",
       "updated_at": 1788330140,
+      "volume_steps": 0
+    },
+    "ced82d920de14e17ebcdcd219ab90ecb9680a2e20c420a5e4e6864a09320a4c7": {
+      "path": "message/601019ba8ff62f71ca014626.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 그로아 미미르 타임입니다.",
+      "updated_at": 1789041705,
       "volume_steps": 0
     },
     "cf03f2dfd839d1b2dbd20b0953c2159d04fcc97c642f499a50abc9cef6f121df": {
@@ -9696,6 +10120,14 @@
       "updated_at": 1788329837,
       "volume_steps": 0
     },
+    "d5772b104fb047d4cd400d7e16d41299ad3a27975b741906ee56c15409aeb1fc": {
+      "path": "message/040ca70fb6ea776cfb05ede2.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "프레이 호드",
+      "updated_at": 1789041702,
+      "volume_steps": 0
+    },
     "d597769bac2b96e4301df84129822e26c6c32e86601fbd1426e1cbb9464e926d": {
       "path": "boss/6885fd5139ae34454bd1276a.mp3",
       "rate_steps": 1,
@@ -9824,6 +10256,14 @@
       "updated_at": 1788329911,
       "volume_steps": 0
     },
+    "d7fab6621cd97ae347416691e4154ce251cbdb02ac8b2e1cf365dcd10a987d7e": {
+      "path": "boss/efc3cf973c3413e1e66c1811.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "탕그 일분 남았습니다.",
+      "updated_at": 1789041152,
+      "volume_steps": 0
+    },
     "d804c0701bfbfcc960e003e932130c26c07e0d6364c20054494e1e95a418220d": {
       "path": "fixed/c97e6d929c1c989ac8d5bbdf.mp3",
       "rate_steps": 1,
@@ -9894,6 +10334,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "두라스로르 초읽기 시작",
       "updated_at": 1788329801,
+      "volume_steps": 0
+    },
+    "da8c17dab47468e438f0c0641eb913ae0fae3205083c73f3cac9756b23cad35e": {
+      "path": "message/da8c17dab47468e438f0c0641eb913ae0fae3205083c73f3cac9756b23cad35e.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "수드리 일분 남았습니다.",
+      "updated_at": 1789055417,
       "volume_steps": 0
     },
     "dae3f0a4c2f5cb69701e277ef81d53e8a7424a2cac917a602d624807c2727f92": {
@@ -10024,6 +10472,14 @@
       "updated_at": 1788773072,
       "volume_steps": 0
     },
+    "dde51dd610f1ee6179ee869890d567009f25a61dfec6fe712269094e09330b4c": {
+      "path": "message/377938cda1dbd524862df8b6.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "스칼드메르 헤이드 5분 남았습니다.",
+      "updated_at": 1789041715,
+      "volume_steps": 0
+    },
     "de055e0eb32bcaa840720a8aa9af1211e1ffc3e24f5da55e3550e23f34ab6de5": {
       "path": "boss/60ccf1b8a8df980220b52c97.mp3",
       "rate_steps": 1,
@@ -10054,6 +10510,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 엘드룬",
       "updated_at": 1788330048,
+      "volume_steps": 0
+    },
+    "deb8d283bcc5206bc17ebb032ca7c35c1c212cc859f2f1fc4a96cbb4d84c734d": {
+      "path": "message/deb8d283bcc5206bc17ebb032ca7c35c1c212cc859f2f1fc4a96cbb4d84c734d.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "노트 발리",
+      "updated_at": 1789041158,
       "volume_steps": 0
     },
     "dec2da74df262394cc2f36c3e8db5e7ee1ebc2616adb982cfc5afb8613ed0a10": {
@@ -10112,6 +10576,14 @@
       "updated_at": 1788980209,
       "volume_steps": 0
     },
+    "df9293aab04a8a65b6283a037d058a1edd1b71d089bd2e75452218332b0379b8": {
+      "path": "message/3f6f2a929b414bdcb07140d9.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "오딘 이미르 일분 남았습니다.",
+      "updated_at": 1789041701,
+      "volume_steps": 0
+    },
     "df95d50135917ad87fc6249daf110e4e39db969fc7ec3d0087935540adaf3cda": {
       "path": "boss/00ec13cbde6f17480035908a.mp3",
       "rate_steps": 1,
@@ -10166,6 +10638,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "헤르가름 5분 전입니다.",
       "updated_at": 1788330136,
+      "volume_steps": 0
+    },
+    "e034ee7b8d7d0d4e998541d17c09f2b97fb9b4b3d757d4a9b0475933133275c6": {
+      "path": "message/e034ee7b8d7d0d4e998541d17c09f2b97fb9b4b3d757d4a9b0475933133275c6.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "야른 일분 남았습니다.",
+      "updated_at": 1789068519,
       "volume_steps": 0
     },
     "e053ed60b4a1f9fb2e81ce29dcfc447f1fc5b9fba5bc33637595f65e2fcf71d0": {
@@ -10262,6 +10742,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 비요른 헤르모드 타임입니다.",
       "updated_at": 1788840814,
+      "volume_steps": 0
+    },
+    "e1dbc2f8b15c888eca620015e08dc56f698d30f1ad6a8a8af6e849013063faa2": {
+      "path": "message/e1dbc2f8b15c888eca620015e08dc56f698d30f1ad6a8a8af6e849013063faa2.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "니드호그 일분 남았습니다.",
+      "updated_at": 1789054939,
       "volume_steps": 0
     },
     "e212945b8c69667a0b9fff56db86b0f136c245bb19b98879684369fa54487baf": {
@@ -10544,6 +11032,14 @@
       "updated_at": 1788329888,
       "volume_steps": 0
     },
+    "e9636bce11e83b8e73f55a6f90b7190a387e1b8206c37f28b8023f2eb0a557b2": {
+      "path": "message/c1e6e756b3234a8a5ae621b5.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "스칼드메르 헤이드",
+      "updated_at": 1789041713,
+      "volume_steps": 0
+    },
     "e9b40c88d0c1cc48c628ea25379d8c827ac99aa33746fa7fc89ce3560f1826e8": {
       "path": "sec/20.mp3",
       "rate_steps": 3,
@@ -10632,6 +11128,14 @@
       "updated_at": 1788329866,
       "volume_steps": 0
     },
+    "eaeddd578f5dc72b6c173e8a2925078a689b15496615538bd061ffa35b37f7a7": {
+      "path": "message/855c7fb01d84380d44c88f7c.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "그로아 미미르",
+      "updated_at": 1789041704,
+      "volume_steps": 0
+    },
     "eb02a6dc83ffa239d7dbc9c528494f6b4a3d552a0937617ef5a6e40e3bd1a873": {
       "path": "message/bff57a4dd3b3f8639a69ce5b.mp3",
       "rate_steps": 1,
@@ -10646,6 +11150,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 수드리",
       "updated_at": 1788330027,
+      "volume_steps": 0
+    },
+    "eb32009019fa9281a351a7b221423f9ef801207049c6f51b1c42b5a838e23211": {
+      "path": "message/a545627aac8a3497175ca6aa.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "노트 수르트 5분 남았습니다.",
+      "updated_at": 1789041718,
       "volume_steps": 0
     },
     "eb36bbcffff7592eb07d5f943e2fa4b61ee368fd2d9a2a88fc400d3cf8a85c7a": {
@@ -10726,6 +11238,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "셀로비아 흐니르 1분전입니다.",
       "updated_at": 1788980220,
+      "volume_steps": 0
+    },
+    "ed5052359e7def2f977ac815f4d0f76beda1420e1a52bba27de730be30f941f8": {
+      "path": "message/ed5052359e7def2f977ac815f4d0f76beda1420e1a52bba27de730be30f941f8.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "프레이 호드",
+      "updated_at": 1789041154,
       "volume_steps": 0
     },
     "ed5c5ad4d110320332204d6b7062bcb39be88ae33e56112128f8a60d7505519d": {
@@ -11078,6 +11598,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 침공 라타토스크 타임입니다.",
       "updated_at": 1788329995,
+      "volume_steps": 0
+    },
+    "f5a199f19f39b4b7529d13c8c22cc64cee77e9c783aa7ca321da4840f3d7f695": {
+      "path": "message/82033f6f6d28bd62c5717d9d.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "프레이 호드 일분 남았습니다.",
+      "updated_at": 1789041703,
       "volume_steps": 0
     },
     "f5dbf84b8f5839cd6a5e2b2997920b0ed11ff3102acca0648cc3b9c7d1da6338": {
@@ -11446,6 +11974,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 페티 1분 남았습니다.",
       "updated_at": 1788323218,
+      "volume_steps": 0
+    },
+    "fcbd3455d09f495472f7a6d86081973c618521c3c7ee2ab377616c48c7c21948": {
+      "path": "message/bbc91ff0131d9d048f39a90c.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "오딘 이미르 5분 남았습니다.",
+      "updated_at": 1789041701,
       "volume_steps": 0
     },
     "fd4396cb62f6e93a21ce783eb488fc0d5db944fd0da2f43ccbb4e1f22739bdb5": {

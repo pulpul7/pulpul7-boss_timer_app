@@ -22,6 +22,7 @@ dist_*/
 # runtime logs and generated archives
 *.log
 archive_logs/
+settings_seed_backups/
 
 # vscode 설정
 .vscode/
