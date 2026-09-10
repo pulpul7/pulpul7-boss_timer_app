@@ -9920,6 +9920,14 @@
       "updated_at": 1788850884,
       "volume_steps": 0
     },
+    "db958702d9be7a6eca880f253467d93dc4b1f9a72924f87147c7118fd7c679bb": {
+      "path": "message/db958702d9be7a6eca880f253467d93dc4b1f9a72924f87147c7118fd7c679bb.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "파르바 일분 남았습니다.",
+      "updated_at": 1789026118,
+      "volume_steps": 0
+    },
     "dba075c26f80ed47f929445472f5b13ec36f17ef93b30b1773554e5b0a9bf691": {
       "path": "boss/2237c6b426510e318e59c6d6.mp3",
       "rate_steps": 1,

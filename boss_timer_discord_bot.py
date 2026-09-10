@@ -475,7 +475,7 @@ def is_second_confirmed(item: dict[str, Any]) -> bool:
     if parse_datetime(item.get("second_precision_origin_at")) is not None:
         return True
     scheduled_at = parse_datetime(item.get("scheduled_at"))
-    return bool(scheduled_at and scheduled_at.second != 0)
+    return bool(scheduled_at and (scheduled_at.second != 0 or scheduled_at.microsecond != 0))
 
 
 def event_name(item: dict[str, Any]) -> str:
@@ -823,7 +823,7 @@ class ScheduleReader:
             name = event_name(raw_item)
             if not name:
                 continue
-            grouped.setdefault(scheduled_at.replace(microsecond=0), []).append(raw_item)
+            grouped.setdefault(scheduled_at, []).append(raw_item)
         jobs: list[AlertJob] = []
         for scheduled_at, items in grouped.items():
             names = tuple(event_name(item) for item in items if event_name(item))

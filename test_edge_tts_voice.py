@@ -2527,8 +2527,8 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
         scheduled_at = datetime.now() + timedelta(seconds=20)
         notice_at = scheduled_at - timedelta(seconds=20)
         existing_key = (
-            f"{notice_at.isoformat(timespec='seconds')}|"
-            f"{scheduled_at.isoformat(timespec='seconds')}|라이노르+브륀힐드"
+            f"{notice_at.isoformat()}|"
+            f"{scheduled_at.isoformat()}|라이노르+브륀힐드"
         )
         app.discord_countdown_start_notice_bridge_keys = {existing_key}
 

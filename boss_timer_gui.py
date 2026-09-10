@@ -256,7 +256,7 @@ SCHEDULE_INPUT_EDIT_WINDOW_HEIGHT = 430
 SCHEDULE_INPUT_OCR_QUEUE_HEIGHT = 72
 SCHEDULE_INPUT_AUTO_CLIPBOARD_MIN_DIMENSION = 200
 SCHEDULE_INPUT_OCR_ADDON_WIDTH = 112
-SCHEDULE_INPUT_OCR_ADDON_HEIGHT = 96
+SCHEDULE_INPUT_OCR_ADDON_HEIGHT = 116
 SCHEDULE_INPUT_OCR_ADDON_POLL_INTERVAL_MS = 50
 SCHEDULE_INPUT_CLIPBOARD_POLL_INTERVAL_MS = 300
 SCHEDULE_INPUT_OCR_ADDON_CAPTURE_DEBOUNCE_SECONDS = 0.25
@@ -695,6 +695,7 @@ DEFAULT_EDGE_TTS_SETTINGS_SEED_FILENAME = "default_edge_tts.ini"
 DEFAULT_RECORD_BOOK_SEED_FILENAME = "default_boss_capture_records.json"
 GITHUB_TOKEN_RUNTIME_SETTING_KEYS = ("github_data_token",)
 DEFAULT_SETTINGS_SEED_KEYS = (
+    "precision_capture_rate",
     "background_path",
     "font_family",
     "background_alignment",
@@ -2181,6 +2182,7 @@ class BossTimerApp:
         self.show_hodulgap_banner_var = tk.BooleanVar(value=self.show_hodulgap_banner)
         self.show_elapsed_brush_var = tk.BooleanVar(value=self.show_elapsed_brush)
         self.elapsed_brush_color_var = tk.StringVar(value=self.elapsed_brush_color_name)
+        self.precision_capture_rate_var = tk.StringVar(value=str(getattr(self, "precision_capture_rate", 2)))
 
         self.running = False
         self.base_elapsed_seconds = 0.0
@@ -3415,6 +3417,10 @@ class BossTimerApp:
         if "settings" not in config:
             return
         settings = config["settings"]
+        from schedule_precision import normalize_capture_rate
+        self.precision_capture_rate = normalize_capture_rate(settings.get("precision_capture_rate", "2"))
+        if hasattr(self, "precision_capture_rate_var"):
+            self.precision_capture_rate_var.set(str(self.precision_capture_rate))
         saved_bg = settings.get("background_path", DEFAULT_BG_KEY)
         saved_font = settings.get("font_family", self._get_default_font_family())
         saved_alignment = settings.get("background_alignment", "center")
@@ -5542,7 +5548,7 @@ class BossTimerApp:
             if not isinstance(play_at, datetime) or not clip_path_text or not os.path.isfile(clip_path_text):
                 continue
             valid_timed_clips.append({
-                "play_at": play_at.isoformat(timespec="milliseconds"),
+                "play_at": play_at.isoformat(),
                 "path": os.path.abspath(clip_path_text),
             })
         if not valid_clip_paths and not valid_timed_clips:
@@ -5570,7 +5576,7 @@ class BossTimerApp:
             "category": str(category or "general").strip() or "general",
             "lane": self._normalize_schedule_voice_lane(lane),
             "volume": playback_volume,
-            "target_time": target_time.isoformat(timespec="seconds") if isinstance(target_time, datetime) else "",
+            "target_time": target_time.isoformat() if isinstance(target_time, datetime) else "",
             "offset_sec": int(offset_sec),
             "clip_paths": valid_clip_paths,
             "timed_clips": valid_timed_clips,
@@ -5669,7 +5675,7 @@ class BossTimerApp:
             }
         except Exception:
             self.discord_countdown_sequence_bridge_keys = set()
-        target_key = f"{scheduled_at.isoformat(timespec='seconds')}|{str(group_identity or '').strip()}"
+        target_key = f"{scheduled_at.isoformat()}|{str(group_identity or '').strip()}"
         if target_key in self.discord_countdown_sequence_bridge_keys:
             return True
         stale_keys: set[str] = set()
@@ -5801,7 +5807,7 @@ class BossTimerApp:
         # 뒤에야 복합 초읽기를 만들 수 있다. 이때 앞 안내를 버리면 일반
         # COUNTDOWN_SEQUENCE가 먼저 예약되어 이름/초읽기시작이 사라진다.
         lead_start_at = max(notice_at, now_value + timedelta(milliseconds=350))
-        target_key = f"{notice_at.isoformat(timespec='seconds')}|{scheduled_at.isoformat(timespec='seconds')}|{str(group_identity or '').strip()}"
+        target_key = f"{notice_at.isoformat()}|{scheduled_at.isoformat()}|{str(group_identity or '').strip()}"
         try:
             stale_keys: set[str] = set()
             for key in getattr(self, "discord_countdown_start_notice_bridge_keys", set()):
@@ -5823,8 +5829,8 @@ class BossTimerApp:
         # 시각의 복합 초읽기가 이미 있으면 identity 차이로 두 번째 스트림을
         # 만들지 않는다.
         target_prefix = (
-            f"{notice_at.isoformat(timespec='seconds')}|"
-            f"{scheduled_at.isoformat(timespec='seconds')}|"
+            f"{notice_at.isoformat()}|"
+            f"{scheduled_at.isoformat()}|"
         )
         if any(
             str(existing_key).startswith(target_prefix)
@@ -5876,13 +5882,13 @@ class BossTimerApp:
         if not isinstance(scheduled_at, datetime):
             return False
         notice_at = scheduled_at - timedelta(seconds=max(1, int(countdown_start_notice_seconds)))
-        target_key = f"{notice_at.isoformat(timespec='seconds')}|{scheduled_at.isoformat(timespec='seconds')}|{str(group_identity or '').strip()}"
+        target_key = f"{notice_at.isoformat()}|{scheduled_at.isoformat()}|{str(group_identity or '').strip()}"
         return target_key in getattr(self, "discord_countdown_start_notice_bridge_keys", set())
 
     def _has_discord_countdown_sequence_bridge_for_target(self, scheduled_at: datetime | None) -> bool:
         if not isinstance(scheduled_at, datetime):
             return False
-        target_prefix = f"{scheduled_at.isoformat(timespec='seconds')}|"
+        target_prefix = f"{scheduled_at.isoformat()}|"
         return any(
             str(key).startswith(target_prefix)
             for key in getattr(self, "discord_countdown_sequence_bridge_keys", set())
@@ -10889,19 +10895,19 @@ class BossTimerApp:
             normalized["raw_key"] = f"invasion:{str(normalized.get('boss_name') or source_name).strip()}"
         normalized["respawn_seconds"] = self._get_schedule_respawn_seconds_for_state_item(normalized)
         scheduled_at = normalized.get("scheduled_at")
-        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        reference_now = self._get_schedule_reference_datetime()
         cut_at = self._get_schedule_event_cut_datetime(normalized)
         if (
             isinstance(cut_at, datetime)
             and isinstance(scheduled_at, datetime)
-            and scheduled_at.replace(microsecond=0) > reference_now
+            and scheduled_at > reference_now
         ):
             cut_at = None
         if isinstance(cut_at, datetime):
             normalized["cut_at"] = cut_at
         else:
             normalized.pop("cut_at", None)
-        if isinstance(scheduled_at, datetime) and scheduled_at.replace(microsecond=0) > reference_now:
+        if isinstance(scheduled_at, datetime) and scheduled_at > reference_now:
             normalized.pop("cut_applied", None)
         normalized.pop("last_cut_time_text", None)
         normalized.pop("last_cut_datetime", None)
@@ -10928,10 +10934,10 @@ class BossTimerApp:
             return None
         cut_at = item.get("cut_at")
         if isinstance(cut_at, datetime):
-            return cut_at.replace(microsecond=0)
+            return cut_at
         legacy_cut_at = item.get("last_cut_datetime")
         if isinstance(legacy_cut_at, datetime):
-            return legacy_cut_at.replace(microsecond=0)
+            return legacy_cut_at
         legacy_cut_text = str(item.get("last_cut_time_text") or "").strip()
         scheduled_at = item.get("scheduled_at")
         if not legacy_cut_text or not isinstance(scheduled_at, datetime):
@@ -11068,10 +11074,10 @@ class BossTimerApp:
             return None
         scheduled_at = item.get("scheduled_at")
         if isinstance(scheduled_at, datetime):
-            return scheduled_at.replace(microsecond=0)
+            return scheduled_at
         created_at = item.get("created_at")
         if isinstance(created_at, datetime):
-            return created_at.replace(microsecond=0)
+            return created_at
         return None
 
     def _is_schedule_state_item_within_retention(self, item: dict[str, object] | None, cutoff_datetime: datetime) -> bool:
@@ -11848,7 +11854,7 @@ class BossTimerApp:
         self._write_lag_log(f"{name} took {elapsed_ms:.1f}ms{suffix}")
 
     def _get_schedule_reference_datetime(self) -> datetime:
-        return datetime.now().replace(microsecond=0)
+        return datetime.now()
 
     def _get_schedule_default_server_open_datetime(self, reference_datetime: datetime | None = None) -> datetime:
         base_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
@@ -12135,7 +12141,7 @@ class BossTimerApp:
 
     def _get_schedule_reference_datetime_for_precision(self, reference_datetime: datetime, precision: str) -> datetime:
         if self._normalize_schedule_precision_value(precision, fallback="minute") == "second":
-            return reference_datetime.replace(microsecond=0)
+            return reference_datetime
         return reference_datetime.replace(second=0, microsecond=0)
 
     def _normalize_schedule_precision_value(self, precision: object, fallback: str = "minute") -> str:
@@ -12504,8 +12510,9 @@ class BossTimerApp:
     def _format_schedule_clock_text_for_input(self, scheduled_at: datetime | None, precision: object) -> str:
         if not isinstance(scheduled_at, datetime):
             return ""
-        if self._is_schedule_second_precision(precision):
-            return scheduled_at.strftime("%H:%M:%S")
+        if scheduled_at.microsecond or self._is_schedule_second_precision(precision):
+            from schedule_precision import clock_text
+            return clock_text(scheduled_at)
         return scheduled_at.strftime("%H:%M")
 
     def _set_schedule_base_datetime_fields(self, date_value: datetime) -> None:
@@ -13475,22 +13482,22 @@ class BossTimerApp:
             return None
         explicit_end_at = item.get("explicit_end_at")
         if isinstance(explicit_end_at, datetime):
-            return explicit_end_at.replace(microsecond=0)
+            return explicit_end_at
         cut_datetime = self._get_schedule_event_cut_datetime(item)
         if isinstance(cut_datetime, datetime):
-            return cut_datetime.replace(microsecond=0)
+            return cut_datetime
         scheduled_at = item.get("scheduled_at")
         if not isinstance(scheduled_at, datetime):
             return None
         if self._is_schedule_boss_metric_break_duration_enabled():
             metric_duration_seconds = self._get_schedule_boss_metric_effective_duration_seconds(item)
             if isinstance(metric_duration_seconds, int) and metric_duration_seconds > 0:
-                return (scheduled_at + timedelta(seconds=metric_duration_seconds)).replace(microsecond=0)
+                return (scheduled_at + timedelta(seconds=metric_duration_seconds))
         for key in ("user_duration_seconds", "custom_duration_seconds", "average_duration_seconds", "avg_duration_seconds"):
             raw_value = item.get(key)
             if isinstance(raw_value, (int, float)) and float(raw_value) > 0:
-                return (scheduled_at + timedelta(seconds=float(raw_value))).replace(microsecond=0)
-        return scheduled_at.replace(microsecond=0)
+                return (scheduled_at + timedelta(seconds=float(raw_value)))
+        return scheduled_at
 
     def _reapply_schedule_boss_metric_schedule_times(self) -> bool:
         if not isinstance(getattr(self, "schedule_events", None), list) or not self.schedule_events:
@@ -13526,9 +13533,9 @@ class BossTimerApp:
                 scheduled_value = current_item.get("scheduled_at")
                 anchor_value = current_item.get("cycle_anchor_at")
                 if isinstance(anchor_value, datetime):
-                    row_anchor_at = anchor_value.replace(microsecond=0)
+                    row_anchor_at = anchor_value
                 elif isinstance(scheduled_value, datetime):
-                    row_anchor_at = scheduled_value.replace(microsecond=0)
+                    row_anchor_at = scheduled_value
                 else:
                     continue
                 row_anchor_map[idx] = row_anchor_at
@@ -13559,7 +13566,7 @@ class BossTimerApp:
                         continue
                     cut_at = current_item.get("cut_at")
                     if isinstance(cut_at, datetime):
-                        cut_chain_seed_at = cut_at.replace(microsecond=0)
+                        cut_chain_seed_at = cut_at
                         cut_chain_respawn_seconds = self._get_schedule_item_respawn_seconds(current_item)
                         break
             for idx in sorted_indices:
@@ -13587,7 +13594,7 @@ class BossTimerApp:
                     expected_direction = position - seed_position
                 stored_direction = current_item.get("cycle_offset_direction")
                 stored_anchor = current_item.get("cycle_anchor_at")
-                normalized_stored_anchor = stored_anchor.replace(microsecond=0) if isinstance(stored_anchor, datetime) else None
+                normalized_stored_anchor = stored_anchor if isinstance(stored_anchor, datetime) else None
                 if not isinstance(stored_direction, int) or int(stored_direction) != expected_direction:
                     needs_repair = True
                     break
@@ -13641,7 +13648,7 @@ class BossTimerApp:
                     changed = True
             metric_duration_seconds = self._get_schedule_boss_metric_effective_duration_seconds(new_item)
             if apply_enabled and isinstance(metric_duration_seconds, int) and metric_duration_seconds > 0:
-                anchor_at = stored_anchor.replace(microsecond=0) if isinstance(stored_anchor, datetime) else scheduled_at.replace(microsecond=0)
+                anchor_at = stored_anchor if isinstance(stored_anchor, datetime) else scheduled_at
                 is_cut_chain = bool(cut_chain_by_index.get(item_index)) or bool(new_item.get("cycle_metric_skip_first_after_cut"))
                 duration_offset_direction = self._get_schedule_metric_duration_offset_direction(
                     stored_direction,
@@ -13649,7 +13656,7 @@ class BossTimerApp:
                 )
                 adjusted_scheduled_at = (
                     anchor_at + timedelta(seconds=(metric_duration_seconds * duration_offset_direction))
-                ).replace(microsecond=0)
+                )
                 adjusted_scheduled_at = self._apply_schedule_second_precision_offset_to_datetime(adjusted_scheduled_at, new_item)
                 if scheduled_at != adjusted_scheduled_at or not isinstance(stored_anchor, datetime):
                     changed = True
@@ -13665,7 +13672,7 @@ class BossTimerApp:
             else:
                 if isinstance(stored_anchor, datetime):
                     restored_scheduled_at = self._apply_schedule_second_precision_offset_to_datetime(
-                        stored_anchor.replace(microsecond=0),
+                        stored_anchor,
                         new_item,
                     )
                     if scheduled_at != restored_scheduled_at:
@@ -13721,8 +13728,8 @@ class BossTimerApp:
         display_text = self._resolve_schedule_break_display_text(rule, gap_seconds)
         label_text = str(rule.get("label_text") or "휴식").strip() or "휴식"
         return {
-            "scheduled_at": previous_end_at.replace(microsecond=0),
-            "end_at": next_start_at.replace(microsecond=0),
+            "scheduled_at": previous_end_at,
+            "end_at": next_start_at,
             "gap_seconds": gap_seconds,
             "actual_text": actual_text,
             "display_text": display_text,
@@ -14298,11 +14305,11 @@ class BossTimerApp:
         custom_server_open_expires_at = snapshot.get("schedule_input_custom_server_open_expires_at")
         custom_server_open_saved_at = snapshot.get("schedule_input_custom_server_open_saved_at")
         self.schedule_input_custom_server_open_datetime = custom_server_open_datetime.replace(second=0, microsecond=0) if isinstance(custom_server_open_datetime, datetime) else None
-        self.schedule_input_custom_server_open_expires_at = custom_server_open_expires_at.replace(microsecond=0) if isinstance(custom_server_open_expires_at, datetime) else None
-        self.schedule_input_custom_server_open_saved_at = custom_server_open_saved_at.replace(microsecond=0) if isinstance(custom_server_open_saved_at, datetime) else None
+        self.schedule_input_custom_server_open_expires_at = custom_server_open_expires_at if isinstance(custom_server_open_expires_at, datetime) else None
+        self.schedule_input_custom_server_open_saved_at = custom_server_open_saved_at if isinstance(custom_server_open_saved_at, datetime) else None
         schedule_delete_active_cutoff_datetime = snapshot.get("schedule_delete_active_cutoff_datetime")
         if isinstance(schedule_delete_active_cutoff_datetime, datetime):
-            self.schedule_delete_active_cutoff_datetime = schedule_delete_active_cutoff_datetime.replace(microsecond=0)
+            self.schedule_delete_active_cutoff_datetime = schedule_delete_active_cutoff_datetime
         else:
             self.schedule_delete_active_cutoff_datetime = None
         schedule_events = snapshot.get("schedule_events")
@@ -14405,7 +14412,7 @@ class BossTimerApp:
         snapshot = self._sanitize_schedule_restore_snapshot(normalized.get("snapshot"))
         if not isinstance(deleted_at, datetime) or not snapshot:
             return None
-        normalized["deleted_at"] = deleted_at.replace(microsecond=0)
+        normalized["deleted_at"] = deleted_at
         normalized["entry_type"] = self._get_schedule_restore_history_entry_type(normalized)
         history_label = str(normalized.get("history_label") or "").strip()
         if history_label:
@@ -14419,7 +14426,7 @@ class BossTimerApp:
         normalized["snapshot"] = snapshot
         cutoff_datetime = normalized.get("cutoff_datetime")
         if isinstance(cutoff_datetime, datetime):
-            normalized["cutoff_datetime"] = cutoff_datetime.replace(microsecond=0)
+            normalized["cutoff_datetime"] = cutoff_datetime
         else:
             normalized["cutoff_datetime"] = None
         stored_signature = str(normalized.get("snapshot_signature") or "").strip()
@@ -14492,7 +14499,7 @@ class BossTimerApp:
         sanitized_snapshot = self._sanitize_schedule_restore_snapshot(snapshot)
         if not self._schedule_restore_snapshot_has_data(sanitized_snapshot):
             return False
-        entry_datetime = (deleted_at if isinstance(deleted_at, datetime) else self._get_schedule_reference_datetime()).replace(microsecond=0)
+        entry_datetime = (deleted_at if isinstance(deleted_at, datetime) else self._get_schedule_reference_datetime())
         normalized_entry_type = entry_type if entry_type in {"delete", "load"} else "delete"
         entry_summary = dict(summary) if isinstance(summary, dict) else self._get_schedule_restore_snapshot_counts(sanitized_snapshot)
         entry_summary = {
@@ -14507,7 +14514,7 @@ class BossTimerApp:
         new_entry = {
             "entry_type": normalized_entry_type,
             "deleted_at": entry_datetime,
-            "cutoff_datetime": cutoff_datetime.replace(microsecond=0) if isinstance(cutoff_datetime, datetime) else None,
+            "cutoff_datetime": cutoff_datetime if isinstance(cutoff_datetime, datetime) else None,
             "deleted_count": int(entry_summary.get("total", 0) or 0),
             "summary": entry_summary,
             "snapshot": sanitized_snapshot,
@@ -14562,7 +14569,7 @@ class BossTimerApp:
         payload_version = int(restored.get("version") or 1) if str(restored.get("version") or "").strip() else 1
         default_cutoff = restored.get("default_cutoff_datetime")
         if isinstance(default_cutoff, datetime):
-            self.schedule_delete_default_cutoff_datetime = default_cutoff.replace(microsecond=0)
+            self.schedule_delete_default_cutoff_datetime = default_cutoff
         entries = restored.get("entries")
         should_resave = payload_version < 2
         if isinstance(entries, list):
@@ -14578,7 +14585,7 @@ class BossTimerApp:
         payload = {
             "version": 2,
             "default_cutoff_datetime": self._get_schedule_delete_default_cutoff_datetime(),
-            "active_cutoff_datetime": self.schedule_delete_active_cutoff_datetime.replace(microsecond=0) if isinstance(self.schedule_delete_active_cutoff_datetime, datetime) else None,
+            "active_cutoff_datetime": self.schedule_delete_active_cutoff_datetime if isinstance(self.schedule_delete_active_cutoff_datetime, datetime) else None,
             "entries": self.schedule_delete_history,
         }
         try:
@@ -14629,7 +14636,7 @@ class BossTimerApp:
         if current_item is None:
             return False
         if isinstance(cut_datetime, datetime):
-            current_item["cut_at"] = cut_datetime.replace(microsecond=0)
+            current_item["cut_at"] = cut_datetime
         else:
             current_item.pop("cut_at", None)
         current_item.pop("last_cut_time_text", None)
@@ -14665,14 +14672,14 @@ class BossTimerApp:
         normalized_raw_key = str(raw_key or "").strip()
         if not normalized_raw_key or not isinstance(scheduled_at, datetime):
             return None
-        target_scheduled_at = scheduled_at.replace(microsecond=0)
+        target_scheduled_at = scheduled_at
         for event_item in self.schedule_events:
             if str(event_item.get("raw_key") or "").strip() != normalized_raw_key:
                 continue
             current_scheduled_at = event_item.get("scheduled_at")
             if not isinstance(current_scheduled_at, datetime):
                 continue
-            if current_scheduled_at.replace(microsecond=0) == target_scheduled_at:
+            if current_scheduled_at == target_scheduled_at:
                 return self._get_schedule_item_identity("event", event_item)
         return None
 
@@ -14684,12 +14691,12 @@ class BossTimerApp:
         normalized_raw_key = str(raw_key or "").strip()
         if not normalized_raw_key or not isinstance(cut_at, datetime):
             return None
-        target_cut_at = cut_at.replace(microsecond=0)
+        target_cut_at = cut_at
         for event_item in self.schedule_events:
             if str(event_item.get("raw_key") or "").strip() != normalized_raw_key:
                 continue
             current_cut_at = self._get_schedule_event_cut_datetime(event_item)
-            if isinstance(current_cut_at, datetime) and current_cut_at.replace(microsecond=0) == target_cut_at:
+            if isinstance(current_cut_at, datetime) and current_cut_at == target_cut_at:
                 return self._get_schedule_item_identity("event", event_item)
         return None
 
@@ -14759,7 +14766,7 @@ class BossTimerApp:
         cut_datetime = self._get_schedule_event_cut_datetime(source_item)
         if not raw_key or not isinstance(cut_datetime, datetime):
             return None
-        target_cut_key = cut_datetime.replace(microsecond=0)
+        target_cut_key = cut_datetime
         for entry in reversed(self.schedule_tree_quick_cut_history):
             entry_item = entry.get("item")
             if not isinstance(entry_item, dict):
@@ -14771,7 +14778,7 @@ class BossTimerApp:
                 entry_cut_text = str(entry.get("cut_time_text") or "").strip()
                 if entry_cut_text != target_cut_key.strftime("%H:%M:%S"):
                     continue
-            elif entry_cut_datetime.replace(microsecond=0) != target_cut_key:
+            elif entry_cut_datetime != target_cut_key:
                 continue
             return entry
         return None
@@ -14804,7 +14811,7 @@ class BossTimerApp:
         cut_datetime = self._get_schedule_event_cut_datetime(source_item)
         if not raw_key or not isinstance(cut_datetime, datetime):
             return None
-        target_cut_key = cut_datetime.replace(microsecond=0)
+        target_cut_key = cut_datetime
         for entry in reversed(self.schedule_active_quick_cut_history):
             entry_item = entry.get("item")
             if not isinstance(entry_item, dict):
@@ -14816,7 +14823,7 @@ class BossTimerApp:
                 entry_cut_text = str(entry.get("cut_time_text") or "").strip()
                 if entry_cut_text != target_cut_key.strftime("%H:%M:%S"):
                     continue
-            elif entry_cut_datetime.replace(microsecond=0) != target_cut_key:
+            elif entry_cut_datetime != target_cut_key:
                 continue
             return entry
         # Direct cut-time input on active rows can regenerate the event row with
@@ -15661,16 +15668,17 @@ class BossTimerApp:
                 item,
                 cut_token,
                 base_datetime=cut_base_datetime if isinstance(cut_base_datetime, datetime) else None,
-            ).replace(microsecond=0)
+            )
             parsed_item["day_offset"] = (resolved_cut_datetime.date() - reference_date).days
             parsed_item["day_offset_explicit"] = True
             parsed_item["clock_hours"] = resolved_cut_datetime.hour
             parsed_item["clock_minutes"] = resolved_cut_datetime.minute
             parsed_item["clock_seconds"] = resolved_cut_datetime.second
+            parsed_item["clock_microsecond"] = resolved_cut_datetime.microsecond
         parsed_items = [parsed_item]
         ignored_count = 0
         if isinstance(cut_preserve_scheduled_at, datetime):
-            preserve_scheduled_at = cut_preserve_scheduled_at.replace(microsecond=0)
+            preserve_scheduled_at = cut_preserve_scheduled_at
             target_raw_key = str(item.get("raw_key") or "").strip()
             for parsed_item in parsed_items:
                 if target_raw_key and str(parsed_item.get("raw_key") or "").strip() != target_raw_key:
@@ -18261,7 +18269,7 @@ class BossTimerApp:
             rows.append(
                 {
                     "kind": "event",
-                    "scheduled_at": scheduled_at.replace(microsecond=0),
+                    "scheduled_at": scheduled_at,
                     "effective_end_at": self._get_schedule_item_effective_end_datetime(item),
                     "time_text": scheduled_at.strftime("%H:%M:%S"),
                     "boss_text": self._get_schedule_boss_display_name(item, prefer_alias=True),
@@ -18281,8 +18289,8 @@ class BossTimerApp:
             rows.append(
                 {
                     "kind": "event",
-                    "scheduled_at": scheduled_at.replace(microsecond=0),
-                    "effective_end_at": scheduled_at.replace(microsecond=0),
+                    "scheduled_at": scheduled_at,
+                    "effective_end_at": scheduled_at,
                     "time_text": scheduled_at.strftime("%H:%M:%S"),
                     "boss_text": raw_boss_text,
                     "state_text": state_text,
@@ -18313,7 +18321,7 @@ class BossTimerApp:
         for scheduled_at, state_text in candidate_rows:
             if not isinstance(scheduled_at, datetime):
                 continue
-            normalized_time = scheduled_at.replace(microsecond=0)
+            normalized_time = scheduled_at
             if normalized_time in seen_times:
                 continue
             if normalized_time < share_start or normalized_time > share_end:
@@ -19111,7 +19119,7 @@ class BossTimerApp:
         return True, f"{', '.join(deleted_names)} 스케쥴 {removed_count}건 삭제"
 
     def _apply_discord_schedule_text(self, raw_text: str) -> tuple[bool, str]:
-        reference_datetime = self._get_schedule_reference_datetime().replace(microsecond=0)
+        reference_datetime = self._get_schedule_reference_datetime()
         parsed_items, ignored_count = self._parse_schedule_input_lines(
             raw_text,
             reference_datetime=reference_datetime,
@@ -22005,6 +22013,7 @@ class BossTimerApp:
         controls_enabled = bool(self.schedule_input_ocr_addon_open) and not self._is_schedule_input_compact_mode() and not self.schedule_input_ocr_worker_active
         for widget in (
             self.schedule_input_ocr_addon_capture_button,
+            getattr(self, "schedule_input_precision_button", None),
             self.schedule_input_ocr_addon_close_button,
         ):
             if widget is None or not widget.winfo_exists():
@@ -22307,6 +22316,13 @@ class BossTimerApp:
             cursor="hand2",
         )
         self.schedule_input_ocr_addon_close_button.place(x=64, y=56, width=38, height=22)
+        self.schedule_input_precision_button = tk.Button(
+            window, text="초단위 찍기", font=self.button_font,
+            bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8",
+            activeforeground="#ffffff", command=self._start_schedule_precision_capture,
+            cursor="hand2", bd=1,
+        )
+        self.schedule_input_precision_button.place(x=8, y=84, width=96, height=24)
         self.schedule_input_ocr_addon_resize_menu = tk.Menu(window, tearoff=0)
         self.schedule_input_ocr_addon_resize_menu.add_command(
             label="1600x900",
@@ -22331,6 +22347,13 @@ class BossTimerApp:
         self._refresh_schedule_input_ocr_addon_stack_widgets()
         self._position_schedule_input_ocr_addon_window()
         self._schedule_input_ocr_addon_tick()
+
+    def _start_schedule_precision_capture(self) -> None:
+        from precision_capture_ui import start
+        fixed_board = {"left": 176, "top": 190, "right": 1410, "bottom": 709}
+        slots = {area: self._get_schedule_ocr_slot_rects(area, 1600, 900, window_rect=fixed_board)
+                 for area in SCHEDULE_OCR_SLOT_GRID}
+        start(self, slots)
 
     def _open_schedule_input_ocr_addon(self) -> None:
         self._ensure_schedule_input_ocr_addon_window()
@@ -32929,12 +32952,12 @@ class BossTimerApp:
             # 붙던 16번 유형의 중복을 막는다.
             if countdown_enabled and is_invasion:
                 has_same_second_normal = any(
-                    other_scheduled_at.replace(microsecond=0) == scheduled_at.replace(microsecond=0)
+                    other_scheduled_at == scheduled_at
                     and self._is_schedule_second_precision(other_item)
                     and not self._is_schedule_invasion_item(other_item)
                     for other_item, other_scheduled_at in self._iter_schedule_alarm_events_between(
-                        scheduled_at.replace(microsecond=0),
-                        scheduled_at.replace(microsecond=0),
+                        scheduled_at,
+                        scheduled_at,
                     )
                 )
                 if has_same_second_normal:
@@ -32950,7 +32973,7 @@ class BossTimerApp:
             precise_remaining_ms = int(round((scheduled_at - precise_reference_now).total_seconds() * 1000.0))
             if precise_remaining_ms < -3000 or precise_remaining_ms > 90 * 1000:
                 continue
-            grouped_entries.setdefault(scheduled_at.replace(microsecond=0), []).append(
+            grouped_entries.setdefault(scheduled_at, []).append(
                 (item, scheduled_at, invasion_side_route)
             )
 
@@ -33003,7 +33026,7 @@ class BossTimerApp:
                     self._build_schedule_alarm_due_key(
                         "second_precision_gen_notice_member",
                         item_identity,
-                        scheduled_at.replace(microsecond=0),
+                        scheduled_at,
                         0,
                     )
                 )
@@ -33823,7 +33846,7 @@ class BossTimerApp:
                         continue
                     # 사전 알림도 목표 시각이 정확히 같은 보스만 합친다.
                     # 1분 간격의 서로 다른 젠 그룹은 각각 독립된 큐 항목이다.
-                    if other_target_time.replace(microsecond=0) == target_time.replace(microsecond=0):
+                    if other_target_time == target_time:
                         group.append(other)
                         consumed_ids.add(other_id)
             prepared.append(self._build_schedule_voice_broker_merged_pre_alert(group) if len(group) > 1 else request)
@@ -34741,7 +34764,7 @@ class BossTimerApp:
     ) -> list[dict[str, object]]:
         if not isinstance(scheduled_at, datetime):
             return []
-        scheduled_second = scheduled_at.replace(microsecond=0)
+        scheduled_second = scheduled_at
         group: list[dict[str, object]] = []
         seen_identities: set[str] = set()
         for entry in countdown_items:
@@ -34750,7 +34773,7 @@ class BossTimerApp:
             entry_scheduled_at = entry.get("scheduled_at")
             if not isinstance(entry_scheduled_at, datetime):
                 continue
-            if entry_scheduled_at.replace(microsecond=0) != scheduled_second:
+            if entry_scheduled_at != scheduled_second:
                 continue
             if int(entry.get("remaining_seconds") or -1) != int(remaining_seconds):
                 continue
@@ -34973,7 +34996,7 @@ class BossTimerApp:
                 (target_at, completion_path),
             ))
             for member_target_at, _name, _item in group:
-                claimed_target_keys.append(f"{member_target_at.isoformat(timespec='seconds')}|followup")
+                claimed_target_keys.append(f"{member_target_at.isoformat()}|followup")
         return timed_clips, claimed_target_keys
 
     def _schedule_temp_local_side_countdown_preannounces(
@@ -35049,7 +35072,7 @@ class BossTimerApp:
         for group in grouped:
             target_at = group[-1][0]
             names = [name for _at, name, _item in group]
-            group_key = f"{target_at.isoformat(timespec='seconds')}|{'|'.join(names)}"
+            group_key = f"{target_at.isoformat()}|{'|'.join(names)}"
             if group_key in seen_keys:
                 continue
             clip_paths: list[str] = []
@@ -35136,7 +35159,7 @@ class BossTimerApp:
     ) -> bool:
         if not isinstance(scheduled_at, datetime):
             return False
-        reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
+        reference_now = self._get_schedule_reference_datetime()
         completion_key = self._build_schedule_alarm_due_key(
             "countdown_completion",
             str(boss_name or "").strip(),
@@ -35778,10 +35801,10 @@ class BossTimerApp:
                     follower_key = self._build_schedule_alarm_due_key(
                         "countdown_combined_follower",
                         other_identity,
-                        other_at.replace(microsecond=0),
+                        other_at,
                         0,
                     )
-                    self.schedule_alarm_fired_keys[follower_key] = self._get_schedule_reference_datetime().replace(microsecond=0)
+                    self.schedule_alarm_fired_keys[follower_key] = self._get_schedule_reference_datetime()
         combined_group.sort(key=lambda entry: (entry.get("scheduled_at"), str(entry.get("boss_name") or "")))
         same_time_group = combined_group
         group_identity = self._build_schedule_countdown_group_identity(same_time_group, boss_name)
@@ -35897,7 +35920,7 @@ class BossTimerApp:
         runtime_events: list[dict[str, object]],
     ) -> list[datetime]:
         return [
-            event.get("scheduled_at").replace(microsecond=0)
+            event.get("scheduled_at")
             for event in runtime_events
             if bool(event.get("second_precision")) and isinstance(event.get("scheduled_at"), datetime)
         ]
@@ -35913,12 +35936,12 @@ class BossTimerApp:
             return None
         nominal_alert_second = (
             target_time - timedelta(seconds=max(0, int(offset_seconds)))
-        ).replace(microsecond=0)
+        )
         for runtime_event in runtime_events:
             scheduled_at = runtime_event.get("scheduled_at")
             if (
                 isinstance(scheduled_at, datetime)
-                and scheduled_at.replace(microsecond=0) == nominal_alert_second
+                and scheduled_at == nominal_alert_second
             ):
                 return nominal_alert_second + timedelta(milliseconds=250)
         return None
@@ -35967,7 +35990,7 @@ class BossTimerApp:
         offset_seconds: int,
     ) -> datetime | None:
         """Keep a fixed alert behind colliding general boss/event audio."""
-        fixed_second = fixed_scheduled_at.replace(microsecond=0)
+        fixed_second = fixed_scheduled_at
         safe_offset_seconds = max(0, int(offset_seconds))
         nominal_alert_second = fixed_second - timedelta(seconds=safe_offset_seconds)
         block_until: datetime | None = None
@@ -35975,7 +35998,7 @@ class BossTimerApp:
             scheduled_at = runtime_event.get("scheduled_at")
             if not isinstance(scheduled_at, datetime):
                 continue
-            scheduled_second = scheduled_at.replace(microsecond=0)
+            scheduled_second = scheduled_at
             try:
                 event_offsets = {int(value) for value in (runtime_event.get("offsets") or [])}
             except (TypeError, ValueError):
@@ -36743,7 +36766,7 @@ class BossTimerApp:
                     combined_follower_key = self._build_schedule_alarm_due_key(
                         "countdown_combined_follower",
                         entry_identity,
-                        entry_scheduled_at.replace(microsecond=0) if isinstance(entry_scheduled_at, datetime) else current_second,
+                        entry_scheduled_at if isinstance(entry_scheduled_at, datetime) else current_second,
                         0,
                     )
                     if combined_follower_key in self.schedule_alarm_fired_keys:
@@ -38366,7 +38389,7 @@ class BossTimerApp:
             anchor_datetime = item.get("scheduled_at")
             # Preserve the selected row's scheduled_at, and rebuild the future chain
             # from the actual cut time instead of shifting the original schedule.
-            overwrite_start = anchor_datetime.replace(microsecond=0) if isinstance(anchor_datetime, datetime) else None
+            overwrite_start = anchor_datetime if isinstance(anchor_datetime, datetime) else None
             cut_time_text = self._get_schedule_cut_display_time(item, cut_token)
             self._apply_schedule_tree_quick_cut_visual_state(identity, cut_time_text=cut_time_text)
             try:
@@ -38433,7 +38456,7 @@ class BossTimerApp:
             if not self._begin_schedule_cut_request(resolved_identity):
                 return
             anchor_datetime = source_item.get("scheduled_at")
-            overwrite_start = anchor_datetime.replace(microsecond=0) if isinstance(anchor_datetime, datetime) else None
+            overwrite_start = anchor_datetime if isinstance(anchor_datetime, datetime) else None
             self._apply_schedule_quick_cut_with_history(
                 source_item,
                 resolved_identity,
@@ -38481,6 +38504,7 @@ class BossTimerApp:
             "clock_hours": scheduled_at.hour,
             "clock_minutes": scheduled_at.minute,
             "clock_seconds": scheduled_at.second,
+            "clock_microsecond": scheduled_at.microsecond,
             "precision": self._infer_schedule_state_precision(item),
             "source_text": f"{self._format_schedule_clock_text_for_input(scheduled_at, item)} {boss_text}",
         }
@@ -38489,8 +38513,8 @@ class BossTimerApp:
             [parsed_item],
             0,
             self._get_schedule_reference_datetime(),
-            scheduled_at.replace(microsecond=0),
-            overwrite_cutoff_datetime=scheduled_at.replace(microsecond=0),
+            scheduled_at,
+            overwrite_cutoff_datetime=scheduled_at,
             edit_mode=False,
             force_past_update_keys={raw_key},
             source_label="스케쥴 컷시간 삭제",
@@ -39185,11 +39209,11 @@ class BossTimerApp:
             scheduled_at = item.get("scheduled_at")
             if not isinstance(scheduled_at, datetime):
                 continue
-            normalized_scheduled_at = scheduled_at.replace(microsecond=0)
+            normalized_scheduled_at = scheduled_at
             if raw_key and raw_key not in self.schedule_input_edit_selected_map:
                 self.schedule_input_edit_selected_map[raw_key] = {
                     "scheduled_at": normalized_scheduled_at,
-                    "was_past": normalized_scheduled_at < current_reference_datetime.replace(microsecond=0),
+                    "was_past": normalized_scheduled_at < current_reference_datetime,
                 }
             if (
                 self.schedule_input_edit_anchor_datetime is None
@@ -42665,7 +42689,7 @@ class BossTimerApp:
         hours, minutes, seconds, _precision = parsed_token
         if hours < 0 or minutes < 0 or minutes > 59 or seconds < 0 or seconds > 59:
             return None
-        reference_value = reference_datetime.replace(microsecond=0)
+        reference_value = reference_datetime
         normalized_hour = hours % 24
         target_datetime = reference_value.replace(
             hour=normalized_hour,
@@ -42712,6 +42736,13 @@ class BossTimerApp:
         reference_datetime = self._get_schedule_reference_datetime()
         if not cut_token:
             return reference_datetime
+        from schedule_precision import split_fractional_input
+        fractional = split_fractional_input(f"{cut_token} boss")
+        if fractional is not None:
+            whole_token = fractional[0].rsplit(" ", 1)[0]
+            whole = self._get_schedule_cut_datetime(item, whole_token, base_datetime=base_datetime)
+            exact = whole.replace(microsecond=fractional[1])
+            return exact-timedelta(days=1) if exact>reference_datetime else exact
         digits = "".join(character for character in cut_token if character.isdigit())
         if len(digits) not in {4, 6}:
             return reference_datetime
@@ -42730,7 +42761,7 @@ class BossTimerApp:
                         second=seconds,
                         microsecond=0,
                     )
-                    if target_datetime > reference_datetime.replace(microsecond=0):
+                    if target_datetime > reference_datetime:
                         target_datetime -= timedelta(days=1)
                     overflow_days = hours // 24
                     if overflow_days > 0:
@@ -42833,12 +42864,12 @@ class BossTimerApp:
         cut_time_text = self._get_schedule_cut_display_time(item, cut_token)
         reference_datetime = self._get_schedule_reference_datetime()
         active_cut_base_datetime = (
-            cut_base_datetime.replace(microsecond=0)
+            cut_base_datetime
             if isinstance(cut_base_datetime, datetime)
             else self._resolve_schedule_cut_clock_datetime(cut_token, reference_datetime)
         )
         if not isinstance(active_cut_base_datetime, datetime):
-            active_cut_base_datetime = reference_datetime.replace(microsecond=0)
+            active_cut_base_datetime = reference_datetime
         cut_datetime = active_cut_base_datetime
         snapshot = self._create_schedule_state_snapshot()
         panel_slot_index = self._get_schedule_active_row_slot_index(identity if isinstance(identity, tuple) else None)
@@ -42991,6 +43022,24 @@ class BossTimerApp:
         cleaned = re.sub(r"\s+", " ", (line or "").strip())
         if not cleaned or self._should_ignore_schedule_input_line(cleaned):
             return None
+        from schedule_precision import split_fractional_input
+        fractional = split_fractional_input(cleaned)
+        if fractional is not None:
+            whole_text, microsecond = fractional
+            parsed = self._parse_schedule_input_line(whole_text, treat_cut_text_as_seed=treat_cut_text_as_seed)
+            if parsed is None:
+                return None
+            parsed.update(clock_microsecond=microsecond, precision="second", source_text=cleaned)
+            if isinstance(parsed.get("cut_datetime"), datetime):
+                parsed["cut_datetime"] = parsed["cut_datetime"].replace(microsecond=microsecond)
+            if parsed.get("cut_applied") and parsed.get("mode") == "clock":
+                reference = self._get_schedule_reference_datetime()
+                exact_cut = self._resolve_schedule_seed_datetime(parsed, reference)
+                if exact_cut is not None and exact_cut > reference:
+                    if re.match(r"\d+\s*일\s+", cleaned):
+                        return None
+                    parsed["day_offset"] = int(parsed.get("day_offset") or 0)-1
+            return parsed
 
         clock_cut_match = re.fullmatch(
             r"(?:(?P<days>\d+)\s*일\s+)?(?P<token>\d{4}|\d{6}|\d+:\d{2}(?::\d{2})?)\s+(?P<boss>.+?)\s+컷",
@@ -43227,7 +43276,8 @@ class BossTimerApp:
             minutes = int(item.get("clock_minutes") or 0)
             seconds = int(item.get("clock_seconds") or 0)
             base_date = (reference_datetime + timedelta(days=day_offset)).date()
-            target_datetime = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds)
+            target_datetime = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds,
+                                       int(item.get("clock_microsecond") or 0))
             return target_datetime
         remaining_seconds = int(item.get("remaining_seconds") or 0)
         reference_base = self._get_schedule_reference_datetime_for_precision(reference_datetime, precision)
@@ -43311,14 +43361,15 @@ class BossTimerApp:
         if not isinstance(item, dict):
             return None
         cut_datetime = self._resolve_schedule_seed_datetime(item, reference_datetime)
-        return cut_datetime.replace(microsecond=0) if isinstance(cut_datetime, datetime) else None
+        return cut_datetime if isinstance(cut_datetime, datetime) else None
 
     def _get_schedule_cut_token_from_datetime(self, cut_datetime: datetime | None, precision: object = None) -> str:
         if not isinstance(cut_datetime, datetime):
             return ""
         normalized_precision = self._normalize_schedule_precision_value(precision, fallback="minute")
-        if normalized_precision == "second" or int(cut_datetime.second or 0) != 0:
-            return cut_datetime.strftime("%H%M%S")
+        if normalized_precision == "second" or int(cut_datetime.second or 0) != 0 or cut_datetime.microsecond:
+            from schedule_precision import clock_text
+            return clock_text(cut_datetime, compact=True)
         return cut_datetime.strftime("%H%M")
 
     def _find_schedule_recent_visible_past_event_datetime(
@@ -43333,7 +43384,7 @@ class BossTimerApp:
         if not normalized_raw_key or not isinstance(reference_datetime, datetime):
             return None
         lookback_window_seconds = max(0, int(lookback_seconds or 0))
-        reference_value = reference_datetime.replace(microsecond=0)
+        reference_value = reference_datetime
         lookback_start = reference_value - timedelta(seconds=lookback_window_seconds)
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         target_datetime: datetime | None = None
@@ -43357,7 +43408,7 @@ class BossTimerApp:
             ):
                 continue
             if target_datetime is None or scheduled_at > target_datetime:
-                target_datetime = scheduled_at.replace(microsecond=0)
+                target_datetime = scheduled_at
         return target_datetime
 
     def _show_schedule_past_time_dialog(self, items: list[dict[str, object]]) -> str | None:
@@ -43669,7 +43720,7 @@ class BossTimerApp:
             previous_clock_seconds = current_clock_seconds
         if not isinstance(reference_datetime, datetime):
             return
-        reference_value = reference_datetime.replace(microsecond=0)
+        reference_value = reference_datetime
         for item in parsed_items:
             if str(item.get("mode") or "") != "clock":
                 continue
@@ -43697,7 +43748,8 @@ class BossTimerApp:
                 minutes = int(item.get("clock_minutes") or 0)
                 seconds = int(item.get("clock_seconds") or 0)
                 base_date = (reference_value + timedelta(days=day_offset)).date()
-                target_datetime = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds)
+                target_datetime = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds,
+                                           int(item.get("clock_microsecond") or 0))
                 if target_datetime > reference_value:
                     break
                 item["day_offset"] = day_offset + 1
@@ -43737,7 +43789,8 @@ class BossTimerApp:
             minutes = int(item.get("clock_minutes") or 0)
             seconds = int(item.get("clock_seconds") or 0)
             base_date = (reference_datetime + timedelta(days=day_offset)).date()
-            scheduled_at = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds)
+            scheduled_at = datetime(base_date.year, base_date.month, base_date.day, hours, minutes, seconds,
+                                    int(item.get("clock_microsecond") or 0))
             if control_type == "temporary_maintenance" and not day_offset_explicit and scheduled_at <= reference_datetime:
                 scheduled_at += timedelta(days=1)
         else:
@@ -43749,10 +43802,10 @@ class BossTimerApp:
             "control_type": control_type,
             "display_name": str(item.get("display_name") or ""),
             "scheduled_at": scheduled_at,
-            "created_at": generation_reference.replace(microsecond=0),
+            "created_at": generation_reference,
             "historical_only": bool(
                 control_type == "temporary_maintenance"
-                and scheduled_at.replace(microsecond=0) < generation_reference.replace(microsecond=0)
+                and scheduled_at < generation_reference
             ),
             "source_text": str(item.get("source_text") or ""),
         }
@@ -43765,16 +43818,16 @@ class BossTimerApp:
         if not control_entries:
             return
         resolved_reference = (
-            reference_datetime.replace(microsecond=0)
+            reference_datetime
             if isinstance(reference_datetime, datetime)
-            else self._get_schedule_reference_datetime().replace(microsecond=0)
+            else self._get_schedule_reference_datetime()
         )
         future_temporary_entries = [
             entry
             for entry in control_entries
             if str(entry.get("control_type") or "") == "temporary_maintenance"
             and isinstance(entry.get("scheduled_at"), datetime)
-            and entry["scheduled_at"].replace(microsecond=0) >= resolved_reference
+            and entry["scheduled_at"] >= resolved_reference
         ]
         if len(future_temporary_entries) > 1:
             keep_future_temporary_entry = future_temporary_entries[-1]
@@ -43784,7 +43837,7 @@ class BossTimerApp:
                 if not (
                     str(entry.get("control_type") or "") == "temporary_maintenance"
                     and isinstance(entry.get("scheduled_at"), datetime)
-                    and entry["scheduled_at"].replace(microsecond=0) >= resolved_reference
+                    and entry["scheduled_at"] >= resolved_reference
                 )
             ]
             control_entries.append(keep_future_temporary_entry)
@@ -43800,8 +43853,8 @@ class BossTimerApp:
                 new_time = new_entry.get("scheduled_at")
                 if not isinstance(new_time, datetime):
                     continue
-                new_time_value = new_time.replace(microsecond=0)
-                existing_time_value = existing_time.replace(microsecond=0)
+                new_time_value = new_time
+                existing_time_value = existing_time
                 if (
                     new_type == "temporary_maintenance"
                     and existing_type == "temporary_maintenance"
@@ -43965,7 +44018,7 @@ class BossTimerApp:
             if isinstance(resolved_duration_seconds, int) and resolved_duration_seconds > 0:
                 schedule_metric_duration_seconds = resolved_duration_seconds
         if is_cut_applied and isinstance(preserve_scheduled_at, datetime):
-            generated_times = [preserve_scheduled_at.replace(microsecond=0)]
+            generated_times = [preserve_scheduled_at]
             if respawn_seconds > 0:
                 next_time = first_time + timedelta(seconds=respawn_seconds)
                 while next_time <= generation_end:
@@ -43983,10 +44036,10 @@ class BossTimerApp:
                     generated_times.append(next_time)
                     next_time += timedelta(seconds=respawn_seconds)
         schedule_entries: list[dict[str, object]] = []
-        first_time_value = first_time.replace(microsecond=0)
-        preserve_scheduled_value = preserve_scheduled_at.replace(microsecond=0) if isinstance(preserve_scheduled_at, datetime) else None
+        first_time_value = first_time
+        preserve_scheduled_value = preserve_scheduled_at if isinstance(preserve_scheduled_at, datetime) else None
         for index, generated_time in enumerate(generated_times):
-            generated_anchor_at = generated_time.replace(microsecond=0)
+            generated_anchor_at = generated_time
             cycle_anchor_at: datetime | None = generated_anchor_at
             cycle_offset_direction = 0
             scheduled_at = generated_anchor_at
@@ -44014,7 +44067,7 @@ class BossTimerApp:
                     )
                     scheduled_at = (
                         generated_anchor_at + timedelta(seconds=(schedule_metric_duration_seconds * duration_offset_direction))
-                    ).replace(microsecond=0)
+                    )
             scheduled_at = self._apply_schedule_second_precision_offset_to_datetime(scheduled_at, item)
             is_seed_row = (
                 (is_preserved_display_row and isinstance(first_time_value, datetime))
@@ -44065,7 +44118,7 @@ class BossTimerApp:
             if str(raw_key or "").strip()
         }
         normalized_overwrite_cutoff_by_raw_key = {
-            str(raw_key or "").strip(): cutoff.replace(microsecond=0)
+            str(raw_key or "").strip(): cutoff
             for raw_key, cutoff in (overwrite_cutoff_by_raw_key or {}).items()
             if str(raw_key or "").strip() and isinstance(cutoff, datetime)
         }
@@ -44681,7 +44734,7 @@ class BossTimerApp:
         generation_reference_datetime = reference_datetime
         control_generation_reference_datetime = start_datetime if isinstance(start_datetime, datetime) else reference_datetime
         normalized_overwrite_cutoff_by_raw_key = {
-            str(raw_key or "").strip(): cutoff.replace(microsecond=0)
+            str(raw_key or "").strip(): cutoff
             for raw_key, cutoff in (overwrite_cutoff_by_raw_key or {}).items()
             if str(raw_key or "").strip() and isinstance(cutoff, datetime)
         }
@@ -44918,7 +44971,7 @@ class BossTimerApp:
     def _apply_schedule_input_batch(self) -> None:
         reference_datetime = self._get_schedule_reference_datetime()
         if self.schedule_input_edit_mode and isinstance(self.schedule_input_edit_anchor_datetime, datetime):
-            reference_datetime = self.schedule_input_edit_anchor_datetime.replace(microsecond=0)
+            reference_datetime = self.schedule_input_edit_anchor_datetime
             start_datetime = reference_datetime
         elif self.schedule_input_past_enabled:
             start_datetime = self._get_schedule_base_datetime()
@@ -44954,7 +45007,7 @@ class BossTimerApp:
             raw_key = str(item.get("raw_key") or "").strip()
             cut_datetime = self._get_schedule_cut_datetime_from_parsed_item(item, reference_datetime)
             if raw_key and isinstance(cut_datetime, datetime):
-                input_cut_focus_targets.append((raw_key, cut_datetime.replace(microsecond=0)))
+                input_cut_focus_targets.append((raw_key, cut_datetime))
         active_cut_items: list[tuple[dict[str, object], dict[str, object], tuple[str, str, str, str], datetime, str]] = []
         if not self.schedule_input_edit_mode:
             remaining_parsed_items: list[dict[str, object]] = []
@@ -44963,7 +45016,7 @@ class BossTimerApp:
                 if isinstance(item, dict) and bool(item.get("cut_applied")) and raw_key:
                     active_target = self._get_schedule_active_entry_by_raw_key(raw_key)
                     cut_datetime = self._get_schedule_cut_datetime_from_parsed_item(item, reference_datetime)
-                    if active_target is not None and isinstance(cut_datetime, datetime) and cut_datetime <= reference_datetime.replace(microsecond=0):
+                    if active_target is not None and isinstance(cut_datetime, datetime) and cut_datetime <= reference_datetime:
                         active_item, active_identity = active_target
                         cut_token = self._get_schedule_cut_token_from_datetime(cut_datetime, item.get("precision"))
                         active_cut_items.append((item, active_item, active_identity, cut_datetime, cut_token))
@@ -45069,7 +45122,7 @@ class BossTimerApp:
                         self.schedule_input_status_var.set("제외 후 적용할 스케쥴 데이터가 없습니다.")
                         return
         if self.schedule_input_edit_mode and self.schedule_input_edit_selected_map:
-            actual_reference_datetime = self._get_schedule_reference_datetime().replace(microsecond=0)
+            actual_reference_datetime = self._get_schedule_reference_datetime()
             parsed_items = [
                 self._apply_schedule_edit_mode_clock_rules(item, actual_reference_datetime)
                 for item in parsed_items
@@ -45236,7 +45289,7 @@ class BossTimerApp:
         if "schedule_delete_active_cutoff_datetime" in backup:
             schedule_delete_active_cutoff_datetime = backup.get("schedule_delete_active_cutoff_datetime")
             if isinstance(schedule_delete_active_cutoff_datetime, datetime):
-                self.schedule_delete_active_cutoff_datetime = schedule_delete_active_cutoff_datetime.replace(microsecond=0)
+                self.schedule_delete_active_cutoff_datetime = schedule_delete_active_cutoff_datetime
             else:
                 self.schedule_delete_active_cutoff_datetime = None
         self._refresh_schedule_view()
@@ -48889,6 +48942,7 @@ class BossTimerApp:
             "schedule_color_data_enabled": str(schedule_color_data_enabled_value),
             "fixed_boss_color_data_enabled": str(fixed_boss_color_data_enabled_value),
             "schedule_ocr_learning_enabled": str(schedule_ocr_learning_enabled_value),
+            "precision_capture_rate": str(getattr(self, "precision_capture_rate", 2)),
             "schedule_share_use_boss_colors": str(schedule_share_use_boss_colors_value),
             "schedule_share_use_fixed_boss_colors": str(schedule_share_use_fixed_boss_colors_value),
             "schedule_share_include_break_rows": str(schedule_share_include_break_rows_value),
@@ -50155,6 +50209,9 @@ class BossTimerApp:
             self.settings_path_var.set(source)
 
     def apply_settings(self) -> None:
+        from schedule_precision import normalize_capture_rate
+        self.precision_capture_rate = normalize_capture_rate(self.precision_capture_rate_var.get())
+        self.precision_capture_rate_var.set(str(self.precision_capture_rate))
         if self.font_family_var.get() in self.available_font_families:
             self._apply_font_family(self.font_family_var.get())
         self.background_alignment = self.background_alignment_var.get()
@@ -50826,7 +50883,7 @@ class BossTimerApp:
             return
         self.settings_window = tk.Toplevel(self.root)
         self.settings_window.title("환경설정")
-        self.settings_window.geometry(f"430x470+{self.settings_window_x}+{self.settings_window_y}")
+        self.settings_window.geometry(f"430x520+{self.settings_window_x}+{self.settings_window_y}")
         self.settings_window.resizable(False, False)
         self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings_window)
         self.settings_bg_label = tk.Label(self.settings_window, bd=0)
@@ -50861,6 +50918,10 @@ class BossTimerApp:
         self.font_menu.place(x=18, y=366, width=276, height=30)
         self.apply_button = tk.Button(self.settings_window, text="저장", font=self.button_font, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief="flat", bd=0, highlightthickness=0, command=self.apply_settings, cursor="hand2")
         self.apply_button.place(x=304, y=414, width=98, height=30)
+        tk.Label(self.settings_window, text="정밀 캡처: 초당 추적 횟수", font=self.button_font,
+                 bg="#000001", fg="#f8fafc").place(x=18, y=470)
+        ttk.Combobox(self.settings_window, textvariable=self.precision_capture_rate_var,
+                     values=tuple(str(n) for n in range(2, 13)), state="readonly", width=5).place(x=260, y=470)
         self.save_notice_label = tk.Label(self.settings_window, text="", font=self.button_font, bg="#f8f1df", fg="#b45309")
         author_label = tk.Label(self.settings_window, text=f"Made by {AUTHOR_NAME}", font=(self.current_font_family, 10, "bold"), bg="#f8f1df", fg="#b45309")
         author_label.place(x=18, y=404)
@@ -51014,6 +51075,9 @@ class BossTimerApp:
             self.schedule_input_window_busy = False
 
     def close_schedule_input_window(self) -> None:
+        precision_session = getattr(self, "_precision_session", None)
+        if precision_session is not None:
+            precision_session.cancel.set()
         try:
             self.close_fixed_boss_window()
             if self.schedule_input_ocr_worker_active:
@@ -52308,7 +52372,7 @@ class BossTimerApp:
         precision: str = "minute",
         invasion: bool = False,
     ) -> dict[str, object]:
-        normalized_at = scheduled_at.replace(microsecond=0)
+        normalized_at = scheduled_at
         clean_boss_name = re.sub(r"^침공\s*", "", str(boss_name or "").strip()).strip()
         raw_name = f"침공 {clean_boss_name}" if invasion else clean_boss_name
         raw_key_prefix = "invasion" if invasion else "voice-test"
@@ -52317,11 +52381,11 @@ class BossTimerApp:
             "raw_name": raw_name,
             "display_name": raw_name,
             "scheduled_at": normalized_at,
-            "created_at": datetime.now().replace(microsecond=0),
+            "created_at": datetime.now(),
             "state": "scheduled",
             "raw_key": f"{raw_key_prefix}:{index}:{clean_boss_name}:{normalized_at.isoformat()}",
             "precision": "second" if precision == "second" else "minute",
-            "second_precision_origin_at": datetime.now().replace(microsecond=0) if precision == "second" else None,
+            "second_precision_origin_at": datetime.now() if precision == "second" else None,
             "is_invasion": bool(invasion),
             "voice_test_marker": SCHEDULE_ALARM_VOICE_RULE_VERSION,
             "result": "",
@@ -52336,12 +52400,12 @@ class BossTimerApp:
         *,
         index: int,
     ) -> dict[str, object]:
-        normalized_at = scheduled_at.replace(microsecond=0)
+        normalized_at = scheduled_at
         return {
             "control_type": control_type,
             "display_name": display_name,
             "scheduled_at": normalized_at,
-            "created_at": datetime.now().replace(microsecond=0),
+            "created_at": datetime.now(),
             "state": "control",
             "raw_key": f"voice-test-control:{index}:{control_type}:{normalized_at.isoformat()}",
             "historical_only": False,
@@ -52526,7 +52590,7 @@ class BossTimerApp:
             remaining_seconds = (scheduled_at - now_value).total_seconds()
             if not 0.0 < remaining_seconds <= float(countdown_start_seconds):
                 continue
-            grouped_events.setdefault(scheduled_at.replace(microsecond=0), []).append(event)
+            grouped_events.setdefault(scheduled_at, []).append(event)
         if not grouped_events:
             return
         ordered_groups = sorted(grouped_events.items(), key=lambda item: item[0])
