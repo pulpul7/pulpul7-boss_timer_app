@@ -2792,6 +2792,7 @@ class BossTimerApp:
         self.schedule_second_precision_offset_save_button = None
         self.schedule_second_precision_offset_reset_button = None
         self.schedule_share_copy_button = None
+        self.schedule_share_txt_button = None
         self.main_current_datetime_item = None
         self.schedule_tree_item_meta: dict[str, dict[str, object]] = {}
         self.schedule_tree_deleted_backup: dict[str, list[dict[str, object]]] | None = None
@@ -3028,6 +3029,8 @@ class BossTimerApp:
         self.schedule_input_ocr_addon_status_label = None
         self.schedule_input_ocr_addon_title_label = None
         self.schedule_input_ocr_sort_by_time_var = tk.BooleanVar(value=self.schedule_input_ocr_sort_by_time_enabled)
+        self.schedule_input_hide_fraction_var = tk.BooleanVar(value=True)
+        self.schedule_input_hide_fraction_check = None
         self.schedule_input_ocr_second_confirmed_only_var = tk.BooleanVar(value=False)
         self.schedule_input_ocr_within_day_only_var = tk.BooleanVar(value=self.schedule_input_ocr_within_day_only_default)
         self.schedule_input_sort_check = None
@@ -4651,13 +4654,13 @@ class BossTimerApp:
             if self._show_season_setup_dialog(parent=self.root):
                 self._repair_runtime_season_state()
                 if self._has_ready_season():
-                    self._reset_schedule_for_new_season()
+                    self._reset_schedule_for_new_season(protect_existing=True)
             self._repair_runtime_season_state()
         if self._has_ready_season():
             upload_entry = self._get_current_github_upload_server_entry()
             self._upsert_github_server_entry_locally(upload_entry)
             loaded_entry = self._get_current_loaded_github_server_entry_from_meta()
-            if not self._current_schedule_has_data():
+            if self._can_seed_startup_schedule():
                 startup_entry = loaded_entry if isinstance(loaded_entry, dict) else upload_entry
                 payload, payload_path = self._load_github_local_schedule_payload(startup_entry)
                 if isinstance(payload, dict) and self._is_github_local_schedule_cache_trusted(startup_entry, payload):
@@ -4697,10 +4700,16 @@ class BossTimerApp:
         self._ensure_startup_schedule_archive_seed()
         self._update_archive_keep_seasons_description()
 
+    def _can_seed_startup_schedule(self) -> bool:
+        # A new executable folder is not a new user profile. Even an empty
+        # saved profile can be intentional; never resurrect it from a cache.
+        return (not self._current_schedule_has_data()
+                and not os.path.exists(self._get_schedule_state_storage_path()))
+
     def _sync_startup_remote_schedule_if_needed(self) -> None:
         entry = getattr(self, "schedule_startup_remote_sync_entry", None)
         self.schedule_startup_remote_sync_entry = None
-        if not isinstance(entry, dict) or self._current_schedule_has_data():
+        if not isinstance(entry, dict) or not self._can_seed_startup_schedule():
             return
         server_id = str(entry.get("id") or "").strip()
         server_name = str(entry.get("name") or server_id).strip()
@@ -8350,6 +8359,11 @@ class BossTimerApp:
         server_id = str(entry.get("id") or "").strip()
         if not server_id:
             return False
+        payload_season = self._normalize_schedule_server_profile_season_key(payload.get("season_no"))
+        active_season = self._get_active_schedule_server_profile_season_key()
+        if (payload_season != "season_unset" and active_season != "season_unset"
+                and payload_season != active_season):
+            return False
         cached_target_id = str(payload.get("_githubCacheTargetId") or payload.get("share_prefix") or "").strip()
         if cached_target_id and cached_target_id != server_id:
             return False
@@ -10884,6 +10898,10 @@ class BossTimerApp:
         self._prune_old_schedule_state_items()
         self._prune_schedule_quick_cut_histories()
 
+        self._append_debug_log(
+            f"schedule_state_load path={state_path} app={get_app_root()} pid={os.getpid()} "
+            f"events={len(self.schedule_events)} import_meta={self.schedule_last_import_meta}")
+
     def _normalize_schedule_state_item(self, item: dict[str, object]) -> dict[str, object]:
         normalized = dict(item)
         normalized["precision"] = self._infer_schedule_state_precision(normalized)
@@ -11265,6 +11283,10 @@ class BossTimerApp:
                 except OSError:
                     pass
             return
+        self._append_debug_log(
+            f"schedule_state_save path={state_path} app={get_app_root()} pid={os.getpid()} "
+            f"caller={sys._getframe(1).f_code.co_name} events={len(self.schedule_events)} "
+            f"active={len(self.schedule_active_entries)} controls={len(self.schedule_control_events)}")
         if sync_shared_export:
             self._sync_current_schedule_shared_export()
         if mark_github_dirty:
@@ -14234,7 +14256,17 @@ class BossTimerApp:
         self._prune_archive_json_files(archive_dir, prefix="schedule_")
         return archive_path, counts
 
-    def _reset_schedule_for_new_season(self, reference_datetime: datetime | None = None) -> None:
+    def _reset_schedule_for_new_season(
+        self, reference_datetime: datetime | None = None, *, protect_existing: bool = False,
+    ) -> None:
+        if protect_existing and not self._can_seed_startup_schedule():
+            self._append_debug_log(
+                f"schedule_startup_reset_blocked path={self._get_schedule_state_storage_path()} "
+                f"events={len(self.schedule_events)}")
+            return
+        self._append_debug_log(
+            f"schedule_reset reason={'startup' if protect_existing else 'explicit_season_change'} "
+            f"path={self._get_schedule_state_storage_path()} events={len(self.schedule_events)}")
         resolved_reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
         self.schedule_events = []
         self._reset_schedule_alarm_event_index()
@@ -16395,6 +16427,8 @@ class BossTimerApp:
             if getattr(self, "schedule_share_copy_button", None) is not None and self.schedule_share_copy_button.winfo_exists():
                 copy_y = max(44, option_height - 18)
                 self.schedule_share_copy_button.place_configure(x=12, y=copy_y, width=114, height=14)
+            if self._widget_available(getattr(self, "schedule_share_txt_button", None)):
+                self.schedule_share_txt_button.place_configure(x=130, y=max(44, option_height-18), width=34, height=14)
             self.schedule_active_frame.place_configure(x=active_x, y=active_y, width=panel_width, height=panel_height)
             if getattr(self, "schedule_active_notice_frame", None) is not None and self.schedule_active_notice_frame.winfo_exists():
                 self.schedule_active_notice_frame.place_configure(x=0, y=0, width=panel_width, height=notice_height)
@@ -18283,6 +18317,8 @@ class BossTimerApp:
                     "scheduled_at": scheduled_at,
                     "effective_end_at": self._get_schedule_item_effective_end_datetime(item),
                     "time_text": scheduled_at.strftime("%H:%M:%S"),
+                    "input_clock_text": self._format_schedule_clock_text_for_input(
+                        scheduled_at, "second" if scheduled_at.second else item),
                     "boss_text": self._get_schedule_boss_display_name(item, prefer_alias=True),
                     "state_text": "경과" if scheduled_at < reference_now else "예정",
                     "is_elapsed": bool(scheduled_at < reference_now),
@@ -18367,6 +18403,7 @@ class BossTimerApp:
         use_fixed_boss_colors: bool = False,
         include_break_rows: bool = False,
         exclude_elapsed: bool = False,
+        sort_by_time: bool = True,
     ) -> tuple[list[dict[str, object]], datetime, datetime]:
         reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
         share_start = start_datetime.replace(microsecond=0)
@@ -18451,7 +18488,8 @@ class BossTimerApp:
             seen_signatures.add(signature)
             deduped_rows.append(entry)
         rows = deduped_rows
-        rows.sort(key=self._get_schedule_share_row_sort_key)
+        if sort_by_time:
+            rows.sort(key=self._get_schedule_share_row_sort_key)
         grouped_rows: list[dict[str, object]] = []
         today_date = reference_now.date()
         next_day_date = (today_date + timedelta(days=1))
@@ -18472,6 +18510,67 @@ class BossTimerApp:
                 current_date = row_date
             grouped_rows.append(entry)
         return grouped_rows, share_start, effective_share_end
+
+    def _open_schedule_share_text(self) -> None:
+        from schedule_share_text import render_share_text
+        if (getattr(self, '_precision_session', None) is not None
+                or getattr(self, 'schedule_input_ocr_worker_active', False)
+                or getattr(self, 'schedule_input_ocr_addon_busy', False)
+                or getattr(self, 'schedule_input_window_busy', False)):
+            self.schedule_status_var.set('입력/캡처 작업이 끝난 뒤 TXT를 열어주세요.')
+            return
+        selected = self._get_schedule_share_default_range()
+        rows, _, _ = self._collect_schedule_share_rows(
+            selected['start_datetime'], selected['end_datetime'],
+            use_boss_colors=bool(selected.get('use_boss_colors')),
+            use_fixed_boss_colors=bool(selected.get('use_fixed_boss_colors')),
+            include_break_rows=bool(selected.get('include_break_rows')),
+            exclude_elapsed=bool(selected.get('exclude_elapsed')), sort_by_time=False)
+        text = render_share_text(rows, self._get_schedule_reference_datetime())
+        if not text.strip():
+            self.schedule_status_var.set('복사 설정 범위에 표시할 스케쥴이 없습니다.')
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+        except tk.TclError:
+            self.schedule_status_var.set('클립보드를 사용할 수 없습니다. 잠시 후 TXT를 다시 눌러주세요.')
+            return
+        if getattr(self, 'schedule_input_window_open', False) and self._get_schedule_input_raw_text().strip():
+            if not messagebox.askyesno('TXT로 열기', '작성 중인 입력을 스케쥴 복사 텍스트로 교체할까요?\n텍스트는 이미 클립보드에 복사했습니다.', parent=self.schedule_input_window):
+                return
+        self._reset_schedule_input_mode_state()
+        self._open_schedule_input_window_normal()
+        if not self._widget_available(self.schedule_input_window) or not self._widget_available(self.schedule_input_text):
+            return
+        self.schedule_input_past_enabled = False
+        self.schedule_input_undo_edit_context = False
+        invasion_var = getattr(self, 'schedule_input_invasion_var', None)
+        if invasion_var is not None:
+            invasion_var.set(False)
+        self._configure_schedule_input_window_mode(prefill=False)
+        self._set_schedule_input_past_generation_enabled(False)
+        self.schedule_input_hide_fraction_var.set(True)
+        self._clear_schedule_input_ocr_results(clear_rendered_text=True)
+        self._schedule_txt_previous_sort = (self.schedule_input_ocr_sort_by_time_enabled,
+                                            self.schedule_input_ocr_sort_by_time_var.get())
+        self.schedule_input_ocr_sort_by_time_enabled = False
+        self.schedule_input_ocr_sort_by_time_var.set(False)
+        self._close_schedule_input_ocr_addon_window()
+        widget = self.schedule_input_text
+        widget.edit_separator()
+        widget.delete('1.0', 'end')
+        widget.insert('1.0', text)
+        widget.edit_separator()
+        widget.config(fg='#0f172a')
+        widget.edit_modified(False)
+        widget.see('1.0')
+        widget.focus_set()
+        self.schedule_input_placeholder_active = False
+        self.schedule_input_guide_var.set('TXT 편집 · 젠시간 보스이름 · 중복 보스는 첫 일정만 가져옵니다.')
+        self.schedule_input_status_var.set('복사 설정의 텍스트를 클립보드와 입력창에 넣었습니다. 시간정렬 OFF · 편집 후 적용하세요.')
+        self._update_schedule_input_apply_state()
+        self.schedule_status_var.set('TXT를 클립보드에 복사하고 스케쥴 입력창을 열었습니다.')
 
     def _copy_schedule_share_image_to_clipboard(self, selected_range: dict[str, object] | None = None) -> bool:
         try:
@@ -38718,6 +38817,11 @@ class BossTimerApp:
         return "입력"
 
     def _reset_schedule_input_mode_state(self) -> None:
+        previous_sort = getattr(self, '_schedule_txt_previous_sort', None)
+        if previous_sort is not None:
+            self.schedule_input_ocr_sort_by_time_enabled = previous_sort[0]
+            self.schedule_input_ocr_sort_by_time_var.set(previous_sort[1])
+            self._schedule_txt_previous_sort = None
         self.schedule_input_add_mode = False
         self.schedule_input_edit_mode = False
         self.schedule_input_edit_keys = set()
@@ -38726,6 +38830,12 @@ class BossTimerApp:
         self.schedule_input_edit_selected_map = {}
 
     def _configure_schedule_input_window_mode(self, prefill: bool = False) -> None:
+        fraction_check = getattr(self, 'schedule_input_hide_fraction_check', None)
+        if self._widget_available(fraction_check):
+            if self._is_schedule_input_compact_mode():
+                fraction_check.place(x=626, y=82, width=116, height=28)
+            else:
+                fraction_check.place(x=326, y=226, width=110, height=22)
         if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
             try:
                 self.schedule_input_window.title(f"스케쥴 {self._get_schedule_input_mode_label()}")
@@ -39114,7 +39224,7 @@ class BossTimerApp:
                     pass
             if self.schedule_input_ocr_queue_status_label is not None and self.schedule_input_ocr_queue_status_label.winfo_exists():
                 try:
-                    self.schedule_input_ocr_queue_status_label.place(x=326, y=226, width=416, height=22)
+                    self.schedule_input_ocr_queue_status_label.place(x=440, y=226, width=302, height=22)
                 except tk.TclError:
                     pass
             if self.schedule_input_text is not None and self.schedule_input_text.winfo_exists():
@@ -40625,6 +40735,29 @@ class BossTimerApp:
                 return entry
         return None
 
+    def _confirm_schedule_sync_replace(
+        self, payload: dict[str, object], *, local_version: str,
+        remote_version: str, local_dirty: bool,
+    ) -> bool:
+        reasons = []
+        if local_dirty and self._current_schedule_has_data():
+            reasons.append("현재 PC에서 수정한 스케쥴이 있습니다.")
+        def version_key(value):
+            return tuple(int(part) for part in str(value).split('.')) if re.fullmatch(r'\d+(?:\.\d+)+', str(value)) else ()
+        if version_key(local_version) and version_key(remote_version) and version_key(remote_version) < version_key(local_version):
+            reasons.append(f"이전 버전으로 되돌아갑니다: {local_version} → {remote_version}")
+        source_season = self._normalize_schedule_server_profile_season_key(payload.get('season_no'))
+        target_season = self._get_active_schedule_server_profile_season_key()
+        if source_season != 'season_unset' and target_season != 'season_unset' and source_season != target_season:
+            reasons.append(f"시즌이 다릅니다: {target_season} ← {source_season}")
+        if not reasons:
+            return True
+        accepted = messagebox.askyesno(
+            '스케쥴 덮어쓰기 확인', '\n'.join(reasons) + '\n\n현재 스케쥴을 백업하고 다운로드한 자료로 교체할까요?',
+            parent=self.root, default='no')
+        self._append_debug_log(f"schedule_sync_replace_confirm accepted={int(accepted)} reasons={reasons}")
+        return bool(accepted)
+
     def _sync_selected_github_schedule(self) -> None:
         sync_remaining_seconds = self._get_schedule_github_sync_cooldown_remaining_seconds()
         if sync_remaining_seconds > 0:
@@ -40642,6 +40775,8 @@ class BossTimerApp:
             self.schedule_status_var.set(f"{server_name}: 스케쥴 경로가 없습니다.")
             return
         sync_started_at = time.perf_counter()
+        sync_profile_path = self._get_schedule_state_storage_path()
+        sync_original_signature = self._get_schedule_restore_snapshot_signature(self._create_schedule_restore_snapshot())
         self._start_schedule_github_sync_cooldown(record_attempt=True)
         boss_config_path = str(entry.get("bosses") or "").strip()
         schedule_version_from_index = str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip()
@@ -40806,6 +40941,17 @@ class BossTimerApp:
                 def apply_updates() -> None:
                     apply_started_at = time.perf_counter()
                     try:
+                        if self._get_schedule_state_storage_path() != sync_profile_path:
+                            self.schedule_status_var.set('동기화 중 서버가 바뀌어 적용을 취소했습니다.')
+                            self._append_debug_log(f'schedule_sync_cancelled reason=profile_changed from={sync_profile_path}')
+                            return
+                        if not schedule_same_version and isinstance(schedule_payload, dict):
+                            if not self._confirm_schedule_sync_replace(
+                                schedule_payload, local_version=local_schedule_version,
+                                remote_version=schedule_version,
+                                local_dirty=schedule_dirty or sync_original_signature != self._get_schedule_restore_snapshot_signature(self._create_schedule_restore_snapshot())):
+                                self.schedule_status_var.set('스케쥴 교체를 취소했습니다. 현재 자료를 유지합니다.')
+                                return
                         applied_parts: list[str] = []
                         skipped_parts: list[str] = []
                         restore_marker_saved = False
@@ -40937,6 +41083,23 @@ class BossTimerApp:
         if not self._schedule_restore_snapshot_has_data(snapshot) and not (allow_empty and isinstance(payload, dict)):
             self.schedule_status_var.set("불러올 저장용 스케쥴 데이터가 없습니다.")
             return False
+        # Recovery history is pruned by schedule dates. Preserve the actual
+        # on-disk profile separately before imports, including remote sync.
+        state_path = self._get_schedule_state_storage_path()
+        recovery_path = ''
+        if os.path.isfile(state_path):
+            recovery_path = state_path + '.before_import_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '.json'
+            try:
+                with open(state_path, 'rb') as source, open(recovery_path, 'xb') as backup:
+                    shutil.copyfileobj(source, backup)
+            except OSError as error:
+                self._append_debug_log(f'schedule_import_blocked reason=backup_failed path={state_path} error={error}')
+                self.schedule_status_var.set('현재 스케쥴 백업에 실패해 불러오기를 중단했습니다.')
+                return False
+        self._append_debug_log(
+            f'schedule_import_begin source={source_path} label={source_label} target={state_path} '
+            f'events_before={len(self.schedule_events)} events_after={len(snapshot.get("schedule_events", []))} '
+            f'backup={recovery_path} app={get_app_root()} pid={os.getpid()}')
         current_snapshot = self._create_schedule_restore_cycle_snapshot() if create_restore_history else None
         shared_archive_path = None
         if create_backups:
@@ -42982,6 +43145,8 @@ class BossTimerApp:
         return None
 
     def _should_ignore_schedule_input_line(self, line: str) -> bool:
+        if line.lstrip().startswith('#'):
+            return True
         normalized = self._normalize_schedule_boss_lookup_key(line)
         if not normalized:
             return True
@@ -43669,6 +43834,8 @@ class BossTimerApp:
         ignored_count = 0
         for raw_line in raw_text.splitlines():
             stripped_line = raw_line.strip()
+            if stripped_line.startswith('#'):
+                continue
             parsed = self._parse_schedule_input_line(
                 raw_line,
                 treat_cut_text_as_seed=treat_cut_text_as_seed,
@@ -44645,6 +44812,7 @@ class BossTimerApp:
         self._update_schedule_refresh_scope_keys()
 
     def _update_schedule_input_apply_state(self) -> None:
+        self._refresh_schedule_input_fraction_visibility()
         if self.schedule_input_apply_button is None:
             return
         has_text = bool(self._get_schedule_input_raw_text().strip())
@@ -44703,6 +44871,26 @@ class BossTimerApp:
             self.schedule_input_status_var.set(base_text)
         except tk.TclError:
             return
+
+    def _refresh_schedule_input_fraction_visibility(self) -> None:
+        from schedule_input_display import apply_fraction_visibility
+        variable = getattr(self, 'schedule_input_hide_fraction_var', None)
+        hidden = bool(variable.get()) if variable is not None else True
+        for widget in (getattr(self, 'schedule_input_text', None), getattr(self, 'schedule_input_ocr1_text', None)):
+            if not self._widget_available(widget):
+                continue
+            try:
+                apply_fraction_visibility(widget, hidden)
+            except tk.TclError:
+                pass
+
+    def _on_schedule_input_fraction_text_modified(self, event) -> None:
+        try:
+            if event.widget.edit_modified():
+                event.widget.edit_modified(False)
+            self._refresh_schedule_input_fraction_visibility()
+        except tk.TclError:
+            pass
 
     def _on_schedule_input_text_modified(self, _event=None) -> None:
         if self.schedule_input_text is None:
@@ -51049,6 +51237,7 @@ class BossTimerApp:
     def open_schedule_input_window(self) -> None:
         if self.schedule_input_window_busy:
             return
+        self.schedule_input_hide_fraction_var.set(True)
         self.schedule_input_window_busy = True
         try:
             self._update_schedule_base_label()
@@ -51133,6 +51322,8 @@ class BossTimerApp:
             self._close_schedule_input_ocr_addon_window()
 
     def _auto_open_schedule_input_ocr_addon(self) -> None:
+        if getattr(self, '_schedule_txt_previous_sort', None) is not None:
+            return
         if not self.schedule_input_window_open or not self._widget_available(self.schedule_input_window):
             return
         if self._is_schedule_input_compact_mode():
@@ -51154,6 +51345,7 @@ class BossTimerApp:
         within_day_default = bool(getattr(self, "schedule_input_ocr_within_day_only_default", False))
         for variable, default_value in (
             (getattr(self, "schedule_input_ocr_sort_by_time_var", None), True),
+            (getattr(self, "schedule_input_hide_fraction_var", None), True),
             (getattr(self, "schedule_input_ocr_second_confirmed_only_var", None), False),
             (getattr(self, "schedule_input_ocr_within_day_only_var", None), within_day_default),
         ):
@@ -57286,6 +57478,12 @@ class BossTimerApp:
         )
         self.schedule_share_copy_button.place(x=12, y=46, width=114, height=14)
         self._bind_hover_button(self.schedule_share_copy_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
+        self.schedule_share_txt_button = tk.Button(
+            current_time_frame, text='TXT', font=self.percent_font,
+            bg='#0f766e', fg='#ffffff', activebackground='#115e59', activeforeground='#ffffff',
+            relief='raised', bd=1, highlightthickness=0, command=self._open_schedule_share_text, cursor='hand2')
+        self.schedule_share_txt_button.place(x=130, y=46, width=34, height=14)
+        self._bind_hover_button(self.schedule_share_txt_button, '#0f766e', '#115e59', '#ffffff', '#ffffff')
         self.schedule_previous_boss_label = tk.Label(
             next_summary_frame,
             textvariable=self.schedule_previous_boss_var,
@@ -58025,6 +58223,12 @@ class BossTimerApp:
             cursor="hand2",
         )
         self.schedule_input_within_day_check.place(x=220, y=226, width=102, height=22)
+        self.schedule_input_hide_fraction_check = tk.Checkbutton(
+            self.schedule_input_window, text='소수점 숨김', variable=self.schedule_input_hide_fraction_var,
+            font=self.percent_font, bg='#eef2ff', fg='#1e3a8a', activebackground='#eef2ff',
+            selectcolor='#ffffff', highlightthickness=0, anchor='w', cursor='hand2',
+            command=self._refresh_schedule_input_fraction_visibility)
+        self.schedule_input_hide_fraction_check.place(x=326, y=226, width=110, height=22)
         self.schedule_input_ocr_queue_status_label = tk.Label(
             self.schedule_input_window,
             textvariable=self.schedule_input_ocr_queue_status_var,
@@ -58033,7 +58237,7 @@ class BossTimerApp:
             fg="#475569",
             anchor="w",
         )
-        self.schedule_input_ocr_queue_status_label.place(x=326, y=226, width=416, height=22)
+        self.schedule_input_ocr_queue_status_label.place(x=440, y=226, width=302, height=22)
         self.schedule_input_text = tk.Text(
             self.schedule_input_window,
             font=(self.current_font_family, 10),
@@ -58080,6 +58284,7 @@ class BossTimerApp:
             autoseparators=True,
         )
         self.schedule_input_ocr1_text.place(x=386, y=252, width=356, height=244)
+        self.schedule_input_ocr1_text.bind('<<Modified>>', self._on_schedule_input_fraction_text_modified)
         self.schedule_input_ocr1_text.bind("<KeyRelease>", lambda _event: self.schedule_input_window.after(0, self._update_schedule_input_apply_state) if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists() else None)
         self.schedule_input_ocr1_text.bind("<ButtonRelease-1>", lambda _event: self.schedule_input_window.after(0, self._update_schedule_input_apply_state) if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists() else None)
         self.schedule_input_ocr1_text.bind("<Button-3>", self._show_schedule_input_context_menu)

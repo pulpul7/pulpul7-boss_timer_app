@@ -19,6 +19,7 @@ class GithubScheduleSafetyTests(unittest.TestCase):
         app.schedule_github_server_var = FakeVar()
         app.schedule_status_var = FakeVar()
         app._current_schedule_has_data = lambda: False
+        app._get_schedule_state_storage_path = lambda: '__missing_startup_profile_for_test__.json'
         upserted = []
         synced = []
         app._upsert_github_server_entry_locally = lambda value: upserted.append(dict(value))
