@@ -11,10 +11,80 @@ from unittest.mock import patch
 import zlib
 
 from precision_time_tracker import (PrecisionConfig,Rect,Pixels,Sample,Tick,TickBuffer,
-                                    RoiChangeDetector,BossTimeTracker,GameClockTracker,precision_result)
+                                    RoiChangeDetector,StableRoiChangeDetector,
+                                    BossTimeTracker,GameClockTracker,precision_result)
 from precision_screen_capture import png_data
 from precision_capture_session import PrecisionCaptureSession,numeric_roi,duration_seconds,CANDIDATES,timer_bounds
 from precision_capture_ui import apply_measurements
+
+
+class StableTrackerTests(unittest.TestCase):
+    def sample(self, at, value):
+        return Sample(at,at+.002,Pixels(Rect(0,0,3,3),bytes([value])*27))
+
+    def test_confirmation_preserves_original_boundary_not_later_sample(self):
+        d=StableRoiChangeDetector(PrecisionConfig())
+        self.assertIsNone(d.feed(self.sample(33.1,0)))
+        self.assertIsNone(d.feed(self.sample(33.3,255)))
+        tick=d.feed(self.sample(33.5,255))
+        self.assertEqual(tick,Tick(33.1,33.302))
+
+    def test_one_frame_flash_does_not_complete_boss(self):
+        d=StableRoiChangeDetector(PrecisionConfig())
+        for at,value in [(0,0),(.2,255),(.4,0),(.6,0)]:
+            self.assertIsNone(d.feed(self.sample(at,value)))
+        self.assertIsNone(d.feed(self.sample(.8,255)))
+        self.assertEqual(d.feed(self.sample(1,255)),Tick(.6,.802))
+
+    def test_animation_expands_uncertainty_and_needs_stable_frame(self):
+        d=StableRoiChangeDetector(PrecisionConfig())
+        for at,value in [(0,0),(.2,80),(.4,160)]:
+            self.assertIsNone(d.feed(self.sample(at,value)))
+        self.assertEqual(d.feed(self.sample(.6,160)),Tick(0,.402))
+
+    def test_long_gap_cannot_confirm_pending_change(self):
+        d=StableRoiChangeDetector(PrecisionConfig())
+        d.feed(self.sample(0,0)); d.feed(self.sample(.2,255))
+        with self.assertRaisesRegex(ValueError,'gap'):
+            d.feed(self.sample(1.2,255))
+
+    def test_four_second_ticks_remain_consistent_at_two_five_ten_hz(self):
+        for rate in (2,5,10):
+            with self.subTest(rate=rate):
+                config=PrecisionConfig.from_rate(rate)
+                d=StableRoiChangeDetector(config)
+                boss=BossTimeTracker('second',123,'second',config)
+                for i in range(6*rate):
+                    at=i/rate
+                    value=40*max(0,math.floor(at-.2)+1)
+                    tick=d.feed(self.sample(at,value))
+                    if tick:
+                        boss.add(tick)
+                    if boss.enough:
+                        break
+                self.assertTrue(boss.enough)
+                self.assertFalse(boss.error)
+
+    def test_hermod_logged_ocr_failure_no_longer_vetoes_measured_time(self):
+        # The logged input/failed OCR are real. Pixel samples and clock ticks
+        # are synthetic: the failed run did not persist its ROI frames.
+        self.assertNotEqual(duration_seconds('曰 나 0 7시간 4='),25500-60)
+        session=PrecisionCaptureSession(FakeApp(),0,SLOTS)
+        boss=BossTimeTracker('헤르모드',25500,'minute',session.config)
+        obs=dict(detector=StableRoiChangeDetector(session.config),tracker=boss,pending=False,error='')
+        clock=GameClockTracker(datetime(2026,9,11,17,1,17),[Tick(i,i) for i in (1,2,3,4)])
+        for at,value in [(33.1,0),(33.3,255),(33.5,255)]:
+            session.feed('헤르모드',obs,self.sample(at,value),clock,None)
+        self.assertTrue(obs['pending'])
+        self.assertFalse(obs['error'])
+        self.assertTrue(session.verify_jobs.empty())
+        self.assertEqual(session.verify_results.get_nowait(),('헤르모드',True,'initial_ocr_and_stable_roi'))
+        measured=precision_result(boss,clock)
+        self.assertEqual(measured['target_datetime'],'2026-09-12T00:06:50.201000')
+        slot=apply_measurements({'slot_results':[dict(boss_name='헤르모드',state='TIMED',remaining_seconds=25500)]},
+                                {'results':[measured]})['slot_results'][0]
+        self.assertEqual(slot['rendered_text'],'00:06:50.201 헤르모드')
+        self.assertEqual(slot['precision'],'second')
 
 
 class TrackerTests(unittest.TestCase):
@@ -203,6 +273,41 @@ class FakeApp:
 
 
 class SessionTests(unittest.TestCase):
+    def test_hermod_completes_even_when_followup_boss_ocr_would_fail(self):
+        class HermodApp(FakeApp):
+            def _run_schedule_windows_ocr(self,item,scale):
+                if item['pixels'].rect == timer_bounds(SLOTS['test'][0]):
+                    raise AssertionError("후속 보스 OCR 금지: 曰 나 0 7시간 4=")
+                result=super()._run_schedule_windows_ocr(item,scale)
+                for word in result.get('words',[]):
+                    if word['text']=='18분':
+                        word['text']='05분'
+                return result
+
+            def _build_schedule_input_ocr_result_for_item(self,item,index):
+                result=super()._build_schedule_input_ocr_result_for_item(item,index)
+                result['slot_results'][0].update(boss_name='헤르모드',remaining_seconds=25500)
+                return result
+
+        app=HermodApp(); capture=FakeCapture(0)
+        session=PrecisionCaptureSession(app,0,SLOTS,config=PrecisionConfig(interval=.2,duration=7),
+                                        capture_factory=lambda hwnd:capture)
+        with patch('precision_capture_session.png_data',side_effect=lambda pixels:{'pixels':pixels}):
+            session.run()
+        events=[]
+        while not session.events.empty():
+            events.append(session.events.get_nowait())
+        self.assertFalse([value for kind,value in events if kind=='error'])
+        result,report=next(value for kind,value in events if kind=='done')
+        measured=next(value for value in report['results'] if value['boss_name']=='헤르모드')
+        self.assertEqual(measured['verification_method'],'initial_ocr_and_stable_roi')
+        self.assertAlmostEqual(measured['candidate_monotonic'][0]-measured['ticks'][0]['midpoint'],25500)
+        self.assertEqual(len(app.calls),2)
+        self.assertEqual({value['boss_name'] for value in report['results']},{'헤르모드','second'})
+        output=apply_measurements(result,report)['slot_results'][0]
+        self.assertEqual(output['precision'],'second')
+        self.assertEqual(output['target_datetime'].isoformat(timespec='microseconds'),measured['target_datetime'])
+
     def test_verbose_logs_are_opt_in_without_losing_in_memory_trace(self):
         app=FakeApp()
         session=PrecisionCaptureSession(app,0,SLOTS)
@@ -253,7 +358,7 @@ class SessionTests(unittest.TestCase):
         self.assertGreater(sum(report['t0']<at<report['t0']+1.2 for r,at in capture.samples),5)
         minute=next(r for r in report['results'] if r['boss_name']=='minute')
         self.assertLess(minute['ticks'][0]['midpoint']-report['t0'],1.2)
-        self.assertEqual(len(app.calls),4)  # one full OCR plus one confirmation per target and clock
+        self.assertEqual(len(app.calls),2)  # one initial OCR and one clock confirmation; no boss OCR
         self.assertTrue(report['clock_verified'])
         self.assertEqual(report['total'],3)
         self.assertEqual(report['completed'],3)

@@ -40,17 +40,17 @@ class StartupSafetyTests(unittest.TestCase):
 
     def test_remote_downgrade_requires_confirmation_default_no(self):
         app = self.app()
-        with patch('boss_timer_gui.messagebox.askyesno', return_value=False) as ask:
+        with patch.object(app,'_show_centered_messagebox', return_value=False) as ask:
             self.assertFalse(app._confirm_schedule_sync_replace(
                 {'season_no': '1'}, local_version='2026.09.10.003',
                 remote_version='2026.09.07.008', local_dirty=True))
         self.assertEqual(ask.call_args.kwargs['default'], 'no')
-        self.assertIn('2026.09.07.008', ask.call_args.args[1])
-        self.assertIn('season_17', ask.call_args.args[1])
+        self.assertIn('2026.09.07.008', ask.call_args.args[2])
+        self.assertIn('season_17', ask.call_args.args[2])
 
     def test_clean_newer_same_season_sync_does_not_prompt(self):
         app = self.app()
-        with patch('boss_timer_gui.messagebox.askyesno') as ask:
+        with patch.object(app,'_show_centered_messagebox') as ask:
             self.assertTrue(app._confirm_schedule_sync_replace(
                 {'season_no': '17'}, local_version='2026.09.10.003',
                 remote_version='2026.09.11.001', local_dirty=False))

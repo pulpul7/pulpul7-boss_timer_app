@@ -13,7 +13,8 @@ import time
 from precision_screen_capture import ScreenCapture, png_data
 from precision_capture_layout import CANDIDATES, timer_bounds
 from precision_time_tracker import (PrecisionConfig, Rect, Sample, TickBuffer,
-                                    RoiChangeDetector, BossTimeTracker, GameClockTracker, precision_result)
+                                    RoiChangeDetector, StableRoiChangeDetector,
+                                    BossTimeTracker, GameClockTracker, precision_result)
 
 # Client coordinates for the existing 1600x900 Odin timetable.  These contain
 # all 3/4-column timer candidates BEFORE OCR discovers the selected region.
@@ -102,9 +103,19 @@ def duration_seconds(text):
 
 
 class PrecisionCaptureSession:
-    def __init__(self, app, hwnd, slots, *, config=None, capture_factory=ScreenCapture):
+    def __init__(self, app, hwnd, slots, *, config=None, capture_factory=ScreenCapture,
+                 retry_targets=None, expected_area=None):
         self.config = config or PrecisionConfig()
         self.hwnd, self.slots, self.capture_factory = hwnd, slots, capture_factory
+        self.retry_targets = dict(retry_targets) if retry_targets is not None else None
+        self.expected_area = expected_area
+        self.candidates = CANDIDATES
+        if self.retry_targets is not None:
+            selected = [timer_bounds(slot) for slot in slots.get(expected_area, [])
+                        if slot['slot_index'] in self.retry_targets.values()]
+            if not selected or len(selected) != len(set(self.retry_targets.values())):
+                raise ValueError('재시도할 보스의 감지영역을 찾지 못했습니다.')
+            self.candidates = (CANDIDATES[0], *selected)
         self.cancel = threading.Event()
         self.events = queue.Queue()
         self.ocr_results = queue.Queue()
@@ -180,6 +191,8 @@ class PrecisionCaptureSession:
             # Retry unresolved numeric locations once, using ONLY T0's small
             # timer crop. Capture continues independently while this runs.
             for slot in result.get('slot_results', []):
+                if self.retry_targets is not None and slot.get('boss_name') not in self.retry_targets:
+                    continue
                 remaining = slot.get('remaining_seconds')
                 if (self.cancel.is_set() or slot.get('state')!='TIMED' or slot.get('severity')=='error'
                         or not isinstance(remaining,int) or not 0<remaining<86400):
@@ -254,17 +267,17 @@ class PrecisionCaptureSession:
         self.t0 = first.at
         self.wall0 = datetime.now() - timedelta(seconds=time.perf_counter()-self.t0)
         self.log(f'capture_t0 start={first.start:.6f} end={first.end:.6f} midpoint={self.t0:.6f}')
-        buffers = {rect: TickBuffer(self.config.buffer_samples) for rect in CANDIDATES}
+        buffers = {rect: TickBuffer(self.config.buffer_samples) for rect in self.candidates}
         for rect, buffer in buffers.items():
             buffer.append(Sample(first.start, first.end, first.pixels.crop(rect)))
         guards = [first.pixels.crop(r) for r in (TITLE_GUARD,TAB_GUARD)]
         guard_changes = {r.rect: 0 for r in guards}
-        self.capture_times.update({r:self.t0 for r in CANDIDATES})
+        self.capture_times.update({r:self.t0 for r in self.candidates})
         # Start OCR only AFTER the T0 ROI samples exist.  This thread continues
         # sampling immediately; no OCR result/join is awaited here.
         threading.Thread(target=self.analyse, args=(first,), name='PrecisionOCR1', daemon=True).start()
         del first
-        self.events.put(('regions', list(CANDIDATES)))
+        self.events.put(('regions', list(self.candidates)))
         threading.Thread(target=self.verify_worker, name='PrecisionVerify', daemon=True).start()
         observations, result, clock = {}, None, None
         next_at = self.t0 + self.config.interval
@@ -298,7 +311,12 @@ class PrecisionCaptureSession:
                     if any(b.overflow for b in buffers.values()):
                         raise RuntimeError('최초 OCR 대기 버퍼 초과: 정밀 측정을 확정하지 않았습니다.')
                     result, words = output
-                    total = max(len(self.slots.get(result.get('area'),[])),len(result.get('slot_results',[])))
+                    if self.expected_area is not None and result.get('area') != self.expected_area:
+                        raise RuntimeError('재시도할 챕터와 현재 화면이 다릅니다. 기존 결과를 유지합니다.')
+                    selected_slots = [s for s in result.get('slot_results', [])
+                                      if self.retry_targets is None or s.get('boss_name') in self.retry_targets]
+                    total = (len(self.retry_targets) if self.retry_targets is not None else
+                             max(len(self.slots.get(result.get('area'),[])),len(selected_slots)))
                     self.log(f'classification_start elapsed={time.perf_counter()-self.t0:.6f}')
                     base = result.get('base_datetime')
                     if not isinstance(base, datetime):
@@ -307,7 +325,7 @@ class PrecisionCaptureSession:
                     # must not turn a 23:59:59 capture into tomorrow's schedule.
                     base = min((base+timedelta(days=d) for d in (-1,0,1)), key=lambda dt: abs((dt-self.wall0).total_seconds()))
                     self.log(f'game_clock_initial={base.isoformat()} t0={self.t0:.6f}')
-                    eligible = [s for s in result.get('slot_results',[]) if s.get('state')=='TIMED'
+                    eligible = [s for s in selected_slots if s.get('state')=='TIMED'
                                 and isinstance(s.get('remaining_seconds'),int)
                                 and 0<s['remaining_seconds']<86400 and s.get('severity')!='error']
                     if not eligible:
@@ -319,7 +337,7 @@ class PrecisionCaptureSession:
                         raise RuntimeError('게임시계 초 숫자의 ROI를 확정하지 못했습니다.')
                     observations['clock'] = dict(roi=clock_roi, bounds=CANDIDATES[0], tracker=None,
                                                  detector=RoiChangeDetector(self.config), pending=False, error='')
-                    for slot in result.get('slot_results', []):
+                    for slot in selected_slots:
                         name, remaining = str(slot.get('boss_name')), slot.get('remaining_seconds')
                         mode = ('excluded_day' if isinstance(remaining,int) and remaining>=86400 else
                                 'minute' if isinstance(remaining,int) and remaining>=3600 else 'second')
@@ -331,19 +349,19 @@ class PrecisionCaptureSession:
                             continue
                         bounds = timer_bounds(rect)
                         roi = numeric_roi(words, bounds, '분' if mode=='minute' else '초')
-                        container = next((r for r in CANDIDATES if roi and r.contains(roi)), None)
+                        container = next((r for r in self.candidates if roi and r.contains(roi)), None)
                         if not roi or container is None or remaining % (60 if mode=='minute' else 1):
                             self.log(f'boss_excluded name={name} reason=numeric_roi_or_units_unresolved')
                             continue
                         observations[name] = dict(roi=roi, bounds=bounds, tracker=BossTimeTracker(name,remaining,mode,self.config),
-                                                  detector=RoiChangeDetector(self.config), pending=False, error='')
+                                                  detector=StableRoiChangeDetector(self.config), pending=False, error='')
                         self.log(f'roi name={name} numeric={roi} timer={bounds}')
                     if len(observations) == 1:
                         break
                     # Replay only tiny T0-time ROI records, including changes
                     # while OCR1 was busy.  No initial change is discarded.
                     for key, obs in observations.items():
-                        rect = next(r for r in CANDIDATES if r.contains(obs['roi']))
+                        rect = next(r for r in self.candidates if r.contains(obs['roi']))
                         for sample in buffers[rect].samples:
                             self.feed(key,obs,Sample(sample.start,sample.end,sample.pixels.crop(obs['roi'])),clock,
                                       sample if sample.pixels.rect.contains(obs['bounds']) else None)
@@ -352,8 +370,8 @@ class PrecisionCaptureSession:
                 for key, obs in observations.items():
                     if obs['pending'] or obs['error']:
                         continue
-                    # Keep only the changing unit, plus one full timer crop
-                    # when a boundary needs verification by small-ROI OCR.
+                    # Bosses only need numeric pixels. The game clock retains
+                    # its existing one-time OCR anchor verification.
                     sample = self.measured_grab(capture,obs['roi'])
                     self.feed(key,obs,sample,clock,None,capture)
             while True:
@@ -362,6 +380,8 @@ class PrecisionCaptureSession:
                 except queue.Empty:
                     break
                 verified[key] = ok
+                if not ok:
+                    observations[key]['error'] = 'game_clock_ocr_verification_failed' if key=='clock' else 'verification_failed'
                 self.log(f'verify key={key} ok={ok} text={text!r} completed_at={time.perf_counter():.6f}')
             targets = [key for key in observations if key!='clock']
             if result is not None:
@@ -387,6 +407,7 @@ class PrecisionCaptureSession:
             for key, obs in observations.items():
                 if key != 'clock' and verified.get(key) and not obs['error']:
                     measured = precision_result(obs['tracker'],clock)
+                    measured['verification_method'] = 'initial_ocr_and_stable_roi'
                     precise.append(measured)
                     self.log(f'final {measured}')
         for key, obs in observations.items():
@@ -424,10 +445,15 @@ class PrecisionCaptureSession:
                 self.log(f'candidate name={key} monotonic={candidate:.6f}')
                 if tracker.error:
                     raise ValueError(tracker.error)
-                enough = tracker.enough
-                expected = tracker.remaining-(60 if tracker.mode=='minute' else len(tracker.ticks))
-                if tracker.mode=='minute' and tracker.remaining==3600:
-                    expected = 3599  # 1시간 00분 -> 59분 59초 (floor display).
+                if tracker.enough:
+                    # The stable detector already confirmed the pixel change.
+                    # Trust T0 OCR; never discard a valid boundary because a
+                    # second OCR misreads the changed digit/unit (e.g. '4=').
+                    obs['pending'] = True
+                    self.verify_results.put((key,True,'initial_ocr_and_stable_roi'))
+                    self.log(f'tracking_done name={key} at={sample.at:.6f} '
+                             f'method=stable_roi tick_at={tick.at:.6f} boss_verify_ocr=0')
+                return
             if enough:
                 if buffered is not None:
                     verification = Sample(buffered.start,buffered.end,buffered.pixels.crop(obs['bounds']))

@@ -1667,7 +1667,7 @@ class DiscordScheduleBot:
             STATUS.update(online=True, last_error="")
             log(f"discord_gateway_ready user={self.client.user}")
             if self.disconnect_only:
-                disconnected = await self._disconnect_stale_configured_voice_session(wait_seconds=1.0)
+                disconnected = await self._disconnect_stale_configured_voice_session(wait_seconds=1.0, force=True)
                 self._write_disconnect_only_result(disconnected)
                 log(f"discord_disconnect_only_complete disconnected={int(disconnected)}")
                 STATUS.update(online=False, voice_connected=False)
@@ -1675,7 +1675,18 @@ class DiscordScheduleBot:
                 await self.client.close()
                 return
             await self._disconnect_stale_configured_voice_session()
-            await self._connect_configured_voice_channel()
+            connected = await self._connect_configured_voice_channel()
+            if (
+                not connected
+                and str(self.config.get("voice_channel_id") or "").strip().isdigit()
+                and not STATUS.shutdown_requested.is_set()
+            ):
+                # 캐시에 보이지 않는 잔여 세션은 첫 접속 실패 시에만 정리한다.
+                # 정상 접속에는 대기를 추가하지 않고 복구 재시도는 한 번만 한다.
+                log("voice_startup_connect_retry reason=initial_connect_failed")
+                reset = await self._disconnect_stale_configured_voice_session(force=True)
+                if reset and not STATUS.shutdown_requested.is_set():
+                    await self._connect_configured_voice_channel()
             # Start the bridge and shutdown watchers before any Discord message
             # maintenance. Fetching/deleting the persistent soundboard panel can
             # be delayed by Discord rate limits; it must never block heartbeats
@@ -2661,7 +2672,7 @@ class DiscordScheduleBot:
             temporary_path.unlink(missing_ok=True)
             return ""
 
-    async def _disconnect_stale_configured_voice_session(self, *, wait_seconds: float = 3.0) -> bool:
+    async def _disconnect_stale_configured_voice_session(self, *, wait_seconds: float = 3.0, force: bool = False) -> bool:
         """Reset the configured guild voice state before a new runtime connects."""
         if self.voice_client is not None and getattr(self.voice_client, "is_connected", lambda: False)():
             return False
@@ -2675,6 +2686,9 @@ class DiscordScheduleBot:
         voice_state = getattr(member, "voice", None)
         stale_channel = getattr(voice_state, "channel", None)
         stale_channel_id = str(getattr(stale_channel, "id", "") or "")
+        if not force and member is not None and stale_channel is None:
+            log("voice_session_reset_skipped reason=no_stale_voice_session")
+            return False
         log(
             f"voice_session_reset_requested stale_detected={int(stale_channel is not None)} "
             f"channel_id={stale_channel_id}"

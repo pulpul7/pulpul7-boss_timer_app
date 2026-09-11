@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-08 17:36:32",
+  "updated_at": "2026-09-12 07:13:12",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1513,6 +1513,62 @@
         76404
       ],
       "duration_ms": 433
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\53min_after.mp3": {
+      "signature": [
+        1789149570493409200,
+        42675
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\info\\곧 발할라 대전이 종료합니다.mp3": {
+      "signature": [
+        1789150702220400400,
+        61484
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\45min_after.mp3": {
+      "signature": [
+        1789149439884910800,
+        41422
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\42min_after.mp3": {
+      "signature": [
+        1789149390907759600,
+        42049
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\40min_after.mp3": {
+      "signature": [
+        1789149181169279900,
+        42675
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\39min_after.mp3": {
+      "signature": [
+        1789149164800373900,
+        42049
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\38min_after.mp3": {
+      "signature": [
+        1789149148495537100,
+        41422
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\28min_after.mp3": {
+      "signature": [
+        1789148985215696300,
+        41422
+      ],
+      "duration_ms": null
     }
   }
 }

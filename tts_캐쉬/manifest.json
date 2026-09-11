@@ -184,6 +184,14 @@
       "updated_at": 1788329831,
       "volume_steps": 0
     },
+    "037c9bf9b7a7d220b58fb5b3d326e1486239139ee95bf080373948f759a7949d": {
+      "path": "message/037c9bf9b7a7d220b58fb5b3d326e1486239139ee95bf080373948f759a7949d.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 40분 후 스칼라니르입니다.",
+      "updated_at": 1789152546,
+      "volume_steps": 0
+    },
     "0385972360d9ffe8f0abb10fda3f3f5da14bbe561250c5a039895d767bd7ff65": {
       "path": "message/fd68ddec472a4e01218eb10d.mp3",
       "rate_steps": 1,
@@ -1022,6 +1030,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+30%|+0%|+15Hz",
       "text": "오십구",
       "updated_at": 1788318671,
+      "volume_steps": 0
+    },
+    "1301513ec700a1bc96edb9508f27fc858fb46ec49f211b36dca503c02fcb40b8": {
+      "path": "boss/947e5de07e26197e5e0be185.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "핏빛고블린 일분 남았습니다.",
+      "updated_at": 1789151679,
       "volume_steps": 0
     },
     "1331bc756f1e345a4db15aaa0e36e07aef7c3025fd99a5c9e6e4664584839122": {
@@ -2032,6 +2048,14 @@
       "updated_at": 1789042735,
       "volume_steps": 0
     },
+    "28244d12c22d625337071535e5d0ef536527a3438996236b055d4593ce282b81": {
+      "path": "message/28244d12c22d625337071535e5d0ef536527a3438996236b055d4593ce282b81.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 15분 후 발할라 대전입니다.",
+      "updated_at": 1789121970,
+      "volume_steps": 0
+    },
     "28c0d12817acf0043e2cf81a784ff028f039a0ff01808bcdae13548e7750ad53": {
       "path": "boss/91fb389200419b42a2e6b47c.mp3",
       "rate_steps": 1,
@@ -2176,6 +2200,14 @@
       "updated_at": 1788330154,
       "volume_steps": 0
     },
+    "2b8911a3285d9eff94d1a3b28dad26d8ac63c9b4f5d11b9e1eca957a32687462": {
+      "path": "message/2b8911a3285d9eff94d1a3b28dad26d8ac63c9b4f5d11b9e1eca957a32687462.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "지옥성채 정예 일분 전입니다. 다음 보스는 42분 후 월드보스입니다.",
+      "updated_at": 1789121815,
+      "volume_steps": 0
+    },
     "2b8a0342e6ece9d0db67db3b497c506a47f90f1918bc0ff16ad9da2e0cb069ba": {
       "path": "message/3db18f747dd5f532f81b5dcf.mp3",
       "rate_steps": 1,
@@ -2288,6 +2320,14 @@
       "updated_at": 1789043336,
       "volume_steps": 0
     },
+    "2e1e0125efdca5378498eb6515c284903c9ef0fda5e2c8c40e4bfa40c9a8968a": {
+      "path": "message/2e1e0125efdca5378498eb6515c284903c9ef0fda5e2c8c40e4bfa40c9a8968a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 28분 후 스칼라니르.",
+      "updated_at": 1789153226,
+      "volume_steps": 0
+    },
     "2e3942cc0a40397171dfae438d478b264fe8f75c910366532ef974c8146e6272": {
       "path": "message/2e3942cc0a40397171dfae438d478b264fe8f75c910366532ef974c8146e6272.mp3",
       "rate_steps": 1,
@@ -2336,6 +2376,14 @@
       "updated_at": 1788330084,
       "volume_steps": 0
     },
+    "2f4fbc329d53de4c271beecc3fc68ecd6890725f6147eec36c0b6699c3c99434": {
+      "path": "message/2f4fbc329d53de4c271beecc3fc68ecd6890725f6147eec36c0b6699c3c99434.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 45분 후 스칼라니르입니다.",
+      "updated_at": 1789152235,
+      "volume_steps": 0
+    },
     "2f65065b2af5bc53079812fc57f5ea5ae95faf3b259b5300aba290ffd3f30426": {
       "path": "message/73283156c455061ebe881c31.mp3",
       "rate_steps": 1,
@@ -2350,6 +2398,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "탕그 젠",
       "updated_at": 1788318964,
+      "volume_steps": 0
+    },
+    "2fbb424b8f1f1c3656141a36205c9372f83d7dc154e92722e32df9886c2dece9": {
+      "path": "message/2fbb424b8f1f1c3656141a36205c9372f83d7dc154e92722e32df9886c2dece9.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 42분 후 스칼라니르입니다.",
+      "updated_at": 1789152434,
       "volume_steps": 0
     },
     "2ff24da06123ac245eec237699a95869975459a7b8c055698bda2dc7114c63e8": {
@@ -2952,6 +3008,14 @@
       "updated_at": 1788329872,
       "volume_steps": 0
     },
+    "3c9c2fbbbbe2c3e6f806a673a849b1d1f58adf1132d1e8239cca832034baa2b4": {
+      "path": "message/3c9c2fbbbbe2c3e6f806a673a849b1d1f58adf1132d1e8239cca832034baa2b4.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "모네가름 일분 남았습니다.",
+      "updated_at": 1789116164,
+      "volume_steps": 0
+    },
     "3cd067688749648b0102c720929d1de14db72bc5df9377011b075fc462dcaba9": {
       "path": "command/17e2f2e338177cc291cf8869.mp3",
       "rate_steps": 0,
@@ -2974,6 +3038,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "곧 드라우그 외 1개 타임입니다.",
       "updated_at": 1788367415,
+      "volume_steps": 0
+    },
+    "3d562921e82c3c5047749935e029e4497863d3f68db5cba201ea359d6b2cd57e": {
+      "path": "message/3d562921e82c3c5047749935e029e4497863d3f68db5cba201ea359d6b2cd57e.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "지옥성채 정예 일분 전입니다. 다음 보스는 1시간 후 월드보스입니다.",
+      "updated_at": 1789120734,
       "volume_steps": 0
     },
     "3dcf61b64a2183ccca2a4c11f4b8f761cef637e58c0f399ca6518df62f7ad2f3": {
@@ -3112,6 +3184,14 @@
       "updated_at": 1788330156,
       "volume_steps": 0
     },
+    "3fea9b66dce517834adaa9601b4a36f75ce4086211dea2af5ba56c007e3ad4ff": {
+      "path": "message/3fea9b66dce517834adaa9601b4a36f75ce4086211dea2af5ba56c007e3ad4ff.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "점령전 신청마감 일분 전입니다.",
+      "updated_at": 1789117126,
+      "volume_steps": 0
+    },
     "40144a92b2b3ee0847fd8a8e24872f065ad4bd5db8f67d6d3efb7cb02c0bd50b": {
       "path": "boss/b5c587a0bbae25f29c485c13.mp3",
       "rate_steps": 1,
@@ -3230,6 +3310,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 신마라 젠",
       "updated_at": 1788330040,
+      "volume_steps": 0
+    },
+    "42a8ea7701f3a2664e3dcb2f358c81eeee0713c619b1a8175cba240f49cc0845": {
+      "path": "message/42a8ea7701f3a2664e3dcb2f358c81eeee0713c619b1a8175cba240f49cc0845.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 39분 후 월드보스입니다.",
+      "updated_at": 1789121982,
       "volume_steps": 0
     },
     "42b02b5f4127fd7dffa6b9b32cb2b227296aaa966848b59aeeee78cc06cd882a": {
@@ -3406,6 +3494,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 굴베이그 모네가름 타임입니다.",
       "updated_at": 1788773294,
+      "volume_steps": 0
+    },
+    "464ef5fc58413682fa5061283b13dea2093de53d3c319ce34ccd665d14b55870": {
+      "path": "message/464ef5fc58413682fa5061283b13dea2093de53d3c319ce34ccd665d14b55870.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "지옥성채 정예 일분 전입니다. 다음 보스는 42분 후 월드보스입니다.",
+      "updated_at": 1789121814,
       "volume_steps": 0
     },
     "46728bdcec16dd800d6a536000bce0af44349bde1644c5e8ea21226c8621b6fe": {
@@ -3968,6 +4064,14 @@
       "updated_at": 1788774569,
       "volume_steps": 0
     },
+    "510819c65c2e4b0c53348263d8a29e3c4102eee2b4262ecc6660d27d1a1040de": {
+      "path": "message/510819c65c2e4b0c53348263d8a29e3c4102eee2b4262ecc6660d27d1a1040de.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "지옥성채 정예 일분 전입니다. 다음 보스는 1시간 후 월드보스입니다.",
+      "updated_at": 1789120650,
+      "volume_steps": 0
+    },
     "51252de6c6898a0476d436e98b42f7c27950b45ec09acbdc0cbda8b65603f180": {
       "path": "boss/63580e356fa79adbf478cc76.mp3",
       "rate_steps": 1,
@@ -4038,6 +4142,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "10층",
       "updated_at": 1788329752,
+      "volume_steps": 0
+    },
+    "53116948d3ee32b79e69d8fb7c7cbadecd194ec30f9761a7174ac87f82b15b0c": {
+      "path": "message/53116948d3ee32b79e69d8fb7c7cbadecd194ec30f9761a7174ac87f82b15b0c.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "황금고블린 일분 전입니다. 다음 보스는 30분 후 지옥성채 정예입니다.",
+      "updated_at": 1789118934,
       "volume_steps": 0
     },
     "53d71395f2b1366aba16e115bab918fcb87c089bfac44edc3fcd5b955ab23861": {
@@ -4334,6 +4446,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 비요른 1분 남았습니다.",
       "updated_at": 1788330021,
+      "volume_steps": 0
+    },
+    "5a9bc0563f12896c040060a448532de49b8a6ca40ebce3dac45c97b64709bdf7": {
+      "path": "message/5a9bc0563f12896c040060a448532de49b8a6ca40ebce3dac45c97b64709bdf7.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "핏빛고블린 일분 전입니다. 다음 보스는 53분 후 스칼라니르입니다.",
+      "updated_at": 1789151694,
       "volume_steps": 0
     },
     "5aad24bcb46cf72aab18c6d937129519badc9f5e8fc7b6862423fb7fe8cfe786": {
@@ -5368,6 +5488,14 @@
       "updated_at": 1788329835,
       "volume_steps": 0
     },
+    "7149c5448e5630032d6306fb450bf76639d1023021f33eb7bfa833d6cdeefe0c": {
+      "path": "message/7149c5448e5630032d6306fb450bf76639d1023021f33eb7bfa833d6cdeefe0c.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 1시간 16분 후 스칼라니르입니다.",
+      "updated_at": 1789150360,
+      "volume_steps": 0
+    },
     "71644eb4f3d49bb7d2c1dc7c7a879eb150b439880db21f442f40f84a90a1a008": {
       "path": "boss/7bf47ba382424829ce453e89.mp3",
       "rate_steps": 1,
@@ -5520,6 +5648,14 @@
       "updated_at": 1788840813,
       "volume_steps": 0
     },
+    "7521e1e9e2d9bd1ac9e36a016975d3b048c5851df028c3bee3f7b2be83ec852a": {
+      "path": "message/7521e1e9e2d9bd1ac9e36a016975d3b048c5851df028c3bee3f7b2be83ec852a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "점령전 신청마감 일분 전입니다.",
+      "updated_at": 1789117127,
+      "volume_steps": 0
+    },
     "7580b5358c1dbf38d0767648d31f5d47b0c9be88cf4a65f31f8c49c3d52d464e": {
       "path": "boss/3f63b8cf105a75892671eae4.mp3",
       "rate_steps": 1,
@@ -5648,6 +5784,14 @@
       "updated_at": 1788841012,
       "volume_steps": 0
     },
+    "782a0d134b733433dea7c08d277c632f0abf0dfe6321dab391362dab4df4ede5": {
+      "path": "message/782a0d134b733433dea7c08d277c632f0abf0dfe6321dab391362dab4df4ede5.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 41분 후 굴베이그입니다.",
+      "updated_at": 1789129133,
+      "volume_steps": 0
+    },
     "78621bdd4ba70ae164f2dd1f6978f93dfe4b64a96ada43907274d9a5def0602a": {
       "path": "message/78621bdd4ba70ae164f2dd1f6978f93dfe4b64a96ada43907274d9a5def0602a.mp3",
       "rate_steps": 0,
@@ -5718,6 +5862,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "길드 쟁탈전 신청마감 젠",
       "updated_at": 1788329784,
+      "volume_steps": 0
+    },
+    "7999cbe8eb6d102456f6536b612c8c31e5fb82ac6af83339d4cfd5d5cad4e734": {
+      "path": "message/7999cbe8eb6d102456f6536b612c8c31e5fb82ac6af83339d4cfd5d5cad4e734.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 39분 후 스칼라니르입니다.",
+      "updated_at": 1789152575,
       "volume_steps": 0
     },
     "79b05563172c94da4487821f2dc09f0ae0fbc2f0edb0d0719cc3e35f81399b8f": {
@@ -5934,6 +6086,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "탕그 5분 전입니다.",
       "updated_at": 1788318967,
+      "volume_steps": 0
+    },
+    "7c94f9286c416980d8accaaeb70fee3eabc57bdfce49e5b63e7d118e5fad3411": {
+      "path": "message/7c94f9286c416980d8accaaeb70fee3eabc57bdfce49e5b63e7d118e5fad3411.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "스카디 페티",
+      "updated_at": 1789164826,
       "volume_steps": 0
     },
     "7ca73aaf33f163e044a0e696078457b5c0f1b06d682f3c430bb563df45215194": {
@@ -6296,6 +6456,14 @@
       "updated_at": 1788891085,
       "volume_steps": 0
     },
+    "862006cb8a6e04e0695d4bc2b4dc1b4a1fb170b701dc22b16060ef75b58fbb2a": {
+      "path": "message/862006cb8a6e04e0695d4bc2b4dc1b4a1fb170b701dc22b16060ef75b58fbb2a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 38분 후 스칼라니르입니다.",
+      "updated_at": 1789152675,
+      "volume_steps": 0
+    },
     "86522024aeed1da05e59c5c210f7be07295acff52a87469396a2efaaca466237": {
       "path": "message/c70e18dba8d598660d8a06ab.mp3",
       "rate_steps": 1,
@@ -6406,6 +6574,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스바르트 젠",
       "updated_at": 1788329881,
+      "volume_steps": 0
+    },
+    "88d62ec4ff2fb8afad45b6295c6f651a94206217fd8dbd26f26b316437134524": {
+      "path": "message/88d62ec4ff2fb8afad45b6295c6f651a94206217fd8dbd26f26b316437134524.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "흐니르 셀로비아",
+      "updated_at": 1789136752,
       "volume_steps": 0
     },
     "890bcd25654ca9b470039af0bd41d452c89f57fba031109bef397a3ebd552667": {
@@ -6768,6 +6944,14 @@
       "updated_at": 1788329780,
       "volume_steps": 0
     },
+    "8ec1e42588f4d0e27018ccf3fe3ab356c099b5ada2ad821e2643a46d625e3036": {
+      "path": "message/8ec1e42588f4d0e27018ccf3fe3ab356c099b5ada2ad821e2643a46d625e3036.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 45분 후 스칼라니르입니다.",
+      "updated_at": 1789152234,
+      "volume_steps": 0
+    },
     "8ed5213ae80550b8c34b6ae011a60a39ec422229138797e00c3845121953920d": {
       "path": "boss/6e6f730534f03e966eb09716.mp3",
       "rate_steps": 1,
@@ -7112,6 +7296,14 @@
       "updated_at": 1788322167,
       "volume_steps": 0
     },
+    "964ef452bd0e64da92a0ab4451448244f9106a5e2120c0315937d34939fda97c": {
+      "path": "message/964ef452bd0e64da92a0ab4451448244f9106a5e2120c0315937d34939fda97c.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "점령전 일분 전입니다. 다음 보스는 1시간 30분 후 황금고블린입니다.",
+      "updated_at": 1789131451,
+      "volume_steps": 0
+    },
     "9650ee67b9afff8d042efb10f29a3ac630bde61a24b0688ad289bce5fab78943": {
       "path": "message/d768d4d63ff8b783dcf17aa0.mp3",
       "rate_steps": 1,
@@ -7360,6 +7552,14 @@
       "updated_at": 1788329755,
       "volume_steps": 0
     },
+    "9b407a0b3432cc42ecca2dc78199619890d32313cd9400e421fc9be65b6583e4": {
+      "path": "message/9b407a0b3432cc42ecca2dc78199619890d32313cd9400e421fc9be65b6583e4.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "점령전 일분 전입니다. 다음 보스는 1시간 30분 후 황금고블린입니다.",
+      "updated_at": 1789131534,
+      "volume_steps": 0
+    },
     "9b73870cff85817bbee7d7c73beebb3425e8909204074d0f35d22d84f59e6e4e": {
       "path": "message/6dad4946ac51393f02fe19b7.mp3",
       "rate_steps": 1,
@@ -7446,6 +7646,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "비요른 스칼라니르 5분 남았습니다.",
       "updated_at": 1788773308,
+      "volume_steps": 0
+    },
+    "9dbd1ba9c0f70b44812e75bf7e45b7b710e8b32e864b56ebfe6841b138e227ff": {
+      "path": "message/9dbd1ba9c0f70b44812e75bf7e45b7b710e8b32e864b56ebfe6841b138e227ff.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 41분 후 굴베이그입니다.",
+      "updated_at": 1789129050,
       "volume_steps": 0
     },
     "9dbec196a6580554fbcd1edee1c829604e4f3de3d70dee061e6b766061635617": {
@@ -7542,6 +7750,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "안나 5분 전입니다.",
       "updated_at": 1788329907,
+      "volume_steps": 0
+    },
+    "a057d3c474c181e1667e48c724a32f0085f8894d529b7067c2147a2c74206b69": {
+      "path": "boss/c9e405a1585cfa3c14f3a1c2.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "지옥성채 정예 일분 남았습니다.",
+      "updated_at": 1789121801,
       "volume_steps": 0
     },
     "a0ceddaa1c8a369d3ab25bf626a98a5c89e9dbdf54e419c9e9eafff5ab19d79c": {
@@ -7776,6 +7992,14 @@
       "updated_at": 1788330039,
       "volume_steps": 0
     },
+    "a6210fc9234218456a4d2b0dece586b414d8e3984150510d90e2bd1f5fd8ee90": {
+      "path": "message/a6210fc9234218456a4d2b0dece586b414d8e3984150510d90e2bd1f5fd8ee90.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 28분 후 스칼라니르.",
+      "updated_at": 1789153225,
+      "volume_steps": 0
+    },
     "a6266b28b1b98ea983113948ab743ea577a9f2d9668ea3941b04c6b3b9bce57b": {
       "path": "fixed/a1f4ad3780e91116011de7df.mp3",
       "rate_steps": 1,
@@ -7870,6 +8094,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "호드 5분 남았습니다.",
       "updated_at": 1788327178,
+      "volume_steps": 0
+    },
+    "a874d5503cb450b93665cb53ccab45316804a64dfd0d4e22062482b3bca57594": {
+      "path": "message/a874d5503cb450b93665cb53ccab45316804a64dfd0d4e22062482b3bca57594.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "핏빛고블린 일분 전입니다.",
+      "updated_at": 1789152197,
       "volume_steps": 0
     },
     "a8afa1f03fbd7f7b8472f3ffb19c476595ad0da75cf84fd5bb47cf47b2a544dc": {
@@ -8022,6 +8254,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 이미르 타임입니다.",
       "updated_at": 1788319069,
+      "volume_steps": 0
+    },
+    "ab85d88c489d390cb1a65961eaec7d7146c4b4495461d8ac5ff39d17a4e092f9": {
+      "path": "message/ab85d88c489d390cb1a65961eaec7d7146c4b4495461d8ac5ff39d17a4e092f9.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "황금고블린 일분 전입니다. 다음 보스는 30분 후 지옥성채 정예입니다.",
+      "updated_at": 1789118969,
       "volume_steps": 0
     },
     "abdac860466e041d7fa74f9db555b3927e80a27fe615ee16d258a7c6476940b5": {
@@ -8262,6 +8502,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 두라스로르 타임입니다.",
       "updated_at": 1788329803,
+      "volume_steps": 0
+    },
+    "afe780dab8a8ebbd8882db921472de44eb7c724f06cbf3cab5f606558a00434c": {
+      "path": "message/afe780dab8a8ebbd8882db921472de44eb7c724f06cbf3cab5f606558a00434c.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 11분 후 황금고블린입니다.",
+      "updated_at": 1789118334,
       "volume_steps": 0
     },
     "b00767f5a2f5101521c3ada3294ab2dce035e0177aa2ebff1b471f369783dfb3": {
@@ -8670,6 +8918,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 노트 타임입니다.",
       "updated_at": 1788319071,
+      "volume_steps": 0
+    },
+    "b8d043a9c98b40f4829a85a50586534bcb0b00ae88479f7436df64494933fb99": {
+      "path": "message/b8d043a9c98b40f4829a85a50586534bcb0b00ae88479f7436df64494933fb99.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "핏빛고블린 일분 전입니다. 다음 보스는 53분 후 스칼라니르입니다.",
+      "updated_at": 1789151695,
       "volume_steps": 0
     },
     "b8ea879d697719b4bd050bc5bf639cbc3caecae017001ac77345683aa77656df": {
@@ -9104,6 +9360,14 @@
       "updated_at": 1788329973,
       "volume_steps": 0
     },
+    "c04af2ed47ee2beab9959f353d26cc65874b31994b1a236d864d7d56967fa5e1": {
+      "path": "message/c04af2ed47ee2beab9959f353d26cc65874b31994b1a236d864d7d56967fa5e1.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 42분 후 스칼라니르입니다.",
+      "updated_at": 1789152435,
+      "volume_steps": 0
+    },
     "c06208c065ab4e910ccc852adbd45c6c127c7aeaf979208e4094f845ed17e60b": {
       "path": "command/3943c41f5b8725c0a4e07f8a.mp3",
       "rate_steps": 0,
@@ -9240,6 +9504,14 @@
       "updated_at": 1788341336,
       "volume_steps": 0
     },
+    "c470894eddf6d46dee5ab697083beaa3dc459f5f59cf8450199b8e5b7e448f59": {
+      "path": "message/c470894eddf6d46dee5ab697083beaa3dc459f5f59cf8450199b8e5b7e448f59.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 39분 후 월드보스입니다.",
+      "updated_at": 1789122054,
+      "volume_steps": 0
+    },
     "c4815a52bd6561e78c8854927d6026a3a8d451df2aa598d88c13549827de8136": {
       "path": "boss/3677eee5ed87a9cc6175ab0a.mp3",
       "rate_steps": 1,
@@ -9254,6 +9526,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 탕그",
       "updated_at": 1788330062,
+      "volume_steps": 0
+    },
+    "c4cd5495683f502d215e6de2c4ea5539b58d502c3178ff49e01503f9771b4a4f": {
+      "path": "message/c4cd5495683f502d215e6de2c4ea5539b58d502c3178ff49e01503f9771b4a4f.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 39분 후 스칼라니르입니다.",
+      "updated_at": 1789152574,
       "volume_steps": 0
     },
     "c4df684a355c51999104c3f392ae34bb111be8baed2aa04a1e79ebe33f0d6386": {
@@ -10056,6 +10336,14 @@
       "updated_at": 1788330173,
       "volume_steps": 0
     },
+    "d29452534cc7e6a97887be1303dc03a9439013db2e8a55eb6e49091771a45fa6": {
+      "path": "message/d29452534cc7e6a97887be1303dc03a9439013db2e8a55eb6e49091771a45fa6.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 38분 후 스칼라니르입니다.",
+      "updated_at": 1789152674,
+      "volume_steps": 0
+    },
     "d33622f5422f5792ef7e5b910e7132d3bfa2814eec419e57c12a1fedb6600c09": {
       "path": "message/309de340ce2a3077ab2dfdc6.mp3",
       "rate_steps": 1,
@@ -10608,12 +10896,28 @@
       "updated_at": 1788887338,
       "volume_steps": 0
     },
+    "dfeb92a4b17f6c3fa22c9f3309f02db747c1b321f8cbff22bfd0e04eb145e26b": {
+      "path": "message/dfeb92a4b17f6c3fa22c9f3309f02db747c1b321f8cbff22bfd0e04eb145e26b.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 40분 후 스칼라니르입니다.",
+      "updated_at": 1789152545,
+      "volume_steps": 0
+    },
     "dfef93d1f9fc3dca56efc860c08420c8f0e7e4950866b5c1a0838bb25fdc4dc1": {
       "path": "boss/4b344476c1857a098c55bef0.mp3",
       "rate_steps": 1,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "에기르 타임입니다.",
       "updated_at": 1788329913,
+      "volume_steps": 0
+    },
+    "dffb7d751fea6f719418523e3f71b21fbadd98a7348cc68a1525e1b06997dd8e": {
+      "path": "message/dffb7d751fea6f719418523e3f71b21fbadd98a7348cc68a1525e1b06997dd8e.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 1시간 16분 후 스칼라니르입니다.",
+      "updated_at": 1789150373,
       "volume_steps": 0
     },
     "e00857760829745684ccb7c566dd7c0061ec22fdd4bf885f940667573a4f6a2f": {
@@ -10992,6 +11296,14 @@
       "updated_at": 1788329983,
       "volume_steps": 0
     },
+    "e885a35e008f1b2e4332c7a770c63627e427760e506a46d0ec81337dbb57245a": {
+      "path": "fixed/ea8c3d60b8207c47979c8437.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "핏빛고블린 일분 전입니다.",
+      "updated_at": 1789151680,
+      "volume_steps": 0
+    },
     "e899b026fc7627f686f95feed77dfd265adac43b23fc2f688d65cf3eedd504c8": {
       "path": "command/953224c686e067e5a4685933.mp3",
       "rate_steps": 0,
@@ -11030,6 +11342,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스카디 5분 남았습니다.",
       "updated_at": 1788329888,
+      "volume_steps": 0
+    },
+    "e94719a484c823df8dcb1bca2c383523cb95f94c58f2f1140c4e5253446068c2": {
+      "path": "message/e94719a484c823df8dcb1bca2c383523cb95f94c58f2f1140c4e5253446068c2.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 스카디 페티 타임입니다.",
+      "updated_at": 1789164827,
       "volume_steps": 0
     },
     "e9636bce11e83b8e73f55a6f90b7190a387e1b8206c37f28b8023f2eb0a557b2": {

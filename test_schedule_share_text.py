@@ -48,7 +48,7 @@ class ShareTextTests(unittest.TestCase):
         self.assertEqual(ignored,0)
         self.assertEqual([item['precision'] for item in items],['minute','second'])
 
-    def test_repeated_12_hour_and_24_hour_bosses_keep_first_only(self):
+    def test_repeated_12_hour_and_24_hour_bosses_are_all_included(self):
         start=self.now.replace(hour=1,minute=2,second=3,microsecond=551234)
         rows=[dict(scheduled_at=start,boss_text='수드리'),
               dict(scheduled_at=start+timedelta(hours=1),boss_text='신마라'),
@@ -56,20 +56,20 @@ class ShareTextTests(unittest.TestCase):
               dict(scheduled_at=start+timedelta(hours=24),boss_text='수드리'),
               dict(scheduled_at=start+timedelta(hours=25),boss_text='신마라')]
         self.assertEqual(render_share_text(rows,self.now),
-                         '01:02:03.551234 수드리\n02:02:03.551234 신마라')
+                         '01:02:03.551234 수드리\n02:02:03.551234 신마라\n13:02:03.551234 수드리\n01:02:03.551234 수드리\n02:02:03.551234 신마라')
         self.assertEqual(len(rows),5)
 
-    def test_duplicate_removal_does_not_sort_other_bosses(self):
+    def test_duplicate_inclusion_preserves_display_order(self):
         rows=[dict(scheduled_at=self.now+timedelta(hours=2),boss_text='파르바'),
               dict(scheduled_at=self.now+timedelta(hours=1),boss_text='야른'),
               dict(scheduled_at=self.now+timedelta(hours=3),boss_text='파르바')]
-        self.assertEqual(render_share_text(rows,self.now),'14:00:00 파르바\n13:00:00 야른')
+        self.assertEqual(render_share_text(rows,self.now),'14:00:00 파르바\n13:00:00 야른\n15:00:00 파르바')
 
     def test_normal_and_invasion_remain_separate_chains(self):
         rows=[dict(scheduled_at=self.now,boss_text='파르바'),
               dict(scheduled_at=self.now,boss_text='파르바',is_invasion=True),
               dict(scheduled_at=self.now+timedelta(hours=12),boss_text='파르바',is_invasion=True)]
-        self.assertEqual(render_share_text(rows,self.now),'12:00:00 파르바\n12:00:00 침공 파르바')
+        self.assertEqual(render_share_text(rows,self.now),'12:00:00 파르바\n12:00:00 침공 파르바\n00:00:00 침공 파르바')
 
     def test_copy_sort_default_unchanged_txt_can_disable(self):
         app=object.__new__(BossTimerApp)
@@ -125,8 +125,10 @@ class ShareTextTests(unittest.TestCase):
     def test_existing_draft_is_preserved_if_replace_cancelled(self):
         app=self.ui_app(); app.schedule_input_window_open=True
         app._get_schedule_input_raw_text=lambda:'my draft'
-        with patch('boss_timer_gui.messagebox.askyesno',return_value=False):
+        with patch.object(app,'_show_centered_messagebox',return_value=False) as ask:
             app._open_schedule_share_text()
+        self.assertEqual(ask.call_args.args[0],'askyesno')
+        self.assertIs(ask.call_args.kwargs['parent'],app.schedule_input_window)
         app.root.clipboard_append.assert_called_once()
         app.schedule_input_text.delete.assert_not_called()
         app._open_schedule_input_window_normal.assert_not_called()

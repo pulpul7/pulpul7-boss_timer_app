@@ -32,7 +32,7 @@ from ctypes import wintypes
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
-from tkinter import colorchooser, filedialog, messagebox
+from tkinter import colorchooser, filedialog
 from tkinter import font as tkfont
 from tkinter import ttk
 from schedule_precision import DEFAULT_CAPTURE_RATE
@@ -256,8 +256,8 @@ SCHEDULE_INPUT_WINDOW_HEIGHT = 560
 SCHEDULE_INPUT_EDIT_WINDOW_HEIGHT = 430
 SCHEDULE_INPUT_OCR_QUEUE_HEIGHT = 72
 SCHEDULE_INPUT_AUTO_CLIPBOARD_MIN_DIMENSION = 200
-SCHEDULE_INPUT_OCR_ADDON_WIDTH = 112
-SCHEDULE_INPUT_OCR_ADDON_HEIGHT = 116
+SCHEDULE_INPUT_OCR_ADDON_WIDTH = 208
+SCHEDULE_INPUT_OCR_ADDON_HEIGHT = 166
 SCHEDULE_INPUT_OCR_ADDON_POLL_INTERVAL_MS = 50
 SCHEDULE_INPUT_CLIPBOARD_POLL_INTERVAL_MS = 300
 SCHEDULE_INPUT_OCR_ADDON_CAPTURE_DEBOUNCE_SECONDS = 0.25
@@ -4552,7 +4552,7 @@ class BossTimerApp:
         host = parent if self._widget_available(parent) else self.root
         available, detail = self._ensure_settings_rollback_baseline()
         if not available:
-            messagebox.showerror("설정 롤백", f"롤백 기준점을 만들지 못했습니다.\n{detail}", parent=host)
+            self._show_centered_messagebox("showerror", "설정 롤백", f"롤백 기준점을 만들지 못했습니다.\n{detail}", parent=host)
             return
 
         dialog = tk.Toplevel(host)
@@ -4616,8 +4616,8 @@ class BossTimerApp:
                 status_var.set("최소 한 항목을 선택하세요.")
                 return
             label_text = ", ".join(label for key, label in labels if key in selected_groups)
-            if not messagebox.askyesno(
-                "설정 롤백 확인",
+            if not self._show_centered_messagebox(
+                "askyesno", "설정 롤백 확인",
                 f"다음 설정을 현재 기준점으로 되돌릴까요?\n\n{label_text}\n\n현재 설정은 롤백 전 백업으로 보관됩니다.",
                 parent=dialog,
             ):
@@ -4626,7 +4626,7 @@ class BossTimerApp:
             if not success:
                 status_var.set(message)
                 return
-            messagebox.showinfo("설정 롤백", message, parent=dialog)
+            self._show_centered_messagebox("showinfo", "설정 롤백", message, parent=dialog)
             close_dialog()
 
         tk.Button(dialog, text="확인", font=self.button_font, bg="#ea580c", fg="#ffffff", activebackground="#f97316", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=restore, cursor="hand2").place(x=174, y=312, width=76, height=28)
@@ -6261,8 +6261,14 @@ class BossTimerApp:
         ):
             return
         self._refresh_discord_bot_status_ui_async()
+        # 연결 중에만 빠르게 조회한다. 중복 요청은 inflight 플래그로 막는다.
+        connecting = (
+            bool(getattr(self, "discord_bot_expected_running", False))
+            and not bool(getattr(self, "discord_bot_voice_bridge_online", False))
+        )
+        poll_interval_ms = 500 if connecting else 3000
         try:
-            self.discord_bot_status_after_id = self.root.after(3000, self._schedule_discord_bot_status_poll)
+            self.discord_bot_status_after_id = self.root.after(poll_interval_ms, self._schedule_discord_bot_status_poll)
         except tk.TclError:
             self.discord_bot_status_after_id = None
 
@@ -10563,7 +10569,7 @@ class BossTimerApp:
         parent.update_idletasks()
         x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
         y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
-        window.geometry(f"{width}x{height}+{x}+{y}")
+        window.geometry(f"{width}x{height}{x:+d}{y:+d}")
 
     def _get_centered_messagebox_parent(self, parent: tk.Widget | None = None) -> tk.Widget:
         candidates = [
@@ -10597,13 +10603,14 @@ class BossTimerApp:
         anchor.lift()
         return anchor
 
-    def _show_centered_messagebox(self, method_name: str, title: str, message: str, *, parent: tk.Widget | None = None):
+    def _show_centered_messagebox(self, method_name: str, title: str, message: str, *, parent: tk.Widget | None = None, default=None):
         owner = self._get_centered_messagebox_parent(parent)
         dialog = tk.Toplevel(owner)
         dialog.title(title)
         dialog.resizable(False, False)
         dialog.configure(bg="#f8fafc")
         dialog.transient(owner)
+        previous_grab = owner.grab_current()
         try:
             dialog.grab_set()
         except tk.TclError:
@@ -10616,7 +10623,7 @@ class BossTimerApp:
         # never get clipped above or below the button row.
         raw_lines = str(message or "").splitlines() or [""]
         estimated_lines = sum(max(1, math.ceil(max(1, len(line)) / 42)) for line in raw_lines)
-        message_height = max(56, min(176, (estimated_lines * 20) + 12))
+        message_height = max(72, min(260, (estimated_lines * 20) + 12))
         height = max(190, message_height + 114)
 
         def close_with(value) -> None:
@@ -10629,6 +10636,11 @@ class BossTimerApp:
                 dialog.destroy()
             except tk.TclError:
                 pass
+            if self._widget_available(previous_grab):
+                try:
+                    previous_grab.grab_set()
+                except tk.TclError:
+                    pass
 
         if normalized_method == "askyesnocancel":
             buttons = (("예", True, "#2563eb", "#ffffff"), ("아니요", False, "#e2e8f0", "#334155"), ("닫기", None, "#fee2e2", "#991b1b"))
@@ -10640,14 +10652,25 @@ class BossTimerApp:
             buttons = (("확인", "ok", "#2563eb", "#ffffff"),)
             default_close_value = "ok"
         title_fg = "#991b1b" if normalized_method == "showerror" else "#92400e" if normalized_method == "showwarning" else "#0f172a"
+        accent = '#dc2626' if normalized_method=='showerror' else '#d97706' if normalized_method=='showwarning' else '#2563eb'
         dialog.protocol("WM_DELETE_WINDOW", lambda: close_with(default_close_value))
         self._center_window_over_parent(dialog, owner, width, height)
-        tk.Label(dialog, text=str(title or ""), font=self.button_font, bg="#f8fafc", fg=title_fg, anchor="center").place(x=20, y=18, width=460, height=24)
-        tk.Message(dialog, text=str(message or ""), font=self.percent_font, bg="#f8fafc", fg="#334155", width=450, justify="center", anchor="center").place(x=24, y=52, width=452, height=message_height)
+        tk.Frame(dialog,bg=accent).place(x=0,y=0,width=width,height=4)
+        tk.Label(dialog, text=str(title or ""), font=(self.current_font_family,12,'bold'), bg="#f8fafc", fg=title_fg, anchor="w").place(x=24, y=18, width=452, height=24)
+        body=tk.Text(dialog,font=self.percent_font,bg='#f8fafc',fg='#334155',wrap='word',relief='flat',bd=0,
+                     highlightthickness=0,padx=0,pady=4,spacing3=4)
+        body.insert('1.0',str(message or ''))
+        body.config(state='disabled')
+        body.place(x=24,y=52,width=432,height=message_height)
+        scrollbar=tk.Scrollbar(dialog,command=body.yview)
+        scrollbar.place(x=458,y=52,width=16,height=message_height)
+        body.config(yscrollcommand=scrollbar.set)
         total_width = (len(buttons) * 92) + ((len(buttons) - 1) * 12)
         start_x = (width - total_width) // 2
+        default_value = {'yes': True, 'no': False, 'cancel': None, 'ok': 'ok'}.get(default, default_close_value)
+        default_button = None
         for index, (button_text, button_value, bg_color, fg_color) in enumerate(buttons):
-            tk.Button(
+            button = tk.Button(
                 dialog,
                 text=button_text,
                 font=self.button_font,
@@ -10655,14 +10678,23 @@ class BossTimerApp:
                 fg=fg_color,
                 activebackground=bg_color,
                 activeforeground=fg_color,
-                relief="raised",
-                bd=1,
+                relief="flat",
+                bd=0,
                 highlightthickness=0,
                 command=lambda value=button_value: close_with(value),
                 cursor="hand2",
-            ).place(x=start_x + (index * 104), y=height - 48, width=92, height=30)
+            )
+            button.place(x=start_x + (index * 104), y=height - 48, width=92, height=30)
+            if button_value == default_value:
+                default_button = button
         dialog.bind("<Escape>", lambda _event: close_with(default_close_value))
-        dialog.focus_force()
+        dialog.bind('<Return>',lambda _event: close_with(default_value))
+        # Windows can reset an unmapped transient window's position while its
+        # widgets are first laid out. Center once the final layout exists.
+        dialog.update_idletasks()
+        self._center_window_over_parent(dialog, owner, width, height)
+        dialog.lift(owner)
+        (default_button or dialog).focus_force()
         dialog.wait_window()
         return result["value"]
 
@@ -18537,7 +18569,7 @@ class BossTimerApp:
             self.schedule_status_var.set('클립보드를 사용할 수 없습니다. 잠시 후 TXT를 다시 눌러주세요.')
             return
         if getattr(self, 'schedule_input_window_open', False) and self._get_schedule_input_raw_text().strip():
-            if not messagebox.askyesno('TXT로 열기', '작성 중인 입력을 스케쥴 복사 텍스트로 교체할까요?\n텍스트는 이미 클립보드에 복사했습니다.', parent=self.schedule_input_window):
+            if not self._show_centered_messagebox('askyesno', 'TXT로 열기', '작성 중인 입력을 스케쥴 복사 텍스트로 교체할까요?\n텍스트는 이미 클립보드에 복사했습니다.', parent=self.schedule_input_window,default='no'):
                 return
         self._reset_schedule_input_mode_state()
         self._open_schedule_input_window_normal()
@@ -22351,7 +22383,10 @@ class BossTimerApp:
         window.resizable(False, False)
         window.overrideredirect(True)
         window.protocol("WM_DELETE_WINDOW", self._close_schedule_input_ocr_addon_window)
-        window.configure(bg="#ecfeff")
+        window.configure(bg="#f8fafc",highlightbackground='#cbd5e1',highlightthickness=1)
+        tk.Frame(window,bg='#0f766e').place(x=0,y=0,relwidth=1,height=4)
+        tk.Label(window,text='ODIN CAPTURE',font=('Segoe UI',9,'bold'),
+                 bg='#f8fafc',fg='#0f766e',anchor='w').place(x=14,y=10,width=144,height=20)
         try:
             window.attributes("-topmost", True)
         except tk.TclError:
@@ -22367,8 +22402,8 @@ class BossTimerApp:
             fg="#ffffff",
             activebackground="#115e59",
             activeforeground="#ffffff",
-            relief="raised",
-            bd=1,
+            relief="flat",
+            bd=0,
             highlightthickness=0,
             command=lambda: self._request_schedule_input_ocr_capture_from_odin(),
             cursor="hand2",
@@ -22387,18 +22422,19 @@ class BossTimerApp:
             command=self._open_schedule_input_ocr_addon_restore_delay_dialog,
             cursor="hand2",
         )
-        self.schedule_input_ocr_addon_settings_button.place(x=88, y=8, width=16, height=16)
-        self.schedule_input_ocr_addon_capture_button.place(x=8, y=32, width=96, height=20)
+        self.schedule_input_ocr_addon_settings_button.config(relief='flat',bd=0)
+        self.schedule_input_ocr_addon_settings_button.place(x=166, y=9, width=28, height=25)
+        self.schedule_input_ocr_addon_capture_button.place(x=12, y=42, width=184, height=32)
         self.schedule_input_ocr_addon_count_label = tk.Label(
             window,
             text="총 0장",
             font=(self.current_font_family, 11, "bold"),
-            bg="#ecfeff",
+            bg="#f8fafc",
             fg="#0f766e",
             anchor="w",
             justify="left",
         )
-        self.schedule_input_ocr_addon_count_label.place(x=8, y=58, width=50, height=20)
+        self.schedule_input_ocr_addon_count_label.place(x=14, y=128, width=98, height=22)
         self.schedule_input_ocr_addon_close_button = tk.Button(
             window,
             text="닫기",
@@ -22413,14 +22449,15 @@ class BossTimerApp:
             command=self._close_schedule_input_ocr_addon_window,
             cursor="hand2",
         )
-        self.schedule_input_ocr_addon_close_button.place(x=64, y=56, width=38, height=22)
+        self.schedule_input_ocr_addon_close_button.config(relief='flat',bd=0)
+        self.schedule_input_ocr_addon_close_button.place(x=130, y=126, width=66, height=26)
         self.schedule_input_precision_button = tk.Button(
             window, text="초단위 찍기", font=self.button_font,
             bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8",
             activeforeground="#ffffff", command=self._start_schedule_precision_capture,
-            cursor="hand2", bd=1,
+            cursor="hand2", bd=0,relief='flat',
         )
-        self.schedule_input_precision_button.place(x=8, y=84, width=96, height=24)
+        self.schedule_input_precision_button.place(x=12, y=82, width=184, height=32)
         self.schedule_input_ocr_addon_resize_menu = tk.Menu(window, tearoff=0)
         self.schedule_input_ocr_addon_resize_menu.add_command(
             label="1600x900",
@@ -32623,10 +32660,50 @@ class BossTimerApp:
         return random.choice(candidates)
 
     def _get_schedule_alarm_followup_offset_audio_path(self, total_seconds: int) -> str | None:
-        """Return the recorded rounded-minute phrase used by next-boss speech."""
+        """Return an N분 후 recording, independently of its audio extension."""
         seconds = max(1, int(total_seconds))
         rounded_minutes = max(1, (seconds + 30) // 60)
-        return self._get_schedule_alarm_offset_audio_path(rounded_minutes * 60)
+        if not 1 <= rounded_minutes <= 59:
+            return None
+        return self._get_schedule_alarm_voice_file_by_stem("min_after", f"{rounded_minutes}min_after")
+
+    def _get_schedule_alarm_followup_offset_audio_paths(self, total_seconds: int) -> list[str]:
+        """Compose the rounded delay; never substitute an N분 전 recording."""
+        rounded_minutes = max(1, (max(1, int(total_seconds)) + 30) // 60)
+        hours, minutes = divmod(rounded_minutes, 60)
+        paths: list[str] = []
+        if hours:
+            # A whole-hour delay needs its own '후'; a remaining-minute
+            # recording already includes it, so do not append it twice.
+            if not minutes:
+                hour_after = self._get_schedule_alarm_voice_file_by_stem("hour_after", f"{hours}hour_after")
+                if hour_after:
+                    return [hour_after]
+            hour_clip = self._get_schedule_alarm_voice_file_by_stem("hour", f"{hours}hour")
+            if not hour_clip:
+                return []
+            paths.append(hour_clip)
+        if minutes:
+            minute_clip = self._get_schedule_alarm_followup_offset_audio_path(minutes * 60)
+            if not minute_clip:
+                return []
+            paths.append(minute_clip)
+        else:
+            after_clip = self._get_schedule_alarm_info_audio_path("후")
+            # 정각 시간은 현재 보유한 'N시간' 녹음만으로도 안내한다.
+            if after_clip:
+                paths.append(after_clip)
+        return paths
+
+    def _build_schedule_alarm_next_boss_audio_paths(self, boss_name: str, remaining_seconds: int) -> list[str]:
+        intro = self._get_schedule_alarm_info_audio_path("다음보스는")
+        if not intro:
+            intro = self._get_schedule_alarm_random_voice_path_by_prefix("info", "다음보스는")
+        delay = self._get_schedule_alarm_followup_offset_audio_paths(remaining_seconds)
+        boss = self._get_schedule_alarm_boss_voice_path(boss_name=boss_name)
+        if not (intro and delay and boss):
+            return []
+        return [intro, *delay, boss]
 
     def _build_schedule_alarm_custom_audio_paths(
         self,
@@ -35332,19 +35409,10 @@ class BossTimerApp:
         return "발할라" in normalized_boss_name and "대전" in normalized_boss_name
 
     def _build_schedule_fixed_alarm_message(self, reference_now: datetime, scheduled_at: datetime, boss_name: str, offset_seconds: int) -> str:
+        # 핏빛고블린 포함 모든 고정보스 사전 안내는 여기서 끝낸다.
+        # 다음 보스 안내는 _build_schedule_valhalla_end_alarm_message 전용.
         offset_text = self._format_schedule_alarm_remaining_speech(max(1, int(offset_seconds)))
         message = f"{boss_name} {offset_text} 전입니다."
-        if self._is_schedule_valhalla_battle_name(boss_name):
-            # 발할라 시작 일정의 1분 전 알림은 다른 고정 이벤트와 동일하다.
-            # 종료 및 다음 보스 안내는 시작 19분 뒤 별도 알림으로 처리한다.
-            return message
-        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
-        if next_target is not None:
-            next_time, next_boss = next_target
-            next_remaining = int((next_time - scheduled_at).total_seconds())
-            if next_remaining > int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
-                delay_text = self._format_schedule_alarm_followup_delay_speech(next_remaining)
-                message += f" 다음 보스는 {delay_text} 후 {next_boss}입니다."
         return message
 
     def _build_schedule_fixed_alarm_group_message(
@@ -35354,16 +35422,10 @@ class BossTimerApp:
         boss_names: list[str],
         offset_seconds: int,
     ) -> str:
+        # 동시간 고정보스 그룹에도 다음 보스 안내를 붙이지 않는다.
         joined_names, _additional_count = self._summarize_schedule_alarm_group_names(boss_names)
         offset_text = self._format_schedule_alarm_remaining_speech(max(1, int(offset_seconds)))
         message = f"{joined_names} {offset_text} 전입니다.".strip()
-        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
-        if next_target is not None:
-            next_time, next_boss = next_target
-            next_remaining = int((next_time - scheduled_at).total_seconds())
-            if next_remaining > int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
-                delay_text = self._format_schedule_alarm_followup_delay_speech(next_remaining)
-                message += f" 다음 보스는 {delay_text} 후 {next_boss}입니다."
         return message
 
     def _build_schedule_valhalla_end_alarm_message(
@@ -35381,7 +35443,28 @@ class BossTimerApp:
         if next_remaining <= 0:
             return message
         delay_text = self._format_schedule_alarm_followup_delay_speech(next_remaining)
-        return f"{message} 다음 보스는 {delay_text} 후 {next_boss}입니다."
+        return f"{message} 다음 보스는 {delay_text} 후 {next_boss}."
+
+    def _build_schedule_valhalla_end_alarm_audio_paths(
+        self,
+        reference_now: datetime,
+        event_end_at: datetime,
+    ) -> list[str]:
+        end_clip = self._get_schedule_alarm_info_audio_path("곧 발할라 대전이 종료합니다")
+        if not end_clip:
+            return []
+        notice_at = event_end_at - timedelta(seconds=SCHEDULE_VALHALLA_END_ALERT_OFFSET_SECONDS)
+        next_target = self._get_next_schedule_alarm_target_after(reference_now, notice_at)
+        if next_target is None:
+            return [end_clip]
+        next_time, next_boss = next_target
+        next_remaining = int((next_time - notice_at).total_seconds())
+        if next_remaining <= 0:
+            return [end_clip]
+        next_clips = self._build_schedule_alarm_next_boss_audio_paths(next_boss, next_remaining)
+        if not next_clips:
+            return []
+        return [end_clip, *next_clips]
 
     def _build_schedule_fixed_alarm_audio_paths(
         self,
@@ -35395,30 +35478,14 @@ class BossTimerApp:
             boss_name=boss_name,
         )
         if self._is_schedule_valhalla_battle_name(boss_name):
-            # 시작 1분전은 녹음 조립 대상이다. 종료 1분전의 "곧 종료/다음
-            # 보스" 문장만 별도 TTS 경로이며, 표시명의 공백 차이로 일반
-            # 후보 검색이 실패해도 배포 파일의 정식 이름으로 다시 찾는다.
+            # 표시명의 공백 차이로 검색이 실패하면 정식 이름으로 찾는다.
             if not current_clip_paths:
                 boss_clip = self._get_schedule_alarm_voice_file_by_stem("boss", "발할라 대전")
                 offset_clip = self._get_schedule_alarm_offset_audio_path(offset_seconds)
                 if boss_clip and offset_clip:
                     current_clip_paths = [boss_clip, offset_clip]
             return current_clip_paths
-        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
-        if next_target is None:
-            return current_clip_paths
-        next_time, next_boss = next_target
-        next_remaining = int((next_time - scheduled_at).total_seconds())
-        if next_remaining <= int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
-            return current_clip_paths
-        next_intro_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "다음보스는")
-        if not next_intro_clip:
-            next_intro_clip = self._get_schedule_alarm_info_audio_path("다음보스는")
-        next_boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=next_boss)
-        next_offset_clip = self._get_schedule_alarm_followup_offset_audio_path(next_remaining)
-        if current_clip_paths and next_intro_clip and next_boss_clip and next_offset_clip:
-            return list(current_clip_paths) + [next_intro_clip, next_boss_clip, next_offset_clip]
-        return []
+        return current_clip_paths
 
     def _build_schedule_fixed_alarm_group_audio_paths(
         self,
@@ -35449,21 +35516,7 @@ class BossTimerApp:
                 return []
             current_clip_paths = [primary_clip_path, *extra_clip_paths]
         current_clip_paths.append(offset_clip)
-        next_target = self._get_next_schedule_alarm_target_after(reference_now, scheduled_at)
-        if next_target is None:
-            return current_clip_paths
-        next_time, next_boss = next_target
-        next_remaining = int((next_time - scheduled_at).total_seconds())
-        if next_remaining <= int(SCHEDULE_FIXED_BOSS_NEXT_BOSS_ANNOUNCE_MIN_SECONDS):
-            return current_clip_paths
-        next_intro_clip = self._get_schedule_alarm_random_voice_path_by_prefix("info", "다음보스는")
-        if not next_intro_clip:
-            next_intro_clip = self._get_schedule_alarm_info_audio_path("다음보스는")
-        next_boss_clip = self._get_schedule_alarm_boss_voice_path(boss_name=next_boss)
-        next_offset_clip = self._get_schedule_alarm_followup_offset_audio_path(next_remaining)
-        if next_intro_clip and next_boss_clip and next_offset_clip:
-            return current_clip_paths + [next_intro_clip, next_boss_clip, next_offset_clip]
-        return []
+        return current_clip_paths
 
     def _build_schedule_fixed_alarm_soon_message(self, boss_name: str) -> str:
         return f"곧 {str(boss_name or '').strip()} 타임입니다.".strip()
@@ -37266,14 +37319,21 @@ class BossTimerApp:
                 target_remaining_seconds = int(offset_seconds)
                 fixed_audio_lead_seconds = 0
                 if is_valhalla_end_notice:
-                    # 종료+다음 보스 문장은 녹음 조각을 잘못 조립하지 않고
-                    # 완성된 Edge TTS 한 문장으로 로컬/Discord에 동일 전송한다.
-                    fixed_clip_paths = self._with_schedule_alarm_chime_paths([], "fixed")
-                    fixed_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
-                        fixed_message,
-                        category="fixed",
-                        rate=1,
+                    # 다음 보스 안내는 발할라 종료 1분전에만 붙인다.
+                    # 종료 통녹음 + 다음보스는 + 시간/분후 + 이름.
+                    built_fixed_clip_paths = (
+                        self._build_schedule_valhalla_end_alarm_audio_paths(current_second, scheduled_at)
+                        if boss_ai_enabled else []
                     )
+                    fixed_clip_paths = self._with_schedule_alarm_chime_paths(built_fixed_clip_paths, "fixed")
+                    if built_fixed_clip_paths:
+                        fixed_audio_lead_seconds = self._get_schedule_alarm_sequence_lead_seconds(fixed_clip_paths)
+                    else:
+                        fixed_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
+                            fixed_message,
+                            category="fixed",
+                            rate=1,
+                        )
                     target_remaining_seconds += fixed_audio_lead_seconds
                 elif boss_ai_enabled:
                     built_fixed_clip_paths = (
@@ -37295,10 +37355,8 @@ class BossTimerApp:
                         fixed_clip_paths = self._with_schedule_alarm_chime_paths(built_fixed_clip_paths, "fixed")
                         fixed_audio_lead_seconds = self._get_schedule_alarm_sequence_lead_seconds(fixed_clip_paths)
                         target_remaining_seconds += fixed_audio_lead_seconds
-                    elif len(group_names) > 1 or "다음 보스는" in fixed_message:
-                        # 후속 보스/시간 녹음 중 하나라도 빠졌을 때 현재 고정보스
-                        # 부분만 재생하지 않는다. 완성 문장 전체를 Edge TTS로
-                        # 만들어 로컬과 Discord에 동일하게 전달한다.
+                    elif len(group_names) > 1:
+                        # 그룹 녹음이 빠지면 일부 이름만 읽지 않고 TTS로 안내한다.
                         fixed_clip_paths = self._with_schedule_alarm_chime_paths([], "fixed")
                         fixed_audio_lead_seconds = self._get_schedule_alarm_tts_sequence_lead_seconds(
                             fixed_message,
@@ -40752,8 +40810,8 @@ class BossTimerApp:
             reasons.append(f"시즌이 다릅니다: {target_season} ← {source_season}")
         if not reasons:
             return True
-        accepted = messagebox.askyesno(
-            '스케쥴 덮어쓰기 확인', '\n'.join(reasons) + '\n\n현재 스케쥴을 백업하고 다운로드한 자료로 교체할까요?',
+        accepted = self._show_centered_messagebox(
+            'askyesno', '스케쥴 덮어쓰기 확인', '\n'.join(reasons) + '\n\n현재 스케쥴을 백업하고 다운로드한 자료로 교체할까요?',
             parent=self.root, default='no')
         self._append_debug_log(f"schedule_sync_replace_confirm accepted={int(accepted)} reasons={reasons}")
         return bool(accepted)
@@ -41986,6 +42044,82 @@ class BossTimerApp:
 
     def _open_schedule_delete_history_dialog(self) -> None:
         self._show_schedule_delete_history_dialog(parent=self.schedule_window)
+
+    def _open_regular_maintenance_dialog(self) -> None:
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        dialog = tk.Toplevel(parent)
+        dialog.title("정기점검 설정")
+        dialog.resizable(False, False)
+        dialog.transient(parent)
+        dialog.configure(bg="#eef2ff")
+        # Draft values stay local until Save; Cancel must not update the schedule.
+        weekdays = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+        weekday_var = tk.StringVar(dialog, value=self._format_schedule_weekday_display_text(self.schedule_maintenance_weekday_var.get(), fallback="수"))
+        hour_var = tk.StringVar(dialog, value=self.schedule_maintenance_hour_var.get() or "08시")
+        minute_var = tk.StringVar(dialog, value=self.schedule_maintenance_minute_var.get() or "00분")
+        status_var = tk.StringVar(dialog, value="저장한 요일과 시간에 매주 자동 반복됩니다.")
+        profile_path = self._get_schedule_state_storage_path()
+
+        tk.Label(dialog, text="매주 정기점검", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=438, height=38)
+        tk.Label(dialog, text="반복 요일", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=20, y=54, width=74, height=22)
+        day_combo = ttk.Combobox(dialog, textvariable=weekday_var, values=weekdays, state="readonly", font=(self.current_font_family, 10, "bold"))
+        day_combo.place(x=100, y=52, width=100, height=28)
+        tk.Label(dialog, text="시간", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=20, y=96, width=74, height=22)
+        hour_combo = ttk.Combobox(dialog, textvariable=hour_var, values=[f"{hour:02d}시" for hour in range(24)], state="normal", font=(self.current_font_family, 10, "bold"))
+        minute_combo = ttk.Combobox(dialog, textvariable=minute_var, values=[f"{minute:02d}분" for minute in range(60)], state="normal", font=(self.current_font_family, 10, "bold"))
+        hour_combo.place(x=100, y=94, width=64, height=28)
+        minute_combo.place(x=172, y=94, width=64, height=28)
+        for combo in (day_combo, hour_combo, minute_combo):
+            combo.bind("<MouseWheel>", self._block_combobox_mousewheel)
+        tk.Label(dialog, textvariable=status_var, font=self.percent_font, bg="#eef2ff", fg="#1e3a8a", anchor="w").place(x=20, y=134, width=398, height=22)
+        # Preserve the existing 00:00 sentinel instead of silently enabling
+        # maintenance for profiles that previously disabled it this way.
+        tk.Label(dialog, text="기본: 매주 수요일 08:00 · 00:00 설정은 점검 사용 안 함", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=20, y=158, width=398, height=20)
+
+        def close_dialog() -> None:
+            try:
+                dialog.grab_release()
+                dialog.destroy()
+            except tk.TclError:
+                pass
+
+        def save_value(_event=None) -> str:
+            hour_match = re.fullmatch(r"\s*(\d{1,2})\s*시?\s*", hour_var.get())
+            minute_match = re.fullmatch(r"\s*(\d{1,2})\s*분?\s*", minute_var.get())
+            if weekday_var.get() not in weekdays or hour_match is None or minute_match is None:
+                status_var.set("요일과 시간을 올바르게 입력하세요. 예: 08시 00분")
+                return "break"
+            hour, minute = int(hour_match.group(1)), int(minute_match.group(1))
+            if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+                status_var.set("시간은 00~23시, 분은 00~59분으로 입력하세요.")
+                return "break"
+            if profile_path != self._get_schedule_state_storage_path():
+                status_var.set("서버가 변경되었습니다. 취소 후 다시 열어주세요.")
+                return "break"
+            self.schedule_maintenance_weekday_var.set(weekday_var.get())
+            self.schedule_maintenance_hour_var.set(f"{hour:02d}시")
+            self.schedule_maintenance_minute_var.set(f"{minute:02d}분")
+            self._ensure_schedule_events_cover_generation_end()
+            self._refresh_schedule_tree_scope()
+            self._save_schedule_state()
+            if hour == 0 and minute == 0:
+                self.schedule_status_var.set("정기점검 사용 안 함으로 저장했습니다.")
+            else:
+                self.schedule_status_var.set(f"정기점검을 매주 {weekday_var.get()} {hour:02d}:{minute:02d} 자동 반복으로 저장했습니다.")
+            close_dialog()
+            return "break"
+
+        save_button = tk.Button(dialog, text="저장", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=save_value, cursor="hand2")
+        save_button.place(x=246, y=192, width=80, height=28)
+        self._bind_hover_button(save_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
+        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=close_dialog, cursor="hand2").place(x=338, y=192, width=80, height=28)
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+        dialog.bind("<Return>", save_value)
+        dialog.bind("<Escape>", lambda _event: close_dialog())
+        dialog.update_idletasks()
+        self._center_window_over_parent(dialog, parent, 438, 238)
+        dialog.grab_set()
+        day_combo.focus_set()
 
     def _open_temporary_maintenance_dialog(self) -> None:
         parent = self.schedule_window if self.schedule_window is not None and self.schedule_window.winfo_exists() else self.root
@@ -44887,6 +45021,8 @@ class BossTimerApp:
     def _on_schedule_input_fraction_text_modified(self, event) -> None:
         try:
             if event.widget.edit_modified():
+                from schedule_input_display import clear_duplicate_highlights
+                clear_duplicate_highlights(event.widget)
                 event.widget.edit_modified(False)
             self._refresh_schedule_input_fraction_visibility()
         except tk.TclError:
@@ -44896,6 +45032,9 @@ class BossTimerApp:
         if self.schedule_input_text is None:
             return
         try:
+            if self.schedule_input_text.edit_modified():
+                from schedule_input_display import clear_duplicate_highlights
+                clear_duplicate_highlights(self.schedule_input_text)
             self.schedule_input_text.edit_modified(False)
         except tk.TclError:
             return
@@ -45162,6 +45301,32 @@ class BossTimerApp:
         self._update_schedule_input_undo_state()
         return True
 
+    def _warn_schedule_input_duplicate_bosses(self, raw_text: str) -> bool:
+        from schedule_input_display import find_duplicate_boss_lines, highlight_duplicate_boss_lines, clear_duplicate_highlights
+        groups = find_duplicate_boss_lines(raw_text, self._parse_schedule_input_line)
+        target_widget = None
+        # Same precedence as _get_schedule_input_raw_text: left input, then OCR1.
+        for widget in (getattr(self, 'schedule_input_text', None), getattr(self, 'schedule_input_ocr1_text', None)):
+            if not self._widget_available(widget):
+                continue
+            clear_duplicate_highlights(widget)
+            if target_widget is None and widget.get('1.0', 'end-1c') == raw_text:
+                target_widget = widget
+        if not groups:
+            return False
+        summary = '\n'.join(f"• {group['name']}: {', '.join(map(str, group['lines']))}행" for group in groups)
+        self.schedule_input_status_var.set('같은 보스가 중복 입력되어 적용하지 않았습니다. 강조된 줄을 수정해주세요.')
+        if target_widget is not None:
+            highlight_duplicate_boss_lines(target_widget, groups)
+        self._show_centered_messagebox(
+            'showwarning', '동일 보스 중복 입력',
+            f'같은 보스가 여러 번 입력되어 있습니다.\n\n{summary}\n\n같은 보스의 줄은 같은 색으로 표시했습니다.\n한 줄만 남긴 뒤 다시 적용해주세요. 스케줄은 변경하지 않았습니다.',
+            parent=self.schedule_input_window,
+        )
+        if self._widget_available(target_widget):
+            highlight_duplicate_boss_lines(target_widget, groups)
+        return True
+
     def _apply_schedule_input_batch(self) -> None:
         reference_datetime = self._get_schedule_reference_datetime()
         if self.schedule_input_edit_mode and isinstance(self.schedule_input_edit_anchor_datetime, datetime):
@@ -45177,6 +45342,8 @@ class BossTimerApp:
         if self.schedule_input_text is None:
             return
         raw_text = self._get_schedule_input_raw_text()
+        if not self.schedule_input_edit_mode and self._warn_schedule_input_duplicate_bosses(raw_text):
+            return
         ocr1_error_context = self._get_schedule_input_ocr1_error_context(raw_text)
         parsed_items, ignored_count = self._parse_schedule_input_lines(
             raw_text,
@@ -57110,22 +57277,27 @@ class BossTimerApp:
             ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
             ("동기화", "#0ea5e9", "#ffffff", self._sync_selected_github_schedule, 280, 46, 58),
             ("서버 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
-            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 468, 46, 64),
+            ("임시점검", "#dc2626", "#ffffff", self._open_temporary_maintenance_dialog, 638, 87, 70),
+            ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 794, 80, 110),
+            ("정기점검", "#2563eb", "#ffffff", self._open_regular_maintenance_dialog, 714, 87, 70),
             ("디스코드봇 실행", "#5865f2", "#ffffff", self._toggle_discord_bot_runtime, 18, 80, 132),
             ("설정", "#475569", "#ffffff", self.open_discord_bot_settings_window, 158, 80, 62),
             ("보탐 로그", "#475569", "#ffffff", self._open_discord_schedule_monitor_window, 228, 80, 90),
             ("초대링크", "#16a34a", "#ffffff", self.open_discord_bot_invite_window, 326, 80, 86),
-            ("서버 추가/삭제", "#0ea5e9", "#ffffff", self._open_github_server_manage_dialog, 672, 10, 112),
+            ("서버 추가/삭제", "#0ea5e9", "#ffffff", self._open_github_server_manage_dialog, 914, 80, 110),
             ("고정 보스", "#f8f1df", "#7c2d12", self.open_fixed_boss_window, 794, 46, 110),
             ("보스 설정", "#f59e0b", "#ffffff", self.open_schedule_boss_config_window, 914, 46, 110),
             ("아군/적군 막타", "#7c3aed", "#ffffff", self.open_record_book_window, 1034, 46, 128),
             ("새 시즌 시작", "#dc2626", "#ffffff", self._open_new_season_dialog, 1034, 80, 128),
         ]
         for text, bg, fg, command, x, y, width in buttons:
+            small_maintenance_button = command in (
+                self._open_temporary_maintenance_dialog, self._open_regular_maintenance_dialog,
+            )
             button = tk.Button(
                 top_frame,
                 text=text,
-                font=self.button_font,
+                font=self.percent_font if small_maintenance_button else self.button_font,
                 bg=bg,
                 fg=fg,
                 activebackground=bg,
@@ -57136,7 +57308,7 @@ class BossTimerApp:
                 command=command,
                 cursor="hand2",
             )
-            button.place(x=x, y=y, width=width, height=30)
+            button.place(x=x, y=y, width=width, height=24 if small_maintenance_button else 30)
             if command == self._refresh_github_server_list:
                 self.schedule_github_refresh_button = button
             elif command == self._sync_selected_github_schedule:
@@ -57173,7 +57345,7 @@ class BossTimerApp:
             fg="#334155",
             anchor="w",
         )
-        self.discord_bot_status_label.place(x=420, y=80, width=136, height=30)
+        self.discord_bot_status_label.place(x=420, y=80, width=124, height=30)
         from discord_connection_visual import load_frames
         try:
             self.discord_bot_connection_frames = load_frames(self.root, os.path.join(get_resource_root(), 'assets', 'discord_plug_connection.png'))
@@ -57378,11 +57550,8 @@ class BossTimerApp:
         next_summary_frame = tk.Frame(list_frame, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
         self.schedule_next_summary_frame = next_summary_frame
         next_summary_frame.place(x=238, y=2, width=500, height=72)
-        maintenance_frame = tk.Frame(top_frame, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
-        self.schedule_maintenance_frame = maintenance_frame
-        maintenance_frame.place(x=666, y=84, width=360, height=30)
         background_music_frame = tk.Frame(top_frame, bg="#dbeafe", bd=0, relief="flat", highlightthickness=0)
-        background_music_frame.place(x=666, y=52, width=126, height=28)
+        background_music_frame.place(x=661, y=52, width=126, height=28)
         background_music_checkbutton = tk.Checkbutton(
             background_music_frame,
             text="심신미약",
@@ -57550,8 +57719,6 @@ class BossTimerApp:
         view_year_values = [f"{year % 100:02d}년" for year in range(datetime.now().year - 2, datetime.now().year + 3)]
         view_month_values = [f"{month:02d}월" for month in range(1, 13)]
         view_day_values = [f"{day:02d}일" for day in range(1, 32)]
-        maintenance_hour_values = [f"{hour:02d}시" for hour in range(0, 24)]
-        maintenance_minute_values = [f"{minute:02d}분" for minute in range(0, 60)]
         self.schedule_view_weekday_label = tk.Label(
             date_nav_frame,
             textvariable=self.schedule_view_weekday_var,
@@ -57797,34 +57964,6 @@ class BossTimerApp:
         today_button.place(x=148, y=45, width=62, height=22)
         self._bind_hover_button(today_button, "#2563eb", "#1d4ed8", "#ffffff", "#ffffff")
 
-        temp_maintenance_button = tk.Button(
-            maintenance_frame,
-            text="임시점검",
-            font=self.percent_font,
-            bg="#dc2626",
-            fg="#ffffff",
-            activebackground="#b91c1c",
-            activeforeground="#ffffff",
-            relief="raised",
-            bd=1,
-            highlightthickness=0,
-            command=self._open_temporary_maintenance_dialog,
-            cursor="hand2",
-        )
-        temp_maintenance_button.place(x=0, y=3, width=70, height=24)
-        self._bind_hover_button(temp_maintenance_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
-        tk.Label(maintenance_frame, text="정기점검", font=self.percent_font, bg="#dbeafe", fg="#0f172a", anchor="w").place(x=76, y=5, width=64, height=18)
-        maintenance_day_combo = ttk.Combobox(maintenance_frame, textvariable=self.schedule_maintenance_weekday_var, values=["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"], font=(self.current_font_family, 9, "bold"), state="normal")
-        maintenance_day_combo.place(x=140, y=3, width=76, height=24)
-        maintenance_hour_combo = ttk.Combobox(maintenance_frame, textvariable=self.schedule_maintenance_hour_var, values=maintenance_hour_values, font=(self.current_font_family, 9, "bold"), state="normal")
-        maintenance_hour_combo.place(x=222, y=3, width=56, height=24)
-        maintenance_minute_combo = ttk.Combobox(maintenance_frame, textvariable=self.schedule_maintenance_minute_var, values=maintenance_minute_values, font=(self.current_font_family, 9, "bold"), state="normal")
-        maintenance_minute_combo.place(x=284, y=3, width=56, height=24)
-        for combo in (maintenance_day_combo, maintenance_hour_combo, maintenance_minute_combo):
-            combo.bind("<<ComboboxSelected>>", self._on_schedule_maintenance_changed)
-            combo.bind("<Return>", self._on_schedule_maintenance_changed)
-            combo.bind("<FocusOut>", self._on_schedule_maintenance_changed)
-            combo.bind("<MouseWheel>", self._block_combobox_mousewheel)
         columns = ("time", "boss", "state", "alarm", "cut_now", "cut_time", "result", "note")
         self.schedule_tree_body_font = tkfont.Font(family=self.current_font_family, size=9, weight="normal")
         self.schedule_tree_header_font = tkfont.Font(family=self.current_font_family, size=10, weight="bold")

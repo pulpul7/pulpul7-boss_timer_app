@@ -1055,7 +1055,7 @@ class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
 
         self.assertEqual(
             message,
-            "곧 발할라 대전이 종료합니다. 다음 보스는 20분 후 드라우그입니다.",
+            "곧 발할라 대전이 종료합니다. 다음 보스는 20분 후 드라우그.",
         )
 
     def test_tts_pre_alert_includes_chime_and_sentence_duration(self):
@@ -2629,13 +2629,11 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
             ["지옥성채 정예", "핏빛고블린"],
         )
 
-    def test_same_time_fixed_group_message_has_one_followup(self):
+    def test_same_time_fixed_group_message_has_no_followup(self):
         app = object.__new__(BossTimerApp)
         scheduled_at = datetime(2026, 9, 2, 19, 0, 0)
-        app._get_next_schedule_alarm_target_after = lambda *_args: (
-            scheduled_at + timedelta(minutes=20),
-            "드라우그",
-        )
+        app._get_next_schedule_alarm_target_after = mock.Mock(side_effect=AssertionError("고정보스는 다음 보스를 조회하지 않음"))
+        app._format_schedule_alarm_remaining_speech = lambda _seconds: "1분"
 
         message = app._build_schedule_fixed_alarm_group_message(
             scheduled_at - timedelta(minutes=1),
@@ -2646,9 +2644,30 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
 
         self.assertEqual(
             message,
-            "지옥성채 정예 외 1개 1분 전입니다. 다음 보스는 20분 후 드라우그입니다.",
+            "지옥성채 정예 핏빛고블린 1분 전입니다.",
         )
-        self.assertEqual(message.count("다음 보스는"), 1)
+        app._get_next_schedule_alarm_target_after.assert_not_called()
+
+    def test_fixed_pre_alerts_do_not_append_next_boss_audio_or_text(self):
+        app = object.__new__(BossTimerApp)
+        scheduled_at = datetime(2026, 9, 2, 19, 0, 0)
+        reference_now = scheduled_at - timedelta(minutes=1)
+        app._get_next_schedule_alarm_target_after = mock.Mock(side_effect=AssertionError("고정보스는 다음 보스를 조회하지 않음"))
+        app._build_schedule_alarm_next_boss_audio_paths = mock.Mock(side_effect=AssertionError("고정보스 후속 음성 금지"))
+        app._format_schedule_alarm_remaining_speech = lambda _seconds: "1분"
+        app._get_schedule_alarm_boss_audio_paths = lambda _seconds, *, boss_name: [f"boss:{boss_name}", "min:1"]
+        app._get_schedule_alarm_offset_audio_path = lambda _seconds: "min:1"
+        app._get_schedule_alarm_boss_voice_path = lambda *, boss_name: f"boss:{boss_name}"
+        for name in ("핏빛고블린", "지옥성채 정예", "월드보스", "발할라 대전"):
+            with self.subTest(boss=name):
+                self.assertEqual(app._build_schedule_fixed_alarm_message(reference_now, scheduled_at, name, 60), f"{name} 1분 전입니다.")
+                self.assertEqual(app._build_schedule_fixed_alarm_audio_paths(reference_now, scheduled_at, name, 60), [f"boss:{name}", "min:1"])
+        self.assertEqual(
+            app._build_schedule_fixed_alarm_group_audio_paths(reference_now, scheduled_at, ["지옥성채 정예", "핏빛고블린"], 60),
+            ["boss:지옥성채 정예", "boss:핏빛고블린", "min:1"],
+        )
+        app._get_next_schedule_alarm_target_after.assert_not_called()
+        app._build_schedule_alarm_next_boss_audio_paths.assert_not_called()
 
     def test_mixed_due_time_group_uses_one_representative_and_one_invasion_prefix(self):
         app = object.__new__(BossTimerApp)

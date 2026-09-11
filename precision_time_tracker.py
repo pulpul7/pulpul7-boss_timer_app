@@ -116,13 +116,46 @@ class RoiChangeDetector:
             raise ValueError("non-monotonic capture")
         if sample.at - previous.at > self.config.max_gap:
             raise ValueError("capture gap too large: possible missed tick")
+        if self.changed(previous, sample):
+            return Tick(previous.start, sample.end)
+        return None
+
+    def changed(self, previous: Sample, sample: Sample):
         a, b = previous.pixels.rgb, sample.pixels.rgb
         if len(a) != len(b):
             raise ValueError("ROI size changed")
         changed = sum(max(abs(a[i+j] - b[i+j]) for j in range(3)) > self.config.pixel_delta
                       for i in range(0, len(a), 3))
-        if changed >= self.config.changed_pixels:
-            return Tick(previous.start, sample.end)
+        return changed >= self.config.changed_pixels
+
+
+class StableRoiChangeDetector:
+    """Confirm a changed image on the next sample, without delaying its tick.
+
+    A -> B -> B accepts the A/B capture bracket; A -> B -> A rejects a flash.
+    Keep only the baseline and current candidate, not a frame history.
+    """
+    def __init__(self, config: PrecisionConfig):
+        self.detector = RoiChangeDetector(config)
+        self.baseline = self.candidate = self.tick = None
+
+    def feed(self, sample: Sample):
+        self.detector.feed(sample)  # Validate every adjacent timestamp/gap/size.
+        if self.baseline is None or not self.detector.changed(self.baseline, sample):
+            self.baseline = sample
+            self.candidate = self.tick = None
+            return None
+        if self.candidate is not None and not self.detector.changed(self.candidate, sample):
+            tick = self.tick
+            self.baseline = sample
+            self.candidate = self.tick = None
+            return tick
+        # Multiple changing frames may be an animation: include that whole
+        # transition in the uncertainty rather than inventing a narrow tick.
+        self.tick = Tick(self.baseline.start, sample.end)
+        if self.tick.upper - self.tick.lower > self.detector.config.max_gap:
+            raise ValueError('ROI transition did not settle within capture gap limit')
+        self.candidate = sample
         return None
 
 
