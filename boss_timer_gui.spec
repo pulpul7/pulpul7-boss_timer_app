@@ -252,6 +252,9 @@ datas = [
     (str(build_metadata_path), "."),
 ]
 datas += collect_tree(project_root / "assets", "assets")
+# Trusted fallback sources, loaded through notice_runtime rather than Analysis
+# imports. Downloads override these without rebuilding the executable.
+datas += collect_tree(project_root / "notice_module", "notice_module")
 datas += collect_tree(
     project_root / "init",
     "init",
@@ -289,6 +292,9 @@ a = Analysis(
     # ZIP imports these stdlib modules dynamically, so PyInstaller cannot see
     # them while analysing the main program.
     hiddenimports=[
+        # Standard library used by dynamically loaded public notice adapters.
+        "html.parser",
+        "html.entities",
         "tkinter",
         "_tkinter",
         "http.cookies",

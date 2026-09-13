@@ -1,0 +1,7 @@
+{
+  "module_id": "boss_timer_notice_ai",
+  "api_version": 1,
+  "version": "1.0.0",
+  "min_app_version": "5.0.0",
+  "entrypoint": "payload/main.py"
+}

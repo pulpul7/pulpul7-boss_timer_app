@@ -2272,6 +2272,14 @@
       "updated_at": 1788367414,
       "volume_steps": 0
     },
+    "2d1a4f0c9e3b47f6da7cb21c13bdb3e53050bf8bbafb0b60c47c887846a3cda5": {
+      "path": "message/2d1a4f0c9e3b47f6da7cb21c13bdb3e53050bf8bbafb0b60c47c887846a3cda5.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 라타토스크 수드리 타임입니다.",
+      "updated_at": 1789253211,
+      "volume_steps": 0
+    },
     "2d281fd6cdece85089c30ea6bf5594d3f28256fa6dd7e10d8cc1e5954df6f11f": {
       "path": "boss/87fa12c0aab601e27ea7064e.mp3",
       "rate_steps": 1,
@@ -11078,6 +11086,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "침공 모네가름 1분 남았습니다.",
       "updated_at": 1788324658,
+      "volume_steps": 0
+    },
+    "e2e4444e625617310d06b3e2007f0ade0280485e88f573864563180c74c4141b": {
+      "path": "message/e2e4444e625617310d06b3e2007f0ade0280485e88f573864563180c74c4141b.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "라타토스크 수드리",
+      "updated_at": 1789253211,
       "volume_steps": 0
     },
     "e2f8c6a024091901225b8211ac600d7f3128891b7d2c33664e311bab2000ed0f": {

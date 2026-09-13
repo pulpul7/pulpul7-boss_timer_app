@@ -1,5 +1,5 @@
 {
-  "version": "v5.2.2",
+  "version": "v5.3.1",
   "voice_rule_version": "2026-09-09.73",
   "master_enabled": true,
   "local_audio_enabled": true,
@@ -10,7 +10,7 @@
   "countdown_enabled": false,
   "ai_recording_preferred": true,
   "countdown_start_seconds": 15,
-  "second_precision_expire_hours": 169,
+  "second_precision_expire_hours": 168,
   "fixed_boss_enabled": true,
   "fixed_boss_skip_due_time": true,
   "voice_name": "Microsoft Heami Desktop - Korean",

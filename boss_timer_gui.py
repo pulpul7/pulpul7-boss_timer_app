@@ -36,6 +36,8 @@ from tkinter import colorchooser, filedialog
 from tkinter import font as tkfont
 from tkinter import ttk
 from schedule_precision import DEFAULT_CAPTURE_RATE
+from ai_update_center import AiUpdateCenter
+from notice_runtime import NoticeHost, NoticeRuntime
 
 from audio_pipeline import AudioPipeline, OutputConditionEvaluator, OutputDecision, OutputTarget, PlaybackRequest
 from voice_test_scenarios import VOICE_TEST_SCENARIOS, build_voice_test_plan
@@ -1594,72 +1596,32 @@ class BossTimerApp:
         return False
 
     def _ensure_settings_rollback_baseline(self) -> tuple[bool, str]:
-        """Capture one fixed, per-profile baseline; never silently replace it."""
+        """Create a fixed baseline from shipped defaults, not first-use live data."""
+        from schedule_profile_migration import build_distribution_baseline
         baseline_dir = self._get_settings_rollback_baseline_dir()
         manifest_path = os.path.join(baseline_dir, SETTINGS_ROLLBACK_MANIFEST_FILENAME)
-        existing_manifest: dict[str, object] | None = None
-        if os.path.isfile(manifest_path):
-            try:
-                with open(manifest_path, "r", encoding="utf-8") as file:
-                    candidate = json.load(file)
-                if isinstance(candidate, dict):
-                    existing_manifest = candidate
-            except (OSError, json.JSONDecodeError):
-                existing_manifest = None
         try:
-            os.makedirs(baseline_dir, exist_ok=True)
-            existing_groups = (existing_manifest or {}).get("groups", {})
-            if not isinstance(existing_groups, dict):
-                existing_groups = {}
-            groups: dict[str, list[dict[str, object]]] = {
-                str(group_name): [dict(entry) for entry in entries if isinstance(entry, dict)]
-                for group_name, entries in existing_groups.items()
-                if isinstance(entries, list)
-            }
-            added_any = False
-            for group_name, file_entries in self._get_settings_rollback_group_files().items():
-                copied_entries = groups.setdefault(group_name, [])
-                for source_path, relative_path in file_entries:
-                    if any(
-                        str(entry.get("source") or "") == source_path
-                        and str(entry.get("snapshot") or "") == relative_path
-                        for entry in copied_entries
-                    ):
-                        continue
-                    snapshot_path = os.path.join(baseline_dir, relative_path)
-                    exists = os.path.isfile(source_path)
-                    if exists:
-                        os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
-                        shutil.copy2(source_path, snapshot_path)
-                    copied_entries.append({"source": source_path, "snapshot": relative_path, "exists": exists})
-                    added_any = True
-            config_snapshot = os.path.join(baseline_dir, "boss_timer_settings.ini")
-            config_exists = os.path.isfile(CONFIG_PATH)
-            previous_config_snapshot = str((existing_manifest or {}).get("config_snapshot") or "")
-            if config_exists and not previous_config_snapshot:
-                shutil.copy2(CONFIG_PATH, config_snapshot)
-                added_any = True
-            if existing_manifest is not None and not added_any:
+            if os.path.isfile(manifest_path):
+                with open(manifest_path, "r", encoding="utf-8") as file:
+                    manifest = json.load(file)
+                if not isinstance(manifest, dict) or not isinstance(manifest.get("groups"), dict):
+                    raise ValueError("롤백 기준점 형식이 잘못되었습니다.")
                 return True, manifest_path
-            manifest = {
-                "schema_version": 1,
-                "created_at": str((existing_manifest or {}).get("created_at") or datetime.now().isoformat(timespec="seconds")),
-                "server_id": str(getattr(self, "schedule_server_profile_id", "") or ""),
-                "season_key": self._get_active_schedule_server_profile_season_key(),
-                "groups": groups,
-                "config_snapshot": previous_config_snapshot or ("boss_timer_settings.ini" if config_exists else ""),
-            }
-            temporary_path = f"{manifest_path}.{uuid.uuid4().hex}.tmp"
-            with open(temporary_path, "w", encoding="utf-8") as file:
-                json.dump(manifest, file, ensure_ascii=False, indent=2)
-            os.replace(temporary_path, manifest_path)
-            self._append_debug_log(
-                "settings_rollback_baseline_created "
-                f"profile={manifest['season_key']}/{manifest['server_id'] or '-'} path={baseline_dir}"
-            )
+            if os.path.exists(baseline_dir):
+                raise ValueError("불완전한 롤백 기준점이 있습니다. 배포 기본설정 복구를 사용하세요.")
+            os.makedirs(os.path.dirname(baseline_dir), exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".baseline-seed-", dir=os.path.dirname(baseline_dir)) as temporary:
+                stage = os.path.join(temporary, "baseline")
+                build_distribution_baseline(
+                    os.path.join(get_resource_root(), "init"), stage,
+                    self._get_settings_rollback_group_files(),
+                    server_id=str(getattr(self, "schedule_server_profile_id", "") or ""),
+                    season_key=self._get_active_schedule_server_profile_season_key(),
+                )
+                os.rename(stage, baseline_dir)
+            self._append_debug_log(f"settings_rollback_distribution_baseline_created path={baseline_dir}")
             return True, manifest_path
-        except OSError as exc:
-            self._append_debug_log(f"settings_rollback_baseline_create_failed {type(exc).__name__}: {exc}")
+        except (OSError, ValueError) as exc:
             return False, str(exc)
 
     def _load_settings_rollback_manifest(self) -> tuple[dict[str, object] | None, str]:
@@ -1672,8 +1634,19 @@ class BossTimerApp:
             return None, str(exc)
         return (manifest if isinstance(manifest, dict) else None), baseline_dir
 
-    def _restore_settings_rollback_baseline(self, selected_groups: set[str]) -> tuple[bool, str]:
-        manifest, baseline_dir = self._load_settings_rollback_manifest()
+    def _restore_settings_rollback_baseline(self, selected_groups: set[str], *, distribution_defaults=False, _baseline_override=None) -> tuple[bool, str]:
+        if distribution_defaults:
+            from schedule_profile_migration import build_distribution_baseline
+            try:
+                with tempfile.TemporaryDirectory(prefix="boss-rollback-defaults-") as temporary:
+                    manifest = build_distribution_baseline(
+                        os.path.join(get_resource_root(), "init"), temporary,
+                        self._get_settings_rollback_group_files(),
+                    )
+                    return self._restore_settings_rollback_baseline(selected_groups, _baseline_override=(manifest, temporary))
+            except (OSError, ValueError) as exc:
+                return False, f"배포 기본설정 복구 실패: {exc}"
+        manifest, baseline_dir = _baseline_override or self._load_settings_rollback_manifest()
         if manifest is None:
             return False, "롤백 기준점 파일을 읽을 수 없습니다."
         groups = manifest.get("groups")
@@ -1683,33 +1656,48 @@ class BossTimerApp:
         if not selected_groups:
             return False, "롤백할 설정을 선택하세요."
 
+        # A copied baseline may contain absolute paths from an older season/PC.
+        # Only the current profile's declared destinations may be restored.
+        restore_plan = []
+        for group_name in sorted(selected_groups):
+            allowed = {os.path.normcase(os.path.normpath(relative)): (source, relative)
+                       for source, relative in self._get_settings_rollback_group_files()[group_name]}
+            entries = groups.get(group_name, [])
+            if not isinstance(entries, list):
+                return False, "롤백 기준점 형식이 잘못되었습니다. 배포 기본값 복구를 사용하세요."
+            present = {os.path.normcase(os.path.normpath(str(entry.get("snapshot") or "")))
+                       for entry in entries if isinstance(entry, dict) and entry.get("exists")}
+            for key, (_, relative) in allowed.items():
+                if not relative.replace("\\", "/").startswith("global/") and key not in present:
+                    return False, f"기준점에 {relative} 파일이 없습니다. 배포 기본값 복구를 사용하세요."
+            for entry in entries:
+                if not isinstance(entry, dict) or not bool(entry.get("exists")):
+                    continue
+                key = os.path.normcase(os.path.normpath(str(entry.get("snapshot") or "")))
+                if key not in allowed:
+                    return False, "롤백 기준점에 허용되지 않은 설정 경로가 있습니다. 원본을 보존했습니다."
+                source_path, relative_path = allowed[key]
+                snapshot_path = os.path.join(baseline_dir, relative_path)
+                if not os.path.isfile(snapshot_path):
+                    return False, f"롤백 기준점 파일이 없습니다: {relative_path}"
+                restore_plan.append((source_path, relative_path, snapshot_path))
+
         rollback_backup_dir = os.path.join(
             self._get_settings_rollback_root_dir(),
             f"before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         )
         restored_count = 0
         try:
-            for group_name in sorted(selected_groups):
-                entries = groups.get(group_name, [])
-                if not isinstance(entries, list):
-                    continue
-                for entry in entries:
-                    if not isinstance(entry, dict) or not bool(entry.get("exists")):
-                        continue
-                    source_path = str(entry.get("source") or "")
-                    relative_path = str(entry.get("snapshot") or "")
-                    snapshot_path = os.path.join(baseline_dir, relative_path)
-                    if not source_path or not relative_path or not os.path.isfile(snapshot_path):
-                        continue
-                    if os.path.isfile(source_path):
-                        backup_path = os.path.join(rollback_backup_dir, relative_path)
-                        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-                        shutil.copy2(source_path, backup_path)
-                    os.makedirs(os.path.dirname(source_path), exist_ok=True)
-                    temporary_path = f"{source_path}.{uuid.uuid4().hex}.tmp"
-                    shutil.copy2(snapshot_path, temporary_path)
-                    os.replace(temporary_path, source_path)
-                    restored_count += 1
+            for source_path, relative_path, snapshot_path in restore_plan:
+                if os.path.isfile(source_path):
+                    backup_path = os.path.join(rollback_backup_dir, relative_path)
+                    os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                    shutil.copy2(source_path, backup_path)
+                os.makedirs(os.path.dirname(source_path), exist_ok=True)
+                temporary_path = f"{source_path}.{uuid.uuid4().hex}.tmp"
+                shutil.copy2(snapshot_path, temporary_path)
+                os.replace(temporary_path, source_path)
+                restored_count += 1
 
             config_snapshot_name = str(manifest.get("config_snapshot") or "")
             config_snapshot_path = os.path.join(baseline_dir, config_snapshot_name) if config_snapshot_name else ""
@@ -1773,6 +1761,7 @@ class BossTimerApp:
             self._populate_schedule_boss_metrics_tree()
         if self._widget_available(self.schedule_alarm_window):
             self._refresh_schedule_alarm_window()
+        self._refresh_profile_settings_views()
         return True, f"선택한 설정 {len(selected_groups)}개 항목을 롤백했습니다."
 
     def _get_schedule_ocr_corrections_storage_path(self) -> str:
@@ -1813,23 +1802,29 @@ class BossTimerApp:
         except (AttributeError, tk.TclError):
             pass
 
-    def _migrate_flat_server_profile_to_season_profile(self, profile_id: str) -> bool:
-        """Preserve profiles written before seasons became part of the key."""
+    def _migrate_flat_server_profile_to_season_profile(self, profile_id: str, *, preferred_season_key=None) -> bool:
+        """Migrate once, then inherit only same-server settings for new seasons."""
+        from schedule_profile_migration import seed_profile, ensure_profile_defaults
         profile_id = self._normalize_schedule_server_profile_id(profile_id)
         target_dir = self._get_schedule_server_profile_dir()
-        if not profile_id or not target_dir or os.path.isdir(target_dir):
-            return False
-        legacy_dir = os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME, profile_id)
-        if not os.path.isdir(legacy_dir):
+        if not profile_id or not target_dir:
             return False
         try:
-            os.makedirs(os.path.dirname(target_dir), exist_ok=True)
-            shutil.copytree(legacy_dir, target_dir, dirs_exist_ok=False)
-        except OSError:
+            source = seed_profile(
+                os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME),
+                self._get_active_schedule_server_profile_season_key(), profile_id,
+                preferred_season_key=preferred_season_key,
+            )
+            ensure_profile_defaults(target_dir, os.path.join(get_resource_root(), "init"))
+        except (OSError, ValueError) as exc:
+            self._append_debug_log(f"schedule_server_profile_seed_failed {type(exc).__name__}: {exc}")
+            # Do not proceed with defaults after an incomplete settings migration.
+            raise
+        if source is None:
             return False
         self._append_debug_log(
             f"schedule_server_profile_season_migrated season={self._get_current_schedule_server_profile_season_key()} "
-            f"server={profile_id}"
+            f"server={profile_id} source={source}"
         )
         return True
 
@@ -1853,11 +1848,21 @@ class BossTimerApp:
             self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False, reset_voice_queue=False)
             self._save_schedule_alarm_settings()
             self._save_schedule_delete_history()
+        previous_profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        previous_profile_name = self.schedule_server_profile_name
         self.schedule_server_profile_id = profile_id
         self.schedule_server_profile_name = str(server_name or "").strip()
         self.schedule_server_profile_season_key = target_season_key
+        try:
+            self._migrate_flat_server_profile_to_season_profile(
+                profile_id, preferred_season_key=active_season_key if previous_profile_id == profile_id else None,
+            )
+        except Exception:
+            self.schedule_server_profile_id = previous_profile_id
+            self.schedule_server_profile_name = previous_profile_name
+            self.schedule_server_profile_season_key = active_season_key
+            raise
         self._save_schedule_server_profile_selection()
-        self._migrate_flat_server_profile_to_season_profile(profile_id)
         self._ensure_init_dir()
 
         self.schedule_events = []
@@ -1885,18 +1890,42 @@ class BossTimerApp:
         self._load_schedule_delete_history()
         self._reset_schedule_alarm_event_index()
         self._bump_schedule_voice_broker_generation()
+        self._refresh_profile_settings_views()
         self._append_debug_log(f"schedule_server_profile_activated server={profile_id}")
         return True
 
+    def _refresh_profile_settings_views(self) -> None:
+        """Open editors must not display or later save the previous server's rows."""
+        self.schedule_boss_draft_definitions.clear()
+        self.schedule_boss_metric_draft_entries.clear()
+        if self._widget_available(getattr(self, "schedule_boss_config_window", None)):
+            self._populate_schedule_boss_definition_tree()
+            self._clear_schedule_boss_definition_form()
+            self._set_schedule_boss_definition_dirty(False)
+        for window_name, refresh in (
+            ("fixed_boss_window", self._refresh_fixed_boss_list),
+            ("schedule_break_window", self._refresh_schedule_break_list),
+            ("schedule_boss_metrics_window", self._populate_schedule_boss_metrics_tree),
+            ("schedule_alarm_window", self._refresh_schedule_alarm_window),
+        ):
+            if self._widget_available(getattr(self, window_name, None)):
+                refresh()
+
     def _activate_current_server_profile_for_new_season(self) -> bool:
-        """Switch the currently selected server to a fresh season namespace."""
+        """Use the server explicitly entered in season setup, not the old selection."""
         profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
         if not profile_id:
             return False
-        target_season_key = self._get_current_schedule_server_profile_season_key()
-        if target_season_key == self._get_active_schedule_server_profile_season_key():
-            return False
+        previous_profile_id = profile_id
+        setup_entry = self._get_current_github_upload_server_entry()
+        setup_profile_id = self._normalize_schedule_server_profile_id(setup_entry.get("id"))
         profile_name = str(getattr(self, "schedule_server_profile_name", "") or "").strip()
+        if setup_profile_id:
+            profile_id = setup_profile_id
+            profile_name = str(setup_entry.get("name") or setup_entry.get("id") or "").strip()
+        target_season_key = self._get_current_schedule_server_profile_season_key()
+        if target_season_key == self._get_active_schedule_server_profile_season_key() and profile_id == previous_profile_id:
+            return False
         was_bot_active = bool(
             bool(getattr(self, "discord_bot_expected_running", False))
             or bool(getattr(self, "discord_bot_last_status_payload", {}).get("ok"))
@@ -1911,6 +1940,8 @@ class BossTimerApp:
         changed = self._activate_schedule_server_profile(profile_id, profile_name)
         if not changed:
             return False
+        self._upsert_github_server_entry_locally(setup_entry)
+        self._sync_github_server_combo_to_loaded_meta()
         try:
             self._refresh_schedule_view()
         except (AttributeError, tk.TclError):
@@ -1991,11 +2022,14 @@ class BossTimerApp:
             self.schedule_server_profile_season_key,
         ) = self._load_schedule_server_profile_selection()
         configured_season_key = self._load_schedule_server_profile_season_key_from_settings()
+        selected_season_key = self.schedule_server_profile_season_key
         if configured_season_key != "season_unset":
             self.schedule_server_profile_season_key = configured_season_key
-        # 이전 버전의 server_profiles/<서버ID> 자료는 현재 시즌 경로로 한 번
-        # 복사해 두어, 업데이트 직후에도 기존 서버 데이터를 잃지 않는다.
-        self._migrate_flat_server_profile_to_season_profile(self.schedule_server_profile_id)
+        # 첫 업데이트만 구형 폴더를 이관한다. 이후 새 시즌에는 같은 서버의
+        # 최근 설정/롤백 기준점을 이어받되 이전 스케줄은 복사하지 않는다.
+        self._migrate_flat_server_profile_to_season_profile(
+            self.schedule_server_profile_id, preferred_season_key=selected_season_key,
+        )
         self.root.title(
             f"보스전 타이머 스케쥴러{' [관리자]' if self.is_admin_process else ' [일반]'}"
             if self.scheduler_worker_mode
@@ -3131,6 +3165,7 @@ class BossTimerApp:
                 self._schedule_alarm_tick()
             self._schedule_time_sync_periodic_check(initial=True)
             self._schedule_startup_deferred_tasks()
+            self.root.after(12_000, self._ensure_ai_update_center)
             self._apply_background(self.background_path, update_setting_var=False)
             self._draw_progress_graph(None)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -3138,6 +3173,43 @@ class BossTimerApp:
         atexit.register(self._shutdown_edge_tts)
         if not self.scheduler_worker_mode:
             atexit.register(self._shutdown_discord_bot_at_exit)
+
+    def _ensure_ai_update_center(self):
+        if not hasattr(self, "ai_update_center"):
+            try:
+                self._ensure_notice_runtime()
+            except Exception as exc:
+                self._append_debug_log(f"notice_module_start_failed {exc}")
+            self.ai_update_center = AiUpdateCenter(self, Path(get_app_root()) / "update_ai", APP_VERSION)
+        return self.ai_update_center
+
+    def open_ai_update_center(self) -> None:
+        self._ensure_ai_update_center().open()
+
+    def _ensure_notice_runtime(self):
+        if not hasattr(self, "notice_runtime"):
+            def cancel_later(token):
+                try:
+                    self.root.after_cancel(token)
+                except tk.TclError:
+                    pass
+            host = NoticeHost(
+                root=self.root, data_root=Path(get_app_root()) / "notice_data",
+                get_server=lambda: (str(getattr(self, "schedule_server_profile_id", "") or ""),
+                                    str(getattr(self, "schedule_server_profile_name", "") or "")),
+                get_parent=lambda: getattr(self, "schedule_window", None) or self.root,
+                message_box=self._show_centered_messagebox, log=self._append_debug_log,
+                call_later=self.root.after, cancel_later=cancel_later,
+            )
+            self.notice_runtime = NoticeRuntime(host, get_app_root(), get_resource_root(), APP_VERSION)
+        self.notice_runtime.start()
+        return self.notice_runtime
+
+    def open_notice_management(self) -> None:
+        try:
+            self._ensure_notice_runtime().open_management()
+        except Exception as exc:
+            self._show_centered_messagebox("showerror", "알림 관리", str(exc), parent=self.schedule_window or self.root)
 
     def _get_file_mtime(self, path: str) -> float:
         try:
@@ -4502,8 +4574,8 @@ class BossTimerApp:
                 self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
             self._update_archive_keep_seasons_description()
             self._save_settings()
-            # 시즌을 새로 시작하거나 같은 차수를 재시작하면, 같은 서버라도
-            # 이전 시즌의 스케쥴·알림·디스코드 설정을 재사용하지 않는다.
+            # 새 시즌 스케줄은 분리하되 같은 서버의 보스/음성/디스코드
+            # 설정과 롤백 기준점은 유지한다.
             self._activate_current_server_profile_for_new_season()
             close_with(True)
 
@@ -4551,9 +4623,6 @@ class BossTimerApp:
         """Let the operator restore selected settings from the fixed baseline."""
         host = parent if self._widget_available(parent) else self.root
         available, detail = self._ensure_settings_rollback_baseline()
-        if not available:
-            self._show_centered_messagebox("showerror", "설정 롤백", f"롤백 기준점을 만들지 못했습니다.\n{detail}", parent=host)
-            return
 
         dialog = tk.Toplevel(host)
         dialog.title("설정 롤백")
@@ -4578,7 +4647,7 @@ class BossTimerApp:
             ("fixed", "고정보스"),
             ("boss", "보스설정  (목록·지역색·보스별 색)"),
         )
-        status_var = tk.StringVar(value="현재 저장된 기준점으로 선택 항목만 복원합니다.")
+        status_var = tk.StringVar(value="현재 기준점 또는 배포 기본값을 선택하세요." if available else "기준점 오류: 배포 기본값으로 복구할 수 있습니다.")
         tk.Label(dialog, text="설정 롤백", font=self.header_font, bg="#fed7aa", fg="#7c2d12").place(x=0, y=0, width=360, height=42)
         tk.Label(
             dialog,
@@ -4610,7 +4679,10 @@ class BossTimerApp:
                 pass
             dialog.destroy()
 
-        def restore() -> None:
+        def restore(*, distribution_defaults=False) -> None:
+            if not distribution_defaults and not available:
+                status_var.set("기준점 오류입니다. 왼쪽 배포 기본값 버튼을 사용하세요.")
+                return
             selected_groups = {key for key, variable in selections.items() if bool(variable.get())}
             if not selected_groups:
                 status_var.set("최소 한 항목을 선택하세요.")
@@ -4618,17 +4690,18 @@ class BossTimerApp:
             label_text = ", ".join(label for key, label in labels if key in selected_groups)
             if not self._show_centered_messagebox(
                 "askyesno", "설정 롤백 확인",
-                f"다음 설정을 현재 기준점으로 되돌릴까요?\n\n{label_text}\n\n현재 설정은 롤백 전 백업으로 보관됩니다.",
+                f"다음 설정을 {'배포 기본값' if distribution_defaults else '현재 기준점'}으로 되돌릴까요?\n\n{label_text}\n\n현재 설정은 롤백 전 백업으로 보관됩니다.",
                 parent=dialog,
             ):
                 return
-            success, message = self._restore_settings_rollback_baseline(selected_groups)
+            success, message = self._restore_settings_rollback_baseline(selected_groups, distribution_defaults=distribution_defaults)
             if not success:
                 status_var.set(message)
                 return
             self._show_centered_messagebox("showinfo", "설정 롤백", message, parent=dialog)
             close_dialog()
 
+        tk.Button(dialog, text="배포 기본값", font=self.button_font, bg="#2563eb", fg="#ffffff", command=lambda: restore(distribution_defaults=True), cursor="hand2").place(x=22, y=312, width=140, height=28)
         tk.Button(dialog, text="확인", font=self.button_font, bg="#ea580c", fg="#ffffff", activebackground="#f97316", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=restore, cursor="hand2").place(x=174, y=312, width=76, height=28)
         tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=close_dialog, cursor="hand2").place(x=262, y=312, width=76, height=28)
         try:
@@ -4659,6 +4732,9 @@ class BossTimerApp:
         if self._has_ready_season():
             upload_entry = self._get_current_github_upload_server_entry()
             self._upsert_github_server_entry_locally(upload_entry)
+            if not getattr(self, "schedule_server_profile_id", ""):
+                # First-run setup identifies the server before any editor opens.
+                self._select_github_server_entry(upload_entry)
             loaded_entry = self._get_current_loaded_github_server_entry_from_meta()
             if self._can_seed_startup_schedule():
                 startup_entry = loaded_entry if isinstance(loaded_entry, dict) else upload_entry
@@ -7892,6 +7968,17 @@ class BossTimerApp:
     def _sync_github_server_combo_to_loaded_meta(self) -> bool:
         if not hasattr(self, "schedule_github_server_var"):
             return False
+        # The active local profile is authoritative even for an empty/new season
+        # with no import metadata. Do not display a stale imported server instead.
+        profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        if profile_id:
+            server_name = str(getattr(self, "schedule_server_profile_name", "") or profile_id).strip()
+            for entry in getattr(self, "schedule_github_server_entries", []) or []:
+                if isinstance(entry, dict) and self._normalize_schedule_server_profile_id(entry.get("id")) == profile_id:
+                    server_name = str(entry.get("name") or server_name).strip()
+                    break
+            self.schedule_github_server_var.set(self._format_github_server_combo_text(server_name))
+            return True
         meta_entry = self._get_current_loaded_github_server_entry_from_meta()
         meta_id = str((meta_entry or {}).get("id") or "").strip()
         meta_name = str((meta_entry or {}).get("name") or meta_id).strip()
@@ -45949,7 +46036,7 @@ class BossTimerApp:
 
     def _seed_init_file_from_resource(self, filename: str) -> None:
         self._ensure_init_dir()
-        target_path = os.path.join(INIT_DIR, filename)
+        target_path = os.path.join(self._get_schedule_server_profile_init_dir() or INIT_DIR, filename)
         if os.path.exists(target_path):
             return
         resource_path = os.path.join(get_resource_root(), "init", filename)
@@ -57226,7 +57313,15 @@ class BossTimerApp:
             fg="#475569",
             anchor="w",
         )
-        self.schedule_time_sync_info_label.place(x=246, y=15, width=548, height=16)
+        self.schedule_time_sync_info_label.place(x=246, y=15, width=428, height=16)
+        notice_management_button = tk.Button(
+            top_frame, text="알림 관리", font=self.percent_font,
+            bg="#475569", fg="#ffffff", activebackground="#334155", activeforeground="#ffffff",
+            relief="raised", bd=1, highlightthickness=0,
+            command=self.open_notice_management, cursor="hand2",
+        )
+        notice_management_button.place(x=674, y=10, width=110, height=26)
+        self._bind_hover_button(notice_management_button, "#475569", "#334155", "#ffffff", "#ffffff")
         schedule_metrics_button = tk.Button(
             top_frame,
             text="소요시간/점수",
@@ -57277,6 +57372,7 @@ class BossTimerApp:
             ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
             ("동기화", "#0ea5e9", "#ffffff", self._sync_selected_github_schedule, 280, 46, 58),
             ("서버 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
+            ("업데이트 확인", "#475569", "#ffffff", self.open_ai_update_center, 468, 46, 118),
             ("임시점검", "#dc2626", "#ffffff", self._open_temporary_maintenance_dialog, 638, 87, 70),
             ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 794, 80, 110),
             ("정기점검", "#2563eb", "#ffffff", self._open_regular_maintenance_dialog, 714, 87, 70),
@@ -66158,6 +66254,8 @@ class BossTimerApp:
         self.load_current_boss_log()
 
     def on_close(self) -> None:
+        if getattr(self, "notice_runtime", None) is not None:
+            self.notice_runtime.close()
         self._reset_master_developer_author_clicks()
         if not bool(getattr(self, "scheduler_worker_mode", False)):
             self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
