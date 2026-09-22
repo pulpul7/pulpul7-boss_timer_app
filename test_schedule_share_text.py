@@ -39,6 +39,22 @@ class ShareTextTests(unittest.TestCase):
         text=render_share_text([dict(scheduled_at=self.now,boss_text='파르바',is_invasion=True)],self.now)
         self.assertEqual(text,'12:00:00 침공 파르바')
 
+    def test_display_name_prefix_is_not_added_twice(self):
+        app=object.__new__(BossTimerApp)
+        app._get_canonical_boss_name=lambda name:name
+        app._get_display_boss_name=lambda name:name
+        name=app._get_schedule_boss_display_name(dict(boss_name='파르바',is_invasion=True),prefer_alias=True)
+        self.assertEqual(name,'침공 파르바')
+        rows=[dict(scheduled_at=self.now,boss_text=name,is_invasion=True)]
+        self.assertEqual(render_share_text(rows,self.now),'12:00:00 침공 파르바')
+        self.assertEqual(rows[0]['boss_text'],name)
+
+    def test_legacy_repeated_invasion_prefix_is_normalized_in_text_only(self):
+        for name in ('침공 침공 파르바','침공: 침공_파르바','침공파르바'):
+            with self.subTest(name=name):
+                self.assertEqual(render_share_text([dict(scheduled_at=self.now,boss_text=name,is_invasion=True)],self.now),
+                                 '12:00:00 침공 파르바')
+
     def test_minute_only_input_is_not_promoted_to_confirmed_seconds(self):
         rows=[dict(scheduled_at=self.now,boss_text='파르바',input_clock_text='12:00'),
               dict(scheduled_at=self.now,boss_text='야른',input_clock_text='12:00:00')]

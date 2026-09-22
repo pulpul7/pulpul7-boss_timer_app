@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
 import sys
 import tempfile
 import urllib.error
@@ -26,6 +27,28 @@ EDGE_TTS_MODULE_RELEASE_URL = (
     f"tts-module-v{EDGE_TTS_MODULE_VERSION}/{EDGE_TTS_MODULE_ASSET_NAME}"
 )
 MODULE_MANIFEST_FILENAME = "module.json"
+
+
+def _create_download_ssl_context() -> ssl.SSLContext:
+    """Use Windows CryptoAPI trust for this download, without global injection.
+
+    This dependency belongs in the main EXE: the optional ZIP isn't installed
+    yet. Missing truststore must not silently switch verification backends.
+    """
+    if sys.platform != "win32":
+        return ssl.create_default_context()
+    try:
+        import truststore
+    except ImportError as exc:
+        raise RuntimeError(
+            "Windows 인증서 저장소를 사용하는 truststore가 프로그램에 포함되지 않았습니다. "
+            "수정된 보탐매니저 배포본을 사용해 주세요. 소스 실행/빌드 환경에서는 "
+            "python -m pip install -r requirements-gui.txt 를 먼저 실행해 주세요."
+        ) from exc
+    context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.check_hostname = True
+    return context
 
 
 @dataclass(frozen=True)
@@ -96,6 +119,7 @@ def install_edge_tts_module(
     url = str(download_url or get_edge_tts_module_download_url()).strip()
     if not url:
         raise RuntimeError("TTS 모듈 다운로드 주소가 설정되지 않았습니다.")
+    context = _create_download_ssl_context()
     target.parent.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="boss_timer_tts_module_", dir=str(target.parent)))
     archive_path = work_dir / "module.zip"
@@ -104,7 +128,7 @@ def install_edge_tts_module(
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "BossTimer-TTS-Module"})
         try:
-            with urlopen(request, timeout=90) as response, archive_path.open("wb") as stream:
+            with urlopen(request, timeout=90, context=context) as response, archive_path.open("wb") as stream:
                 shutil.copyfileobj(response, stream)
         except urllib.error.HTTPError as exc:
             if int(getattr(exc, "code", 0) or 0) == 404:
@@ -112,6 +136,18 @@ def install_edge_tts_module(
                     "GitHub Release 파일을 찾을 수 없습니다. "
                     f"태그 tts-module-v{EDGE_TTS_MODULE_VERSION}에 "
                     f"{EDGE_TTS_MODULE_ASSET_NAME} 파일이 공개 상태로 첨부되어 있는지 확인해주세요."
+                ) from exc
+            raise
+        except (urllib.error.URLError, ssl.SSLCertVerificationError) as exc:
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+                store = "Windows 인증서 저장소" if sys.platform == "win32" else "시스템 인증서 저장소"
+                raise RuntimeError(
+                    f"{store}를 사용했지만 TTS 다운로드 서버의 인증서를 검증하지 못했습니다.\n"
+                    "PC의 날짜/시간과 Windows 업데이트 상태를 확인해 주세요. "
+                    "백신·회사 프록시가 HTTPS를 검사하는 환경이라면 해당 관리자의 인증서 설정 확인이 필요합니다.\n"
+                    "인증서 검증을 끄지 않았으며 기존 TTS 모듈은 변경하지 않았습니다.\n"
+                    f"상세: {reason}"
                 ) from exc
             raise
         if not zipfile.is_zipfile(archive_path):

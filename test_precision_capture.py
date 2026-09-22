@@ -7,7 +7,7 @@ import struct
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zlib
 
 from precision_time_tracker import (PrecisionConfig,Rect,Pixels,Sample,Tick,TickBuffer,
@@ -262,6 +262,9 @@ class FakeApp:
         return {'text':f'{remaining//60:02d}분 {remaining%60:02d}초'}
 
     def _build_schedule_input_ocr_result_for_item(self,item,index):
+        raise AssertionError('정밀 캡처에서 가변 OCR_2 엔진 호출 금지')
+
+    def _build_schedule_input_ocr2_result_for_item(self,item,index):
         self.started.set()
         self._run_schedule_windows_ocr(item,1)
         time.sleep(1.3)
@@ -273,6 +276,26 @@ class FakeApp:
 
 
 class SessionTests(unittest.TestCase):
+    def test_initial_analysis_uses_fixed_ui_ocr1_not_historic_unsuffixed_engine(self):
+        app=FakeApp()
+        result=dict(area='니플하임',base_datetime=datetime(2026,9,20,13,52,48),
+                    slot_results=[dict(boss_name='히로킨',slot_index=1,state='TIMED',
+                                       remaining_seconds=201600,severity='normal',rendered_text='히로킨 2일 8시간')],
+                    scale_logs=['ocr2 fixed=1600x900 area=니플하임'])
+        app._build_schedule_input_ocr2_result_for_item=Mock(return_value=result)
+        session=PrecisionCaptureSession(app,0,SLOTS)
+        session.wall0=datetime(2026,9,20,13,52,48)
+        first=FakeCapture(0).grab(Rect(0,0,1600,900))
+        session.analyse(first)
+        actual,words=session.ocr_results.get_nowait()
+        self.assertIs(actual,result)
+        app._build_schedule_input_ocr2_result_for_item.assert_called_once()
+        item,index=app._build_schedule_input_ocr2_result_for_item.call_args.args
+        self.assertEqual((item['width'],item['height'],index),(1600,900,0))
+        self.assertEqual(item['captured_at'],session.wall0)
+        self.assertEqual(session.ocr._get_schedule_reference_datetime(),session.wall0)
+        self.assertTrue(any('ui=OCR_1 internal=ocr2' in line for line in session.trace))
+
     def test_hermod_completes_even_when_followup_boss_ocr_would_fail(self):
         class HermodApp(FakeApp):
             def _run_schedule_windows_ocr(self,item,scale):
@@ -284,8 +307,8 @@ class SessionTests(unittest.TestCase):
                         word['text']='05분'
                 return result
 
-            def _build_schedule_input_ocr_result_for_item(self,item,index):
-                result=super()._build_schedule_input_ocr_result_for_item(item,index)
+            def _build_schedule_input_ocr2_result_for_item(self,item,index):
+                result=super()._build_schedule_input_ocr2_result_for_item(item,index)
                 result['slot_results'][0].update(boss_name='헤르모드',remaining_seconds=25500)
                 return result
 
@@ -409,7 +432,7 @@ class SessionTests(unittest.TestCase):
 
     def test_only_day_bosses_stop_after_four_second_collection(self):
         class DayApp(FakeApp):
-            def _build_schedule_input_ocr_result_for_item(self,item,index):
+            def _build_schedule_input_ocr2_result_for_item(self,item,index):
                 self._run_schedule_windows_ocr(item,1)
                 return dict(area='test',base_datetime=datetime.now(),slot_results=[
                     dict(boss_name='day',state='TIMED',remaining_seconds=86400)])

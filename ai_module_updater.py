@@ -46,6 +46,17 @@ def version_tuple(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
+def app_version_tuple(value: str) -> tuple[int, int, int]:
+    """Host hotfix labels do not change its three-part compatibility version.
+
+    Keep module versions and manifest bounds strict: this exception is only
+    for the installed BossTimer host (e.g. v5.3.1.fix or v5.3.1.fix2).
+    """
+    text = str(value).strip()
+    text = re.sub(r"(?:[.-]|\s+)fix\d*$", "", text, flags=re.IGNORECASE)
+    return version_tuple(text)
+
+
 def now_text() -> str:
     return datetime.now(KST).isoformat(timespec="seconds")
 
@@ -163,9 +174,10 @@ def validate_manifest(manifest: dict, expected_version: str, app_version: str) -
     if manifest.get("version") != expected_version:
         raise UpdateError("파일명과 내부 버전이 일치하지 않습니다.")
     version_tuple(expected_version)
-    if version_tuple(app_version) < version_tuple(manifest.get("min_app_version", "")):
+    host_version = app_version_tuple(app_version)
+    if host_version < version_tuple(manifest.get("min_app_version", "")):
         raise UpdateError("보탐매니저 본체를 먼저 업데이트해야 합니다.")
-    if manifest.get("max_app_version") and version_tuple(app_version) > version_tuple(manifest["max_app_version"]):
+    if manifest.get("max_app_version") and host_version > version_tuple(manifest["max_app_version"]):
         raise UpdateError("현재 본체와 호환되지 않는 모듈입니다.")
     if manifest.get("python_version") != f"{sys.version_info.major}.{sys.version_info.minor}":
         raise UpdateError("Python 실행 환경 버전이 일치하지 않습니다.")

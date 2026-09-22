@@ -3,7 +3,7 @@ import tkinter as tk
 
 
 class CaptureProgress:
-    def __init__(self, owner, rect, cancel, *, retry_names=(), rate=5):
+    def __init__(self, owner, rect, cancel, *, retry_names=(), rate=5, topmost=True):
         self.window = tk.Toplevel(owner)
         window = self.window
         window.title('초정밀 측정 · 재시도' if retry_names else '초정밀 측정')
@@ -11,7 +11,7 @@ class CaptureProgress:
         window.geometry(f"460x148{int(rect['left'])+570:+d}{int(rect['top'])+6:+d}")
         window.resizable(False,False)
         window.configure(bg='#f8fafc')
-        window.attributes('-topmost',True)
+        window.attributes('-topmost',topmost)
         window.protocol('WM_DELETE_WINDOW',cancel)
         font=('맑은 고딕',9)
         tk.Frame(window,bg='#2563eb').place(x=0,y=0,relwidth=1,height=4)

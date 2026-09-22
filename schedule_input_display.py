@@ -1,5 +1,6 @@
 """Text tags hide precision visually; the Text buffer is always lossless."""
 import re
+from schedule_input_syntax import expand_schedule_boss_line
 
 FRACTION_PATTERN = re.compile(
     r'(?m)^\s*(?:\d+일\s+)?(?:\d{1,2}:\d{2}:\d{2}|\d{6})(\.\d{1,6})(?=\s|$)')
@@ -18,17 +19,18 @@ def find_duplicate_boss_lines(raw_text, parse_line):
     for line_no, line in enumerate(raw_text.splitlines(), 1):
         if not line.strip() or line.lstrip().startswith('#'):
             continue
-        parsed = parse_line(line)
-        if not parsed or parsed.get('state') == 'control':
-            continue
-        key = str(parsed.get('raw_key') or '').strip()
-        if not key:
-            continue
-        group = groups.setdefault(key, {
-            'name': str(parsed.get('display_name') or parsed.get('boss_name') or key),
-            'lines': [],
-        })
-        group['lines'].append(line_no)
+        for expanded in expand_schedule_boss_line(line):
+            parsed = parse_line(expanded)
+            if not parsed or parsed.get('state') == 'control':
+                continue
+            key = str(parsed.get('raw_key') or '').strip()
+            if not key:
+                continue
+            group = groups.setdefault(key, {
+                'name': str(parsed.get('display_name') or parsed.get('boss_name') or key),
+                'lines': [],
+            })
+            group['lines'].append(line_no)
     return [group for group in groups.values() if len(group['lines']) > 1]
 
 

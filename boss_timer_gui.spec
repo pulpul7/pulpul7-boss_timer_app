@@ -10,6 +10,13 @@ from pathlib import Path
 import subprocess
 import sys
 
+# Required before the optional TTS ZIP can be downloaded. Fail before producing
+# build artifacts if the build environment would omit Windows certificate trust.
+try:
+    import truststore
+except ImportError as exc:
+    raise RuntimeError("Install GUI dependencies first: python -m pip install -r requirements-gui.txt") from exc
+
 
 def collect_tree(
     src_dir: Path,
@@ -306,6 +313,8 @@ a = Analysis(
         "mimetypes",
         "netrc",
         "ssl",
+        "truststore",
+        "truststore._windows",
     ],
     hookspath=["pyinstaller_hooks"],
     hooksconfig={},

@@ -56,6 +56,9 @@ def build_distribution_baseline(resource_init, destination, groups, *, server_id
     if config.is_file():
         shutil.copy2(config, destination / "boss_timer_settings.ini")
         manifest["config_snapshot"] = "boss_timer_settings.ini"
+    notice = Path(resource_init) / "default_notice_settings.json"
+    if notice.is_file():
+        shutil.copy2(notice, destination / "notice_settings.json")
     (destination / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
 

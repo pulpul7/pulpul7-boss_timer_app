@@ -38,6 +38,7 @@ from tkinter import ttk
 from schedule_precision import DEFAULT_CAPTURE_RATE
 from ai_update_center import AiUpdateCenter
 from notice_runtime import NoticeHost, NoticeRuntime
+from discord_connection_policy import ConnectionPolicy, MAX_RETRIES
 
 from audio_pipeline import AudioPipeline, OutputConditionEvaluator, OutputDecision, OutputTarget, PlaybackRequest
 from voice_test_scenarios import VOICE_TEST_SCENARIOS, build_voice_test_plan
@@ -1635,6 +1636,27 @@ class BossTimerApp:
         return (manifest if isinstance(manifest, dict) else None), baseline_dir
 
     def _restore_settings_rollback_baseline(self, selected_groups: set[str], *, distribution_defaults=False, _baseline_override=None) -> tuple[bool, str]:
+        if "notice" in selected_groups:
+            # Notice settings are restored by the isolated module, not by
+            # replacing its server database (which contains live event history).
+            baseline = self._get_settings_rollback_baseline_dir()
+            source = (os.path.join(get_resource_root(), "init", "default_notice_settings.json")
+                      if distribution_defaults else os.path.join(baseline, "notice_settings.json"))
+            try:
+                with open(source, encoding="utf-8-sig") as file:
+                    payload = json.load(file)
+                runtime = getattr(self, "notice_runtime", None)
+                if runtime is None:
+                    return False, "알리미 모듈이 준비되지 않았습니다. 알리미 관리를 먼저 열어 주세요."
+                runtime.restore_settings(payload)
+            except Exception as exc:
+                return False, f"알리미 설정 롤백 실패: {exc}"
+            remaining = selected_groups - {"notice"}
+            if not remaining:
+                return True, "알리미 설정을 롤백했습니다. 공지·스케줄·송출 이력은 유지했습니다."
+            ok, message = self._restore_settings_rollback_baseline(
+                remaining, distribution_defaults=distribution_defaults, _baseline_override=_baseline_override)
+            return ok, "알리미 설정 롤백 완료. " + message
         if distribution_defaults:
             from schedule_profile_migration import build_distribution_baseline
             try:
@@ -3043,6 +3065,9 @@ class BossTimerApp:
         self.schedule_input_ocr_addon_last_capture_at = 0.0
         self.schedule_input_ocr_addon_restore_after_capture = False
         self.schedule_input_ocr_addon_restore_block_until = 0.0
+        self.schedule_input_capture_hidden_windows = []
+        self.schedule_input_capture_restore_after_id = None
+        self.schedule_input_capture_minimized_once = False
         self.schedule_input_clipboard_poll_after_id = None
         self.schedule_input_last_clipboard_sequence = 0
         self.schedule_input_ocr_addon_session_id = 0
@@ -3200,16 +3225,81 @@ class BossTimerApp:
                 get_parent=lambda: getattr(self, "schedule_window", None) or self.root,
                 message_box=self._show_centered_messagebox, log=self._append_debug_log,
                 call_later=self.root.after, cancel_later=cancel_later,
+                preview_synthesizer=lambda: EdgeTtsCache(self.edge_tts_settings),
+                get_schedule_snapshot=self._get_notice_schedule_snapshot,
+                apply_temporary_maintenance=self._apply_notice_temporary_maintenance,
+                get_preparation_profile=self._get_notice_preparation_profile,
             )
             self.notice_runtime = NoticeRuntime(host, get_app_root(), get_resource_root(), APP_VERSION)
         self.notice_runtime.start()
         return self.notice_runtime
 
+    def _get_notice_preparation_profile(self):
+        settings = self.edge_tts_settings
+        return dict(signature=settings.cache_signature(), enabled=settings.enabled,
+                    factory=lambda: EdgeTtsCache(settings))
+
+    def _get_notice_schedule_snapshot(self):
+        """Read-only host facts. Notice rules live in the updateable module."""
+        if getattr(self, 'discord_handover_busy', False):
+            return None
+        rows = []
+        for item in self.schedule_events:
+            when = item.get('scheduled_at')
+            if not isinstance(when, datetime):
+                continue
+            name = self._get_schedule_boss_definition_name(item)
+            definition = self.schedule_boss_definitions.get(name, {})
+            rows.append(dict(boss_name=name or item.get('boss_name', ''),
+                             display_name=self._get_schedule_boss_display_name(item, prefer_alias=True),
+                             scheduled_at=when.isoformat(), precision=self._infer_schedule_state_precision(item),
+                             area=definition.get('area', ''), absolute=bool(definition.get('absolute')),
+                             star=bool(definition.get('star', False)),
+                             state=item.get('state', ''), cut_applied=bool(item.get('cut_applied')),
+                             is_invasion=self._is_schedule_invasion_item(item)))
+        now = self._get_schedule_reference_datetime()
+        fixed_rows = getattr(self, '_get_fixed_boss_schedule_rows_for_alarm', None)
+        if callable(fixed_rows):
+            for row in fixed_rows(now, days=2):
+                rows.append(dict(boss_name=row[1], display_name=row[1], scheduled_at=row[0].isoformat(),
+                                 precision='minute', area='고정보스', star=False, fixed=True))
+        maintenance = self._get_schedule_maintenance_cutoff_datetime(now)
+        return dict(server_id=str(getattr(self, 'schedule_server_profile_id', '') or ''),
+                    season=str(self.current_season_no), events=rows,
+                    important_names=[name for name, item in self.schedule_boss_definitions.items() if item.get('star')],
+                    regular_maintenance=maintenance.isoformat() if maintenance else None)
+
+    def _apply_notice_temporary_maintenance(self, request):
+        if (getattr(self, 'discord_handover_busy', False)
+                or request.get('server_id') != str(getattr(self, 'schedule_server_profile_id', '') or '')
+                or request.get('season') != str(self.current_season_no)):
+            return 'deferred'
+        from datetime import timezone
+        scheduled_at = datetime.fromisoformat(request['scheduled_at']).astimezone(
+            timezone(timedelta(hours=9))).replace(tzinfo=None)
+        now = self._get_schedule_reference_datetime()
+        if scheduled_at <= now:
+            return 'conflict'
+        for item in self.schedule_control_events:
+            if item.get('control_type') != 'temporary_maintenance':
+                continue
+            if item.get('notice_import_key') == request['key'] or item.get('scheduled_at') == scheduled_at:
+                return 'existing'
+            if isinstance(item.get('scheduled_at'), datetime) and item['scheduled_at'] > now:
+                return 'conflict'  # Never replace a different manually registered maintenance.
+        before = list(self.schedule_control_events)
+        try:
+            self._add_temporary_maintenance_control_event(scheduled_at, source_label='알리미 공지', notice_key=request['key'])
+        except Exception:
+            self.schedule_control_events = before
+            raise
+        return 'applied'
+
     def open_notice_management(self) -> None:
         try:
             self._ensure_notice_runtime().open_management()
         except Exception as exc:
-            self._show_centered_messagebox("showerror", "알림 관리", str(exc), parent=self.schedule_window or self.root)
+            self._show_centered_messagebox("showerror", "알리미 관리", str(exc), parent=self.schedule_window or self.root)
 
     def _get_file_mtime(self, path: str) -> float:
         try:
@@ -4632,13 +4722,14 @@ class BossTimerApp:
             dialog.transient(host)
         except tk.TclError:
             pass
-        self._center_window_over_parent(dialog, host, 360, 346)
+        self._center_window_over_parent(dialog, host, 360, 377)
         selections = {
             "metrics": tk.BooleanVar(value=True),
             "breaks": tk.BooleanVar(value=True),
             "alarm": tk.BooleanVar(value=True),
             "fixed": tk.BooleanVar(value=True),
             "boss": tk.BooleanVar(value=True),
+            "notice": tk.BooleanVar(value=True),
         }
         labels = (
             ("metrics", "소요시간 / 점수"),
@@ -4646,6 +4737,7 @@ class BossTimerApp:
             ("alarm", "알람설정"),
             ("fixed", "고정보스"),
             ("boss", "보스설정  (목록·지역색·보스별 색)"),
+            ("notice", "알리미  (수집·사용 여부·TTS 문구)"),
         )
         status_var = tk.StringVar(value="현재 기준점 또는 배포 기본값을 선택하세요." if available else "기준점 오류: 배포 기본값으로 복구할 수 있습니다.")
         tk.Label(dialog, text="설정 롤백", font=self.header_font, bg="#fed7aa", fg="#7c2d12").place(x=0, y=0, width=360, height=42)
@@ -4670,7 +4762,7 @@ class BossTimerApp:
                 anchor="w",
                 cursor="hand2",
             ).place(x=24, y=106 + index * 31, width=310, height=26)
-        tk.Label(dialog, textvariable=status_var, font=(self.current_font_family, 9, "bold"), bg="#fff7ed", fg="#9a3412", anchor="w", justify="left", wraplength=314).place(x=22, y=266, width=316, height=38)
+        tk.Label(dialog, textvariable=status_var, font=(self.current_font_family, 9, "bold"), bg="#fff7ed", fg="#9a3412", anchor="w", justify="left", wraplength=314).place(x=22, y=297, width=316, height=38)
 
         def close_dialog() -> None:
             try:
@@ -4701,9 +4793,9 @@ class BossTimerApp:
             self._show_centered_messagebox("showinfo", "설정 롤백", message, parent=dialog)
             close_dialog()
 
-        tk.Button(dialog, text="배포 기본값", font=self.button_font, bg="#2563eb", fg="#ffffff", command=lambda: restore(distribution_defaults=True), cursor="hand2").place(x=22, y=312, width=140, height=28)
-        tk.Button(dialog, text="확인", font=self.button_font, bg="#ea580c", fg="#ffffff", activebackground="#f97316", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=restore, cursor="hand2").place(x=174, y=312, width=76, height=28)
-        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=close_dialog, cursor="hand2").place(x=262, y=312, width=76, height=28)
+        tk.Button(dialog, text="배포 기본값", font=self.button_font, bg="#2563eb", fg="#ffffff", command=lambda: restore(distribution_defaults=True), cursor="hand2").place(x=22, y=343, width=140, height=28)
+        tk.Button(dialog, text="확인", font=self.button_font, bg="#ea580c", fg="#ffffff", activebackground="#f97316", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=restore, cursor="hand2").place(x=174, y=343, width=76, height=28)
+        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=close_dialog, cursor="hand2").place(x=262, y=343, width=76, height=28)
         try:
             dialog.grab_set()
             dialog.focus_force()
@@ -5175,6 +5267,7 @@ class BossTimerApp:
         self.discord_bot_application_id = self._sanitize_discord_bot_application_id(payload.get("application_id", ""))
         self.discord_bot_server_id = str(payload.get("server_id", "") or "").strip()
         self.discord_bot_voice_channel_id = str(payload.get("voice_channel_id", "") or "").strip()
+        self.discord_bot_default_voice_channel_id = str(payload.get("default_voice_channel_id") or self.discord_bot_voice_channel_id)
         self.discord_bot_text_channel_id = str(payload.get("text_channel_id", "") or "").strip()
         self.discord_bot_voice_panel_channel_id = str(payload.get("voice_panel_channel_id", "") or "").strip()
         invite_links = payload.get("invite_links", {})
@@ -5214,6 +5307,7 @@ class BossTimerApp:
             "application_id": application_id,
             "server_id": str(section.get("server_id", "") or "").strip(),
             "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
+            "default_voice_channel_id": str(section.get("default_voice_channel_id", section.get("voice_channel_id", "")) or "").strip(),
             "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
             "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
             "invite_url": invite_url,
@@ -5227,6 +5321,7 @@ class BossTimerApp:
         config = configparser.ConfigParser(interpolation=None)
         persisted_voice_panel_channel_id = ""
         persisted_voice_panel_message_id = ""
+        persisted_text_channel_keep_count = "2"
         try:
             config.read(config_path, encoding="utf-8")
             if config.has_section("discord_bot"):
@@ -5236,6 +5331,7 @@ class BossTimerApp:
                 persisted_voice_panel_message_id = str(
                     config["discord_bot"].get("voice_panel_message_id", "") or ""
                 ).strip()
+                persisted_text_channel_keep_count = str(config["discord_bot"].get("text_channel_keep_count", "2"))
         except (OSError, configparser.Error):
             pass
         application_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
@@ -5256,7 +5352,7 @@ class BossTimerApp:
         self.discord_bot_invite_links = invite_links
         self.discord_bot_invite_url = invite_url
         voice_panel_channel_id = str(
-            getattr(self, "discord_bot_voice_panel_channel_id", "") or persisted_voice_panel_channel_id
+            persisted_voice_panel_channel_id or getattr(self, "discord_bot_voice_panel_channel_id", "")
         ).strip()
         self.discord_bot_voice_panel_channel_id = voice_panel_channel_id
         config["discord_bot"] = {
@@ -5264,9 +5360,11 @@ class BossTimerApp:
             "application_id": application_id,
             "server_id": str(getattr(self, "discord_bot_server_id", "") or "").strip(),
             "voice_channel_id": str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip(),
+            "default_voice_channel_id": str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "")),
             "text_channel_id": str(getattr(self, "discord_bot_text_channel_id", "") or "").strip(),
             "voice_panel_channel_id": voice_panel_channel_id,
             "voice_panel_message_id": persisted_voice_panel_message_id,
+            "text_channel_keep_count": persisted_text_channel_keep_count,
             "invite_url": invite_url,
             "voice_bridge_enabled": "1",
             "mute_pc_audio_when_online": "1" if bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)) else "0",
@@ -5284,19 +5382,26 @@ class BossTimerApp:
 
     def _get_discord_bot_status_kind(self) -> str:
         payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+        if payload.get("standby"):
+            return "offline"
         if bool(payload.get("shutdown_requested")):
             return "pending"
         if bool(getattr(self, "discord_bot_voice_bridge_online", False)):
             return "online"
         if bool(payload.get("online")) and bool(payload.get("voice_connected")):
             return "error"
-        if str(payload.get("last_error") or "").strip():
+        if str(payload.get("configuration_error") or payload.get("last_error") or "").strip():
             return "error"
         if bool(payload.get("ok")) or self._is_discord_bot_process_alive():
             return "pending"
         return "offline"
 
     def _get_discord_bot_status_text(self) -> str:
+        payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+        if payload.get("standby"):
+            return "봇상태: 대기"
+        if int(payload.get("reconnect_attempts") or 0) >= MAX_RETRIES and not payload.get("voice_connected"):
+            return "봇상태: 재접속 제한"
         status_kind = self._get_discord_bot_status_kind()
         if status_kind == "online":
             payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
@@ -5408,6 +5513,12 @@ class BossTimerApp:
         configured_voice_channel_id = str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip()
         reported_server_id = str(safe_payload.get("guild_id") or "").strip()
         reported_voice_channel_id = str(safe_payload.get("voice_channel_id") or "").strip()
+        if (safe_payload.get("connection_control") and safe_payload.get("voice_connected")
+                and not safe_payload.get("standby") and configured_server_id.isdigit()
+                and reported_server_id == configured_server_id and reported_voice_channel_id.isdigit()):
+            # A /보탐 접속 move changes the current channel, not the default.
+            self.discord_bot_voice_channel_id = reported_voice_channel_id
+            configured_voice_channel_id = reported_voice_channel_id
         server_matches = not configured_server_id.isdigit() or reported_server_id == configured_server_id
         voice_channel_matches = (
             not configured_voice_channel_id.isdigit()
@@ -5466,10 +5577,16 @@ class BossTimerApp:
         self.discord_bot_voice_bridge_heartbeat_last_sent_at = 0.0
 
     def _recover_discord_bot_runtime(self, reason: str) -> None:
+        policy = ConnectionPolicy(self._get_discord_bot_config_storage_path())
+        state = policy.snapshot()
+        if state["standby"] or state["error"] or state["retries"] >= MAX_RETRIES:
+            return
         if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
             return
         now_monotonic = time.monotonic()
         if now_monotonic < float(getattr(self, "discord_bot_voice_bridge_recovery_grace_until", 0.0) or 0.0):
+            return
+        if not policy.claim_retry():
             return
         self.discord_bot_voice_bridge_recovery_grace_until = now_monotonic + DISCORD_BOT_RECOVERY_GRACE_SEC
         self._append_debug_log(f"discord_bot_auto_reconnect_requested reason={reason}")
@@ -5488,10 +5605,21 @@ class BossTimerApp:
         )
 
     def _monitor_discord_bot_voice_bridge_health(self, payload: dict[str, object]) -> None:
+        if (payload.get("configuration_error") or payload.get("standby") or payload.get("handover_hold")
+                or getattr(self, "discord_handover_busy", False)):
+            # Invalid credentials/channel are not a transient network failure.
+            # Restarting repeatedly can disturb an otherwise healthy bot.
+            self._reset_discord_voice_bridge_health_tracking()
+            return
         if not bool(getattr(self, "discord_bot_expected_running", False)):
             self._reset_discord_voice_bridge_health_tracking()
             return
         if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
+            return
+        # A responsive new bot owns its bounded Gateway/voice retry sequence.
+        # The GUI only recovers a missing/hung process; it must not restart a
+        # healthy status server to bypass the bot's stop gate or retry limit.
+        if payload.get("ok") and payload.get("connection_control") and not payload.get("voice_connected"):
             return
         self._maybe_emit_discord_auto_reconnect_notice(payload)
         now_monotonic = time.monotonic()
@@ -6248,12 +6376,14 @@ class BossTimerApp:
             except tk.TclError:
                 pass
         self._apply_discord_bot_status_label_style()
-        last_error = str(payload.get("last_error") or "").strip()
+        last_error = str(payload.get("configuration_error") or payload.get("last_error") or "").strip()
         if last_error and self._widget_available(self.schedule_window):
             try:
                 self.schedule_status_var.set(f"디스코드 봇 오류: {last_error}")
             except tk.TclError:
                 pass
+        if payload.get("configuration_error"):
+            return
         if is_online:
             if not bool(payload.get("text_commands_enabled", True)) and self._widget_available(self.schedule_window):
                 try:
@@ -6468,8 +6598,7 @@ class BossTimerApp:
         server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
         if not token or not server_id.isdigit():
             return True
-        executable_path = self._get_discord_bot_executable_path()
-        command = [executable_path] if executable_path else self._get_discord_bot_script_command()
+        command = self._get_discord_bot_launch_command()
         if not command:
             return False
         try:
@@ -6534,11 +6663,16 @@ class BossTimerApp:
         return bool(result_payload.get("ok"))
 
     def _cleanup_stale_discord_bot_runtime_at_startup(self) -> bool:
+        state = ConnectionPolicy(self._get_discord_bot_config_storage_path()).snapshot()
+        if state["standby"]:
+            self.discord_bot_startup_cleanup_failed = False
+            return True
         payload = self._query_discord_bot_status_port(timeout=0.25)
         stopped = True
         if bool(payload.get("ok")):
             stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
-        disconnected = self._run_discord_bot_disconnect_only() if stopped else False
+        # Never log in remotely merely to disconnect another administrator.
+        disconnected = stopped
         cleaned = bool(stopped and disconnected)
         self.discord_bot_startup_cleanup_failed = not cleaned
         self._append_debug_log(
@@ -6574,20 +6708,51 @@ class BossTimerApp:
         python_path = pythonw_path if os.path.isfile(pythonw_path) else sys.executable
         return [python_path, script_path]
 
-    def _start_discord_bot_runtime(self) -> bool:
+    def _get_discord_bot_launch_command(self) -> list[str]:
+        """Source GUI uses source bot; frozen deployments use their packaged bot."""
+        if not getattr(sys, "frozen", False):
+            script_command = self._get_discord_bot_script_command()
+            if script_command:
+                return script_command
+        executable_path = self._get_discord_bot_executable_path()
+        return [executable_path] if executable_path else []
+
+    def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False) -> bool:
+        if not automatic and not handover_approved:
+            from discord_handover import DiscordHandover
+            try:
+                coordinator = getattr(self, "discord_handover", None)
+                if (coordinator is None or not coordinator.alive
+                        or coordinator.profile != self._get_discord_bot_config_storage_path()
+                        or coordinator.scope["guild"] != str(self.discord_bot_server_id)
+                        or coordinator.scope["season"] != str(self.current_season_no)):
+                    if coordinator is not None:
+                        coordinator.alive = False
+                    coordinator = self.discord_handover = DiscordHandover(self)
+                coordinator.start()
+                return True
+            except Exception as exc:
+                self._show_centered_messagebox("showerror", "관리자 인계", str(exc), parent=self.schedule_window or self.root)
+                return False
         # The bot can be moved directly in Discord.  Its process persists that
         # new channel in the active server profile, so treat the profile file
         # as authoritative before every launch rather than restoring stale UI
         # values from a previously opened schedule window.
         self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
-        executable_path = self._get_discord_bot_executable_path()
-        command = [executable_path] if executable_path else self._get_discord_bot_script_command()
+        command = self._get_discord_bot_launch_command()
         if not command:
             self.discord_bot_running = False
             self._refresh_discord_bot_status_ui()
             self.schedule_status_var.set("디스코드 봇 실행 파일이나 스크립트를 찾지 못했습니다.")
             return False
         try:
+            policy = ConnectionPolicy(self._get_discord_bot_config_storage_path())
+            state = policy.snapshot()
+            if automatic:
+                if state["standby"] or state["error"]:
+                    return False
+            else:
+                policy.resume()
             env = os.environ.copy()
             env["BOSS_TIMER_DISCORD_CONFIG"] = self._get_discord_bot_config_storage_path()
             env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
@@ -6600,6 +6765,7 @@ class BossTimerApp:
             env["BOSS_TIMER_DISCORD_STATUS_PORT"] = str(DISCORD_BOT_STATUS_PORT)
             env["BOSS_TIMER_DISCORD_VOICE_QUEUE"] = DISCORD_VOICE_BRIDGE_PATH
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            env["BOSS_TIMER_DISCORD_RETRY_RESERVED"] = "1" if automatic else "0"
             self.discord_bot_process = subprocess.Popen(
                 command,
                 cwd=get_app_root(),
@@ -6633,7 +6799,8 @@ class BossTimerApp:
             or self._is_discord_bot_process_alive()
         )
         if has_existing_runtime:
-            restart_after_cleanup = bool(getattr(self, "discord_bot_startup_cleanup_failed", False))
+            restart_after_cleanup = bool(getattr(self, "discord_bot_startup_cleanup_failed", False)
+                                         or getattr(self, "discord_bot_last_status_payload", {}).get("standby"))
             self.discord_bot_expected_running = bool(restart_after_cleanup)
             self._set_discord_bot_toggle_locked(True, seconds=10.0 if restart_after_cleanup else 7.0)
             stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.5, force_timeout=1.0)
@@ -6652,6 +6819,9 @@ class BossTimerApp:
                     pass
             else:
                 self.schedule_status_var.set("디스코드 봇을 종료했습니다.")
+                coordinator = getattr(self, "discord_handover", None)
+                if coordinator is not None:
+                    coordinator.release_after_stop()
             return
         self._start_discord_bot_runtime()
 
@@ -6713,7 +6883,7 @@ class BossTimerApp:
 
         def restart_runtime() -> None:
             try:
-                started = self._start_discord_bot_runtime()
+                started = self._start_discord_bot_runtime(automatic=automatic_recovery)
                 if started:
                     self.schedule_status_var.set("초대 요청 채널로 디스코드 봇을 다시 연결하고 있습니다.")
                 else:
@@ -6806,7 +6976,7 @@ class BossTimerApp:
         token_var = tk.StringVar(value=self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")))
         application_id_var = tk.StringVar(value=self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", "")))
         server_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_server_id", "") or ""))
-        voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_voice_channel_id", "") or ""))
+        voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "") or ""))
         text_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_text_channel_id", "") or ""))
         mute_pc_audio_var = tk.BooleanVar(value=bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)))
         status_var = tk.StringVar(value=f"저장 위치: {self._get_discord_bot_config_storage_path()}")
@@ -6841,6 +7011,7 @@ class BossTimerApp:
             self.discord_bot_application_id = application_id_text
             self.discord_bot_server_id = server_id_text
             self.discord_bot_voice_channel_id = voice_channel_id_text
+            self.discord_bot_default_voice_channel_id = voice_channel_id_text
             self.discord_bot_text_channel_id = text_channel_id_text
             self.discord_bot_mute_pc_audio_when_online = bool(mute_pc_audio_var.get())
             if self.discord_bot_application_id:
@@ -6875,7 +7046,7 @@ class BossTimerApp:
         tk.Label(dialog, text="비워두면 ‘보탐매니저’ 텍스트 채널을 자동으로 찾습니다. /보탐채널로도 지정할 수 있습니다.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=240, width=468, height=20)
         tk.Label(
             dialog,
-            text="여러 PC에서 같은 봇 토큰·Application ID를 사용할 수 있습니다.\n서버 ID는 각 PC가 담당할 서로 다른 서버 ID를 입력하세요.",
+            text="서버 ID·음성채널 ID는 각 PC가 담당할 서버의 값을 입력하세요.\n새 봇으로 바꿀 때는 토큰과 Application ID를 함께 변경하세요.",
             font=self.percent_font,
             bg="#dbeafe",
             fg="#1e3a8a",
@@ -11351,6 +11522,7 @@ class BossTimerApp:
         mark_github_dirty: bool = False,
         sync_shared_export: bool = True,
         reset_voice_queue: bool | None = None,
+        raise_on_error: bool = False,
     ) -> None:
         self._prune_old_schedule_state_items()
         if reset_voice_queue is None:
@@ -11401,7 +11573,15 @@ class BossTimerApp:
                     os.remove(temp_path)
                 except OSError:
                     pass
+            if raise_on_error:
+                raise
             return
+        runtime = getattr(self, 'notice_runtime', None)
+        if runtime is not None:
+            try:
+                runtime.notify_schedule_changed()
+            except Exception as exc:
+                self._append_debug_log(f'notice_schedule_change_notify_failed {exc}')
         self._append_debug_log(
             f"schedule_state_save path={state_path} app={get_app_root()} pid={os.getpid()} "
             f"caller={sys._getframe(1).f_code.co_name} events={len(self.schedule_events)} "
@@ -12069,12 +12249,37 @@ class BossTimerApp:
             if reference_value < expires_at.replace(microsecond=0) and not self._has_schedule_input_custom_server_open_expired_by_maintenance(reference_value):
                 return custom_datetime.replace(second=0, microsecond=0)
             self._clear_schedule_input_custom_server_open_datetime()
-        return self._get_schedule_default_server_open_datetime(reference_value)
+        return self._get_schedule_input_auto_server_open_datetime(reference_value)
+
+    def _get_schedule_input_auto_server_open_datetime(self, reference_datetime: datetime) -> datetime:
+        fallback = self._get_schedule_default_server_open_datetime(reference_datetime)
+        runtime = getattr(self, 'notice_runtime', None)
+        if runtime is None or getattr(self, 'discord_handover_busy', False):
+            return fallback
+        try:
+            # Actual wall time, never a future capture/edit reference, gates use.
+            actual_now = self._get_schedule_reference_datetime()
+            result = runtime.get_server_open_override(
+                str(getattr(self, 'schedule_server_profile_id', '') or ''), actual_now, reference_datetime)
+            if not result:
+                return fallback
+            # Module timestamps are KST; the existing application uses naive KST.
+            from datetime import timezone
+            kst = timezone(timedelta(hours=9))
+            def local(value):
+                parsed = datetime.fromisoformat(value)
+                return parsed.astimezone(kst).replace(tzinfo=None) if parsed.tzinfo else parsed
+            opened, expires = local(result['server_open']), local(result['valid_until'])
+            if opened <= actual_now < expires and opened <= reference_datetime < expires:
+                return opened.replace(second=0, microsecond=0)
+        except Exception as exc:
+            self._append_debug_log(f'notice_server_open_fallback {exc}')
+        return fallback
 
     def _remember_schedule_input_server_open_datetime(self, selected_datetime: datetime, reference_datetime: datetime) -> None:
         selected_value = selected_datetime.replace(second=0, microsecond=0)
         reference_value = reference_datetime.replace(microsecond=0)
-        default_value = self._get_schedule_default_server_open_datetime(reference_value).replace(second=0, microsecond=0)
+        default_value = self._get_schedule_input_auto_server_open_datetime(reference_value).replace(second=0, microsecond=0)
         if selected_value == default_value:
             self._clear_schedule_input_custom_server_open_datetime()
             return
@@ -18686,7 +18891,7 @@ class BossTimerApp:
         widget.see('1.0')
         widget.focus_set()
         self.schedule_input_placeholder_active = False
-        self.schedule_input_guide_var.set('TXT 편집 · 젠시간 보스이름 · 중복 보스는 첫 일정만 가져옵니다.')
+        self.schedule_input_guide_var.set('TXT 편집 · 젠시간 보스이름 · 중복 보스도 표시합니다.')
         self.schedule_input_status_var.set('복사 설정의 텍스트를 클립보드와 입력창에 넣었습니다. 시간정렬 OFF · 편집 후 적용하세요.')
         self._update_schedule_input_apply_state()
         self.schedule_status_var.set('TXT를 클립보드에 복사하고 스케쥴 입력창을 열었습니다.')
@@ -19275,6 +19480,7 @@ class BossTimerApp:
             "connection_log": "음성 자동 재접속",
             "voice_play": "음성 송출",
             "voice_prepare": "음성 준비",
+            "countdown_control": "초읽기 설정",
         }.get(operation_key, "추가/수정")
         try:
             monitor.config(state="normal")
@@ -19564,6 +19770,8 @@ class BossTimerApp:
         )
 
     def _apply_discord_schedule_request(self, payload: dict[str, object]) -> tuple[bool, str]:
+        if getattr(self, "discord_handover_busy", False):
+            return False, "관리자 인계 진행 중입니다. 완료 후 다시 요청하세요."
         request_server_id = str(payload.get("server_id") or "").strip()
         configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
         if (
@@ -19584,6 +19792,17 @@ class BossTimerApp:
             return self._delete_discord_schedule_bosses([str(name) for name in names])
         if operation == "apply":
             return self._apply_discord_schedule_text(str(payload.get("raw_text") or ""))
+        if operation == "countdown_control":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                return False, "초읽기 설정 값이 올바르지 않습니다."
+            if not configured_server_id.isdigit() or request_server_id != configured_server_id:
+                return False, "초읽기 요청의 서버 정보를 확인할 수 없습니다."
+            if bool(self.schedule_alarm_countdown_enabled_var.get()) == enabled:
+                return True, "이미 초읽기가 켜져 있습니다." if enabled else "이미 초읽기가 해제되어 있습니다."
+            self.schedule_alarm_countdown_enabled_var.set(enabled)
+            self._apply_schedule_alarm_global_options(show_status=False)
+            return True, "초읽기를 켰습니다." if enabled else "초읽기를 해제했습니다."
         if operation == "discord_reconnect":
             return self._reconnect_discord_bot_runtime_from_request(payload)
         if operation == "connection_log":
@@ -19635,6 +19854,7 @@ class BossTimerApp:
         if self.schedule_input_add_mode:
             return (
                 "- 기존 스케쥴에 몇 줄만 추가 입력\n"
+                "2120 그로아, 헤이드, 티르\n"
                 "1817 그로아\n"
                 "2510 그로아\n"
                 "18:17 그로아\n"
@@ -19653,6 +19873,7 @@ class BossTimerApp:
             )
         return (
             "- 디코보탐매니저 텍스트 복사 또는 수동입력\n"
+            "2120 그로아, 헤이드, 티르\n"
             "1817 그로아\n"
             "2510 그로아\n"
             "18:17 그로아\n"
@@ -21871,29 +22092,36 @@ class BossTimerApp:
             return
         self.schedule_input_ocr_addon_active_hwnd = hwnd
         self.schedule_input_ocr_addon_last_odin_hwnd = hwnd
-        restore_after_capture = False
-        addon_window = self.schedule_input_ocr_addon_window
-        if self.schedule_input_ocr_addon_open and addon_window is not None and addon_window.winfo_exists():
-            try:
-                restore_after_capture = str(addon_window.state()) != "withdrawn"
-            except tk.TclError:
-                restore_after_capture = True
-            if restore_after_capture:
-                try:
-                    addon_window.withdraw()
-                except tk.TclError:
-                    restore_after_capture = False
-        self.schedule_input_ocr_addon_restore_after_capture = restore_after_capture
         self.schedule_input_ocr_addon_busy = True
+        self.schedule_input_ocr_addon_restore_after_capture = True
         self._update_schedule_input_ocr_addon_controls()
         session_id = int(self.schedule_input_ocr_addon_session_id or 0)
-        def worker(current_hwnd: int) -> None:
+        try:
+            from capture_window_visibility import minimize_app_windows
+            if not getattr(self, 'schedule_input_capture_minimized_once', False):
+                self.schedule_input_capture_hidden_windows = minimize_app_windows(self, hwnd)
+                self.schedule_input_capture_minimized_once = True
+            else:
+                self.schedule_input_capture_hidden_windows = []
+                window = self.schedule_input_ocr_addon_window
+                if self.schedule_input_ocr_addon_open and window is not None and window.winfo_exists():
+                    saved = (window, window.state(), window.attributes('-topmost'))
+                    self.schedule_input_capture_hidden_windows.append(saved)
+                    window.withdraw()
+                self.root.update_idletasks()
+        except Exception as exc:
+            self._finish_schedule_input_ocr_addon_capture(f"캡처 창 최소화 실패: {exc}")
+            return
+        def finish_error(message):
+            if session_id == int(self.schedule_input_ocr_addon_session_id or 0):
+                self._finish_schedule_input_ocr_addon_capture(message)
+        def capture_worker(current_hwnd: int) -> None:
             target_hwnd = int(current_hwnd or 0)
             if not self._is_valid_window_handle(target_hwnd):
                 target_hwnd = self._get_preferred_odin_window_handle()
             if not target_hwnd:
                 if self.root is not None and self.root.winfo_exists():
-                    self.root.after(0, lambda: self._finish_schedule_input_ocr_addon_capture("오딘 창을 찾지 못했습니다."))
+                    self.root.after(0, lambda: finish_error("오딘 창을 찾지 못했습니다."))
                 return
             time.sleep(SCHEDULE_INPUT_OCR_ADDON_CAPTURE_HIDE_DELAY_SECONDS)
             capture = self._capture_active_odin_window_image(target_hwnd)
@@ -21901,7 +22129,7 @@ class BossTimerApp:
                 error_text = str(getattr(self, "schedule_input_ocr_last_capture_error", "") or "").strip()
                 status_text = f"오딘 스샷을 캡처하지 못했습니다. ({error_text})" if error_text else "오딘 스샷을 캡처하지 못했습니다."
                 if self.root is not None and self.root.winfo_exists():
-                    self.root.after(0, lambda message=status_text: self._finish_schedule_input_ocr_addon_capture(message))
+                    self.root.after(0, lambda message=status_text: finish_error(message))
                 return
             prepared_item = dict(capture)
             prepared_item.update(
@@ -21917,21 +22145,34 @@ class BossTimerApp:
             content_hash = self._get_schedule_input_ocr_item_content_hash(prepared_item)
             if not content_hash:
                 if self.root is not None and self.root.winfo_exists():
-                    self.root.after(0, lambda: self._finish_schedule_input_ocr_addon_capture("오딘 스샷을 준비하지 못했습니다."))
+                    self.root.after(0, lambda: finish_error("오딘 스샷을 준비하지 못했습니다."))
                 return
             prepared_item["content_hash"] = content_hash
             def finish() -> None:
                 if session_id != int(self.schedule_input_ocr_addon_session_id or 0):
                     return
-                if self._append_schedule_input_ocr_item_to_queue(prepared_item, announce=announce):
-                    self._finish_schedule_input_ocr_addon_capture(
-                        f"OCR 대기열에 이미지 1장을 추가했습니다. (총 {len(self.schedule_input_ocr_items)}장)"
-                    )
-                else:
-                    self._finish_schedule_input_ocr_addon_capture("같은 스샷은 이미 대기열에 있습니다.")
+                try:
+                    if self._append_schedule_input_ocr_item_to_queue(prepared_item, announce=announce):
+                        status = f"OCR 대기열에 이미지 1장을 추가했습니다. (총 {len(self.schedule_input_ocr_items)}장)"
+                    else:
+                        status = "같은 스샷은 이미 대기열에 있습니다."
+                except Exception as exc:
+                    status = f"스샷 대기열 추가 실패: {exc}"
+                self._finish_schedule_input_ocr_addon_capture(status)
             if self.root is not None and self.root.winfo_exists():
                 self.root.after(0, finish)
-        threading.Thread(target=worker, args=(hwnd,), daemon=True).start()
+        def worker(current_hwnd):
+            try:
+                capture_worker(current_hwnd)
+            except Exception as exc:
+                try:
+                    self.root.after(0, lambda message=f"스샷 캡처 실패: {exc}": finish_error(message))
+                except tk.TclError:
+                    pass  # Application already closed.
+        try:
+            threading.Thread(target=worker, args=(hwnd,), daemon=True).start()
+        except Exception as exc:
+            finish_error(f"스샷 캡처 시작 실패: {exc}")
 
     def _request_schedule_input_ocr_capture_from_odin(self, *, announce: bool = True) -> None:
         if self.schedule_input_ocr_addon_busy:
@@ -21944,34 +22185,51 @@ class BossTimerApp:
         self._capture_schedule_input_ocr_from_odin(announce=announce)
 
     def _finish_schedule_input_ocr_addon_capture(self, status_text: str = "") -> None:
-        self.schedule_input_ocr_addon_busy = False
         if status_text:
             try:
                 self.schedule_input_ocr_addon_status_var.set(status_text)
             except tk.TclError:
                 pass
         if self.schedule_input_ocr_addon_restore_after_capture:
-            self.schedule_input_ocr_addon_restore_after_capture = False
             restore_delay_ms = self._get_schedule_input_ocr_addon_restore_delay_ms()
             self.schedule_input_ocr_addon_restore_block_until = time.monotonic() + (float(restore_delay_ms) / 1000.0)
             def restore_window() -> None:
-                window = self.schedule_input_ocr_addon_window
-                if not self.schedule_input_ocr_addon_open or window is None or not window.winfo_exists():
-                    return
-                try:
-                    window.deiconify()
-                    window.lift()
-                except tk.TclError:
-                    return
-                self._position_schedule_input_ocr_addon_window()
-                self.schedule_input_ocr_addon_restore_block_until = 0.0
+                self.schedule_input_capture_restore_after_id = None
+                self._restore_schedule_input_capture_windows()
             if self.root is not None and self.root.winfo_exists():
                 try:
-                    self.root.after(restore_delay_ms, restore_window)
+                    self.schedule_input_capture_restore_after_id = self.root.after(restore_delay_ms, restore_window)
                 except tk.TclError:
                     restore_window()
             else:
                 restore_window()
+        else:
+            self.schedule_input_ocr_addon_busy = False
+        self._update_schedule_input_ocr_addon_controls()
+
+    def _restore_schedule_input_capture_windows(self) -> None:
+        from capture_window_visibility import restore_app_windows
+        token = getattr(self, 'schedule_input_capture_restore_after_id', None)
+        self.schedule_input_capture_restore_after_id = None
+        if token is not None:
+            try:
+                self.root.after_cancel(token)
+            except tk.TclError:
+                pass
+        saved = getattr(self, 'schedule_input_capture_hidden_windows', [])
+        self.schedule_input_capture_hidden_windows = []
+        restore_app_windows(saved)
+        for window, state, _topmost in saved:
+            try:
+                if state not in {'withdrawn', 'iconic'} and window.winfo_exists():
+                    window.lift()
+            except tk.TclError:
+                pass
+        self.schedule_input_ocr_addon_restore_after_capture = False
+        self.schedule_input_ocr_addon_restore_block_until = 0.0
+        self.schedule_input_ocr_addon_busy = False
+        if self.schedule_input_ocr_addon_open:
+            self._position_schedule_input_ocr_addon_window()
         self._update_schedule_input_ocr_addon_controls()
 
     def _resize_schedule_input_ocr_addon_odin_window(self, client_width: int = 1600, client_height: int = 900) -> None:
@@ -22660,6 +22918,10 @@ class BossTimerApp:
                 window.destroy()
             except tk.TclError:
                 pass
+
+        if (getattr(self, 'schedule_input_capture_hidden_windows', [])
+                or getattr(self, 'schedule_input_capture_restore_after_id', None) is not None):
+            self._restore_schedule_input_capture_windows()
 
     def _quote_powershell_literal(self, value: str) -> str:
         return str(value or "").replace("'", "''")
@@ -32229,6 +32491,8 @@ class BossTimerApp:
                 self.schedule_alarm_tts_queue.task_done()
                 break
             try:
+                if self._handover_audio_blocked():
+                    continue
                 text = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
                 if not text:
                     continue
@@ -32275,7 +32539,7 @@ class BossTimerApp:
                     generations = getattr(self, "schedule_alarm_tts_category_generation", {})
                     if generation != int(generations.get(category, 0) or 0):
                         break
-                if self.schedule_alarm_tts_stop_event.is_set():
+                if self.schedule_alarm_tts_stop_event.is_set() or self._handover_audio_blocked():
                     continue
                 generations = getattr(self, "schedule_alarm_tts_category_generation", {})
                 if generation != int(generations.get(category, 0) or 0):
@@ -34414,6 +34678,8 @@ class BossTimerApp:
         return True
 
     def _play_schedule_voice_broker_request(self, request: dict[str, object]) -> None:
+        if self._handover_audio_blocked():
+            return
         fallback_text = str(request.get("fallback_text") or "").strip()
         if not fallback_text and not request.get("clip_paths"):
             return
@@ -36440,7 +36706,30 @@ class BossTimerApp:
             ),
         )
 
+    def _handover_audio_blocked(self) -> bool:
+        # Includes the separate scheduler process; do not change saved alarm settings.
+        now = time.monotonic()
+        profile = self._get_discord_bot_config_storage_path()
+        cache = getattr(self, "_handover_audio_gate_cache", None)
+        if cache is None or cache[0] != profile or now - cache[1] >= .1:
+            state = ConnectionPolicy(profile).snapshot()
+            cache = (profile, now, bool(state["handover_hold"]))
+            self._handover_audio_gate_cache = cache
+        return cache[2]
+
     def _process_schedule_alarm_tick(self, reference_now: datetime) -> None:
+        if self._handover_audio_blocked():
+            if not getattr(self, "_handover_audio_was_blocked", False):
+                self._handover_audio_was_blocked = True
+                self._bump_schedule_voice_broker_generation(clear_queue=True)
+                self._stop_schedule_alarm_countdown_audio(close_host=True)
+                self._stop_schedule_alarm_boss_audio(close_host=True, force=True)
+                self._stop_schedule_alarm_near_boss_audio_host()
+                self._stop_schedule_alarm_second_precision_gen_audio_playback()
+                for category in list(getattr(self, "schedule_alarm_tts_category_generation", {})):
+                    self._stop_schedule_alarm_edge_tts_playback(category=category)
+            return
+        self._handover_audio_was_blocked = False
         precise_reference_now = reference_now
         current_second = reference_now.replace(microsecond=0)
         if self.schedule_alarm_cached_cutoff_second != current_second:
@@ -40647,6 +40936,8 @@ class BossTimerApp:
         self._on_github_server_selected(force=force)
 
     def _on_github_server_selected(self, _event=None, *, force: bool = False) -> None:
+        if getattr(self, "discord_handover_busy", False):
+            return
         switch_started_at = time.perf_counter()
         entry = self._get_selected_github_server_entry()
         if not entry:
@@ -40904,6 +41195,8 @@ class BossTimerApp:
         return bool(accepted)
 
     def _sync_selected_github_schedule(self) -> None:
+        if getattr(self, "discord_handover_busy", False):
+            return
         sync_remaining_seconds = self._get_schedule_github_sync_cooldown_remaining_seconds()
         if sync_remaining_seconds > 0:
             self.schedule_status_var.set(f"동기화는 {sync_remaining_seconds}초 후 다시 할 수 있습니다.")
@@ -44053,7 +44346,8 @@ class BossTimerApp:
     ) -> tuple[list[dict[str, object]], int]:
         parsed_items: list[dict[str, object]] = []
         ignored_count = 0
-        for raw_line in raw_text.splitlines():
+        from schedule_input_syntax import expand_schedule_boss_line
+        for raw_line in (line for source in raw_text.splitlines() for line in expand_schedule_boss_line(source)):
             stripped_line = raw_line.strip()
             if stripped_line.startswith('#'):
                 continue
@@ -44269,7 +44563,7 @@ class BossTimerApp:
         self.schedule_control_events = preserved + control_entries
         self.schedule_control_events.sort(key=lambda item: item.get("scheduled_at") or datetime.max)
 
-    def _add_temporary_maintenance_control_event(self, scheduled_at: datetime, *, source_label: str = "임시점검") -> None:
+    def _add_temporary_maintenance_control_event(self, scheduled_at: datetime, *, source_label: str = "임시점검", notice_key: str = "") -> None:
         scheduled_value = scheduled_at.replace(microsecond=0)
         reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
         control_entry = {
@@ -44280,12 +44574,19 @@ class BossTimerApp:
             "historical_only": bool(scheduled_value < reference_now),
             "source_text": f"{source_label}: {scheduled_value.strftime('%Y-%m-%d %H:%M:%S')}",
         }
+        if notice_key:
+            control_entry['notice_import_key'] = notice_key
         self._merge_schedule_control_events([control_entry], reference_now)
         self.schedule_alarm_cached_cutoff_second = None
         self.schedule_alarm_cached_cutoff_datetime = None
-        self._save_schedule_state(mark_github_dirty=True)
-        self._refresh_schedule_view()
-        self.schedule_status_var.set(f"임시점검 {scheduled_value.strftime('%Y-%m-%d %H:%M:%S')}을 추가했습니다.")
+        self._save_schedule_state(mark_github_dirty=True, raise_on_error=bool(notice_key))
+        try:
+            self._refresh_schedule_view()
+            self.schedule_status_var.set(f"임시점검 {scheduled_value.strftime('%Y-%m-%d %H:%M:%S')}을 추가했습니다.")
+        except Exception:
+            if not notice_key:
+                raise
+            self._append_debug_log('notice_temporary_maintenance_saved_refresh_failed')
 
     def _delete_schedule_hidden_after_temporary_maintenance_if_needed(
         self,
@@ -51464,6 +51765,8 @@ class BossTimerApp:
             self.schedule_window_busy = False
 
     def close_schedule_window(self) -> None:
+        if getattr(self, "discord_handover_busy", False):
+            return
         try:
             self.close_schedule_input_window()
             self.close_schedule_boss_config_window()
@@ -51526,6 +51829,9 @@ class BossTimerApp:
             self.schedule_input_window_busy = False
 
     def close_schedule_input_window(self) -> None:
+        self.schedule_input_capture_minimized_once = False
+        if getattr(self, 'schedule_input_capture_hidden_windows', []):
+            self._restore_schedule_input_capture_windows()
         precision_session = getattr(self, "_precision_session", None)
         if precision_session is not None:
             precision_session.cancel.set()
@@ -51634,6 +51940,10 @@ class BossTimerApp:
     def _open_schedule_input_window_normal(self) -> None:
         if self._focus_existing_schedule_input_window():
             return
+        try:
+            self._ensure_notice_runtime()
+        except Exception as exc:
+            self._append_debug_log(f'notice_server_open_module_unavailable {exc}')
         self._reset_schedule_input_mode_state()
         self.schedule_input_undo_edit_context = False
         self.schedule_input_past_enabled = True
@@ -57315,7 +57625,7 @@ class BossTimerApp:
         )
         self.schedule_time_sync_info_label.place(x=246, y=15, width=428, height=16)
         notice_management_button = tk.Button(
-            top_frame, text="알림 관리", font=self.percent_font,
+            top_frame, text="알리미 관리", font=self.percent_font,
             bg="#475569", fg="#ffffff", activebackground="#334155", activeforeground="#ffffff",
             relief="raised", bd=1, highlightthickness=0,
             command=self.open_notice_management, cursor="hand2",
@@ -58143,6 +58453,7 @@ class BossTimerApp:
             return
         parent = self.schedule_window if self.schedule_window is not None and self.schedule_window.winfo_exists() else self.root
         self.schedule_input_window = tk.Toplevel(parent)
+        self.schedule_input_capture_minimized_once = False
         self.schedule_input_window.title("스케쥴 입력")
         self.schedule_input_window.resizable(False, False)
         self.schedule_input_window.protocol("WM_DELETE_WINDOW", self.close_schedule_input_window)
@@ -66254,6 +66565,8 @@ class BossTimerApp:
         self.load_current_boss_log()
 
     def on_close(self) -> None:
+        if getattr(self, "discord_handover_busy", False):
+            return
         if getattr(self, "notice_runtime", None) is not None:
             self.notice_runtime.close()
         self._reset_master_developer_author_clicks()

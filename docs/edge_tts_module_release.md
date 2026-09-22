@@ -4,6 +4,11 @@ The BossTimer main EXE does not contain the online Edge TTS engine. Build the
 module on the same Python major/minor version as the EXE, then publish the ZIP
 as a GitHub Release asset.
 
+The main GUI build requires `python -m pip install -r requirements-gui.txt`.
+It bundles truststore for the installer's Windows-native HTTPS verification;
+shipping truststore only inside the downloadable ZIP would be too late.
+This installer-only fix requires a new main EXE, not a new TTS module ZIP.
+
 ```powershell
 python build_edge_tts_module.py
 ```

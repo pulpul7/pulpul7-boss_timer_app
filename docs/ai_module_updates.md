@@ -3,6 +3,8 @@
 ## 이번 구현 범위
 
 - 스케줄 창 상단 `업데이트 확인`: 배포 날짜(한국시간), 버전, 설치 상태, 제목, 릴리스 설명/패치 내역, 설치/실패 이력.
+- 상단 현재 프로그램 버전은 본체의 `APP_VERSION`을 그대로 표시한다. 알리미 모듈의 실행 버전은 별도로 표시하며 본체 버전을 변경하지 않는다.
+- 우상단 `버전별 패치내역`은 부모 중앙의 자체 창으로 연다. 내장 `app_patch_notes.py`의 다음 버전 준비 중 내역에는 버전 번호를 붙이지 않는다. 확인된 확정 버전 내역과 캐시된 GitHub 모듈별 설명은 각각 구분하며, 인터넷 없이도 내장 내역을 볼 수 있다. 확정 시에만 준비 중 내역을 버전별 기록으로 옮긴다.
 - 기존 저장소 `pulpul7/pulpul7-boss_timer_app`의 공개 GitHub Releases만 조회한다. 본체 배포 ZIP, 초안, 시험판(prerelease)은 대상이 아니다.
 - 기본 자동 확인: 활성화, 한국시간 06:00 이후 하루 첫 확인. 오후에 처음 켜도 확인한다. 계속 실행 중이면 날짜 변경 후 기준 시각에 확인한다. 창에서 활성화/시각을 저장할 수 있다.
 - 자동 확인에 실패해도 당일 무한 재시도하지 않는다. 오류는 이력에 남기며 `지금 확인`으로 재시도한다.
@@ -117,7 +119,7 @@ SHA-256은 파일 손상/잘못된 파일 검출용이다. 배포 신뢰는 고�
 ## 확인 방법
 
 ```text
-python -B -m unittest test_notice_collection test_notice_runtime test_notice_management test_ai_module_updater -v
+python -B -m unittest test_notice_templates test_discord_notice_output test_notice_local_transport test_voice_bridge_receipts test_notice_audio test_notice_preview test_notice_text_and_deadlines test_notice_opportunities test_notice_polling test_notice_analysis test_notice_collection test_notice_runtime test_notice_management test_ai_module_updater -v
 ```
 
 네트워크는 가짜 응답으로 대체하며, OS 임시 폴더에 만든 테스트 데이터는 테스트 후 정리한다.

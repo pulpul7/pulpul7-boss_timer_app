@@ -57,8 +57,33 @@ class NoticeRuntimeTests(unittest.TestCase):
         data, manifest = package_bytes(Path(__file__).resolve().parent / "notice_module")
         self.assertTrue(data.startswith(b"PK"))
         self.assertIn("payload/notice_management_ui.py", manifest["files"])
+        self.assertIn("payload/notice_analysis.py", manifest["files"])
+        self.assertIn("payload/notice_polling.py", manifest["files"])
+        self.assertIn("payload/notice_opportunities.py", manifest["files"])
+        self.assertIn("payload/notice_schedule.py", manifest["files"])
+        self.assertIn("payload/notice_server_open.py", manifest["files"])
+        self.assertIn("payload/notice_maintenance_import.py", manifest["files"])
+        self.assertIn("payload/notice_participation.py", manifest["files"])
+        self.assertIn("payload/notice_preparation.py", manifest["files"])
+        self.assertIn("payload/notice_changes.py", manifest["files"])
+        self.assertIn("payload/notice_seasons.py", manifest["files"])
+        self.assertIn("payload/notice_preview.py", manifest["files"])
+        self.assertIn("payload/notice_audio.py", manifest["files"])
+        self.assertIn("payload/notice_receipts.py", manifest["files"])
+        self.assertIn("payload/notice_local_player.py", manifest["files"])
+        self.assertIn("payload/notice_local_transport.py", manifest["files"])
+        self.assertIn("payload/notice_templates.py", manifest["files"])
+        self.assertIn("payload/notice_template_ui.py", manifest["files"])
         self.assertIn("payload/__init__.py", manifest["files"])
         self.assertFalse(any("notice_data" in key or "__pycache__" in key for key in manifest["files"]))
+
+    def test_hotfix_host_can_load_bundled_and_updated_module(self):
+        self.runtime.updater.app_version = "v5.3.1.fix"
+        self.runtime.start()
+        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.install()
+        self.restart()
+        self.assertEqual(self.runtime.session.plugin.open_management(), "1.1.0")
 
     def test_same_as_bundled_version_cannot_install(self):
         self.runtime.start()

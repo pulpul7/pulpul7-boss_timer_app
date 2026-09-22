@@ -27,6 +27,10 @@ class NoticeHost:
     call_later: object
     cancel_later: object
     api_version: int = MODULE_API
+    preview_synthesizer: object = None  # Optional: isolated, temporary EdgeTtsCache factory.
+    get_schedule_snapshot: object = None  # Optional read-only facts, called on the GUI thread.
+    apply_temporary_maintenance: object = None  # Optional idempotent GUI-thread command.
+    get_preparation_profile: object = None  # GUI captures immutable voice settings + isolated factory.
 
 
 class _SourceLoader(importlib.abc.Loader):
@@ -151,6 +155,23 @@ class NoticeRuntime:
     def open_management(self):
         self.start()
         self.session.plugin.open_management()
+
+    def restore_settings(self, payload):
+        self.start()
+        callback = getattr(self.session.plugin, "restore_settings", None)
+        if not callable(callback):
+            raise RuntimeError("현재 알리미 모듈은 설정 롤백을 지원하지 않습니다. 모듈 업데이트가 필요합니다.")
+        return callback(payload)
+
+    def get_server_open_override(self, server_id, now, reference=None):
+        # Optional API: older independently installed modules keep the default.
+        callback = getattr(self.session.plugin, 'get_server_open_override', None) if self.session else None
+        return callback(server_id, now, reference) if callable(callback) else None
+
+    def notify_schedule_changed(self):
+        callback = getattr(self.session.plugin, 'notify_schedule_changed', None) if self.session else None
+        if callable(callback):
+            callback()
 
     def close(self):
         if self.session is not None:

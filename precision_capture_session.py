@@ -186,7 +186,14 @@ class PrecisionCaptureSession:
             # Anchor OCR date selection to the initial capture even if OCR
             # finishes after midnight.  OCR values still refer to T0.
             self.ocr._get_schedule_reference_datetime = lambda: self.wall0
-            result = self.ocr._build_schedule_input_ocr_result_for_item(item, 0)
+            # UI OCR_1 is the 1600x900 FIXED engine. Its historic internal
+            # name still says "ocr2"; the unsuffixed method is UI OCR_2's
+            # adaptive engine and can merge neighboring UI text into a card.
+            # Match the normal OCR_1 button without modifying either engine.
+            self.log('ocr_engine ui=OCR_1 internal=ocr2 fixed=1600x900')
+            result = self.ocr._build_schedule_input_ocr2_result_for_item(item, 0)
+            for diagnostic in result.get('scale_logs', []):
+                self.log(f'initial_ocr {diagnostic}')
             self.log(f'ocr1_analysis_done duration={time.perf_counter()-started:.6f}')
             # Retry unresolved numeric locations once, using ONLY T0's small
             # timer crop. Capture continues independently while this runs.

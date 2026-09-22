@@ -13,7 +13,7 @@ import zipfile
 
 from ai_module_updater import (
     AiModuleUpdater, KST, MODULE_ID, REPOSITORY, UpdateError,
-    inspect_package, release_rows, version_tuple,
+    app_version_tuple, inspect_package, release_rows, version_tuple,
 )
 from ai_update_center import AiUpdateCenter, display_date
 
@@ -41,6 +41,30 @@ def package(version="1.0.0", *, manifest_changes=None, extra=None):
 
 
 class PackageTests(unittest.TestCase):
+    def test_host_hotfix_labels_are_compatibility_only(self):
+        for label in ("v5.3.1.fix", "v5.3.1.fix2", "5.3.1-fix2", "v5.3.1 fix2"):
+            with self.subTest(label=label):
+                self.assertEqual(app_version_tuple(label), (5, 3, 1))
+                with self.assertRaises(UpdateError):
+                    version_tuple(label)
+        for label in ("v5.3.1.beta", "5.3.1.fix.bad", "5.3.fix", "../5.3.1.fix"):
+            with self.assertRaises(UpdateError):
+                app_version_tuple(label)
+
+    def test_hotfix_host_still_enforces_manifest_compatibility(self):
+        for bounds, allowed in (({"min_app_version": "5.3.1", "max_app_version": "5.3.1"}, True),
+                                ({"min_app_version": "5.3.2"}, False),
+                                ({"max_app_version": "5.3.0"}, False),
+                                ({"min_app_version": "5.3.1.fix"}, False)):
+            with self.subTest(bounds=bounds):
+                data, release = package(manifest_changes=bounds)
+                row = release_rows([release])[0]
+                if allowed:
+                    inspect_package(data, row, "v5.3.1.fix")
+                else:
+                    with self.assertRaises(UpdateError):
+                        inspect_package(data, row, "v5.3.1.fix")
+
     def test_numeric_versions(self):
         self.assertGreater(version_tuple("1.10.0"), version_tuple("v1.9.9"))
         for invalid in ("1.0", "1.0.0-beta", "../1.0.0", "01.0.0"):

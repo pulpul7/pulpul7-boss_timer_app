@@ -27,6 +27,9 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from voice_bridge_receipts import observe_audio_source
+from discord_notice_output import DiscordNoticeOutput
+from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, is_access_error, ACCESS_ERROR_TEXT
 
 try:
     with warnings.catch_warnings():
@@ -297,7 +300,7 @@ def parse_discord_schedule_message(content: str) -> dict[str, Any] | None:
     if not source_lines:
         return None
     clock_and_boss_pattern = re.compile(
-        r"(?P<clock>\d{4}|\d{6}|\d+:\d{2}(?::\d{2})?)\s+(?P<bosses>.+)$"
+        r"(?P<clock>(?:\d{4}|\d{6}|\d+:\d{2}(?::\d{2})?)(?:\.\d{1,6})?)\s+(?P<bosses>.+)$"
     )
     lines: list[str] = []
     for source_line in source_lines:
@@ -316,7 +319,7 @@ def parse_discord_schedule_message(content: str) -> dict[str, Any] | None:
             return None
         lines.extend(f"{clock_text} {boss_name}{common_suffix}" for boss_name in boss_names)
     schedule_pattern = re.compile(
-        r"(?:\d{4}|\d{6}|\d+:\d{2}(?::\d{2})?)\s+.+?(?:\s+컷)?$"
+        r"(?:\d{4}|\d{6}|\d+:\d{2}(?::\d{2})?)(?:\.\d{1,6})?\s+.+?(?:\s+컷)?$"
     )
     if any(schedule_pattern.fullmatch(line) is None for line in lines):
         return None
@@ -374,9 +377,11 @@ def load_config() -> dict[str, str]:
         "application_id": application_id,
         "server_id": str(section.get("server_id", "") or "").strip(),
         "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
+        "default_voice_channel_id": str(section.get("default_voice_channel_id", section.get("voice_channel_id", "")) or "").strip(),
         "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
         "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
         "voice_panel_message_id": str(section.get("voice_panel_message_id", "") or "").strip(),
+        "text_channel_keep_count": str(section.get("text_channel_keep_count", "2")).strip(),
         "invite_url": invite_url,
         "voice_bridge_enabled": str(section.get("voice_bridge_enabled", "1") or "1").strip(),
     }
@@ -392,7 +397,7 @@ def config_bool(config: dict[str, Any], key: str, default: bool = False) -> bool
     return text in {"1", "true", "yes", "on", "y"}
 
 
-def save_config_value(key: str, value: str) -> None:
+def save_config_value(key: str, value: str) -> bool:
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(CONFIG_PATH, encoding="utf-8")
@@ -407,6 +412,8 @@ def save_config_value(key: str, value: str) -> None:
             parser.write(file)
     except OSError as exc:
         log(f"config_save_failed key={key} error={exc}")
+        return False
+    return True
 
 
 def parse_datetime(value: Any) -> datetime | None:
@@ -661,6 +668,11 @@ class BotStatus:
         self.voice_channel_id = ""
         self.voice_connected = False
         self.last_error = ""
+        self.configuration_error = ""
+        self.standby = False
+        self.handover_hold = False
+        self.reconnect_attempts = 0
+        self.connection_control = True
         self.last_schedule_mtime = 0.0
         self.last_played = ""
         self.voice_bridge_enabled = True
@@ -668,6 +680,7 @@ class BotStatus:
         self.voice_bridge_offset = 0
         self.voice_bridge_last_id = ""
         self.voice_bridge_last_heartbeat_id = ""
+        self.voice_bridge_receipts: list[dict[str, str]] = []
         self.text_commands_enabled = True
         self.nacl_available = False
         self.nacl_import_error = ""
@@ -684,6 +697,12 @@ class BotStatus:
                 "voice_channel_id": self.voice_channel_id,
                 "voice_connected": self.voice_connected,
                 "last_error": self.last_error,
+                "configuration_error": self.configuration_error,
+                "standby": self.standby,
+                "handover_hold": self.handover_hold,
+                "reconnect_attempts": self.reconnect_attempts,
+                "reconnect_limit": MAX_RETRIES,
+                "connection_control": self.connection_control,
                 "last_schedule_mtime": self.last_schedule_mtime,
                 "last_played": self.last_played,
                 "voice_bridge_enabled": self.voice_bridge_enabled,
@@ -691,6 +710,9 @@ class BotStatus:
                 "voice_bridge_offset": self.voice_bridge_offset,
                 "voice_bridge_last_id": self.voice_bridge_last_id,
                 "voice_bridge_last_heartbeat_id": self.voice_bridge_last_heartbeat_id,
+                "voice_bridge_receipt_protocol": 1,
+                "voice_bridge_receipt_modes": ["sequential"],
+                "voice_bridge_receipts": [dict(row) for row in self.voice_bridge_receipts],
                 "text_commands_enabled": self.text_commands_enabled,
                 "nacl_available": self.nacl_available,
                 "nacl_import_error": self.nacl_import_error,
@@ -703,6 +725,15 @@ class BotStatus:
             for key, value in kwargs.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
+
+    def record_bridge_result(self, job_id: str, state: str, scope_id: str = "") -> None:
+        if state not in {"started", "completed", "cancelled", "failed", "timed_untracked"}:
+            raise ValueError("invalid bridge receipt state")
+        with self.lock:
+            rows = [row for row in self.voice_bridge_receipts if row["id"] != job_id]
+            rows.append({"id": job_id, "state": state, "scope_id": scope_id,
+                         "at": datetime.now().isoformat(timespec="milliseconds")})
+            self.voice_bridge_receipts = rows[-128:]
 
 
 STATUS = BotStatus()
@@ -1075,6 +1106,10 @@ class ScheduleReader:
         return rows[:max(1, int(limit))]
 
 
+class DiscordConfigurationError(ValueError):
+    """Configuration must be corrected before retrying a connection."""
+
+
 class DiscordScheduleBot:
     def __init__(self, discord_module: Any, *, enable_message_content: bool = True) -> None:
         self.discord = discord_module
@@ -1085,7 +1120,14 @@ class DiscordScheduleBot:
         self.message_content_enabled = bool(enable_message_content)
         intents = discord_module.Intents.default()
         intents.message_content = self.message_content_enabled
-        self.client = discord_module.Client(intents=intents)
+        owner = self
+
+        class ValidatedClient(discord_module.Client):
+            async def setup_hook(client_self) -> None:
+                await super().setup_hook()
+                owner._validate_authenticated_application(client_self.application_id)
+
+        self.client = ValidatedClient(intents=intents)
         self.tree = discord_module.app_commands.CommandTree(self.client)
         self.schedule_reader = ScheduleReader()
         self.voice_bridge_reader = VoiceBridgeReader(VOICE_BRIDGE_PATH)
@@ -1094,6 +1136,8 @@ class DiscordScheduleBot:
         self.voice_client: Any = None
         self.voice_play_lock = asyncio.Lock()
         self.voice_transition_lock = asyncio.Lock()
+        self.notice_output = None
+        self.regular_voice_job_active = False
         self.timed_bridge_tasks: dict[str, tuple[str, asyncio.Task[Any]]] = {}
         self.cancelled_voice_bridge_scopes: dict[str, float] = {}
         self.text_notice_keys: set[str] = set()
@@ -1114,17 +1158,63 @@ class DiscordScheduleBot:
         self.last_voice_reconnect_attempt_at = 0.0
         self.schedule_request_lock = asyncio.Lock()
         self.config = load_config()
+        self.connection_policy = ConnectionPolicy(CONFIG_PATH)
+        self.voice_connect_lock = asyncio.Lock()
         self.voice_channel_panel_message_id = str(self.config.get("voice_panel_message_id") or "").strip()
         self.custom_voice_commands = load_custom_discord_voice_commands()
         self.disabled_builtin_voice_commands = load_disabled_builtin_discord_voice_commands()
         self.alarm_settings: dict[str, Any] = {}
         STATUS.update(
             guild_id=str(self.config.get("server_id") or "").strip(),
+            configuration_error="",
             voice_bridge_enabled=config_bool(self.config, "voice_bridge_enabled", True),
             text_commands_enabled=self.message_content_enabled,
         )
         self._bind_events()
         self._bind_commands()
+
+    def _connection_state(self):
+        policy = getattr(self, "connection_policy", None)
+        if policy is None:  # Lightweight offline test doubles.
+            return {"standby": STATUS.standby, "error": STATUS.configuration_error, "retries": STATUS.reconnect_attempts}
+        state = policy.snapshot()
+        STATUS.update(standby=state["standby"], reconnect_attempts=state["retries"],
+                      handover_hold=state["handover_hold"],
+                      configuration_error=state["error"])
+        return state
+
+    def _connection_is_blocked(self):
+        state = self._connection_state()
+        return bool(state["standby"] or state["error"] or state.get("handover_role") == "outgoing")
+
+    def _block_connection_error(self, message):
+        policy = getattr(self, "connection_policy", None)
+        if policy is not None:
+            policy.update(error=message)
+        STATUS.update(configuration_error=message, last_error=message)
+
+    def _claim_connection_retry(self):
+        policy = getattr(self, "connection_policy", None)
+        if self._connection_is_blocked():
+            return False
+        allowed = policy.claim_retry() if policy is not None else False
+        state = self._connection_state()
+        if not allowed and state["retries"] >= MAX_RETRIES:
+            STATUS.update(last_error="자동 재접속 10회 제한에 도달했습니다. /보탐의 접속 또는 프로그램에서 수동 실행하세요.")
+        return allowed
+
+    def _validate_authenticated_application(self, actual_id: Any) -> None:
+        expected = str(self.config.get("application_id") or "").strip()
+        if expected and expected == str(actual_id or ""):
+            return
+        message = (
+            "봇 토큰과 Application ID가 일치하지 않습니다. 새 봇을 사용하려면 "
+            "해당 봇의 토큰과 Application ID를 함께 입력한 뒤 봇을 다시 실행하세요."
+        )
+        self._block_connection_error(message)
+        STATUS.update(online=False, voice_connected=False)
+        log("discord_application_identity_rejected")
+        raise DiscordConfigurationError(message)
 
     def _get_configured_server_id(self) -> str:
         server_id = str(self.config.get("server_id") or "").strip()
@@ -1287,6 +1377,8 @@ class DiscordScheduleBot:
         current_page = 0
 
         async def queue_selected_command(interaction: Any, command_key: str) -> None:
+            if not await self._require_soundboard_channel(interaction):
+                return
             if owner_id and str(getattr(getattr(interaction, "user", None), "id", "") or "") != owner_id:
                 await interaction.response.send_message("이 음성 목록을 연 사용자만 누를 수 있습니다.", ephemeral=True)
                 return
@@ -1379,6 +1471,8 @@ class DiscordScheduleBot:
                 )
 
                 async def previous_page(interaction: Any) -> None:
+                    if not await self._require_soundboard_channel(interaction):
+                        return
                     if owner_id and str(getattr(getattr(interaction, "user", None), "id", "") or "") != owner_id:
                         await interaction.response.send_message("이 음성 목록을 연 사용자만 누를 수 있습니다.", ephemeral=True)
                         return
@@ -1386,6 +1480,8 @@ class DiscordScheduleBot:
                     await interaction.response.edit_message(view=view)
 
                 async def next_page(interaction: Any) -> None:
+                    if not await self._require_soundboard_channel(interaction):
+                        return
                     if owner_id and str(getattr(getattr(interaction, "user", None), "id", "") or "") != owner_id:
                         await interaction.response.send_message("이 음성 목록을 연 사용자만 누를 수 있습니다.", ephemeral=True)
                         return
@@ -1457,8 +1553,31 @@ class DiscordScheduleBot:
                     return channel_name
         return "음성채널 미연결"
 
-    async def _cleanup_bot_text_channel_messages(self, channel: Any, *, keep_count: int = 2) -> None:
+    def _text_channel_keep_count(self) -> int:
+        try:
+            count = int(self.config.get("text_channel_keep_count", "2"))
+            return count if 0 <= count <= 50 else 2
+        except (ValueError, TypeError):
+            return 2
+
+    async def _set_text_channel_keep_count(self, count: int, guild: Any) -> str:
+        if not 0 <= count <= 50:
+            raise ValueError("메시지 보관 개수는 0~50이어야 합니다.")
+        if save_config_value("text_channel_keep_count", str(count)) is False:
+            return "메시지 보관 설정을 저장하지 못했습니다. 기존 설정을 유지합니다."
+        self.config["text_channel_keep_count"] = str(count)
+        channel = await self._resolve_text_channel(guild)
+        if channel is not None:
+            await self._cleanup_bot_text_channel_messages(channel)
+        label = "제한 없음" if count == 0 else f"최근 {count}개"
+        return f"보탐매니저 메시지 보관을 {label}으로 설정했습니다. 사용자 글과 고정 메시지는 유지합니다."
+
+    async def _cleanup_bot_text_channel_messages(self, channel: Any, *, keep_count: int | None = None) -> None:
         """Keep the channel compact without ever deleting user or pinned messages."""
+        if keep_count is None:
+            keep_count = self._text_channel_keep_count()
+        if keep_count == 0:
+            return  # Unlimited: do not even request message history.
         if channel is None or not hasattr(channel, "history"):
             return
         bot_user_id = str(getattr(getattr(self.client, "user", None), "id", "") or "")
@@ -1467,7 +1586,7 @@ class DiscordScheduleBot:
         retained = 0
         protected_panel_id = str(getattr(self, "voice_channel_panel_message_id", "") or "")
         try:
-            async for message in channel.history(limit=80):
+            async for message in channel.history(limit=None):
                 author_id = str(getattr(getattr(message, "author", None), "id", "") or "")
                 message_id = str(getattr(message, "id", "") or "")
                 if author_id != bot_user_id or bool(getattr(message, "pinned", False)) or message_id == protected_panel_id:
@@ -1515,6 +1634,9 @@ class DiscordScheduleBot:
         configured_panel_channel_id = str(self.config.get("voice_panel_channel_id") or "").strip()
         if configured_panel_channel_id != str(getattr(channel, "id", "") or ""):
             return
+        resolved = await self._resolve_voice_panel_channel(getattr(channel, "guild", None))
+        if resolved is None or resolved.id != channel.id:
+            return
         # A local request can add its own notice just after the component
         # interaction.  Waiting briefly makes one cleanup cover both messages.
         await asyncio.sleep(1.5)
@@ -1531,6 +1653,9 @@ class DiscordScheduleBot:
             pass
 
     async def _publish_discord_voice_channel_panel(self, channel: Any, guild: Any) -> tuple[bool, str]:
+        target = await self._resolve_voice_panel_channel(guild)
+        if target is None or target.id != getattr(channel, "id", None):
+            return False, "사운드보드 전용 채팅채널을 먼저 지정하세요."
         view = self._build_discord_voice_channel_panel_view(guild)
         if view is None:
             return False, "선택할 음성채널이 없습니다."
@@ -1618,15 +1743,31 @@ class DiscordScheduleBot:
             self.voice_channel_panel_message_id = str(getattr(panel_message, "id", "") or "")
             self.config["voice_panel_message_id"] = self.voice_channel_panel_message_id
             save_config_value("voice_panel_message_id", self.voice_channel_panel_message_id)
+            await self._remove_old_schedule_channel_panel(guild, channel, saved_panel_id)
             configured_panel_channel_id = str(self.config.get("voice_panel_channel_id") or "").strip()
             if configured_panel_channel_id == str(getattr(channel, "id", "") or ""):
                 await self._cleanup_voice_panel_channel_messages(channel)
-            else:
-                await self._cleanup_bot_text_channel_messages(channel, keep_count=1)
             return True, "음성 사운드보드 버튼 UI를 고정했습니다."
         except Exception as exc:
             log(f"voice_channel_panel_publish_failed channel_id={getattr(channel, 'id', '')} error={exc}")
             return False, "음성채널 UI를 표시하지 못했습니다."
+
+    async def _remove_old_schedule_channel_panel(self, guild: Any, new_channel: Any, old_id: str) -> None:
+        """Remove only the exact saved, bot-authored legacy panel after publishing its replacement."""
+        if not old_id.isdigit() or old_id == self.voice_channel_panel_message_id:
+            return
+        channel = await self._resolve_text_channel(guild)
+        if channel is None or channel.id == new_channel.id or not hasattr(channel, "fetch_message"):
+            return
+        try:
+            old = await channel.fetch_message(int(old_id))
+            if (getattr(getattr(old, "author", None), "id", None) != self.client.user.id
+                    or not str(getattr(old, "content", "")).startswith(
+                        ("🔊 보탐매니저 음성 사운드보드", "🔊 보탐매니저 음성채널"))):
+                return
+            await old.delete()
+        except Exception as exc:
+            log(f"legacy_voice_panel_remove_failed message_id={old_id} error={exc}")
 
     async def _initialize_voice_panel_after_ready(self) -> None:
         try:
@@ -1634,11 +1775,17 @@ class DiscordScheduleBot:
             server_id = self._get_configured_server_id()
             configured_guild = self.client.get_guild(int(server_id)) if server_id else None
             if text_channel is None or configured_guild is None:
+                log(
+                    f"voice_channel_panel_startup_skipped guild_id={server_id} "
+                    f"configured_channel_id={self.config.get('voice_panel_channel_id', '')} "
+                    "reason=dedicated_channel_not_found use=/음성채널"
+                )
                 return
-            await asyncio.wait_for(
+            ok, result = await asyncio.wait_for(
                 self._publish_discord_voice_channel_panel(text_channel, configured_guild),
                 timeout=12.0,
             )
+            log(f"voice_channel_panel_startup_result channel_id={text_channel.id} ok={int(ok)} result={result}")
         except asyncio.TimeoutError:
             log("voice_channel_panel_startup_timeout")
         except asyncio.CancelledError:
@@ -1674,19 +1821,9 @@ class DiscordScheduleBot:
                 STATUS.shutdown_requested.set()
                 await self.client.close()
                 return
-            await self._disconnect_stale_configured_voice_session()
-            connected = await self._connect_configured_voice_channel()
-            if (
-                not connected
-                and str(self.config.get("voice_channel_id") or "").strip().isdigit()
-                and not STATUS.shutdown_requested.is_set()
-            ):
-                # 캐시에 보이지 않는 잔여 세션은 첫 접속 실패 시에만 정리한다.
-                # 정상 접속에는 대기를 추가하지 않고 복구 재시도는 한 번만 한다.
-                log("voice_startup_connect_retry reason=initial_connect_failed")
-                reset = await self._disconnect_stale_configured_voice_session(force=True)
-                if reset and not STATUS.shutdown_requested.is_set():
-                    await self._connect_configured_voice_channel()
+            # Do not force-disconnect a possibly live administrator's session.
+            # Automatic retries have one shared, persistent budget.
+            await self._connect_configured_voice_channel(automatic=False)
             # Start the bridge and shutdown watchers before any Discord message
             # maintenance. Fetching/deleting the persistent soundboard panel can
             # be delayed by Discord rate limits; it must never block heartbeats
@@ -1726,7 +1863,16 @@ class DiscordScheduleBot:
             bot_user_id = str(getattr(getattr(self.client, "user", None), "id", "") or "")
             if not bot_user_id or str(getattr(member, "id", "") or "") != bot_user_id:
                 return
+            # The same bot receives its voice events from every joined guild.
+            # A foreign guild's join/leave must never change this PC's config,
+            # health status or voice panel (including channel=None on leave).
+            if not self._is_configured_guild(getattr(member, "guild", None)):
+                return
+            if self._connection_state()["standby"]:
+                return
             after_channel = getattr(after, "channel", None)
+            if after_channel is not None and not self._is_configured_guild(getattr(after_channel, "guild", None)):
+                return
             after_channel_id = str(getattr(after_channel, "id", "") or "").strip()
             if not after_channel_id.isdigit():
                 STATUS.update(voice_connected=False)
@@ -1790,15 +1936,15 @@ class DiscordScheduleBot:
             return
         if not self._is_configured_guild(guild):
             return
-        target_channel = await self._resolve_text_channel(guild)
         message_channel = getattr(message, "channel", None)
-        if target_channel is None or message_channel is None:
-            return
-        if str(getattr(target_channel, "id", "")) != str(getattr(message_channel, "id", "")):
+        if message_channel is None:
             return
         content = str(getattr(message, "content", "") or "").strip()
         voice_command = self._resolve_discord_voice_command(content)
         if voice_command is not None:
+            target_channel = await self._resolve_voice_panel_channel(guild)
+            if target_channel is None or target_channel.id != message_channel.id:
+                return
             command_name, tts_text = voice_command
             parsed: dict[str, Any] = {
                 "operation": "voice_play",
@@ -1808,6 +1954,25 @@ class DiscordScheduleBot:
             }
             reaction = "🔊"
         else:
+            target_channel = await self._resolve_text_channel(guild)
+            if target_channel is None or target_channel.id != message_channel.id:
+                return
+            retention_command = re.fullmatch(r"/보탐\s+(.+)", content)
+            if retention_command:
+                value = retention_command.group(1).strip()
+                if value == "?":
+                    from discord_command_help import COMMAND_HELP
+                    result = COMMAND_HELP
+                elif value in {"초읽기", "초읽기해제"}:
+                    result = await self._queue_countdown_control(
+                        value == "초읽기", author, message_channel, raw_text=content)
+                elif re.fullmatch(r"[0-9]{1,2}", value) and int(value) <= 50:
+                    result = await self._set_text_channel_keep_count(int(value), guild)
+                else:
+                    result = "사용법: /보탐 초읽기, /보탐 초읽기해제, /보탐 0~50 (0은 제한 없음). 접속은 슬래시 명령을 사용하세요."
+                await message.reply(result, mention_author=False)
+                await self._cleanup_bot_text_channel_messages(message_channel)
+                return
             parsed = parse_discord_schedule_message(content) or {}
             if not parsed:
                 return
@@ -1843,6 +2008,8 @@ class DiscordScheduleBot:
         """Recover a stuck gateway or voice connection without waiting for a new alert."""
         while not STATUS.shutdown_requested.is_set():
             await asyncio.sleep(2.0)
+            if self._connection_is_blocked():
+                continue
             if self.client.is_ready():
                 self.gateway_disconnected_at = None
                 STATUS.update(online=True)
@@ -1879,6 +2046,26 @@ class DiscordScheduleBot:
             await self.client.close()
             return
 
+    async def _queue_countdown_control(self, enabled: bool, author: Any, channel: Any, *, raw_text: str) -> str:
+        payload = {
+            "operation": "countdown_control", "enabled": enabled,
+            "request_id": uuid.uuid4().hex,
+            "received_at": datetime.now().isoformat(timespec="seconds"),
+            "server_id": self._get_configured_server_id(),
+            "channel_id": str(getattr(channel, "id", "") or ""),
+            "author_id": str(getattr(author, "id", "") or ""),
+            "author_name": str(getattr(author, "display_name", "") or getattr(author, "name", "") or "사용자"),
+            "raw_text": raw_text,
+        }
+        try:
+            await self._queue_local_schedule_request(payload)
+        except OSError as exc:
+            log(f"countdown_control_queue_failed error={exc}")
+            return "초읽기 설정 요청을 전달하지 못했습니다. 로컬 보탐매니저 상태를 확인하세요."
+        label = "켜기" if enabled else "해제"
+        log(f"countdown_control_queued request_id={payload['request_id']} enabled={int(enabled)}")
+        return f"초읽기 {label} 요청을 보탐매니저에 전달했습니다. 적용 결과는 프로그램의 디스코드 요청 기록에서 확인할 수 있습니다."
+
     async def _queue_local_schedule_request(self, payload: dict[str, Any]) -> None:
         request_id = re.sub(r"[^0-9A-Za-z_-]", "", str(payload.get("request_id") or "")) or uuid.uuid4().hex
         timestamp = int(time.time() * 1000)
@@ -1913,7 +2100,7 @@ class DiscordScheduleBot:
                 )
                 embed.set_footer(text="BossTimer 음성 연결 자동 복구")
                 await channel.send(embed=embed)
-                await self._cleanup_bot_text_channel_messages(channel, keep_count=2)
+                await self._cleanup_bot_text_channel_messages(channel)
                 log(
                     f"voice_reconnect_text_notice_sent channel_id={getattr(channel, 'id', '')}"
                 )
@@ -1954,7 +2141,7 @@ class DiscordScheduleBot:
             caller_channel_id = str(getattr(caller_channel, "id", "") or "").strip()
             if caller_channel_id.isdigit():
                 return caller_channel_id, "호출한 사용자가 참여 중인 음성채널"
-            configured_channel_id = str(self.config.get("voice_channel_id") or "").strip()
+            configured_channel_id = str(self.config.get("default_voice_channel_id") or self.config.get("voice_channel_id") or "").strip()
             if configured_channel_id.isdigit():
                 return configured_channel_id, "설정에 저장된 기본 음성채널"
             return "", "호출한 사용자가 음성채널에 없고 기본 음성채널도 설정되지 않았습니다."
@@ -1962,57 +2149,84 @@ class DiscordScheduleBot:
             return target_text, "직접 지정한 음성채널"
         return "", "보탐매니저, 보탐 또는 음성채널 ID를 입력하세요."
 
+    async def _allow_connection_control(self, interaction):
+        if not self._should_handle_interaction(interaction):
+            return False
+        permissions = getattr(getattr(interaction, "user", None), "guild_permissions", None)
+        if not (getattr(permissions, "administrator", False) or getattr(permissions, "manage_guild", False)):
+            await interaction.response.send_message("서버 관리 권한이 있는 관리자만 접속·대기를 변경할 수 있습니다.", ephemeral=True)
+            return False
+        if self._connection_state().get("handover_hold"):
+            await interaction.response.send_message("관리자 인계 진행 중입니다. 완료 후 다시 요청하세요.", ephemeral=True)
+            return False
+        if STATUS.standby:
+            await interaction.response.send_message("이 관리자는 대기 전환 중입니다. 프로그램에서 수동 실행하세요.", ephemeral=True)
+            return False
+        return True
+
+    async def _join_from_interaction(self, interaction, target="보탐"):
+        if not await self._allow_connection_control(interaction):
+            return
+        channel_id, description = self._resolve_invite_voice_channel(interaction, target)
+        if not channel_id:
+            await interaction.response.send_message(description, ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        async with self.voice_connect_lock:
+            self.connection_policy.resume()
+            self._connection_state()
+            if not self.config.get("default_voice_channel_id"):
+                self.config["default_voice_channel_id"] = self.config.get("voice_channel_id", "")
+            # Preserve the configured default before on_voice_state_update saves
+            # a caller's temporary destination as the current channel.
+            save_config_value("default_voice_channel_id", self.config["default_voice_channel_id"])
+            ok, message = await self._connect_voice_channel(channel_id)
+            if ok:
+                self.config["voice_channel_id"] = channel_id
+                save_config_value("voice_channel_id", channel_id)
+        await interaction.followup.send(f"{description}\n{message}", ephemeral=True)
+
+    async def _standby_from_interaction(self, interaction):
+        if not await self._allow_connection_control(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        # Persist the stop gate BEFORE yielding to any audio/connection work.
+        self.connection_policy.pause()
+        STATUS.update(standby=True, last_error="대기 상태입니다. 프로그램에서 수동 실행할 때까지 자동 접속하지 않습니다.")
+        if self.play_task is not None:
+            self.play_task.cancel()
+            await asyncio.gather(self.play_task, return_exceptions=True)
+        tasks = [task for _, task in self.timed_bridge_tasks.values()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            async with self.voice_connect_lock:
+                async with self.voice_transition_lock:
+                    await self._stop_current_voice_playback_and_wait(reason="standby")
+                if self.voice_client is not None:
+                    await asyncio.wait_for(self.voice_client.disconnect(force=True), timeout=5)
+        except Exception as exc:
+            log(f"standby_voice_disconnect_failed error={exc}")
+        STATUS.update(voice_connected=False)
+        try:
+            await interaction.followup.send(
+                "대기 상태로 전환했습니다. 자동 접속과 송출을 중단합니다. "
+                "이 PC에서 다시 운영하려면 프로그램의 봇 버튼으로 수동 실행하세요.", ephemeral=True)
+        finally:
+            # Release Gateway too: this old instance must not also answer a
+            # replacement administrator's /보탐 접속 interaction.
+            await self.client.close()
+
     def _bind_commands(self) -> None:
+        @self.tree.command(name="대기", description="관리자 인계를 위해 송출과 자동 접속을 중단합니다.")
+        async def standby(interaction: Any) -> None:
+            await self._standby_from_interaction(interaction)
+
         @self.tree.command(name="초대", description="보탐매니저를 현재 음성채널로 불러오고 재접속합니다.")
         async def invite(interaction: Any, voice_channel_id: str) -> None:
-            if not self._should_handle_interaction(interaction):
-                return
-            channel_id, target_description = self._resolve_invite_voice_channel(interaction, voice_channel_id)
-            if not channel_id:
-                await interaction.response.send_message(target_description, ephemeral=True)
-                return
-            self.config["voice_channel_id"] = channel_id
-            save_config_value("voice_channel_id", channel_id)
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            ok, message = await self._connect_voice_channel(channel_id)
-            await interaction.followup.send(
-                f"{target_description}을 사용합니다.\n{message}"
-                + ("\n보스스케쥴 프로그램에 봇 재접속을 요청했습니다." if ok else ""),
-                ephemeral=True,
-            )
-            if not ok:
-                return
-            author = getattr(interaction, "user", None)
-            text_channel = getattr(interaction, "channel", None)
-            request_payload = {
-                "operation": "discord_reconnect",
-                "request_id": uuid.uuid4().hex,
-                "received_at": datetime.now().isoformat(timespec="seconds"),
-                "channel_id": str(getattr(text_channel, "id", "") or ""),
-                "author_id": str(getattr(author, "id", "") or ""),
-                "author_name": str(
-                    getattr(author, "display_name", "") or getattr(author, "name", "") or "사용자"
-                ),
-                "server_id": self._get_configured_server_id(),
-                "voice_channel_id": channel_id,
-                "raw_text": f"/초대 {str(voice_channel_id or '').strip()}",
-                "target_description": target_description,
-            }
-            try:
-                await self._queue_local_schedule_request(request_payload)
-                log(
-                    f"discord_reconnect_request_queued author_id={request_payload['author_id']} "
-                    f"voice_channel_id={channel_id}"
-                )
-            except OSError as exc:
-                log(f"discord_reconnect_request_write_failed error={exc}")
-                try:
-                    await interaction.followup.send(
-                        "음성채널 연결은 완료했지만 보스스케쥴 프로그램에 재접속 요청을 전달하지 못했습니다.",
-                        ephemeral=True,
-                    )
-                except Exception:
-                    pass
+            await self._join_from_interaction(interaction, voice_channel_id)
 
         @self.tree.command(name="음성채널", description="음성 사운드보드 버튼을 표시할 텍스트 채널을 지정합니다.")
         async def select_voice_channel(interaction: Any, 채널이름: str = "") -> None:
@@ -2036,6 +2250,11 @@ class DiscordScheduleBot:
                 )
                 return
             channel_id = str(getattr(text_channel, "id", "") or "").strip()
+            notice_channel = await self._resolve_text_channel(guild)
+            if notice_channel is not None and notice_channel.id == text_channel.id:
+                await interaction.response.send_message(
+                    "보탐매니저 안내 채널과 사운드보드 채널은 따로 지정하세요.", ephemeral=True)
+                return
             if not channel_id.isdigit():
                 await interaction.response.send_message("텍스트 채널 ID를 확인할 수 없습니다.", ephemeral=True)
                 return
@@ -2062,6 +2281,10 @@ class DiscordScheduleBot:
                 await interaction.response.send_message("텍스트 채널에서 실행하세요.", ephemeral=True)
                 return
             channel_id = str(getattr(channel, "id", "") or "")
+            if channel_id == str(self.config.get("voice_panel_channel_id") or ""):
+                await interaction.response.send_message(
+                    "사운드보드 채널과 보탐매니저 안내 채널은 따로 지정하세요.", ephemeral=True)
+                return
             if not channel_id.isdigit():
                 await interaction.response.send_message("채널 ID를 확인할 수 없습니다.", ephemeral=True)
                 return
@@ -2072,9 +2295,34 @@ class DiscordScheduleBot:
                 ephemeral=True,
             )
 
-        @self.tree.command(name="보탐", description="다음날 오전 8시까지의 컬러 보스 스케쥴을 전송합니다.")
-        async def bosstimer_ansi(interaction: Any) -> None:
+        @self.tree.command(name="보탐", description="스케쥴 조회 / 접속 / 초읽기·초읽기해제 / 메시지 보관 0~50")
+        @self.discord.app_commands.describe(동작="비우면 조회. ? 도움말, 접속, 초읽기, 초읽기해제 또는 보관 개수 0~50")
+        async def bosstimer_ansi(interaction: Any, 동작: str = "") -> None:
+            동작 = 동작.strip()
+            if 동작 == "접속":
+                await self._join_from_interaction(interaction)
+                return
             if not self._should_handle_interaction(interaction):
+                return
+            if 동작 == "?":
+                from discord_command_help import COMMAND_HELP
+                await interaction.response.send_message(COMMAND_HELP, ephemeral=True)
+                return
+            if 동작 in {"초읽기", "초읽기해제"}:
+                await interaction.response.defer(ephemeral=True, thinking=True)
+                result = await self._queue_countdown_control(
+                    동작 == "초읽기", getattr(interaction, "user", None),
+                    getattr(interaction, "channel", None), raw_text=f"/보탐 {동작}")
+                await interaction.followup.send(result, ephemeral=True)
+                return
+            if 동작:
+                if not re.fullmatch(r"[0-9]{1,2}", 동작) or int(동작) > 50:
+                    await interaction.response.send_message(
+                        "사용법: /보탐 (조회), /보탐 접속, /보탐 초읽기, /보탐 초읽기해제, /보탐 0~50 (0은 제한 없음)", ephemeral=True)
+                    return
+                await interaction.response.defer(ephemeral=True, thinking=True)
+                result = await self._set_text_channel_keep_count(int(동작), getattr(interaction, "guild", None))
+                await interaction.followup.send(result, ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             channel = await self._resolve_text_channel(getattr(interaction, "guild", None))
@@ -2098,7 +2346,7 @@ class DiscordScheduleBot:
 
         @self.tree.command(name="음성추가", description="이름과 읽을 음성을 입력합니다. 기본 음성 이름은 덮어씁니다.")
         async def add_voice_command(interaction: Any, 이름: str, 음성: str = "") -> None:
-            if not self._should_handle_interaction(interaction):
+            if not await self._require_soundboard_channel(interaction):
                 return
             try:
                 command_input = str(이름 or "").strip()
@@ -2156,7 +2404,7 @@ class DiscordScheduleBot:
 
         @self.tree.command(name="음성삭제", description="보탐매니저 음성 명령을 삭제합니다. 기본 음성도 삭제할 수 있습니다.")
         async def delete_voice_command(interaction: Any, 이름: str) -> None:
-            if not self._should_handle_interaction(interaction):
+            if not await self._require_soundboard_channel(interaction):
                 return
             try:
                 _deleted, result_text = self._delete_discord_voice_command(이름)
@@ -2169,7 +2417,7 @@ class DiscordScheduleBot:
 
         @self.tree.command(name="음성목록", description="클릭해서 재생할 수 있는 보탐매니저 음성 목록을 엽니다.")
         async def voice_command_list(interaction: Any) -> None:
-            if not self._should_handle_interaction(interaction):
+            if not await self._require_soundboard_channel(interaction):
                 return
             entries = self._get_discord_voice_command_menu_entries()
             if not entries:
@@ -2183,6 +2431,10 @@ class DiscordScheduleBot:
                 view=view,
                 ephemeral=True,
             )
+
+        @self.tree.command(name="음성", description="사운드보드 채팅채널에서 음성 버튼 목록을 엽니다.")
+        async def voice_command_list_alias(interaction: Any) -> None:
+            await voice_command_list.callback(interaction)
 
         @self.tree.command(name="이미지", description="로컬 스케쥴복사 설정 그대로 만든 이미지를 안내 채널에 전송합니다.")
         async def bosstimer_image(interaction: Any) -> None:
@@ -2205,6 +2457,7 @@ class DiscordScheduleBot:
                 content="✦ 보탐매니저 스케쥴",
                 file=self.discord.File(image_path, filename="bosstimer_schedule.png"),
             )
+            await self._cleanup_bot_text_channel_messages(channel)
             await interaction.followup.send(f"스케쥴 이미지를 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.", ephemeral=True)
 
     async def _sync_commands(self) -> None:
@@ -2217,10 +2470,25 @@ class DiscordScheduleBot:
             guild = self.discord.Object(id=int(server_id))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            log(f"command_sync_complete guild_id={server_id} scope=guild")
+            log(f"command_sync_complete guild_id={server_id} scope=guild channel_policy=2 commands=보탐[0~50,초읽기,초읽기해제],음성,음성목록")
         except Exception as exc:
             STATUS.update(last_error=f"명령어 동기화 실패: {exc}")
             log(f"command_sync_failed error={exc}")
+
+    async def _require_soundboard_channel(self, interaction: Any) -> bool:
+        if not self._should_handle_interaction(interaction):
+            return False
+        channel = await self._resolve_voice_panel_channel(getattr(interaction, "guild", None))
+        current_id = str(getattr(getattr(interaction, "channel", None), "id", "") or "")
+        if channel is not None and str(channel.id) == current_id:
+            return True
+        message = (
+            f"사운드보드 명령은 <#{channel.id}> 채팅채널에서만 사용할 수 있습니다."
+            if channel is not None else
+            "사운드보드 채널이 없습니다. 전용 채팅채널에서 /음성채널을 먼저 실행하세요."
+        )
+        await interaction.response.send_message(message, ephemeral=True)
+        return False
 
     async def _resolve_voice_panel_channel(self, guild: Any = None) -> Any | None:
         """Get the dedicated text channel that hosts the pinned soundboard."""
@@ -2233,7 +2501,9 @@ class DiscordScheduleBot:
         if target_guild is None or not self._is_configured_guild(target_guild):
             return None
         configured_id = str(self.config.get("voice_panel_channel_id") or "").strip()
-        if configured_id.isdigit():
+        notice_channel = await self._resolve_text_channel(target_guild)
+        notice_id = str(getattr(notice_channel, "id", "") or "")
+        if configured_id.isdigit() and configured_id != notice_id:
             channel = self.client.get_channel(int(configured_id))
             if channel is None:
                 try:
@@ -2244,9 +2514,13 @@ class DiscordScheduleBot:
                 channel_guild_id = str(getattr(getattr(channel, "guild", None), "id", "") or "")
                 if channel_guild_id == configured_server_id:
                     return channel
-        # Preserve the former behavior until the administrator explicitly
-        # chooses a dedicated soundboard channel with /음성채널 채널이름.
-        return await self._resolve_text_channel(target_guild)
+        # Never publish the soundboard in the schedule channel as a fallback.
+        channel = self._find_text_channel_by_name(target_guild, "사운드보드")
+        if channel is not None and str(channel.id) != notice_id:
+            self.config["voice_panel_channel_id"] = str(channel.id)
+            save_config_value("voice_panel_channel_id", str(channel.id))
+            return channel
+        return None
 
     @staticmethod
     def _find_text_channel_by_name(guild: Any, requested_name: str) -> Any | None:
@@ -2370,6 +2644,7 @@ class DiscordScheduleBot:
         wrapped = f"```ansi\n{body}\n```"
         if len(wrapped) <= 2000:
             await channel.send(wrapped)
+            await self._cleanup_bot_text_channel_messages(channel)
             return
         plain_lines = body.splitlines()
         chunk: list[str] = []
@@ -2382,6 +2657,7 @@ class DiscordScheduleBot:
                 chunk.append(line)
         if chunk:
             await channel.send(f"```ansi\n{'\n'.join(chunk)}\n```")
+        await self._cleanup_bot_text_channel_messages(channel)
 
     async def _send_schedule_plain_text(self, channel: Any) -> None:
         """Post only HHMM and boss name so the result can be copied verbatim."""
@@ -2400,6 +2676,7 @@ class DiscordScheduleBot:
                 chunk.append(line)
         if chunk:
             await channel.send("\n".join(chunk))
+        await self._cleanup_bot_text_channel_messages(channel)
 
     def _find_notice_color(self, message: str, *, fallback: int = 0x2563EB) -> int:
         message_text = str(message or "")
@@ -2495,7 +2772,7 @@ class DiscordScheduleBot:
             )
             embed.set_footer(text=f"{phase.replace('_', ' ')}  •  BossTimer")
             await channel.send(embed=embed)
-            await self._cleanup_bot_text_channel_messages(channel, keep_count=2)
+            await self._cleanup_bot_text_channel_messages(channel)
             log(f"text_notice_sent phase={phase} channel_id={getattr(channel, 'id', '')} text={message}")
         except Exception as exc:
             log(f"text_notice_failed phase={phase} error={exc}")
@@ -2708,16 +2985,28 @@ class DiscordScheduleBot:
             log(f"stale_voice_session_disconnect_failed channel_id={stale_channel_id} error={exc}")
             return False
 
-    async def _connect_configured_voice_channel(self) -> bool:
+    async def _connect_configured_voice_channel(self, *, automatic: bool = True) -> bool:
+        if self._connection_is_blocked():
+            return False
         channel_id = str(self.config.get("voice_channel_id") or "").strip()
         if not channel_id:
             STATUS.update(guild_id=self._get_configured_server_id(), voice_channel_id="", voice_connected=False)
             log("voice_channel_not_configured")
             return False
-        connected, _message = await self._connect_voice_channel(channel_id)
-        return bool(connected)
+        lock = getattr(self, "voice_connect_lock", None)
+        if lock is None:
+            self.voice_connect_lock = lock = asyncio.Lock()
+        async with lock:
+            if self.voice_client is not None and self.voice_client.is_connected():
+                return True
+            if automatic and not self._claim_connection_retry():
+                return False
+            connected, _message = await self._connect_voice_channel(channel_id)
+            return bool(connected)
 
     async def _connect_voice_channel(self, channel_id: str) -> tuple[bool, str]:
+        if self._connection_is_blocked():
+            return False, STATUS.configuration_error or "대기 상태입니다."
         channel_id = str(channel_id or "").strip()
         configured_guild_id = self._get_configured_server_id()
         if not channel_id.isdigit():
@@ -2733,21 +3022,29 @@ class DiscordScheduleBot:
                 raise RuntimeError("음성채널을 찾지 못했습니다.")
             channel_guild_id = str(getattr(getattr(channel, "guild", None), "id", "") or "")
             if channel_guild_id != configured_guild_id:
-                raise RuntimeError(
-                    f"서버 ID({configured_guild_id})와 음성채널의 서버({channel_guild_id})가 다릅니다."
-                )
+                message = "서버 ID와 음성채널의 서버가 다릅니다. 봇 설정에서 이 서버의 음성채널 ID를 다시 입력하고 봇을 재실행하세요."
+                self._block_connection_error(message)
+                raise DiscordConfigurationError(message)
             if self.voice_client is not None and getattr(self.voice_client, "is_connected", lambda: False)():
                 if getattr(self.voice_client, "channel", None) and self.voice_client.channel.id == int(channel_id):
                     STATUS.update(voice_channel_id=channel_id, voice_connected=True)
                     return True, "이미 해당 음성채널에 연결되어 있습니다."
                 await asyncio.wait_for(self.voice_client.move_to(channel), timeout=8.0)
             else:
-                self.voice_client = await asyncio.wait_for(channel.connect(self_deaf=True), timeout=12.0)
+                self.voice_client = await asyncio.wait_for(channel.connect(self_deaf=True, reconnect=False), timeout=12.0)
+            if self._connection_is_blocked():
+                await self.voice_client.disconnect(force=True)
+                return False, "대기 전환으로 접속을 중단했습니다."
+            if getattr(self, "connection_policy", None) is not None:
+                self.connection_policy.success()
+                self._connection_state()
             guild_id = str(getattr(getattr(channel, "guild", None), "id", self.config.get("server_id", "")) or "")
             STATUS.update(guild_id=guild_id, voice_channel_id=channel_id, voice_connected=True, last_error="")
             log(f"voice_connected guild_id={guild_id} channel_id={channel_id}")
             return True, "음성채널에 연결했습니다."
         except Exception as exc:
+            if is_access_error(exc):
+                self._block_connection_error(ACCESS_ERROR_TEXT)
             STATUS.update(voice_channel_id=channel_id, voice_connected=False, last_error=f"음성채널 연결 실패: {exc}")
             log(f"voice_connect_failed channel_id={channel_id} error={exc}")
             return False, f"음성채널 연결 실패: {exc}"
@@ -2755,6 +3052,20 @@ class DiscordScheduleBot:
     async def _schedule_loop(self) -> None:
         while not STATUS.shutdown_requested.is_set():
             try:
+                state = self._connection_state()
+                if state.get("handover_hold"):
+                    if not getattr(self, "_handover_audio_stopped", False):
+                        self._handover_audio_stopped = True
+                        async with self.voice_transition_lock:
+                            await self._stop_current_voice_playback_and_wait(reason="handover")
+                    # Discard stale announcements produced while synchronizing.
+                    self.voice_bridge_reader.read_new_jobs()
+                    await asyncio.sleep(.1)
+                    continue
+                self._handover_audio_stopped = False
+                if STATUS.standby or STATUS.handover_hold:
+                    await asyncio.sleep(.25)
+                    continue
                 if config_bool(self.config, "voice_bridge_enabled", True):
                     STATUS.update(voice_bridge_enabled=True)
                     for job in self.voice_bridge_reader.read_new_jobs():
@@ -2781,22 +3092,37 @@ class DiscordScheduleBot:
 
     async def _play_loop(self) -> None:
         while not STATUS.shutdown_requested.is_set():
+            job = None
             try:
-                job = await self.client.loop.run_in_executor(None, self.play_queue.get)
+                # An indefinitely blocked executor queue.get prevents Client.run
+                # from returning during standby or Gateway recovery.
+                try:
+                    job = self.play_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(.05)
+                    continue
                 if job is None:
                     continue
+                if STATUS.standby:
+                    continue
+                self.regular_voice_job_active = True
                 await self._ensure_voice_connection()
                 if self.voice_client is None or not self.voice_client.is_connected():
                     STATUS.update(last_error="음성채널에 연결되어 있지 않습니다.", voice_connected=False)
+                    if isinstance(job, VoiceBridgeJob):
+                        STATUS.record_bridge_result(job.id, "failed", job.scope_id)
                     continue
                 if isinstance(job, VoiceBridgeJob):
                     if self._is_voice_bridge_scope_cancelled(job.scope_id):
+                        STATUS.record_bridge_result(job.id, "cancelled", job.scope_id)
                         log(f"bridge_play_skipped_cancelled id={job.id} scope={job.scope_id} phase={job.phase}")
                         continue
                     clips = list(job.clip_paths)
                     timed_clips = list(job.timed_clips)
                     if not clips and not timed_clips:
+                        STATUS.record_bridge_result(job.id, "failed", job.scope_id)
                         continue
+                    STATUS.record_bridge_result(job.id, "timed_untracked" if timed_clips else "started", job.scope_id)
                     STATUS.update(last_played=f"BRIDGE {job.phase} {job.fallback_text}", last_error="", voice_bridge_last_id=job.id)
                     latency_ms = int(round((datetime.now() - job.created_at).total_seconds() * 1000.0))
                     log(f"bridge_play_start id={job.id} phase={job.phase} clips={len(clips)} timed_clips={len(timed_clips)} latency_ms={latency_ms} text={job.fallback_text}")
@@ -2807,10 +3133,15 @@ class DiscordScheduleBot:
                             lambda completed_task, job_id=job.id: self._finish_timed_bridge_task(job_id, completed_task)
                         )
                         continue
+                    completed = True
                     for clip_path in clips:
                         if self._is_voice_bridge_scope_cancelled(job.scope_id):
+                            completed = False
                             break
-                        await self._play_clip(clip_path, volume=job.volume, scope_id=job.scope_id)
+                        if not await self._play_clip(clip_path, volume=job.volume, scope_id=job.scope_id, confirm_eof=True):
+                            completed = False
+                    cancelled = self._is_voice_bridge_scope_cancelled(job.scope_id) or STATUS.shutdown_requested.is_set()
+                    STATUS.record_bridge_result(job.id, "cancelled" if cancelled else "completed" if completed else "failed", job.scope_id)
                     continue
                 clips = self._build_clips_for_job(job)
                 if not clips:
@@ -2821,8 +3152,12 @@ class DiscordScheduleBot:
                 for clip_path in clips:
                     await self._play_clip(clip_path)
             except Exception as exc:
+                if isinstance(job, VoiceBridgeJob):
+                    STATUS.record_bridge_result(job.id, "failed", job.scope_id)
                 STATUS.update(last_error=f"재생 실패: {exc}")
                 log(f"play_loop_failed type={type(exc).__name__} error={exc!r}")
+            finally:
+                self.regular_voice_job_active = False
 
     async def _play_timed_bridge_clips(self, job: VoiceBridgeJob) -> None:
         try:
@@ -2894,6 +3229,8 @@ class DiscordScheduleBot:
             raise
 
     def _is_voice_bridge_scope_cancelled(self, scope_id: str) -> bool:
+        if STATUS.standby or STATUS.handover_hold:
+            return True
         scope_text = str(scope_id or "").strip()
         return bool(scope_text and scope_text in self.cancelled_voice_bridge_scopes)
 
@@ -2913,6 +3250,19 @@ class DiscordScheduleBot:
             self.current_voice_scope_id = ""
             self.current_timed_composite_source = None
             self.current_timed_composite_scope_id = ""
+
+    async def _install_prepared_notice_output(self, source, *, scope_id: str, deadline: float) -> bool:
+        """Reserve a silent notice output; caller owns source if rejected.
+
+        Future module bridge must revalidate its delivery token before play().
+        Installing a source alone never starts audio or changes notice records.
+        """
+        async with self.voice_transition_lock:
+            previous = getattr(self, "notice_output", None)
+            if previous is not None and not previous.released:
+                return False
+            self.notice_output = DiscordNoticeOutput(self, source, scope_id=scope_id, deadline=deadline)
+            return True
 
     async def _stop_current_voice_playback_and_wait(
         self,
@@ -2934,6 +3284,11 @@ class DiscordScheduleBot:
         if playback_token is None and player is None:
             return False, 0, True
         started_at = time.monotonic()
+        notice_output = getattr(self, "notice_output", None)
+        if notice_output is not None:
+            # Freeze only this notice's reader before freeing the voice slot.
+            # Regular/timed boss outputs keep their existing replacement path.
+            notice_output.before_stop(playback_token, reason)
         composite_source = self.current_timed_composite_source
         cancel_source = getattr(composite_source, "cancel", None)
         if callable(cancel_source):
@@ -2986,7 +3341,7 @@ class DiscordScheduleBot:
                 )
                 embed.set_footer(text="BossTimer 자동 복구")
                 await channel.send(embed=embed)
-                await self._cleanup_bot_text_channel_messages(channel, keep_count=2)
+                await self._cleanup_bot_text_channel_messages(channel)
                 log(
                     f"system_text_notice_sent id={control.id} "
                     f"channel_id={getattr(channel, 'id', '')} text={control.message}"
@@ -3045,6 +3400,12 @@ class DiscordScheduleBot:
         while not STATUS.shutdown_requested.is_set():
             await asyncio.sleep(0.25)
         log("shutdown_requested")
+        notice_output = getattr(self, "notice_output", None)
+        if notice_output is not None:
+            try:
+                await notice_output.stop()
+            except Exception as exc:
+                log(f"notice_shutdown_stop_failed error={exc}")
         try:
             if self.voice_client is not None and self.voice_client.is_connected():
                 await self.voice_client.disconnect(force=True)
@@ -3053,6 +3414,8 @@ class DiscordScheduleBot:
         await self.client.close()
 
     async def _ensure_voice_connection(self) -> None:
+        if self._connection_is_blocked():
+            return
         if self.voice_client is not None and self.voice_client.is_connected():
             STATUS.update(voice_connected=True)
             return
@@ -3712,7 +4075,8 @@ class DiscordScheduleBot:
         gap_sec: float = VOICE_CLIP_GAP_SEC,
         trim_silence: bool = False,
         scope_id: str = "",
-    ) -> None:
+        confirm_eof: bool = False,
+    ) -> bool | None:
         if self.voice_client is None:
             return
         if self._is_voice_bridge_scope_cancelled(scope_id):
@@ -3720,6 +4084,13 @@ class DiscordScheduleBot:
         async with self.voice_play_lock:
             if self._is_voice_bridge_scope_cancelled(scope_id):
                 return
+            notice_output = getattr(self, "notice_output", None)
+            if notice_output is not None and notice_output.owns(self.current_voice_playback_token):
+                async with self.voice_transition_lock:
+                    if notice_output.owns(self.current_voice_playback_token):
+                        _, _, joined = await self._stop_current_voice_playback_and_wait(reason="notice_preempt")
+                        if not joined:
+                            return  # Never mix boss output with an unconfirmed old reader.
             while self.voice_client.is_playing() or self.voice_client.is_paused():
                 if self._is_voice_bridge_scope_cancelled(scope_id):
                     return
@@ -3742,11 +4113,15 @@ class DiscordScheduleBot:
                 volume=volume,
                 trim_silence=trim_silence,
             )
+            if confirm_eof:
+                source = observe_audio_source(self.discord.AudioSource, source)
             done = asyncio.Event()
             playback_token = object()
+            playback_errors = []
 
             def after_play(error: Exception | None) -> None:
                 if error:
+                    playback_errors.append(error)
                     log(f"clip_play_error path={clip_path} error={error}")
                 self.client.loop.call_soon_threadsafe(self._clear_current_voice_playback, playback_token)
                 self.client.loop.call_soon_threadsafe(done.set)
@@ -3785,6 +4160,10 @@ class DiscordScheduleBot:
             gap_seconds = max(0.0, float(gap_sec))
             if gap_seconds > 0:
                 await asyncio.sleep(gap_seconds)
+            if confirm_eof:
+                return bool(source.reached_eof and source.frames_read > 0 and not playback_errors
+                            and not self._is_voice_bridge_scope_cancelled(scope_id)
+                            and self.voice_client is not None and self.voice_client.is_connected())
 
     def _create_audio_source(self, clip_path: str, *, trim_silence: bool = False) -> Any:
         if Path(clip_path).suffix.casefold() == ".wav":
@@ -3927,6 +4306,9 @@ class DiscordScheduleBot:
         return BossTimerWavAudioSource(clip_path, trim=trim_silence)
 
     def run(self) -> bool:
+        runtime_mode = "exe" if getattr(sys, "frozen", False) else "source"
+        runtime_path = sys.executable if runtime_mode == "exe" else str(Path(__file__).resolve())
+        log(f"discord_runtime_loaded mode={runtime_mode} path={runtime_path} channel_policy=2")
         token = str(self.config.get("bot_token") or "").strip()
         if not token:
             STATUS.update(last_error="봇 토큰이 비어 있습니다.")
@@ -3935,8 +4317,17 @@ class DiscordScheduleBot:
                 time.sleep(0.25)
             return self.message_content_enabled
         try:
-            self.client.run(token, log_handler=None)
+            self.client.run(token, log_handler=None, reconnect=False)
+        except DiscordConfigurationError:
+            # Keep the status endpoint available, without reconnecting with
+            # the wrong identity. The GUI can stop/restart after correction.
+            STATUS.shutdown_requested.wait()
         except Exception as exc:
+            if is_access_error(exc):
+                self._block_connection_error(ACCESS_ERROR_TEXT)
+                STATUS.update(online=False, voice_connected=False)
+                STATUS.shutdown_requested.wait()
+                return self.message_content_enabled
             privileged_intents_error = getattr(self.discord, "PrivilegedIntentsRequired", ())
             if (
                 self.message_content_enabled
@@ -4038,9 +4429,24 @@ def main() -> int:
     log(f"pynacl_available={int(nacl_available)}")
     disconnect_only = str(os.environ.get("BOSS_TIMER_DISCORD_DISCONNECT_ONLY") or "").strip() == "1"
     enable_message_content = not disconnect_only
+    policy = ConnectionPolicy(CONFIG_PATH)
+    needs_retry = False
+    reserved_launch = os.environ.get("BOSS_TIMER_DISCORD_RETRY_RESERVED") == "1"
     while not STATUS.shutdown_requested.is_set():
+        state = policy.snapshot()
+        STATUS.update(standby=state["standby"], reconnect_attempts=state["retries"],
+                      configuration_error=state["error"])
+        if state["standby"] or state["error"] or (state["retries"] >= MAX_RETRIES and not reserved_launch):
+            STATUS.update(last_error=state["error"] or ("대기 상태입니다." if state["standby"] else "자동 재접속 10회 제한에 도달했습니다."))
+            STATUS.shutdown_requested.wait()
+            break
+        if needs_retry and not policy.claim_retry():
+            STATUS.shutdown_requested.wait(1.0)
+            continue
         bot = DiscordScheduleBot(discord, enable_message_content=enable_message_content)
+        reserved_launch = False
         enable_message_content = bot.run()
+        needs_retry = True
         if STATUS.shutdown_requested.is_set():
             break
         if disconnect_only:

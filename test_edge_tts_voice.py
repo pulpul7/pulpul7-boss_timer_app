@@ -85,15 +85,17 @@ class EdgeTtsModuleInstallTests(unittest.TestCase):
                 archive.writestr("packages/edge_tts/__init__.py", "__version__ = 'test'\n")
             archive_bytes = payload_buffer.getvalue()
 
-            def fake_urlopen(_request, timeout=0):
+            def fake_urlopen(_request, timeout=0, *, context=None):
                 self.assertGreater(timeout, 0)
+                self.assertIsNotNone(context)
                 return io.BytesIO(archive_bytes)
 
-            status = install_edge_tts_module(
-                str(module_dir),
-                download_url="https://example.invalid/tts.zip",
-                urlopen=fake_urlopen,
-            )
+            with mock.patch('edge_tts_module._create_download_ssl_context', return_value=object()):
+                status = install_edge_tts_module(
+                    str(module_dir),
+                    download_url="https://example.invalid/tts.zip",
+                    urlopen=fake_urlopen,
+                )
             self.assertTrue(status.installed)
             self.assertEqual(status.version, "test")
             self.assertTrue((module_dir / "packages" / "edge_tts" / "__init__.py").is_file())

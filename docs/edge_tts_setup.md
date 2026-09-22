@@ -12,7 +12,25 @@
 python -m pip install -r requirements-gui.txt
 ```
 
-배포용 EXE를 만들 때는 `edge-tts`가 설치된 Python 환경에서 `boss_timer_gui.spec`을 사용합니다.
+배포용 EXE를 만들 때는 위 GUI 의존성을 설치한 Python 환경에서 `boss_timer_gui.spec`을 사용합니다.
+TTS 엔진은 별도 모듈 ZIP으로 설치하며, 다운로드에 필요한 `truststore`는 본 EXE에 포함합니다.
+
+### Windows 인증서 검증
+
+TTS 모듈 다운로드는 `truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)`를
+`urllib.request.urlopen(..., context=...)`에 전달해 Windows 인증서 저장소로 검증합니다.
+전역 SSL 패치는 하지 않으며 Discord/다른 다운로드/설치 후 TTS 합성의 TLS 동작은 바꾸지 않습니다.
+인증서·호스트 이름 검증을 유지하고 검증 실패 시 우회 재시도하지 않습니다.
+
+- 배포 사용자는 Python이나 truststore를 별도로 설치할 필요가 없습니다. 수정된 본 EXE가 필요합니다.
+- 개발/빌드 PC에서는 `python -m pip install -r requirements-gui.txt`를 먼저 실행합니다.
+  truststore가 빠진 빌드는 즉시 오류로 중단합니다. Python 3.10 이상이 필요합니다.
+- Windows 자체에서도 인증서를 신뢰하지 못하면 실패할 수 있습니다. PC 시각,
+  Windows 업데이트 및 관리되는 백신/프록시의 인증서 설정을 확인합니다.
+  출처를 모르는 인증서를 설치하거나 인증서 검증을 끄지 않습니다.
+- 설치 실패 시 인증서 오류와 GitHub 파일 없음(404)을 구분해 표시합니다.
+
+참고: https://truststore.readthedocs.io/en/latest/
 
 ## 설정 방법
 

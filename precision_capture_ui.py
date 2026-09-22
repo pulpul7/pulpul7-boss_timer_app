@@ -13,6 +13,7 @@ from precision_capture_session import PrecisionCaptureSession, CANDIDATES, timer
 from precision_time_tracker import PrecisionConfig
 from schedule_precision import clock_text, DEFAULT_CAPTURE_RATE
 from precision_region_overlay import RegionOverlay
+from capture_window_visibility import hide_app_windows, restore_app_windows
 
 
 def clear_preview(app):
@@ -113,6 +114,8 @@ def start(app, slots, *, retry_context=None):
     retry_targets = retry_targets_for(*retry_context) if retry_context is not None else None
     if retry_targets is not None and not retry_targets:
         return
+    # Apply to the upcoming result, without re-rendering/overwriting a draft.
+    app.schedule_input_ocr_within_day_only_var.set(True)
     session = PrecisionCaptureSession(app,hwnd,slots,
         config=PrecisionConfig.from_rate(getattr(app,'precision_capture_rate',DEFAULT_CAPTURE_RATE)),
         retry_targets=retry_targets, expected_area=retry_context[0].get('area') if retry_context else None)
@@ -125,18 +128,10 @@ def start(app, slots, *, retry_context=None):
     app.schedule_input_ocr_addon_busy = True
     app._set_schedule_input_ocr_loading_lock(True)
     app._update_schedule_input_ocr_addon_controls()
-    # Keep the progress window above the board, never over any measured ROI.
-    restored = []
-    for window in (app.root,input_window,app.schedule_input_ocr_addon_window):
-        if window is not None and window.winfo_exists():
-            restored.append((window,window.state()))
-            window.withdraw()
-    from precision_capture_widgets import CaptureProgress
-    progress = CaptureProgress(app.root,rect,session.cancel.set,
-                               retry_names=list(retry_targets or ()),rate=1/session.config.interval)
-    dialog = progress.window
-    dialog.update_idletasks()
-    dialog.grab_set()
+    # Include nested settings/notice windows. Do not create the new progress
+    # popup until the worker confirms that the full T0 screenshot is captured.
+    restored = hide_app_windows(app, hwnd)
+    progress = dialog = None
     terminal = False
 
     def valid():
@@ -150,8 +145,9 @@ def start(app, slots, *, retry_context=None):
         nonlocal terminal
         terminal = True
         try:
-            dialog.grab_release()
-            dialog.destroy()
+            if dialog is not None:
+                dialog.grab_release()
+                dialog.destroy()
         except tk.TclError:
             pass
         if getattr(app,'_precision_session',None) is session:
@@ -160,9 +156,7 @@ def start(app, slots, *, retry_context=None):
             app.schedule_input_ocr_addon_busy = False
             app._set_schedule_input_ocr_loading_lock(False)
             app._update_schedule_input_ocr_addon_controls()
-        for window,state in restored:
-            if window.winfo_exists() and state!='withdrawn':
-                window.state(state)
+        restore_app_windows(restored)
         if app.schedule_input_window is input_window and input_window is not None and input_window.winfo_exists():
             input_window.deiconify()
             was_topmost = input_window.attributes('-topmost')
@@ -175,6 +169,7 @@ def start(app, slots, *, retry_context=None):
             app.root.after(250,restore_topmost)
 
     def poll():
+        nonlocal progress, dialog
         if terminal:
             return
         try:
@@ -184,7 +179,19 @@ def start(app, slots, *, retry_context=None):
                 kind,data = session.events.get_nowait()
                 if kind=='log':
                     app._append_debug_log(data)
-                elif kind=='progress' and dialog.winfo_exists():
+                elif kind=='regions' and dialog is None:
+                    # Emitted only AFTER the initial full capture and OCR/ROI
+                    # workers start. Show immediately, without waiting for OCR.
+                    # The existing top-of-game position stays outside timer ROIs.
+                    from precision_capture_widgets import CaptureProgress
+                    progress = CaptureProgress(app.root,rect,session.cancel.set,
+                        retry_names=list(retry_targets or ()),rate=1/session.config.interval,topmost=True)
+                    dialog = progress.window
+                    dialog.deiconify()
+                    dialog.lift()
+                    dialog.update_idletasks()
+                    dialog.grab_set()
+                elif kind=='progress' and dialog is not None and dialog.winfo_exists():
                     elapsed,total,tracking,completed = data
                     progress.update(elapsed,total,tracking,completed,session.config.duration)
                 elif kind=='error':

@@ -134,10 +134,14 @@ class CollectorTests(unittest.TestCase):
         self.fetch = Mock(side_effect=lambda url, cached=None: Page(self.html if url == LIST_URL else self.body, etag='"test"'))
         self.collector = NoticeCollector(self.fetch)
 
-    def test_collects_sources_without_creating_audio_events(self):
+    def test_collects_uncertain_source_as_one_time_discovery_with_output_off(self):
         self.assertTrue(self.collector.collect_once(self.store))
         state = self.store.snapshot()
-        self.assertEqual(state["events"], {})
+        self.assertEqual(len(state["events"]), 1)
+        for event in state["events"].values():
+            self.assertTrue(event["tts_text"].endswith("공지가 올라왔습니다."))
+            self.assertTrue(event["retire_after_delivery"])
+            self.assertIsNone(self.store.delivery_token(event["id"]))
         self.assertEqual(state["articles"]["CT9G/100"]["revision"], 1)
         self.assertTrue(state["articles"]["CT9G/100"]["baseline"])
         self.assertEqual(state["collection"]["status"], "수집 완료")

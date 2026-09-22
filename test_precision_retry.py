@@ -32,6 +32,7 @@ class RetryTests(unittest.TestCase):
                 app._render_schedule_input_ocr_text.side_effect=lambda *args:text.__setitem__(0,'rendered')
                 app._show_centered_messagebox.return_value=answer
                 callbacks=[]
+                app.root.winfo_children.return_value=[]
                 app.root.after.side_effect=lambda delay,callback:callbacks.append(callback)
                 session=Mock(config=PrecisionConfig(),wall0=datetime(2026,9,11),debug_logging=False)
                 session.events=queue.Queue(); session.cancel=threading.Event()

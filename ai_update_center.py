@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ai_module_updater import AiModuleUpdater, KST, REPOSITORY
+from app_patch_notes import patch_history_text
 
 
 def center_window(window, parent):
@@ -33,9 +34,11 @@ class AiUpdateCenter:
     def __init__(self, app, data_root: Path, app_version: str):
         self.app = app
         self.root = app.root
+        self.app_version = str(app_version)
         runtime = getattr(app, "notice_runtime", None)
         self.updater = runtime.updater if runtime is not None else AiModuleUpdater(data_root, app_version)
         self.window = None
+        self.patch_window = None
         self.prompt = None
         self.busy = False
         self.events = queue.Queue()
@@ -121,8 +124,13 @@ class AiUpdateCenter:
         win.geometry("880x640")
         win.minsize(740, 530)
         win.transient(parent)
-        tk.Label(win, text="업데이트 센터", font=("맑은 고딕", 17, "bold"),
-                 bg="#eff6ff", fg="#0f172a", anchor="w").pack(fill="x", padx=20, pady=(16, 4))
+        header = tk.Frame(win, bg="#1e3a8a", padx=18, pady=14)
+        header.pack(fill="x")
+        ttk.Button(header, text="버전별 패치내역", command=self._open_patch_notes).pack(side="right", padx=(12, 0))
+        tk.Label(header, text="업데이트 센터", font=("맑은 고딕", 17, "bold"),
+                 bg="#1e3a8a", fg="#ffffff", anchor="w").pack(fill="x")
+        tk.Label(header, text=f"현재 프로그램 버전: {self.app_version}", font=("맑은 고딕", 11, "bold"),
+                 bg="#1e3a8a", fg="#dbeafe", anchor="w").pack(fill="x", pady=(5, 0))
         tk.Label(win, text=f"공식 배포: {REPOSITORY}  ·  날짜는 한국시간",
                  bg="#eff6ff", fg="#475569", anchor="w").pack(fill="x", padx=20)
         self.summary = tk.StringVar(win)
@@ -141,12 +149,7 @@ class AiUpdateCenter:
         ttk.Label(options, text="  확인 시작 시각(KST)").pack(side="left")
         ttk.Entry(options, textvariable=self.after_time, width=6).pack(side="left", padx=6)
         ttk.Button(options, text="설정 저장", command=self._save_options).pack(side="left")
-        self.tabs = ttk.Notebook(win)
-        self.tabs.pack(fill="both", expand=True, padx=16, pady=10)
-        releases = ttk.Frame(self.tabs, padding=8)
-        history = ttk.Frame(self.tabs, padding=8)
-        self.tabs.add(releases, text="배포 목록 / 패치 설명")
-        self.tabs.add(history, text="설치 / 실패 내역")
+        releases, history = self._build_update_tabs(win)
         tree_frame = ttk.Frame(releases)
         tree_frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(tree_frame, columns=("date", "version", "status", "title"), show="headings", height=7)
@@ -170,12 +173,66 @@ class AiUpdateCenter:
         tk.Label(win, textvariable=self.status, anchor="w", justify="left", wraplength=825,
                  bg="#eff6ff", fg="#334155").pack(fill="x", padx=20, pady=(0, 6))
         tk.Label(win, text="설정·스케줄·음성은 변경하지 않습니다. 설치 파일은 다음 실행 때 적용됩니다.\n"
-                 "알림 기능은 독립 모듈로 실행됩니다. 기능별 연결 상태는 알림 관리 창에서 확인해 주세요.",
+                 "알림 기능은 독립 모듈로 실행됩니다. 기능별 연결 상태는 알리미 관리 창에서 확인해 주세요.",
                  anchor="w", justify="left", bg="#eff6ff", fg="#64748b").pack(fill="x", padx=20, pady=(0, 12))
         win.protocol("WM_DELETE_WINDOW", self._close)
         center_window(win, parent)
         self._render()
         win.after(200, self._check_when_ready)
+
+    def _build_update_tabs(self, parent):
+        # Windows' native ttk notebook paints its own tab background while
+        # accepting our white foreground. Use local Tk widgets so both colors
+        # remain under our control, without changing the application's theme.
+        self.tabs = tk.Frame(parent, bg="#eff6ff")
+        self.tabs.pack(fill="both", expand=True, padx=16, pady=10)
+        bar = tk.Frame(self.tabs, bg="#eff6ff")
+        bar.pack(fill="x")
+        content = tk.Frame(self.tabs, bg="#1e3a8a", padx=2, pady=2)
+        content.pack(fill="both", expand=True)
+        content.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+        self.update_tab_titles = ("배포 목록 / 패치 설명", "설치 / 실패 내역")
+        self.update_tab_buttons = []
+        self.update_tab_pages = []
+        for index, title in enumerate(self.update_tab_titles):
+            button = tk.Button(
+                bar, text=title, command=lambda i=index: self._select_update_tab(i),
+                font=("맑은 고딕", 10, "bold"), padx=16, pady=9,
+                bd=0, relief="flat", cursor="hand2", takefocus=True,
+                highlightthickness=2, highlightbackground="#94a3b8", highlightcolor="#f59e0b",
+            )
+            button.pack(side="left", padx=(0, 4))
+            button.bind("<Return>", lambda _event, i=index: self._select_update_tab(i))
+            button.bind("<Left>", lambda _event, i=index: self._focus_update_tab(i - 1))
+            button.bind("<Right>", lambda _event, i=index: self._focus_update_tab(i + 1))
+            page = tk.Frame(content, bg="#eff6ff", padx=8, pady=8)
+            page.grid(row=0, column=0, sticky="nsew")
+            self.update_tab_buttons.append(button)
+            self.update_tab_pages.append(page)
+        self._select_update_tab(0)
+        return self.update_tab_pages
+
+    def _select_update_tab(self, index):
+        self.selected_update_tab = index
+        for i, button in enumerate(self.update_tab_buttons):
+            selected = i == index
+            background = "#1e3a8a" if selected else "#dbeafe"
+            foreground = "#ffffff" if selected else "#1e293b"
+            button.configure(
+                text=("● " if selected else "") + self.update_tab_titles[i],
+                bg=background, fg=foreground,
+                activebackground=background if selected else "#bfdbfe",
+                activeforeground=foreground,
+                highlightbackground="#1e3a8a" if selected else "#94a3b8",
+            )
+        self.update_tab_pages[index].tkraise()
+
+    def _focus_update_tab(self, index):
+        index %= len(self.update_tab_pages)
+        self._select_update_tab(index)
+        self.update_tab_buttons[index].focus_set()
+        return "break"
 
     def _check_when_ready(self):
         if self.window is None or not self.window.winfo_exists():
@@ -204,8 +261,37 @@ class AiUpdateCenter:
         widget.configure(state="disabled")
 
     def _close(self):
+        if self.patch_window is not None and self.patch_window.winfo_exists():
+            self.patch_window.destroy()
+        self.patch_window = None
         self.window.destroy()
         self.window = None
+
+    def _open_patch_notes(self):
+        if self.patch_window is not None and self.patch_window.winfo_exists():
+            self.patch_window.lift()
+            self.patch_window.focus_force()
+            return
+        parent = self._parent()
+        win = self.patch_window = tk.Toplevel(parent)
+        win.title("버전별 패치내역")
+        win.geometry("760x600")
+        win.minsize(580, 420)
+        win.configure(bg="#eff6ff")
+        win.transient(parent)
+        tk.Label(win, text="버전별 패치내역", bg="#1e3a8a", fg="white",
+                 font=("맑은 고딕", 16, "bold"), anchor="w", padx=18, pady=16).pack(fill="x")
+        tk.Label(win, text=f"현재 프로그램: {self.app_version} · 준비 중인 변경사항은 버전 번호 없이 표시합니다.",
+                 bg="#eff6ff", fg="#334155", anchor="w", wraplength=700).pack(fill="x", padx=16, pady=10)
+        body = self._text_box(win, height=20)
+        try:
+            catalog = self.updater.snapshot().get("catalog", [])
+        except Exception:
+            catalog = []  # Local notes remain available even if update state is unreadable.
+        self._set_text(body, patch_history_text(self.app_version, catalog))
+        ttk.Button(win, text="닫기", command=win.destroy).pack(pady=12)
+        win.bind("<Escape>", lambda _event: win.destroy())
+        center_window(win, parent)
 
     def _save_options(self):
         try:
@@ -243,7 +329,7 @@ class AiUpdateCenter:
         loaded = state.get("runtime_loaded", {})
         running = loaded.get("version") or state.get("active") or "미시작"
         origin = " (내장)" if loaded.get("source") == "bundled" else ""
-        self.summary.set(f"시작 확인: {running}{origin}  |  다음 실행 적용: {state.get('pending') or '없음'}"
+        self.summary.set(f"현재 알리미 모듈: {running}{origin}  |  다음 실행 적용: {state.get('pending') or '없음'}"
                          f"  |  마지막 확인: {display_date(state.get('last_checked', '없음'))}")
         latest = {}
         for entry in state["history"]:
