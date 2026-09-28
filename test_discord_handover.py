@@ -116,6 +116,40 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(row["phase"], "joining")
         self.assertIsNone(row["artifact"])
 
+    def test_failed_solo_start_can_retry_after_scope_correction(self):
+        row = self.record.request('first')
+        self.record.change(row['request'], 'first', phases={'joining'}, phase='failed')
+        corrected = HandoverRecord(self.repo.get, self.repo.put, dict(self.scope, server='odin8'))
+        with self.assertRaises(HandoverError):
+            corrected.read()  # Normal polling remains strict.
+        retry = corrected.request('first')
+        self.assertEqual(retry['scope']['server'], 'odin8')
+        self.assertIsNone(retry['artifact'])
+        self.assertEqual(retry['phase'], 'joining')
+
+    def test_expired_solo_start_can_recover_but_live_join_cannot(self):
+        self.record.request('first')
+        corrected = HandoverRecord(self.repo.get, self.repo.put, dict(self.scope, season='19'))
+        with self.assertRaises(HandoverError):
+            corrected.request('first')
+        data, sha = self.record.read()
+        data['deadline'] = 0
+        self.record.write(data, sha)
+        self.assertEqual(corrected.request('first')['scope']['season'], '19')
+
+    def test_cross_scope_recovery_never_steals_other_owner_or_artifact(self):
+        row = self.record.request('first')
+        self.record.change(row['request'], 'first', phases={'joining'}, phase='failed')
+        corrected = HandoverRecord(self.repo.get, self.repo.put, dict(self.scope, season='19'))
+        with self.assertRaises(HandoverError):
+            corrected.request('second')
+        data, sha = self.record.read()
+        data['artifact'] = {'path': 'protected-schedule'}
+        self.record.write(data, sha)
+        with self.assertRaises(HandoverError):
+            corrected.request('first')
+        self.assertEqual(self.record.read()[0]['artifact'], {'path': 'protected-schedule'})
+
 
 class HandoverTests(unittest.TestCase):
     def setUp(self):
@@ -145,6 +179,9 @@ class HandoverTests(unittest.TestCase):
                  _show_centered_messagebox=Mock(), _append_debug_log=Mock())
         config = self.root / (name + ".ini")
         app._get_discord_bot_config_storage_path = lambda: str(config)
+        from administrator_identity import AdministratorIdentity
+        identity_store = AdministratorIdentity(self.root / name)
+        app._get_administrator_identity = lambda: identity_store.load_or_create(config)
         app._get_current_github_upload_server_entry = lambda: dict(id="odin9", name="오9", schedule="data/schedules/odin9.json")
         app._github_get_json_file, app._github_put_json_file = self.repo.get, self.repo.put
         app.raw = dict(kind="schedule", dataVersion="1.2.3", payload=dict(season_no="18", share_prefix="odin9",
@@ -309,6 +346,50 @@ class HandoverTests(unittest.TestCase):
         self.assertFalse(manager.busy)
         self.assertTrue(manager.policy.snapshot()["handover_hold"])
         self.assertIn("연결 상태 저장 실패", app.schedule_status_var.set.call_args.args[0])
+
+    def test_scope_recovery_prompts_and_keeps_local_schedule(self):
+        app = self.app('failed-solo')
+        manager = self.coordinator(app)
+        old = HandoverRecord(self.repo.get, self.repo.put, dict(manager.scope, season='17'))
+        row = old.request(manager.client)
+        old.change(row['request'], manager.client, phases={'joining'}, phase='failed')
+        manager._show()
+        manager._incoming()
+        self.assertEqual(manager.record.read()[0]['phase'], 'active')
+        self.assertEqual(manager.record.read()[0]['scope'], manager.scope)
+        app._stop_discord_bot_runtime_core.assert_called_once()
+        app._apply_loaded_schedule_shared_payload.assert_not_called()
+        self.assertFalse(manager.busy)
+        self.assertFalse(manager.policy.snapshot()['handover_hold'])
+
+    def test_cancelled_scope_recovery_does_not_rewrite_record(self):
+        app = self.app('cancel-recovery')
+        app._show_centered_messagebox.return_value = False
+        manager = self.coordinator(app)
+        old = HandoverRecord(self.repo.get, self.repo.put, dict(manager.scope, season='17'))
+        row = old.request(manager.client)
+        old.change(row['request'], manager.client, phases={'joining'}, phase='failed')
+        before = old.read()
+        manager._show()
+        manager._incoming()
+        self.assertEqual(old.read(), before)
+        app._start_discord_bot_runtime.assert_not_called()
+        self.assertTrue(manager.policy.snapshot()['handover_hold'])
+
+    def test_failed_local_shutdown_does_not_replace_old_record(self):
+        app = self.app('cannot-stop')
+        app._stop_discord_bot_runtime_core.side_effect = None
+        app._stop_discord_bot_runtime_core.return_value = False
+        manager = self.coordinator(app)
+        old = HandoverRecord(self.repo.get, self.repo.put, dict(manager.scope, season='17'))
+        row = old.request(manager.client)
+        old.change(row['request'], manager.client, phases={'joining'}, phase='failed')
+        before = old.read()
+        manager._show()
+        manager._incoming()
+        self.assertEqual(old.read(), before)
+        app._start_discord_bot_runtime.assert_not_called()
+        self.assertTrue(manager.policy.snapshot()['handover_hold'])
 
 
 if __name__ == "__main__":

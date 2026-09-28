@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from notice_module.payload.notice_management import (
     KST, NoticeError, NoticeStore, collection_interval, event_status,
@@ -16,6 +16,10 @@ from notice_module.payload.notice_management_ui import NoticeManagementWindow
 
 class NoticeManagementTests(unittest.TestCase):
     def setUp(self):
+        # Neutral baseline for algorithm tests; packaged defaults are tested separately.
+        defaults = patch('notice_module.payload.notice_defaults.bundled_preferences', return_value=None)
+        defaults.start()
+        self.addCleanup(defaults.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="boss-timer-notice-unit-")
         self.addCleanup(self.temp.cleanup)
         self.now = datetime(2026, 9, 13, 18, 0, tzinfo=KST)

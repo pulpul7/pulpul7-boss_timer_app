@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from notice_module.payload.main import NoticePlugin
 from notice_module.payload.notice_management import NoticeStore, KST
@@ -14,6 +14,10 @@ from notice_module.payload.notice_preparation import ChangeDebounce, PreparedSpe
 
 class PreparationTests(unittest.TestCase):
     def setUp(self):
+        # Neutral baseline for algorithm tests; packaged defaults are tested separately.
+        defaults = patch('notice_module.payload.notice_defaults.bundled_preferences', return_value=None)
+        defaults.start()
+        self.addCleanup(defaults.stop)
         temp = tempfile.TemporaryDirectory(prefix='notice-preparation-unit-')
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)

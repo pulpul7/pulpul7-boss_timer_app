@@ -4,7 +4,7 @@ import tempfile
 import threading
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from notice_module.payload.cafe_source import (
     LIST_URL, KST, Page, canonical_article, category_for, date_of, parse_pinned, parse_article,
@@ -124,6 +124,10 @@ class ParserTests(unittest.TestCase):
 
 class CollectorTests(unittest.TestCase):
     def setUp(self):
+        # Neutral baseline for algorithm tests; packaged defaults are tested separately.
+        defaults = patch('notice_module.payload.notice_defaults.bundled_preferences', return_value=None)
+        defaults.start()
+        self.addCleanup(defaults.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="boss-notice-collector-unit-")
         self.addCleanup(self.temp.cleanup)
         self.now = datetime(2026, 9, 13, 18, 0, tzinfo=KST)

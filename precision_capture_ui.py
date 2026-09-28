@@ -102,6 +102,8 @@ def merge_retry(previous_result, previous_report, result, report, targets):
 def start(app, slots, *, retry_context=None):
     if getattr(app, '_precision_session', None) or app.schedule_input_ocr_worker_active or app.schedule_input_ocr_addon_busy:
         return
+    from schedule_ocr_region_preview import suspend
+    suspend(app)
     clear_preview(app)
     hwnd = app._get_preferred_odin_window_handle()
     if not hwnd:
@@ -133,6 +135,22 @@ def start(app, slots, *, retry_context=None):
     restored = hide_app_windows(app, hwnd)
     progress = dialog = None
     terminal = False
+    user_cancelled = False
+    auto_apply = getattr(app, 'precision_auto_apply', False) is True
+
+    def cancel_by_user():
+        nonlocal user_cancelled
+        user_cancelled = True
+        session.cancel.set()
+
+    def change_auto_apply(enabled):
+        nonlocal auto_apply
+        auto_apply = bool(enabled)
+        app.precision_auto_apply = auto_apply
+        try:
+            app._save_settings()
+        except Exception as exc:
+            app._append_debug_log(f'precision auto_apply_setting_save_error={exc}')
 
     def valid():
         return (getattr(app,'_precision_session',None) is session
@@ -184,12 +202,13 @@ def start(app, slots, *, retry_context=None):
                     # workers start. Show immediately, without waiting for OCR.
                     # The existing top-of-game position stays outside timer ROIs.
                     from precision_capture_widgets import CaptureProgress
-                    progress = CaptureProgress(app.root,rect,session.cancel.set,
-                        retry_names=list(retry_targets or ()),rate=1/session.config.interval,topmost=True)
+                    progress = CaptureProgress(app.root,rect,cancel_by_user,
+                        retry_names=list(retry_targets or ()),rate=1/session.config.interval,topmost=True,
+                        auto_apply=auto_apply,on_auto_apply=change_auto_apply)
                     dialog = progress.window
-                    dialog.deiconify()
-                    dialog.lift()
-                    dialog.update_idletasks()
+                    # CaptureProgress maps itself without activating. Do not
+                    # deiconify/lift again: Tk can explicitly focus the popup,
+                    # changing the game pixels immediately after T0.
                     dialog.grab_set()
                 elif kind=='progress' and dialog is not None and dialog.winfo_exists():
                     elapsed,total,tracking,completed = data
@@ -201,7 +220,7 @@ def start(app, slots, *, retry_context=None):
                 elif kind=='done':
                     result,report = data
                     app._append_debug_log(f"precision tracker_end at={report['ended_at']:.6f} duration={report['ended_at']-report['t0']:.6f} max_interval={report['max_capture_interval']:.6f} max_jitter={report['max_jitter']:.6f}")
-                    if valid() and result is not None:
+                    if valid() and result is not None and not user_cancelled:
                         if retry_context is not None:
                             result,report = merge_retry(*retry_context,result,report,retry_targets)
                         report.update(area=result.get('area'),captured_at=session.wall0.isoformat(),
@@ -231,18 +250,30 @@ def start(app, slots, *, retry_context=None):
                             f"정밀 스캔 완료: 총 {report['total']}개 · 정밀 확정 {len(report['results'])}개 · 배제/미확정 {report['excluded']}개 · 미확정은 OCR1 값 유지"+save_error)
                         failed = retry_targets_for(updated,report)
                         retry_text = target.get('1.0','end-1c')
+                        safe_auto_apply = (bool(report['results']) and bool(retry_text.strip()) and not failed
+                                           and not any(slot.get('severity') == 'error' for slot in updated.get('slot_results', [])))
+                        if auto_apply and not safe_auto_apply:
+                            app.schedule_input_status_var.set(
+                                '정밀 결과를 표시했습니다. 미확정/오류 또는 확정 결과 없음으로 자동적용은 보류합니다.')
                         retry_inputs = [(widget,widget.get('1.0','end-1c'))
                                         for widget in (getattr(app,'schedule_input_text',None),
                                                        getattr(app,'schedule_input_ocr1_text',None))
                                         if widget is not None and widget.winfo_exists()]
+                        def unchanged():
+                            return (app.schedule_input_window is input_window and input_window.winfo_exists()
+                                    and app._get_schedule_server_profile_dir()==profile
+                                    and not getattr(app,'_precision_session',None)
+                                    and not app.schedule_input_ocr_worker_active
+                                    and not app.schedule_input_ocr_addon_busy
+                                    and target.winfo_exists() and target.get('1.0','end-1c')==retry_text
+                                    and all(widget.winfo_exists() and widget.get('1.0','end-1c')==text
+                                            for widget,text in retry_inputs))
+
+                        def apply_when_ready():
+                            if unchanged() and not user_cancelled:
+                                app._apply_schedule_input_batch(auto_confirm_update=True)
+
                         def offer_retry():
-                            def unchanged():
-                                return (app.schedule_input_window is input_window and input_window.winfo_exists()
-                                        and app._get_schedule_server_profile_dir()==profile
-                                        and not getattr(app,'_precision_session',None)
-                                        and target.winfo_exists() and target.get('1.0','end-1c')==retry_text
-                                        and all(widget.winfo_exists() and widget.get('1.0','end-1c')==text
-                                                for widget,text in retry_inputs))
                             if not unchanged():
                                 return
                             names = '\n'.join(f'• {name}' for name in failed)
@@ -254,8 +285,14 @@ def start(app, slots, *, retry_context=None):
                                 start(app,slots,retry_context=(updated,report))
                         if failed:
                             app.root.after(300,offer_retry)
+                        elif auto_apply and safe_auto_apply:
+                            # finish() first releases the modal grab/loading lock
+                            # and restores input windows. Use the same Apply path
+                            # as a manual click, retaining all existing checks.
+                            app.root.after(300,apply_when_ready)
                     else:
-                        app.schedule_input_status_var.set('정밀 결과를 반영하지 않았습니다: 입력창/서버 변경 또는 OCR 결과 없음.')
+                        app.schedule_input_status_var.set('정밀 스캔을 취소했습니다. 기존 입력은 유지됩니다.' if user_cancelled else
+                                                          '정밀 결과를 반영하지 않았습니다: 입력창/서버 변경 또는 OCR 결과 없음.')
                     # Rendering changed the text intentionally; the next poll
                     # must not mistake our own output for a user edit.
                     finish()
@@ -268,6 +305,7 @@ def start(app, slots, *, retry_context=None):
         except Exception as exc:
             session.cancel.set()
             app._append_debug_log(f'precision ui_error={exc}')
+            app.schedule_input_status_var.set(f'정밀 스캔 중단: {exc}')
             finish()
             return
         app.root.after(100,poll)

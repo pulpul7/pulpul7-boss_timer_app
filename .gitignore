@@ -44,3 +44,6 @@ update_ai/
 
 # Client-local per-server notice controls and retained event history
 notice_data/
+
+# Per-installation administrator identity must not be shared with other PCs.
+administrator_identity.json*

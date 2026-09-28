@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import unittest
 
 from ai_update_center import AiUpdateCenter
-from app_patch_notes import patch_history_text, UNRELEASED_NOTES
+from app_patch_notes import patch_history_text, V550_NOTES
 
 
 class PatchNotesTests(unittest.TestCase):
@@ -16,14 +16,14 @@ class PatchNotesTests(unittest.TestCase):
         self.assertEqual(center.app_version, "v5.3.1.fix2")
         self.assertIs(center.updater, runtime.updater)
 
-    def test_future_notes_have_no_assigned_release_number(self):
-        text = patch_history_text("v5.3.1.fix2")
-        future = text.split("─" * 44)[0]
-        self.assertIn("다음 버전 준비 중", future)
-        self.assertNotIn("v5.3.1.fix2", future)
-        for note in UNRELEASED_NOTES:
-            self.assertIn(note, future)
-        self.assertIn("현재 프로그램: v5.3.1.fix2", text)
+    def test_confirmed_version_is_prepared_not_claimed_distributed(self):
+        text = patch_history_text("v5.5.0")
+        self.assertIn("프로그램 v5.5.0 · 배포 준비 중", text)
+        self.assertIn("프로그램 v5.3.1.fix · 마지막 배포 버전", text)
+        self.assertNotIn("버전 미확정", text)
+        for note in V550_NOTES:
+            self.assertIn(note, text)
+        self.assertIn("현재 프로그램: v5.5.0", text)
 
     def test_cached_releases_show_their_own_versions_and_descriptions(self):
         text = patch_history_text("v5.3.1.fix2", [

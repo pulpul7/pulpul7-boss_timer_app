@@ -121,6 +121,10 @@ class CatalogTests(unittest.TestCase):
 
 class StoreTemplateTests(unittest.TestCase):
     def setUp(self):
+        # Neutral baseline for algorithm tests; packaged defaults are tested separately.
+        defaults = patch('notice_module.payload.notice_defaults.bundled_preferences', return_value=None)
+        defaults.start()
+        self.addCleanup(defaults.stop)
         temp = tempfile.TemporaryDirectory(prefix="boss-notice-template-unit-")
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)

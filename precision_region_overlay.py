@@ -34,9 +34,23 @@ class RegionOverlay:
                 window = tk.Toplevel(self.owner)
                 window.withdraw()
                 window.overrideredirect(True)
-                window.configure(bg='#00dfff')
+                outline = getattr(rect, 'outline', False)
+                color = getattr(rect, 'color', '#00dfff')
+                window.configure(bg='#010203' if outline else color)
                 window.attributes('-topmost', True)
-                window.attributes('-alpha', 0.22)
+                if outline:
+                    window.attributes('-transparentcolor', '#010203')
+                    canvas = tk.Canvas(window, bg='#010203', highlightthickness=0, bd=0)
+                    canvas.pack(fill='both', expand=True)
+                    canvas.create_rectangle(1, 1, rect.width-2, rect.height-2, outline=color, width=2)
+                    label = getattr(rect, 'label', '')
+                    if label:
+                        item = canvas.create_text(4, 3, anchor='nw', text=label,
+                                                  fill=color, font=('맑은 고딕', 8, 'bold'))
+                        background = canvas.create_rectangle(canvas.bbox(item), fill='#111827', outline='')
+                        canvas.tag_lower(background, item)
+                else:
+                    window.attributes('-alpha', 0.22)
                 x, y = self.origin
                 window.geometry(f'{rect.width}x{rect.height}{x+rect.left:+d}{y+rect.top:+d}')
                 window.update_idletasks()

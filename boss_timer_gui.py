@@ -70,7 +70,7 @@ ALERT_TAG = "alert_overlay"
 GRAPH_AREA_X = 29
 GRAPH_AREA_Y = 330
 GRAPH_TAG = "graph_overlay"
-DEFAULT_APP_VERSION = "v5.0.0"
+DEFAULT_APP_VERSION = "v5.5.0"
 DEFAULT_LAST_UPDATED = "2026-09-02"
 DEFAULT_AUTHOR_NAME = "나츠"
 DEFAULT_BUILD_DETAIL_VERSION = "unknown"
@@ -699,6 +699,7 @@ DEFAULT_EDGE_TTS_SETTINGS_SEED_FILENAME = "default_edge_tts.ini"
 DEFAULT_RECORD_BOOK_SEED_FILENAME = "default_boss_capture_records.json"
 GITHUB_TOKEN_RUNTIME_SETTING_KEYS = ("github_data_token",)
 DEFAULT_SETTINGS_SEED_KEYS = (
+    "precision_auto_apply",
     "precision_capture_rate",
     "precision_debug_logging",
     "precision_show_regions",
@@ -812,6 +813,10 @@ SCHEDULE_OCR_BOSS_NAME_BAND = (0.60, 0.84)
 SCHEDULE_OCR_BOSS_NAME_HORIZONTAL_BAND = (0.04, 0.96)
 SCHEDULE_OCR_TIMER_BAND = (0.84, 0.985)
 SCHEDULE_OCR_TIMER_HORIZONTAL_BAND = (0.00, 1.00)
+SCHEDULE_OCR1_TOP_TIMER_BOTTOM_EXTRA = 4
+SCHEDULE_OCR1_NAME_TOP_INSET = (12, 4)  # upper/lower row, cumulative adjustment
+SCHEDULE_OCR1_NAME_RIGHT_INSET = 12
+SCHEDULE_OCR1_TIMER_LEFT_INSET = 10
 SCHEDULE_OCR_TOP_BAND_MAX_Y = 0.16
 SCHEDULE_OCR_DUNGEON_SIGNAL_TERMS = (
     "최하층",
@@ -958,7 +963,7 @@ def get_user_config_dir() -> str:
     return os.path.join(base_dir, "BossTimer")
 
 
-CONFIG_PATH = os.path.join(get_app_root(), "boss_timer_settings.ini")
+CONFIG_PATH = os.path.join(get_user_config_dir(), "boss_timer_settings.ini")
 GITHUB_TOKEN_CONFIG_PATH = os.path.join(get_user_config_dir(), "github_token.ini")
 MASTER_DEVELOPER_CONFIG_PATH = os.path.join(get_user_config_dir(), "master_developer.ini")
 DISCORD_BOT_CONFIG_PATH = os.path.join(get_user_config_dir(), "discord_bot.ini")
@@ -1007,9 +1012,9 @@ DISCORD_COUNTDOWN_GEN_TIMED_CLIP_ADVANCE_MS = 0
 DISCORD_EDGE_TTS_COUNTDOWN_TIMED_CLIP_ADVANCE_MS = SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS
 DISCORD_EDGE_TTS_GEN_TIMED_CLIP_ADVANCE_MS = SCHEDULE_ALARM_EDGE_TTS_PLAYBACK_ADVANCE_MS
 DISCORD_INVASION_GEN_TIMED_CLIP_ADVANCE_MS = 0
-RECORD_BOOK_PATH = os.path.join(get_app_root(), RECORD_BOOK_FILENAME)
-INIT_DIR = os.path.join(get_app_root(), "init")
-SEASON_HISTORY_PATH = os.path.join(get_app_root(), "season_history.json")
+RECORD_BOOK_PATH = os.path.join(get_user_config_dir(), RECORD_BOOK_FILENAME)
+INIT_DIR = os.path.join(get_user_config_dir(), "init")
+SEASON_HISTORY_PATH = os.path.join(get_user_config_dir(), "season_history.json")
 SCHEDULE_BOSS_DEFINITIONS_FILENAME = "schedule_boss_definitions.txt"
 SCHEDULE_AREA_DEFINITIONS_FILENAME = "schedule_area_definitions.txt"
 SCHEDULE_FIXED_BOSSES_FILENAME = "schedule_fixed_bosses.txt"
@@ -1017,18 +1022,18 @@ SCHEDULE_BOSS_DELETED_BUILTINS_HEADER = "# deleted_builtin_bosses|"
 SCHEDULE_BOSS_DEFINITIONS_PATH = os.path.join(INIT_DIR, SCHEDULE_BOSS_DEFINITIONS_FILENAME)
 SCHEDULE_AREA_DEFINITIONS_PATH = os.path.join(INIT_DIR, SCHEDULE_AREA_DEFINITIONS_FILENAME)
 SCHEDULE_FIXED_BOSSES_PATH = os.path.join(INIT_DIR, SCHEDULE_FIXED_BOSSES_FILENAME)
-RECORD_BOOK_AVG_CACHE_PATH = os.path.join(get_app_root(), RECORD_BOOK_AVG_CACHE_FILENAME)
-SCHEDULE_STATE_PATH = os.path.join(get_app_root(), SCHEDULE_STATE_FILENAME)
+RECORD_BOOK_AVG_CACHE_PATH = os.path.join(get_user_config_dir(), RECORD_BOOK_AVG_CACHE_FILENAME)
+SCHEDULE_STATE_PATH = os.path.join(get_user_config_dir(), SCHEDULE_STATE_FILENAME)
 SCHEDULE_ALARM_VOICE_TEST_ORIGINAL_PATH = os.path.join(
-    get_app_root(),
+    get_user_config_dir(),
     "schedule_alarm_voice_test_original.json",
 )
 SCHEDULE_ALARM_VOICE_TEST_RUNTIME_PATH = os.path.join(
-    get_app_root(),
+    get_user_config_dir(),
     "schedule_alarm_voice_test_runtime.json",
 )
-SCHEDULE_DELETE_HISTORY_PATH = os.path.join(get_app_root(), SCHEDULE_DELETE_HISTORY_FILENAME)
-SCHEDULE_ALARM_SETTINGS_PATH = os.path.join(get_app_root(), SCHEDULE_ALARM_SETTINGS_FILENAME)
+SCHEDULE_DELETE_HISTORY_PATH = os.path.join(get_user_config_dir(), SCHEDULE_DELETE_HISTORY_FILENAME)
+SCHEDULE_ALARM_SETTINGS_PATH = os.path.join(get_user_config_dir(), SCHEDULE_ALARM_SETTINGS_FILENAME)
 SCHEDULE_STANDALONE_SCHEDULER_EXE_NAME = "boss_timer_scheduler.exe"
 SCHEDULE_STANDALONE_SCHEDULER_HEARTBEAT_FILENAME = "boss_timer_scheduler_heartbeat.json"
 SCHEDULE_STANDALONE_SCHEDULER_HEARTBEAT_PATH = os.path.join(get_app_root(), SCHEDULE_STANDALONE_SCHEDULER_HEARTBEAT_FILENAME)
@@ -1038,12 +1043,12 @@ SCHEDULE_STANDALONE_SCHEDULER_ENABLED = False
 SCHEDULE_ALARM_ARCHITECTURE_DOC_DIR = os.path.join(get_app_root(), "docs")
 SCHEDULE_ALARM_ARCHITECTURE_DOC_HTML_PATH = os.path.join(SCHEDULE_ALARM_ARCHITECTURE_DOC_DIR, "schedule_alarm_architecture.html")
 SCHEDULE_ALARM_ARCHITECTURE_DOC_PDF_PATH = os.path.join(SCHEDULE_ALARM_ARCHITECTURE_DOC_DIR, "schedule_alarm_architecture.pdf")
-SCHEDULE_GITHUB_VERSION_CACHE_PATH = os.path.join(get_app_root(), SCHEDULE_GITHUB_VERSION_CACHE_FILENAME)
-SCHEDULE_GITHUB_SERVER_CACHE_PATH = os.path.join(get_app_root(), SCHEDULE_GITHUB_SERVER_CACHE_FILENAME)
-SCHEDULE_GITHUB_LOCAL_CACHE_DIR = os.path.join(get_app_root(), SCHEDULE_GITHUB_LOCAL_CACHE_DIRNAME)
-BACKGROUND_MUSIC_SETTINGS_PATH = os.path.join(get_app_root(), BACKGROUND_MUSIC_SETTINGS_FILENAME)
-BACKGROUND_MUSIC_VIDEO_CACHE_PATH = os.path.join(get_app_root(), BACKGROUND_MUSIC_VIDEO_CACHE_FILENAME)
-SCHEDULE_OCR_CORRECTIONS_PATH = os.path.join(get_app_root(), SCHEDULE_OCR_CORRECTIONS_FILENAME)
+SCHEDULE_GITHUB_VERSION_CACHE_PATH = os.path.join(get_user_config_dir(), SCHEDULE_GITHUB_VERSION_CACHE_FILENAME)
+SCHEDULE_GITHUB_SERVER_CACHE_PATH = os.path.join(get_user_config_dir(), SCHEDULE_GITHUB_SERVER_CACHE_FILENAME)
+SCHEDULE_GITHUB_LOCAL_CACHE_DIR = os.path.join(get_user_config_dir(), SCHEDULE_GITHUB_LOCAL_CACHE_DIRNAME)
+BACKGROUND_MUSIC_SETTINGS_PATH = os.path.join(get_user_config_dir(), BACKGROUND_MUSIC_SETTINGS_FILENAME)
+BACKGROUND_MUSIC_VIDEO_CACHE_PATH = os.path.join(get_user_config_dir(), BACKGROUND_MUSIC_VIDEO_CACHE_FILENAME)
+SCHEDULE_OCR_CORRECTIONS_PATH = os.path.join(get_user_config_dir(), SCHEDULE_OCR_CORRECTIONS_FILENAME)
 SCHEDULE_BREAK_RULES_PATH = os.path.join(INIT_DIR, SCHEDULE_BREAK_RULES_FILENAME)
 SCHEDULE_BOSS_METRICS_PATH = os.path.join(INIT_DIR, SCHEDULE_BOSS_METRICS_FILENAME)
 SCHEDULE_ALARM_COUNTDOWN_VOICE_DIR = os.path.join(get_app_root(), "voice")
@@ -1875,6 +1880,8 @@ class BossTimerApp:
         self.schedule_server_profile_id = profile_id
         self.schedule_server_profile_name = str(server_name or "").strip()
         self.schedule_server_profile_season_key = target_season_key
+        self._stop_discord_settings_warning()
+        self.discord_bot_settings_validation_message = ""
         try:
             self._migrate_flat_server_profile_to_season_profile(
                 profile_id, preferred_season_key=active_season_key if previous_profile_id == profile_id else None,
@@ -2033,6 +2040,9 @@ class BossTimerApp:
     def __init__(self, root: tk.Tk, *, scheduler_worker: bool = False) -> None:
         self.root = root
         self.root.report_callback_exception = self._report_callback_exception
+        # Must precede early season selection as well as distribution seeding.
+        from runtime_storage import migrate_legacy_data
+        migrate_legacy_data(get_app_root(), get_user_config_dir())
         self.is_admin_process = _is_process_admin()
         self.scheduler_worker_mode = bool(scheduler_worker)
         self.scheduler_worker_last_heartbeat_at = 0.0
@@ -3205,7 +3215,7 @@ class BossTimerApp:
                 self._ensure_notice_runtime()
             except Exception as exc:
                 self._append_debug_log(f"notice_module_start_failed {exc}")
-            self.ai_update_center = AiUpdateCenter(self, Path(get_app_root()) / "update_ai", APP_VERSION)
+            self.ai_update_center = AiUpdateCenter(self, Path(get_user_config_dir()) / "update_ai", APP_VERSION)
         return self.ai_update_center
 
     def open_ai_update_center(self) -> None:
@@ -3219,7 +3229,7 @@ class BossTimerApp:
                 except tk.TclError:
                     pass
             host = NoticeHost(
-                root=self.root, data_root=Path(get_app_root()) / "notice_data",
+                root=self.root, data_root=Path(get_user_config_dir()) / "notice_data",
                 get_server=lambda: (str(getattr(self, "schedule_server_profile_id", "") or ""),
                                     str(getattr(self, "schedule_server_profile_name", "") or "")),
                 get_parent=lambda: getattr(self, "schedule_window", None) or self.root,
@@ -3230,7 +3240,7 @@ class BossTimerApp:
                 apply_temporary_maintenance=self._apply_notice_temporary_maintenance,
                 get_preparation_profile=self._get_notice_preparation_profile,
             )
-            self.notice_runtime = NoticeRuntime(host, get_app_root(), get_resource_root(), APP_VERSION)
+            self.notice_runtime = NoticeRuntime(host, get_user_config_dir(), get_resource_root(), APP_VERSION)
         self.notice_runtime.start()
         return self.notice_runtime
 
@@ -3561,20 +3571,9 @@ class BossTimerApp:
         )
 
     def _reset_outdated_runtime_config_files_for_upgrade(self) -> bool:
-        saved_version = self._load_runtime_settings_version()
-        current_version = str(APP_VERSION or "").strip()
-        if not self._is_runtime_version_lower(current_version, saved_version):
-            return False
-        removed_any = False
-        for path in self._get_upgrade_reset_runtime_paths():
-            try:
-                if not os.path.exists(path) or os.path.isdir(path):
-                    continue
-                os.remove(path)
-                removed_any = True
-            except OSError:
-                continue
-        return removed_any
+        # Version changes are not permission to erase user data. Missing keys
+        # receive defaults during load; explicit rollback remains available.
+        return False
 
     def _load_settings(self) -> None:
         config = configparser.ConfigParser()
@@ -3588,6 +3587,7 @@ class BossTimerApp:
         from schedule_precision import normalize_capture_rate
         self.precision_capture_rate = normalize_capture_rate(settings.get("precision_capture_rate", str(DEFAULT_CAPTURE_RATE)))
         self.precision_debug_logging = str(settings.get("precision_debug_logging", "false")).lower() == "true"
+        self.precision_auto_apply = str(settings.get("precision_auto_apply", "false")).lower() == "true"
         self.precision_show_regions = str(settings.get("precision_show_regions", "false")).lower() == "true"
         if hasattr(self, "precision_capture_rate_var"):
             self.precision_capture_rate_var.set(str(self.precision_capture_rate))
@@ -3975,10 +3975,17 @@ class BossTimerApp:
         raw_path = str(path or "").strip()
         if not raw_path:
             return ""
-        candidates = [raw_path]
-        if not os.path.isabs(raw_path):
-            candidates.append(os.path.join(get_app_root(), raw_path))
-            candidates.append(os.path.join(get_resource_root(), raw_path))
+        candidates = []
+        if os.path.isabs(raw_path):
+            candidates.append(raw_path)
+            # Older settings stored absolute paths into a release's wave folder.
+            parts = Path(raw_path).parts
+            wave_index = next((i for i, part in enumerate(parts) if part.lower() == "wave"), None)
+            if wave_index is not None:
+                relative = os.path.join(*parts[wave_index:])
+                candidates.extend(os.path.join(base, relative) for base in (get_app_root(), get_resource_root()))
+        else:
+            candidates.extend(os.path.join(base, raw_path) for base in (get_app_root(), get_resource_root()))
             candidates.append(os.path.join(SCHEDULE_ALARM_CHIME_DIR, raw_path))
             candidates.append(os.path.join(get_resource_root(), "wave", raw_path))
         for candidate in candidates:
@@ -3994,7 +4001,10 @@ class BossTimerApp:
         source = value if isinstance(value, dict) else {}
         normalized: dict[str, object] = {"skip_countdown": bool(source.get("skip_countdown", True)) if isinstance(source, dict) else True}
         for key, _label in SCHEDULE_ALARM_CHIME_TYPES:
-            normalized[key] = self._resolve_schedule_alarm_chime_path(source.get(key) if isinstance(source, dict) else "")
+            raw = str(source.get(key, SCHEDULE_ALARM_DEFAULT_CHIME_PATHS.get(key, "")) or "").strip()
+            # A missing media file must not permanently erase the selection on
+            # the next save. An explicit empty value still means disabled.
+            normalized[key] = self._resolve_schedule_alarm_chime_path(raw) or raw
         return normalized
 
     def _normalize_schedule_alarm_offsets(self, values: object) -> list[int]:
@@ -4498,8 +4508,75 @@ class BossTimerApp:
                 season_numbers.add(str(int(season_no_text)))
         return season_numbers
 
+    def _get_administrator_identity(self) -> dict:
+        from administrator_identity import AdministratorIdentity
+        return AdministratorIdentity(get_user_config_dir()).load_or_create(
+            self._get_discord_bot_config_storage_path())
+
+    def _save_administrator_identity(self, name: str, guild_name: str) -> dict:
+        from administrator_identity import AdministratorIdentity
+        return AdministratorIdentity(get_user_config_dir()).save_name(
+            name, guild_name, self._get_discord_bot_config_storage_path())
+
+    def _ensure_administrator_name(self, parent=None) -> bool:
+        """Upgrade onboarding without restarting a season or touching schedules."""
+        host = parent if self._widget_available(parent) else self.root
+        try:
+            identity = self._get_administrator_identity()
+        except (OSError, ValueError) as exc:
+            self._show_centered_messagebox("showerror", "담당자 정보 확인", str(exc), parent=host)
+            return False
+        if identity["name"]:
+            return True
+        dialog = tk.Toplevel(host)
+        dialog.title("담당자 이름 등록")
+        dialog.configure(bg="#eff6ff")
+        dialog.resizable(False, False)
+        dialog.transient(host)
+        self._center_window_over_parent(dialog, host, 460, 246)
+        confirmed = {"value": False}
+        name_var = tk.StringVar(value="")
+        status = tk.StringVar(value="")
+        tk.Label(dialog, text="담당자 이름 등록", bg="#1e3a8a", fg="white", font=self.header_font).place(x=0, y=0, width=460, height=44)
+        tk.Label(dialog, text="기존 시즌·스케줄은 유지됩니다. 사용할 담당자 이름만 입력하세요.",
+                 bg="#eff6ff", fg="#334155", font=self.percent_font, wraplength=420).place(x=20, y=56, width=420, height=36)
+        entry = tk.Entry(dialog, textvariable=name_var, font=(self.current_font_family, 11), relief="solid", bd=1)
+        entry.place(x=20, y=102, width=420, height=30)
+        tk.Label(dialog, text=f"고유 ID: {identity['client_id'][:8]}… · 이름을 바꿔도 유지", bg="#eff6ff",
+                 fg="#475569", font=self.percent_font).place(x=20, y=142, width=420, height=20)
+        tk.Label(dialog, textvariable=status, bg="#eff6ff", fg="#b45309", anchor="w").place(x=20, y=170, width=420, height=20)
+
+        def close():
+            dialog.grab_release()
+            dialog.destroy()
+
+        def save():
+            season = dict(self.season_history_map.get(str(self.current_season_no or "")) or {})
+            try:
+                self._save_administrator_identity(name_var.get(), season.get("guild_name", ""))
+            except (OSError, ValueError) as exc:
+                status.set(str(exc))
+                entry.focus_set()
+                return
+            confirmed["value"] = True
+            close()
+
+        tk.Button(dialog, text="저장", command=save, bg="#2563eb", fg="white", font=self.button_font).place(x=262, y=204, width=84, height=28)
+        tk.Button(dialog, text="나중에", command=close, bg="#e2e8f0", font=self.button_font).place(x=356, y=204, width=84, height=28)
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        dialog.bind("<Return>", lambda _event: save())
+        dialog.grab_set()
+        entry.focus_set()
+        dialog.wait_window()
+        return confirmed["value"]
+
     def _show_season_setup_dialog(self, parent: tk.Widget | None = None) -> bool:
         host = parent if self._widget_available(parent) else self.root
+        try:
+            identity = self._get_administrator_identity()
+        except (OSError, ValueError) as exc:
+            self._show_centered_messagebox("showerror", "담당자 정보 확인", str(exc), parent=host)
+            return False
         dialog = tk.Toplevel(host)
         dialog.title("새 시즌 시작")
         dialog.resizable(False, False)
@@ -4508,7 +4585,7 @@ class BossTimerApp:
             dialog.transient(host)
         except tk.TclError:
             pass
-        self._center_window_over_parent(dialog, host, 430, 428)
+        self._center_window_over_parent(dialog, host, 460, 476)
         result = {"confirmed": False}
         season_var = tk.StringVar(value=self._get_next_season_number_text())
         status_var = tk.StringVar(value="n차 숫자만 입력하세요.")
@@ -4524,8 +4601,9 @@ class BossTimerApp:
         start_minute_var = tk.StringVar(value=now.strftime("%M분"))
         server_name_var = tk.StringVar(value=default_server_name)
         guild_name_var = tk.StringVar(value=default_guild_name)
+        administrator_name_var = tk.StringVar(value=identity["name"])
 
-        tk.Label(dialog, text="새 시즌 시작", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=430, height=40)
+        tk.Label(dialog, text="새 시즌 시작", font=self.header_font, bg="#1e3a8a", fg="#ffffff").place(x=0, y=0, width=460, height=40)
         tk.Label(dialog, text="n차 입력", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=58, width=78, height=24)
         entry = tk.Entry(
             dialog,
@@ -4568,17 +4646,21 @@ class BossTimerApp:
             bd=1,
         )
         guild_entry.place(x=94, y=130, width=314, height=28)
-        tk.Label(dialog, text="시작 시간", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=170, width=78, height=24)
+        tk.Label(dialog, text="담당자", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=170, width=78, height=24)
+        administrator_entry = tk.Entry(dialog, textvariable=administrator_name_var,
+            font=(self.current_font_family, 10, "bold"), bg="#ffffff", fg="#0f172a", relief="solid", bd=1)
+        administrator_entry.place(x=94, y=166, width=314, height=28)
+        tk.Label(dialog, text="시작 시간", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=210, width=78, height=24)
         start_year_values = [f"{year}년" for year in range(now.year - 2, now.year + 3)]
         start_month_values = [f"{month:02d}월" for month in range(1, 13)]
         start_day_values = [f"{day:02d}일" for day in range(1, 32)]
         start_hour_values = [f"{hour:02d}시" for hour in range(0, 24)]
         start_minute_values = [f"{minute:02d}분" for minute in range(0, 60)]
-        ttk.Combobox(dialog, textvariable=start_year_var, values=start_year_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=94, y=166, width=84, height=28)
-        ttk.Combobox(dialog, textvariable=start_month_var, values=start_month_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=186, y=166, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_day_var, values=start_day_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=252, y=166, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_hour_var, values=start_hour_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=318, y=166, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_minute_var, values=start_minute_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=384, y=166, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_year_var, values=start_year_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=94, y=206, width=84, height=28)
+        ttk.Combobox(dialog, textvariable=start_month_var, values=start_month_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=186, y=206, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_day_var, values=start_day_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=252, y=206, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_hour_var, values=start_hour_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=318, y=206, width=58, height=28)
+        ttk.Combobox(dialog, textvariable=start_minute_var, values=start_minute_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=384, y=206, width=58, height=28)
         tk.Label(
             dialog,
             text=(
@@ -4593,8 +4675,11 @@ class BossTimerApp:
             fg="#475569",
             justify="left",
             anchor="nw",
-        ).place(x=22, y=210, width=386, height=100)
-        tk.Label(dialog, textvariable=status_var, font=(self.current_font_family, 9, "bold"), bg="#eff6ff", fg="#b45309", anchor="w").place(x=22, y=320, width=292, height=18)
+        ).place(x=22, y=250, width=420, height=100)
+        tk.Label(dialog, textvariable=status_var, font=(self.current_font_family, 9, "bold"), bg="#eff6ff", fg="#b45309", anchor="w").place(x=22, y=360, width=420, height=18)
+        from administrator_identity import display_identity
+        tk.Label(dialog, text=f"담당자: {display_identity(identity, short=True)} · ID는 시즌과 무관하게 유지",
+                 font=self.percent_font, bg="#eff6ff", fg="#475569", anchor="w").place(x=22, y=452, width=420, height=18)
 
         def close_with(value: bool) -> None:
             result["confirmed"] = value
@@ -4605,6 +4690,13 @@ class BossTimerApp:
             dialog.destroy()
 
         def confirm() -> None:
+            from administrator_identity import normalize_name
+            try:
+                administrator_name = normalize_name(administrator_name_var.get())
+            except ValueError as exc:
+                status_var.set(str(exc))
+                administrator_entry.focus_set()
+                return
             previous_season_text = str(self.current_season_no or "").strip()
             previous_started_text = str(self.current_season_started_at or "").strip()
             season_text = re.sub(r"[^0-9]", "", season_var.get())
@@ -4643,6 +4735,13 @@ class BossTimerApp:
                 if not self._show_same_season_restart_dialog(timestamp_text, parent=dialog):
                     status_var.set("같은 시즌 재시작을 취소했습니다.")
                     return
+            # Persist identity before changing the season, so migration uses
+            # the previous active profile's ID and save failures change nothing.
+            try:
+                self._save_administrator_identity(administrator_name, guild_name_text)
+            except (OSError, ValueError) as exc:
+                status_var.set(str(exc))
+                return
             self.current_season_no = season_text
             self.current_season_started_at = timestamp_text
             self._record_season_history_transition(
@@ -4684,13 +4783,13 @@ class BossTimerApp:
             except tk.TclError:
                 pass
 
-        tk.Button(dialog, text="설정롤백", font=self.button_font, bg="#f59e0b", fg="#422006", activebackground="#fbbf24", activeforeground="#422006", relief="raised", bd=1, highlightthickness=0, command=open_settings_rollback, cursor="hand2").place(x=326, y=348, width=82, height=28)
-        tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2").place(x=234, y=382, width=80, height=28)
-        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=lambda: close_with(False), cursor="hand2").place(x=326, y=382, width=82, height=28)
+        tk.Button(dialog, text="설정롤백", font=self.button_font, bg="#f59e0b", fg="#422006", activebackground="#fbbf24", activeforeground="#422006", relief="raised", bd=1, highlightthickness=0, command=open_settings_rollback, cursor="hand2").place(x=326, y=388, width=82, height=28)
+        tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2").place(x=234, y=422, width=80, height=28)
+        tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=lambda: close_with(False), cursor="hand2").place(x=326, y=422, width=82, height=28)
         dialog.bind("<Return>", lambda _event: confirm())
         def raise_dialog() -> None:
             try:
-                self._center_window_over_parent(dialog, host, 430, 428)
+                self._center_window_over_parent(dialog, host, 460, 476)
                 dialog.attributes("-topmost", True)
                 dialog.lift(host)
                 dialog.focus_force()
@@ -4729,7 +4828,10 @@ class BossTimerApp:
             "alarm": tk.BooleanVar(value=True),
             "fixed": tk.BooleanVar(value=True),
             "boss": tk.BooleanVar(value=True),
-            "notice": tk.BooleanVar(value=True),
+            # Older rollback baselines predate notice settings. Do not let a
+            # missing optional snapshot block restoring all original groups.
+            "notice": tk.BooleanVar(value=os.path.isfile(os.path.join(
+                self._get_settings_rollback_baseline_dir(), "notice_settings.json"))),
         }
         labels = (
             ("metrics", "소요시간 / 점수"),
@@ -4815,6 +4917,8 @@ class BossTimerApp:
     def _ensure_startup_season_configuration(self) -> None:
         self._repair_runtime_season_state()
         had_ready_season = self._has_ready_season()
+        if had_ready_season:
+            self._ensure_administrator_name(parent=self.root)
         if not self._has_ready_season():
             if self._show_season_setup_dialog(parent=self.root):
                 self._repair_runtime_season_state()
@@ -4983,17 +5087,17 @@ class BossTimerApp:
         return archive_dir
 
     def _get_log_archive_dir(self) -> str:
-        archive_dir = os.path.join(get_app_root(), LOG_ARCHIVE_DIRNAME)
+        archive_dir = os.path.join(get_user_config_dir(), LOG_ARCHIVE_DIRNAME)
         os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
     def _get_season_prestart_archive_dir(self) -> str:
-        archive_dir = os.path.join(get_app_root(), SEASON_PRESTART_ARCHIVE_DIRNAME)
+        archive_dir = os.path.join(get_user_config_dir(), SEASON_PRESTART_ARCHIVE_DIRNAME)
         os.makedirs(archive_dir, exist_ok=True)
         return archive_dir
 
     def _get_schedule_shared_export_dir(self) -> str:
-        export_dir = os.path.join(get_app_root(), SCHEDULE_SHARED_EXPORT_DIRNAME)
+        export_dir = os.path.join(get_user_config_dir(), SCHEDULE_SHARED_EXPORT_DIRNAME)
         os.makedirs(export_dir, exist_ok=True)
         return export_dir
 
@@ -6718,13 +6822,31 @@ class BossTimerApp:
         return [executable_path] if executable_path else []
 
     def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False) -> bool:
+        # Validate persisted settings BEFORE creating any remote owner record.
+        # In-memory defaults may still refer to another server at first launch.
+        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+        validation_error = self._get_discord_bot_settings_validation_error(
+            token=self.discord_bot_token, application_id=self.discord_bot_application_id,
+            server_id=self.discord_bot_server_id, voice_channel_id=self.discord_bot_voice_channel_id,
+            text_channel_id=self.discord_bot_text_channel_id)
+        if validation_error:
+            self.discord_bot_expected_running = False
+            self.discord_bot_settings_validation_message = validation_error
+            self.schedule_status_var.set("디코 연결 안 함: " + validation_error + " 설정을 확인하세요.")
+            self._start_discord_settings_warning()
+            return False
+        self.discord_bot_settings_validation_message = ""
+        self._stop_discord_settings_warning()
         if not automatic and not handover_approved:
+            if not self._ensure_administrator_name(parent=self.schedule_window or self.root):
+                return False
             from discord_handover import DiscordHandover
             try:
                 coordinator = getattr(self, "discord_handover", None)
                 if (coordinator is None or not coordinator.alive
                         or coordinator.profile != self._get_discord_bot_config_storage_path()
                         or coordinator.scope["guild"] != str(self.discord_bot_server_id)
+                        or coordinator.scope["server"] != str(self._get_current_github_upload_server_entry()["id"])
                         or coordinator.scope["season"] != str(self.current_season_no)):
                     if coordinator is not None:
                         coordinator.alive = False
@@ -6734,11 +6856,6 @@ class BossTimerApp:
             except Exception as exc:
                 self._show_centered_messagebox("showerror", "관리자 인계", str(exc), parent=self.schedule_window or self.root)
                 return False
-        # The bot can be moved directly in Discord.  Its process persists that
-        # new channel in the active server profile, so treat the profile file
-        # as authoritative before every launch rather than restoring stale UI
-        # values from a previously opened schedule window.
-        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
         command = self._get_discord_bot_launch_command()
         if not command:
             self.discord_bot_running = False
@@ -6942,8 +7059,12 @@ class BossTimerApp:
         voice_channel_id: str,
         text_channel_id: str,
     ) -> str:
-        if not str(token or "").strip():
-            return "봇 토큰을 입력하세요."
+        missing = [label for value, label in (
+            (token, "봇 토큰"), (application_id, "Application ID"),
+            (server_id, "서버 ID"), (voice_channel_id, "음성채널 ID"),
+        ) if not str(value or "").strip()]
+        if missing:
+            return "미입력: " + ", ".join(missing) + "."
         if not str(application_id or "").strip().isdigit():
             return "Application ID 숫자를 입력하세요."
         if not str(server_id or "").strip().isdigit():
@@ -6955,7 +7076,52 @@ class BossTimerApp:
             return "안내채팅 ID는 숫자로 입력하거나 비워두세요."
         return ""
 
+    def _apply_discord_settings_button_style(self, *, hover=False) -> None:
+        button = getattr(self, "discord_bot_settings_button", None)
+        if not self._widget_available(button):
+            return
+        if getattr(self, "discord_bot_settings_warning_active", False):
+            bg, fg = ("#dc2626", "#ffffff") if getattr(self, "discord_bot_settings_warning_on", False) else ("#fbbf24", "#422006")
+        else:
+            bg, fg = ("#334155" if hover else "#475569"), "#ffffff"
+        try:
+            button.configure(bg=bg, fg=fg, activebackground=bg, activeforeground=fg)
+        except tk.TclError:
+            pass
+
+    def _stop_discord_settings_warning(self) -> None:
+        pending = getattr(self, "discord_bot_settings_warning_after_id", None)
+        self.discord_bot_settings_warning_after_id = None
+        self.discord_bot_settings_warning_active = False
+        self.discord_bot_settings_warning_on = False
+        if pending is not None:
+            try:
+                self.root.after_cancel(pending)
+            except tk.TclError:
+                pass
+        self._apply_discord_settings_button_style()
+
+    def _start_discord_settings_warning(self) -> None:
+        self._stop_discord_settings_warning()
+        self.discord_bot_settings_warning_active = True
+        self._tick_discord_settings_warning()
+
+    def _tick_discord_settings_warning(self) -> None:
+        self.discord_bot_settings_warning_after_id = None
+        if (not getattr(self, "discord_bot_settings_warning_active", False)
+                or not getattr(self, "schedule_window_open", False)
+                or not self._widget_available(getattr(self, "discord_bot_settings_button", None))):
+            self._stop_discord_settings_warning()
+            return
+        self.discord_bot_settings_warning_on = not getattr(self, "discord_bot_settings_warning_on", False)
+        self._apply_discord_settings_button_style()
+        try:
+            self.discord_bot_settings_warning_after_id = self.root.after(450, self._tick_discord_settings_warning)
+        except tk.TclError:
+            self._stop_discord_settings_warning()
+
     def open_discord_bot_settings_window(self) -> None:
+        self._stop_discord_settings_warning()
         parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
         existing_dialog = getattr(self, "discord_bot_settings_window", None)
         if self._widget_available(existing_dialog):
@@ -6979,7 +7145,7 @@ class BossTimerApp:
         voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "") or ""))
         text_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_text_channel_id", "") or ""))
         mute_pc_audio_var = tk.BooleanVar(value=bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)))
-        status_var = tk.StringVar(value=f"저장 위치: {self._get_discord_bot_config_storage_path()}")
+        status_var = tk.StringVar(value=getattr(self, "discord_bot_settings_validation_message", "") or f"저장 위치: {self._get_discord_bot_config_storage_path()}")
 
         def close_dialog() -> None:
             if getattr(self, "discord_bot_settings_window", None) is dialog:
@@ -7026,6 +7192,8 @@ class BossTimerApp:
             else:
                 self.discord_bot_invite_url = ""
             if self._save_discord_bot_settings():
+                self.discord_bot_settings_validation_message = ""
+                self._stop_discord_settings_warning()
                 status_var.set("디스코드 봇 설정을 AppData에 저장했습니다.")
                 self.schedule_status_var.set("디스코드 봇 설정을 저장했습니다.")
                 close_dialog()
@@ -10108,7 +10276,7 @@ class BossTimerApp:
         return data
 
     def _get_record_book_storage_dir(self) -> str:
-        storage_dir = os.path.join(get_app_root(), RECORD_BOOK_STORAGE_DIRNAME)
+        storage_dir = os.path.join(get_user_config_dir(), RECORD_BOOK_STORAGE_DIRNAME)
         os.makedirs(storage_dir, exist_ok=True)
         return storage_dir
 
@@ -21253,7 +21421,8 @@ class BossTimerApp:
             return True
         if raw_flag in {"0", "false", "no", "off"}:
             return False
-        return True
+        # 배포본은 상세 추적 로그를 기본으로 끄고, 필요할 때 환경변수로 켠다.
+        return not getattr(sys, "frozen", False)
 
     def _parse_debug_log_line_time(self, line: str) -> datetime | None:
         match = re.match(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]", str(line or ""))
@@ -22085,6 +22254,8 @@ class BossTimerApp:
             return
         if self.schedule_input_ocr_addon_busy:
             return
+        from schedule_ocr_region_preview import suspend
+        suspend(self)
         hwnd = self._get_preferred_odin_window_handle()
         if not hwnd:
             self.schedule_input_status_var.set("오딘 창을 찾지 못했습니다.")
@@ -23358,6 +23529,7 @@ class BossTimerApp:
         scale: float,
         *,
         crop_rect: dict[str, int] | None = None,
+        read_regions: list[dict[str, int]] | None = None,
     ) -> dict[str, object]:
         if isinstance(image_source, dict):
             safe_path = str(image_source.get("path") or "").strip()
@@ -23382,6 +23554,8 @@ class BossTimerApp:
             crop_bottom = max(crop_top + 1, int(crop_rect.get("bottom") or 0))
             crop_width = max(1, crop_right - crop_left)
             crop_height = max(1, crop_bottom - crop_top)
+        from schedule_ocr1_regions import mask_script
+        roi_mask_script = mask_script(read_regions)
         script = (
             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
             "$ErrorActionPreference = 'Stop'\n"
@@ -23421,6 +23595,7 @@ class BossTimerApp:
             "  $bitmap.EndInit()\n"
             "  $bitmap.Freeze()\n"
             "  $sourceStream.Dispose()\n"
+            + roi_mask_script +
             "  $sourceBitmap = $bitmap\n"
             "  $shouldCropForOcr = ([Math]::Abs($scale - 1.0) -gt 0.001)\n"
             "  if ($shouldCropForOcr -and $cropWidth -gt 1 -and $cropHeight -gt 1) {\n"
@@ -23443,7 +23618,7 @@ class BossTimerApp:
             "    $finalBitmap = $scaledBitmap\n"
             "  }\n"
             "  try {\n"
-            "    if ([Math]::Abs($scale - 1.0) -le 0.001) {\n"
+            "    if ([Math]::Abs($scale - 1.0) -le 0.001 -and -not $hasRoiMask) {\n"
             "      $pngBytes = $imageBytes\n"
             "    } else {\n"
             "      $encoder = New-Object System.Windows.Media.Imaging.PngBitmapEncoder\n"
@@ -25048,7 +25223,14 @@ class BossTimerApp:
         *,
         window_rect: dict[str, int] | None = None,
     ) -> datetime | None:
-        if isinstance(window_rect, dict):
+        fixed_clock = (image_width == 1600 and image_height == 900
+                       and isinstance(window_rect, dict) and bool(window_rect.get("ocr1_fixed")))
+        if fixed_clock:
+            from schedule_ocr1_regions import clock_rect
+            clock = clock_rect(window_rect, SCHEDULE_OCR_CURRENT_TIME_BAND)
+            left_min, top_min = clock["left"], clock["top"]
+            left_limit, top_limit = clock["right"] - 1, clock["bottom"] - 1
+        elif isinstance(window_rect, dict):
             window_left = int(window_rect.get("left") or 0)
             window_top = int(window_rect.get("top") or 0)
             window_right = max(window_left + 1, int(window_rect.get("right") or image_width))
@@ -25143,7 +25325,7 @@ class BossTimerApp:
                 )
 
         scan_items()
-        if not candidates:
+        if not candidates and not fixed_clock:
             scan_items(relaxed=True)
         if not candidates:
             return None
@@ -25157,6 +25339,10 @@ class BossTimerApp:
         *,
         window_rect: dict[str, int] | None = None,
     ) -> list[dict[str, int]]:
+        if (image_width == 1600 and image_height == 900
+                and isinstance(window_rect, dict) and window_rect.get("ocr1_fixed")):
+            from schedule_ocr1_regions import clock_rect
+            return [dict(clock_rect(window_rect, SCHEDULE_OCR_CURRENT_TIME_BAND), label="precision_game_clock")]
         rects: list[dict[str, int]] = []
 
         def add_rect(left: int, top: int, right: int, bottom: int, label: str) -> None:
@@ -25215,6 +25401,7 @@ class BossTimerApp:
         image_height: int,
         *,
         window_rect: dict[str, int] | None = None,
+        read_regions: list[dict[str, int]] | None = None,
     ) -> tuple[datetime | None, list[str]]:
         attempt_logs: list[str] = []
         crop_rects = self._get_schedule_ocr_current_time_crop_rect(image_width, image_height, window_rect=window_rect)
@@ -25229,7 +25416,8 @@ class BossTimerApp:
             crop_label = str(crop_rect.get("label") or "current_box")
             for scale in (3.0, 4.0):
                 attempt_index += 1
-                crop_result = self._run_schedule_windows_ocr(item, scale, crop_rect=crop_rect)
+                crop_result = self._run_schedule_windows_ocr(item, scale, crop_rect=crop_rect,
+                    **({"read_regions": read_regions} if read_regions is not None else {}))
                 crop_lines = crop_result.get("lines") if isinstance(crop_result.get("lines"), list) else []
                 crop_words = crop_result.get("words") if isinstance(crop_result.get("words"), list) else []
                 if not crop_lines and not crop_words:
@@ -25242,7 +25430,7 @@ class BossTimerApp:
                     crop_words,
                     image_width,
                     image_height,
-                    window_rect=None,
+                    window_rect=window_rect if isinstance(window_rect, dict) and window_rect.get("ocr1_fixed") else None,
                 )
                 hit_text = current_time.strftime("%H:%M:%S") if isinstance(current_time, datetime) else "-"
                 attempt_logs.append(
@@ -25315,8 +25503,17 @@ class BossTimerApp:
                 right = int(round(left + column_width))
                 name_top = int(round(row_top + ((row_bottom - row_top) * SCHEDULE_OCR_BOSS_NAME_BAND[0])))
                 name_bottom = int(round(row_top + ((row_bottom - row_top) * SCHEDULE_OCR_BOSS_NAME_BAND[1])))
+                name_right = int(round(left + ((right - left) * SCHEDULE_OCR_BOSS_NAME_HORIZONTAL_BAND[1])))
                 timer_top = int(round(row_top + ((row_bottom - row_top) * SCHEDULE_OCR_TIMER_BAND[0])))
                 timer_bottom = int(round(row_top + ((row_bottom - row_top) * SCHEDULE_OCR_TIMER_BAND[1])))
+                timer_left = int(round(left + ((right - left) * SCHEDULE_OCR_TIMER_HORIZONTAL_BAND[0])))
+                if (image_width == 1600 and image_height == 900
+                        and isinstance(window_rect, dict) and window_rect.get("ocr1_fixed")):
+                    name_top += SCHEDULE_OCR1_NAME_TOP_INSET[0 if slot_offset == 0 else 1]
+                    name_right -= SCHEDULE_OCR1_NAME_RIGHT_INSET
+                    timer_left += SCHEDULE_OCR1_TIMER_LEFT_INSET
+                    if slot_offset == 0:
+                        timer_bottom = min(image_height, timer_bottom + SCHEDULE_OCR1_TOP_TIMER_BOTTOM_EXTRA)
                 slot_rects.append(
                     {
                         "slot_index": slot_offset + index + 1,
@@ -25327,10 +25524,10 @@ class BossTimerApp:
                         "right": right,
                         "bottom": row_bottom,
                         "name_left": int(round(left + ((right - left) * SCHEDULE_OCR_BOSS_NAME_HORIZONTAL_BAND[0]))),
-                        "name_right": int(round(left + ((right - left) * SCHEDULE_OCR_BOSS_NAME_HORIZONTAL_BAND[1]))),
+                        "name_right": name_right,
                         "name_top": name_top,
                         "name_bottom": name_bottom,
-                        "timer_left": int(round(left + ((right - left) * SCHEDULE_OCR_TIMER_HORIZONTAL_BAND[0]))),
+                        "timer_left": timer_left,
                         "timer_right": int(round(left + ((right - left) * SCHEDULE_OCR_TIMER_HORIZONTAL_BAND[1]))),
                         "timer_top": timer_top,
                         "timer_bottom": timer_bottom,
@@ -27491,6 +27688,7 @@ class BossTimerApp:
 
     def _get_schedule_input_ocr2_fixed_window_rect(self) -> dict[str, int]:
         return {
+            "ocr1_fixed": 1,
             "left": 176,
             "top": 190,
             "right": 1410,
@@ -27504,7 +27702,9 @@ class BossTimerApp:
         if width != 1600 or height != 900:
             return self._build_schedule_input_ocr_result_for_item(item, order_index)
         fixed_window_rect = self._get_schedule_input_ocr2_fixed_window_rect()
-        scale_result = self._run_schedule_windows_ocr(item, 1.0)
+        from schedule_ocr1_regions import read_regions as get_read_regions
+        allowed_regions = get_read_regions(self, SCHEDULE_OCR_SLOT_GRID, SCHEDULE_OCR_CURRENT_TIME_BAND)
+        scale_result = self._run_schedule_windows_ocr(item, 1.0, read_regions=allowed_regions)
         lines = scale_result.get("lines") if isinstance(scale_result.get("lines"), list) else []
         words = scale_result.get("words") if isinstance(scale_result.get("words"), list) else []
         highlight_center_x = scale_result.get("highlight_center_x")
@@ -27516,6 +27716,7 @@ class BossTimerApp:
                 width,
                 height,
                 window_rect=fixed_window_rect,
+                read_regions=allowed_regions,
             )
         area_info = self._guess_schedule_ocr_area(
             lines,
@@ -27581,7 +27782,8 @@ class BossTimerApp:
                             continue
                         seen_retry_rects.add(retry_rect_key)
                         for fallback_scale in (3.0, 4.0):
-                            fallback_result = self._run_schedule_windows_ocr(item, fallback_scale, crop_rect=crop_rect)
+                            fallback_result = self._run_schedule_windows_ocr(item, fallback_scale, crop_rect=crop_rect,
+                                                                            read_regions=allowed_regions)
                             retried_count += 1
                             fallback_lines = fallback_result.get("lines") if isinstance(fallback_result.get("lines"), list) else []
                             fallback_words = fallback_result.get("words") if isinstance(fallback_result.get("words"), list) else []
@@ -45715,7 +45917,7 @@ class BossTimerApp:
             highlight_duplicate_boss_lines(target_widget, groups)
         return True
 
-    def _apply_schedule_input_batch(self) -> None:
+    def _apply_schedule_input_batch(self, *, auto_confirm_update: bool = False) -> None:
         reference_datetime = self._get_schedule_reference_datetime()
         if self.schedule_input_edit_mode and isinstance(self.schedule_input_edit_anchor_datetime, datetime):
             reference_datetime = self.schedule_input_edit_anchor_datetime
@@ -45884,6 +46086,9 @@ class BossTimerApp:
             start_datetime,
             edit_mode=self.schedule_input_edit_mode,
             source_label="스케쥴 수정" if self.schedule_input_edit_mode else ("스케쥴 추가" if self.schedule_input_add_mode else "스케쥴 적용"),
+            # Precision auto-apply includes consent to the normal update
+            # confirmation only; duplicate/uncertain checks above still run.
+            skip_overwrite_confirm=auto_confirm_update is True,
             ignore_delete_cutoff=True,
             preserve_existing_past_raw_keys=preserve_existing_past_raw_keys,
             overwrite_cutoff_by_raw_key=preserve_past_seed_overwrite_cutoff_by_raw_key,
@@ -46219,7 +46424,8 @@ class BossTimerApp:
             if not os.path.exists(source_path):
                 continue
             try:
-                shutil.copy2(source_path, target_path)
+                from runtime_storage import copy_missing
+                copy_missing(Path(source_path), Path(target_path))
             except OSError:
                 continue
 
@@ -49693,6 +49899,7 @@ class BossTimerApp:
             "schedule_ocr_learning_enabled": str(schedule_ocr_learning_enabled_value),
             "precision_capture_rate": str(getattr(self, "precision_capture_rate", DEFAULT_CAPTURE_RATE)),
             "precision_debug_logging": str(getattr(self, "precision_debug_logging", False)).lower(),
+            "precision_auto_apply": str(getattr(self, "precision_auto_apply", False)).lower(),
             "precision_show_regions": str(getattr(self, "precision_show_regions", False)).lower(),
             "schedule_share_use_boss_colors": str(schedule_share_use_boss_colors_value),
             "schedule_share_use_fixed_boss_colors": str(schedule_share_use_fixed_boss_colors_value),
@@ -49757,8 +49964,11 @@ class BossTimerApp:
             "version": APP_VERSION,
             "last_updated": LAST_UPDATED,
         }
-        with open(CONFIG_PATH, "w", encoding="utf-8") as file:
-            config.write(file)
+        from io import StringIO
+        from runtime_storage import atomic_write
+        output = StringIO()
+        config.write(output)
+        atomic_write(CONFIG_PATH, output.getvalue().encode("utf-8"))
         self._save_default_settings_seed(config["settings"])
 
     def _save_default_settings_seed(self, runtime_settings: configparser.SectionProxy | dict[str, str]) -> None:
@@ -51768,6 +51978,7 @@ class BossTimerApp:
         if getattr(self, "discord_handover_busy", False):
             return
         try:
+            self._stop_discord_settings_warning()
             self.close_schedule_input_window()
             self.close_schedule_boss_config_window()
             self.close_schedule_boss_metrics_window()
@@ -51810,6 +52021,7 @@ class BossTimerApp:
                 self._configure_schedule_input_window_mode(prefill=self.schedule_input_edit_mode)
                 self._start_schedule_input_clipboard_poll()
                 self._start_schedule_input_ocr_runtime_prewarm()
+                self._show_schedule_ocr1_region_preview()
                 return
             self.schedule_input_window_open = True
             self._position_schedule_input_window()
@@ -51827,8 +52039,17 @@ class BossTimerApp:
             return
         finally:
             self.schedule_input_window_busy = False
+        self._show_schedule_ocr1_region_preview()
+
+    def _show_schedule_ocr1_region_preview(self) -> None:
+        if not self._widget_available(self.schedule_input_window):
+            return
+        from schedule_ocr_region_preview import open_preview
+        open_preview(self, tuple(SCHEDULE_OCR_SLOT_GRID), SCHEDULE_OCR_CURRENT_TIME_BAND)
 
     def close_schedule_input_window(self) -> None:
+        from schedule_ocr_region_preview import clear
+        clear(self)
         self.schedule_input_capture_minimized_once = False
         if getattr(self, 'schedule_input_capture_hidden_windows', []):
             self._restore_schedule_input_capture_windows()
@@ -51935,6 +52156,7 @@ class BossTimerApp:
         except tk.TclError:
             return False
         self._schedule_auto_open_schedule_input_ocr_addon()
+        self._show_schedule_ocr1_region_preview()
         return True
 
     def _open_schedule_input_window_normal(self) -> None:
@@ -57724,6 +57946,8 @@ class BossTimerApp:
             elif command == self._toggle_discord_bot_runtime:
                 self.discord_bot_toggle_button = button
                 self.schedule_discord_bot_button = button
+            elif command == self.open_discord_bot_settings_window:
+                self.discord_bot_settings_button = button
             hover_bg = (
                 "#1d4ed8" if bg == "#2563eb"
                 else "#bae6fd" if bg == "#e0f2fe"
@@ -57741,6 +57965,9 @@ class BossTimerApp:
             if command == self._toggle_discord_bot_runtime:
                 button.bind('<Enter>', lambda _event: self._apply_discord_bot_status_label_style())
                 button.bind('<Leave>', lambda _event: self._apply_discord_bot_status_label_style())
+            elif command == self.open_discord_bot_settings_window:
+                button.bind('<Enter>', lambda _event: self._apply_discord_settings_button_style(hover=True))
+                button.bind('<Leave>', lambda _event: self._apply_discord_settings_button_style())
             else:
                 self._bind_hover_button(button, bg, hover_bg, fg, fg)
         self.discord_bot_status_label = tk.Label(

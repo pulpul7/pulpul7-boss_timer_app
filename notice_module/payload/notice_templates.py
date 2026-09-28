@@ -146,6 +146,33 @@ def migrate_date_templates(state):
         state['generation'] += 1
 
 
+def _spoken_boss_entries(source, now=None):
+    """Morning groups span less than an hour from their earliest boss."""
+    from .notice_management import parse_time
+    ordered = sorted(source, key=lambda entry: parse_time(entry['at']))
+    groups = []
+    for entry in ordered:
+        when = parse_time(entry['at'])
+        if (groups and entry.get('period') == '아침'
+                and groups[-1][0].get('period') == '아침'
+                and when.date() == parse_time(groups[-1][0]['at']).date()
+                and when - parse_time(groups[-1][0]['at']) < timedelta(hours=1)):
+            groups[-1].append(entry)
+        else:
+            groups.append([entry])
+    spoken = []
+    for group in groups:
+        first = group[0]
+        when = parse_time(first['at'])
+        split = date_time_values({'시작시간': when.strftime('%m월 %d일 %H시 %M분'),
+                                  '_start_date': when.date().isoformat()}, now)
+        names = list(dict.fromkeys(entry['name'] for entry in group))
+        name_text = ', '.join(names) if len(names) <= 2 else f'{names[0]} 외 {len(names) - 1}개'
+        spoken.append(' '.join(part for part in (split['시작날짜'], first.get('period', ''),
+                                                  split['시작시간'], name_text) if part))
+    return ', '.join(spoken)
+
+
 def date_time_values(values, now=None):
     """Derive speech fields; original absolute dates remain untouched in storage."""
     result = dict(values)
@@ -174,15 +201,7 @@ def date_time_values(values, now=None):
         result[label + '시간'] = clock_text
         result[label + '일시'] = ' '.join(part for part in (day_text, clock_text) if part)
     if values.get('_boss_entries'):
-        from .notice_management import parse_time
-        entries = []
-        for entry in values['_boss_entries']:
-            when = parse_time(entry['at'])
-            split = date_time_values({'시작시간': when.strftime('%m월 %d일 %H시 %M분'),
-                                      '_start_date': when.date().isoformat()}, now)
-            entries.append(' '.join(part for part in (split['시작날짜'], entry['period'],
-                                                       split['시작시간'], entry['name']) if part))
-        result['보스목록'] = ', '.join(entries)
+        result['보스목록'] = _spoken_boss_entries(values['_boss_entries'], now)
     elif not result.get('보스목록') and result.get('알림제목') and result.get('시작일시'):
         result['보스목록'] = result['시작일시'] + ' ' + result['알림제목']
     if values.get('_participation_name'):

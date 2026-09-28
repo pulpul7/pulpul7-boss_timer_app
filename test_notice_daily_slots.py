@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from notice_module.payload.notice_management import NoticeStore, KST
 from notice_module.payload.notice_schedule import synchronize_schedule
@@ -15,6 +15,10 @@ from notice_module.payload.notice_analysis import analyze_notice
 
 class DailySlotTests(unittest.TestCase):
     def setUp(self):
+        # Neutral baseline for algorithm tests; packaged defaults are tested separately.
+        defaults = patch('notice_module.payload.notice_defaults.bundled_preferences', return_value=None)
+        defaults.start()
+        self.addCleanup(defaults.stop)
         temp = tempfile.TemporaryDirectory(prefix='notice-daily-slot-unit-')
         self.addCleanup(temp.cleanup)
         self.now = datetime(2026, 9, 22, 18, tzinfo=KST)

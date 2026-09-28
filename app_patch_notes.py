@@ -1,6 +1,14 @@
-"""Bundled app notes stay readable offline; unreleased changes have no version."""
+"""Offline app history. Planned releases are not presented as already distributed."""
 
-UNRELEASED_NOTES = (
+V550_NOTES = (
+    "초정밀 측정창 클릭 시 게임 활성 상태를 빼앗지 않도록 변경하고, 정상 결과 표시 후 기존 적용을 실행하는 자동적용 체크박스를 추가했습니다.",
+    "디코 연결 전 필수 설정을 검사합니다. 누락 시 연결·인계 없이 상태 텍스트와 설정 버튼 점멸로 안내하며 팝업은 띄우지 않습니다.",
+    "시즌 입력에 담당자 이름을 추가했습니다. 담당자 고유 ID는 AppData에서 유지하며 이름·서버·시즌 변경과 분리합니다.",
+    "길드·시즌·환경설정, 로컬 스케줄과 알리미 이력을 AppData에서 이어받습니다. 버전 변경 시 사용자 설정을 삭제하지 않습니다.",
+    "현재 차임벨을 기본값·롤백에 반영하고, 음성 파일을 못 찾더라도 저장된 차임벨 선택이 지워지지 않도록 수정했습니다.",
+    "OCR1 현재시간의 판독·표시·재시도 범위를 초단위 찍기의 현재시간 좌표와 통일했습니다.",
+    "스케줄 입력에서 OCR1 글자 판독 영역을 표시하고, 전체 화면·보드 전체 글자를 제외하여 현재시간·보스이름·시간 후보 영역만 읽습니다. OCR2 입력 경로는 유지합니다.",
+    "디코 설정을 확인한 뒤 관리자 인계를 시작하도록 순서를 수정했습니다. 이 PC의 실패한 단독 접속 기록은 확인 후 현재 설정으로 복구할 수 있습니다.",
     "디스코드 사운드보드 명령·음성 목록을 전용 채팅채널로 분리했습니다.",
     "보탐 메시지 보관 수를 /보탐 0~50으로 설정합니다. 0은 무제한이며 설정을 저장합니다.",
     "/보탐 초읽기, /보탐 초읽기해제로 프로그램의 초읽기 사용 설정을 제어합니다.",
@@ -10,18 +18,26 @@ UNRELEASED_NOTES = (
     "여러 보스 입력에서도 소수점 초를 보존하고 동일 보스 중복을 경고합니다.",
     "업데이트 확인 창에 현재 프로그램 버전과 패치내역 버튼을 추가했습니다.",
     "업데이트 센터 탭을 전용 색상 버튼으로 바꿔 Windows 테마에서 선택한 탭의 글씨가 사라지는 문제를 수정했습니다.",
+    "점검 전 아침 보스는 첫 보스 기준 1시간 미만 간격을 묶어 가장 빠른 시간만 안내합니다. 두 보스까지 이름을, 세 보스부터 첫 이름과 나머지 개수를 읽습니다.",
+    "현재 알리미 문구·사용 설정과 보스설정을 배포 기본값 및 롤백 기준으로 반영했습니다. 알리미 롤백은 기존 알림·송출 이력을 보존합니다.",
+    "배포본의 상세 디버그 로그를 기본으로 끄고 필요할 때만 켜도록 정리했습니다.",
 )
 
-# When a version is confirmed, move its notes here; never guess a release number.
-RELEASE_NOTES = ()
+UNRELEASED_NOTES = ()
+RELEASE_NOTES = (
+    {"version": "v5.5.0", "status": "배포 준비 중", "notes": V550_NOTES},
+    {"version": "v5.3.1.fix", "status": "마지막 배포 버전", "notes": ("이전 배포 기준 버전입니다. 상세 패치내역은 별도 등록되지 않았습니다.",)},
+)
 
 
 def patch_history_text(app_version: str, catalog=()) -> str:
-    sections = ["다음 버전 준비 중\n버전 미확정 · 아직 배포하지 않은 변경사항\n\n"
-                + "\n".join(f"• {note}" for note in UNRELEASED_NOTES)]
+    sections = []
+    if UNRELEASED_NOTES:
+        sections.append("다음 버전 준비 중\n버전 미확정 · 아직 배포하지 않은 변경사항\n\n"
+                        + "\n".join(f"• {note}" for note in UNRELEASED_NOTES))
     sections.append(f"현재 프로그램: {app_version}\n아래 공지 / AI 모듈의 버전은 프로그램 본체 버전과 별개입니다.")
     for release in RELEASE_NOTES:
-        sections.append(f"프로그램 {release['version']}\n" + "\n".join(f"• {note}" for note in release['notes']))
+        sections.append(f"프로그램 {release['version']} · {release.get('status', '')}\n" + "\n".join(f"• {note}" for note in release['notes']))
     if not RELEASE_NOTES:
         sections.append("프로그램 확정 버전별 상세 패치내역은 아직 등록되지 않았습니다.")
     for row in catalog:

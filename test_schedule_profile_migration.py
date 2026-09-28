@@ -43,6 +43,8 @@ class MigrationTests(unittest.TestCase):
             manifest = json.loads((profile / "settings_rollback/baseline/manifest.json").read_text(encoding="utf-8"))
             self.assertTrue(manifest["groups"]["fixed"][0]["exists"])
             self.assertEqual(manifest["source_type"], "distribution_defaults")
+            self.assertEqual((profile / "settings_rollback/baseline/notice_settings.json").read_bytes(),
+                             (resources / "default_notice_settings.json").read_bytes())
 
     def test_defaults_fill_only_missing_files_and_preserve_existing_baseline(self):
         profile = self.root / "season_18/9"

@@ -29,15 +29,31 @@ class HandoverRecord:
         key = hashlib.sha256(str(scope["guild"]).encode()).hexdigest()[:24]
         self.path = f"data/handover/{key}.json"
 
-    def read(self):
+    @staticmethod
+    def abandoned_self_join(data, client, now=None):
+        """Only an unsuccessful solo join, never another admin's handover."""
+        if not data or not client:
+            return False
+        now = time.time() if now is None else now
+        deadline = data.get("deadline")
+        expired_join = (data.get("phase") == "joining" and type(deadline) in (int, float)
+                        and deadline < now)
+        return (data.get("owner") == client == data.get("receiver")
+                and data.get("released") is True and not data.get("artifact")
+                and not str(data.get("connection", "")).startswith("완료")
+                and (data.get("phase") == "failed" or expired_join))
+
+    def read(self, *, recovery_client=None):
         data, sha, error = self.get(self.path)
         if error:
             raise HandoverError(error)
         if data is not None and (not isinstance(data, dict) or data.get("schema") != 1):
             raise HandoverError("인계 기록 형식을 확인할 수 없습니다.")
-        # A clean logout releases the guild for a later season/server. Never
-        # reuse a live or failed handover from another scope.
-        if data and data.get("scope") != self.scope and not (data.get("phase") == "idle" and not data.get("owner")):
+        # Cross-scope recovery is allowed only for this installation's failed
+        # solo startup. Active owners and transferred artifacts remain protected.
+        if (data and data.get("scope") != self.scope
+                and not (data.get("phase") == "idle" and not data.get("owner"))
+                and not self.abandoned_self_join(data, recovery_client)):
             raise HandoverError("다른 서버·시즌의 담당 기록입니다. 기존 담당자가 종료한 뒤 설정을 확인하세요.")
         return data, sha
 
@@ -48,7 +64,7 @@ class HandoverRecord:
 
     def request(self, client, now=None):
         now = time.time() if now is None else now
-        old, sha = self.read()
+        old, sha = self.read(recovery_client=client)
         recovering = bool(old and old.get("receiver") == client and old.get("released")
                           and (old.get("phase") == "failed" or now > old.get("deadline", now)))
         if old and old.get("phase") not in {"active", "idle", "failed"} and not recovering:
@@ -119,8 +135,9 @@ class DiscordHandover:
         self.profile = app._get_discord_bot_config_storage_path()
         self.policy = ConnectionPolicy(self.profile)
         state = self.policy.snapshot()
-        self.client = state["client_id"] or uuid.uuid4().hex
-        if not state["client_id"]:
+        identity = app._get_administrator_identity()
+        self.client = identity["client_id"]
+        if state["client_id"] != self.client:
             self.policy.update(client_id=self.client)
         self.entry = dict(app._get_current_github_upload_server_entry())
         self.scope = dict(guild=str(app.discord_bot_server_id), server=str(self.entry["id"]), season=str(app.current_season_no))
@@ -138,6 +155,7 @@ class DiscordHandover:
     def _assert_profile(self):
         if (self.app._get_discord_bot_config_storage_path() != self.profile
                 or str(self.app.current_season_no) != self.scope["season"]
+                or str(self.app._get_current_github_upload_server_entry()["id"]) != self.scope["server"]
                 or str(self.app.discord_bot_server_id) != self.scope["guild"]):
             raise HandoverError("서버 설정이 변경되어 인계를 중단했습니다.")
 
@@ -209,12 +227,23 @@ class DiscordHandover:
         return data
 
     def start(self):
+        self.current = None  # Never publish a new failure onto an earlier request.
         self._show()
         threading.Thread(target=self._incoming, daemon=True, name="discord-handover-in").start()
 
     def _incoming(self):
         try:
-            existing, _ = self.record.read()
+            existing, _ = self.record.read(recovery_client=self.client)
+            if existing and existing.get("scope") != self.scope and self.record.abandoned_self_join(existing, self.client):
+                confirmed = self._ui(lambda: self.app._show_centered_messagebox(
+                    "askyesno", "이전 접속 실패 기록 복구",
+                    "이 PC가 이전 설정으로 접속하다 실패한 기록이 남아 있습니다.\n"
+                    "실패한 접속 기록을 현재 설정으로 다시 등록할까요?\n"
+                    "스케줄과 보스설정은 변경하지 않습니다.", parent=self.dialog.window))
+                if not confirmed:
+                    raise HandoverError("이전 접속 기록 복구를 취소했습니다.")
+                if not self._ui(lambda: self.app._stop_discord_bot_runtime_core()):
+                    raise HandoverError("기존 로컬 봇 종료를 확인하지 못해 기록 복구를 중단했습니다.")
             if existing is None:
                 confirmed = self._ui(lambda: self.app._show_centered_messagebox(
                     "askyesno", "인계 최초 등록",

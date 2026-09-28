@@ -299,7 +299,7 @@ class EdgeTtsCache:
             except OSError:
                 pass
 
-    def _prune_persistent_cache_for_active_settings(self) -> int:
+    def  _prune_persistent_cache_for_active_settings(self) -> int:
         if not self._persistent_dir or not os.path.isdir(self._persistent_dir):
             return 0
         retained_entries: dict[str, dict[str, object]] = {}

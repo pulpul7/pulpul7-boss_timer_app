@@ -54,9 +54,10 @@ python_root = Path(sys.executable).resolve().parent
 dll_dir = python_root / "DLLs"
 tcl_root = python_root / "tcl"
 project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
-BUILD_VERSION = "v5.0.0"
-BUILD_LAST_UPDATED = "2026-09-02"
+BUILD_VERSION = "v5.5.0"
+BUILD_LAST_UPDATED = "2026-09-28"
 DISTRIBUTION_DEFAULT_SETTING_OVERRIDES = {
+    "precision_auto_apply": "false",
     "precision_capture_rate": "5",
     "precision_debug_logging": "false",
     "precision_show_regions": "false",
@@ -69,6 +70,8 @@ DISTRIBUTION_DEFAULT_ALARM_OVERRIDES = {
 # 배포본은 음성 캐시만 기본 데이터로 포함한다. 아래 파일은 사용자의 서버,
 # 봇 채널, 스케쥴을 담을 수 있으므로 어떤 경우에도 패키지에 들어가면 안 된다.
 DISTRIBUTION_PRIVATE_RUNTIME_FILENAMES = {
+    "administrator_identity.json",
+    "administrator_identity.json.lock",
     "discord_bot.ini",
     "discord_voice_commands.json",
     "active_server_profile.json",
@@ -104,6 +107,11 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
     generated_datas: list[tuple[str, str]] = []
 
     runtime_settings_path = project_root / "boss_timer_settings.ini"
+    user_data_base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+    if user_data_base:
+        persistent_settings = Path(user_data_base) / "BossTimer" / "boss_timer_settings.ini"
+        if persistent_settings.is_file():
+            runtime_settings_path = persistent_settings
     setting_keys = read_distribution_default_setting_keys()
     if runtime_settings_path.exists() and setting_keys:
         runtime_config = configparser.ConfigParser()

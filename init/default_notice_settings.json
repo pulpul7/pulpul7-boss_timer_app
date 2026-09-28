@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "settings": {
+    "collection_enabled": true,
+    "output_enabled": true,
+    "categories": {
+      "maintenance": true,
+      "transfer": true,
+      "class_change": true,
+      "update": true,
+      "event": true,
+      "participation": true,
+      "general": true
+    },
+    "rules": [
+      {
+        "days": "매일",
+        "start": "06:50",
+        "end": "09:30",
+        "minutes": 15
+      },
+      {
+        "days": "수요일",
+        "start": "09:30",
+        "end": "11:00",
+        "minutes": 3
+      },
+      {
+        "days": "매일",
+        "start": "09:30",
+        "end": "24:00",
+        "minutes": 10
+      }
+    ]
+  },
+  "tts_templates": {
+    "transfer.deadline_10": "서버이전권 판매 마감 10분전 입니다.꼭 구매해 주세요.",
+    "class.purchase": "클래스 변경권 판매가 시작 되었습니다.",
+    "class.purchase_deadline": "클래스 변경권 구매마감이 {종료일시}까지 입니다.",
+    "class.use_deadline": "클래스 변경권을 사용마감은 {종료일시}까지 입니다.",
+    "season.close.3": "모두 고생 많으셨습니다. 다음 시즌에도 함께해요.",
+    "participation.general": "오늘은 {시작시간}에 {알림제목} 일정이 있습니다. 많은 참여 부탁드립니다."
+  },
+  "tts_template_enabled": {
+    "maintenance.regular": true,
+    "unknown.maintenance.regular": true,
+    "maintenance.regular.extension": true,
+    "unknown.maintenance.regular.extension": true,
+    "maintenance.temporary": true,
+    "unknown.maintenance.temporary": true,
+    "maintenance.temporary.extension": true,
+    "unknown.maintenance.temporary.extension": true,
+    "maintenance.other": true,
+    "unknown.maintenance.other": true,
+    "maintenance.other.extension": true,
+    "unknown.maintenance.other.extension": true,
+    "unknown.transfer_sale": true,
+    "unknown.transfer_use": true,
+    "unknown.class_purchase": true,
+    "unknown.new_class": true,
+    "unknown.event": true,
+    "discovery.update": true,
+    "discovery.issue": true,
+    "discovery.general": true,
+    "transfer.preview": true,
+    "transfer.start": true,
+    "transfer.deadline_60": true,
+    "transfer.deadline_10": true,
+    "transfer.boss_reminder": true,
+    "class.purchase": true,
+    "class.purchase_deadline": true,
+    "class.use_deadline": true,
+    "item_drop.deadline": true,
+    "item_exchange.deadline": true,
+    "item_use.deadline": true,
+    "item_delete.deadline": true,
+    "season.close.1": true,
+    "season.close.2": true,
+    "season.close.3": true,
+    "season.close.4": true,
+    "season.close.5": true,
+    "participation.general": true,
+    "participation.siege_noon": true,
+    "manual.general": true,
+    "participation.dawn": true,
+    "participation.morning": true
+  },
+  "tts_date_syntax": 2,
+  "participation_template_merged": true
+}

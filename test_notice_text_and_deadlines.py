@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from notice_module.payload.notice_management import KST, NoticeStore, NoticeError, event_status
 from notice_module.payload.notice_analysis import analyze_notice, notice_events
@@ -127,6 +128,10 @@ class ItemTests(unittest.TestCase):
 
 class SeasonTests(unittest.TestCase):
     def setUp(self):
+        # Neutral baseline for algorithm tests; packaged defaults are tested separately.
+        defaults = patch('notice_module.payload.notice_defaults.bundled_preferences', return_value=None)
+        defaults.start()
+        self.addCleanup(defaults.stop)
         temp = tempfile.TemporaryDirectory(prefix="boss-notice-season-unit-")
         self.addCleanup(temp.cleanup)
         self.now = datetime(2026, 9, 14, 23, 44, tzinfo=KST)

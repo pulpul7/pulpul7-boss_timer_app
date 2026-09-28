@@ -29,9 +29,9 @@ def build_version() -> str:
     try:
         spec_text = GUI_SPEC.read_text(encoding="utf-8")
     except OSError:
-        return "v5.0.0"
+        return "v5.5.0"
     match = re.search(r'^BUILD_VERSION\s*=\s*["\']([^"\']+)["\']', spec_text, re.MULTILINE)
-    return match.group(1).strip() if match else "v5.0.0"
+    return match.group(1).strip() if match else "v5.5.0"
 
 
 def run_pyinstaller(spec_path: Path, work_name: str) -> None:

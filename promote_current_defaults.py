@@ -80,7 +80,9 @@ def main():
     voice_seed=configparser.ConfigParser()
     voice_seed['edge_tts']={key:voice['edge_tts'][key] for key in ('enabled','voice','rate','volume','pitch') if key in voice['edge_tts']}
     seeds[root/'init/default_edge_tts.ini']=config_bytes(voice_seed)
-    current=configparser.ConfigParser(); current.read(root/'boss_timer_settings.ini',encoding='utf-8-sig')
+    settings_path=appdata/'boss_timer_settings.ini'
+    if not settings_path.is_file(): settings_path=root/'boss_timer_settings.ini'
+    current=configparser.ConfigParser(); current.read(settings_path,encoding='utf-8-sig')
     saved=configparser.ConfigParser(); saved.read(baseline/'boss_timer_settings.ini',encoding='utf-8-sig')
     seed=configparser.ConfigParser(); seed.read(root/'init/default_settings.ini',encoding='utf-8-sig')
     for target in (saved,seed):

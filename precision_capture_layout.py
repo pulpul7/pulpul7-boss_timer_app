@@ -1,4 +1,4 @@
-"""1600x900 precision-only layout. OCR1/OCR2 geometry is not modified.
+"""1600x900 precision layout; GAME_CLOCK_BOUNDS is also used by OCR1.
 
 Edit column/row coordinates here when Odin's UI changes. Chapter occupancy
 follows RECORD_BOOK_BOSS_ORDER, not arbitrary user-created schedule bosses.
