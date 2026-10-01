@@ -19,7 +19,10 @@ TTS 엔진은 별도 모듈 ZIP으로 설치하며, 다운로드에 필요한 `t
 
 TTS 모듈 다운로드는 `truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)`를
 `urllib.request.urlopen(..., context=...)`에 전달해 Windows 인증서 저장소로 검증합니다.
-전역 SSL 패치는 하지 않으며 Discord/다른 다운로드/설치 후 TTS 합성의 TLS 동작은 바꾸지 않습니다.
+전역 SSL 패치는 하지 않으며 Discord와 설치 후 TTS 합성의 TLS 동작은 바꾸지 않습니다.
+2026-10-01에는 같은 컨텍스트 생성 함수를 GitHub 데이터 연결에도 적용했습니다.
+토큰/저장소 확인, 데이터 업로드·다운로드와 원본 JSON/blob 다운로드 모두 Windows 인증서 저장소를 사용합니다.
+상세 내용은 [GitHub HTTPS 인증서 처리](github_https.md)를 참고하세요.
 인증서·호스트 이름 검증을 유지하고 검증 실패 시 우회 재시도하지 않습니다.
 
 - 배포 사용자는 Python이나 truststore를 별도로 설치할 필요가 없습니다. 수정된 본 EXE가 필요합니다.

@@ -39,6 +39,7 @@ from schedule_precision import DEFAULT_CAPTURE_RATE
 from ai_update_center import AiUpdateCenter
 from notice_runtime import NoticeHost, NoticeRuntime
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES
+from https_transport import urlopen_verified
 
 from audio_pipeline import AudioPipeline, OutputConditionEvaluator, OutputDecision, OutputTarget, PlaybackRequest
 from voice_test_scenarios import VOICE_TEST_SCENARIOS, build_voice_test_plan
@@ -8039,7 +8040,7 @@ class BossTimerApp:
                     headers=self._get_github_json_headers(token, auth_scheme=auth_scheme),
                     method="GET",
                 )
-                with urllib.request.urlopen(request, timeout=15) as response:
+                with urlopen_verified(request, timeout=15) as response:
                     raw_text = response.read().decode("utf-8")
                 if not raw_text.strip():
                     return True, {}, None, ""
@@ -8083,6 +8084,8 @@ class BossTimerApp:
         if not user_ok:
             if user_code == 401:
                 return False, f"GitHub 토큰 인증 실패: 입력한 토큰({token_label})을 GitHub가 Bad credentials로 거부했습니다. 토큰을 새로 발급해 주세요."
+            if user_code is None:
+                return False, user_error
             return False, f"GitHub 토큰 확인 실패: {user_error}"
         repo_url = (
             "https://api.github.com/repos/"
@@ -8091,6 +8094,8 @@ class BossTimerApp:
         )
         repo_ok, _repo_payload, repo_code, repo_error = self._github_api_get_json_url(repo_url, token)
         if not repo_ok:
+            if repo_code is None:
+                return False, repo_error
             if repo_code == 404:
                 return False, f"GitHub 저장소 접근 실패: {settings['owner']}/{settings['repo']} 저장소를 찾지 못했거나 토큰에 해당 저장소 접근 권한이 없습니다."
             if repo_code == 403:
@@ -8132,7 +8137,7 @@ class BossTimerApp:
                 },
                 method=method.upper(),
             )
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urlopen_verified(request, timeout=20) as response:
                 return response.read().decode("utf-8")
 
         request_token = settings["token"] if settings["token"] else ""
@@ -8144,6 +8149,8 @@ class BossTimerApp:
                     raw_text = request_json(request_token, auth_scheme="token")
                 except urllib.error.HTTPError as token_scheme_exc:
                     exc = token_scheme_exc
+                except Exception as retry_exc:
+                    return False, None, f"GitHub API 연결 실패: {retry_exc}"
                 else:
                     if not raw_text.strip():
                         return True, {}, ""
@@ -8160,8 +8167,10 @@ class BossTimerApp:
                         return True, json.loads(raw_text), ""
                     except json.JSONDecodeError:
                         return False, None, "GitHub 응답 JSON을 해석하지 못했습니다."
-                except Exception:
+                except urllib.error.HTTPError:
                     pass
+                except Exception as retry_exc:
+                    return False, None, f"GitHub API 연결 실패: {retry_exc}"
             try:
                 error_text = exc.read().decode("utf-8", errors="replace")
             except Exception:
@@ -8234,7 +8243,7 @@ class BossTimerApp:
                         },
                         method="GET",
                     )
-                    with urllib.request.urlopen(request, timeout=20) as raw_response:
+                    with urlopen_verified(request, timeout=20) as raw_response:
                         decoded = raw_response.read().decode("utf-8-sig")
                     parsed = json.loads(decoded)
                     return parsed if isinstance(parsed, dict) else {}, sha, ""
@@ -8247,7 +8256,7 @@ class BossTimerApp:
                         headers=self._get_github_json_headers(""),
                         method="GET",
                     )
-                    with urllib.request.urlopen(request, timeout=20) as blob_response:
+                    with urlopen_verified(request, timeout=20) as blob_response:
                         blob_payload = json.loads(blob_response.read().decode("utf-8"))
                     blob_content = str(blob_payload.get("content") or "")
                     decoded = base64.b64decode(blob_content).decode("utf-8-sig")

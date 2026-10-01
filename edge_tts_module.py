@@ -19,6 +19,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from https_transport import create_verified_ssl_context
+
 
 EDGE_TTS_MODULE_VERSION = "1.0.0"
 EDGE_TTS_MODULE_ASSET_NAME = f"boss_timer_edge_tts_module-v{EDGE_TTS_MODULE_VERSION}.zip"
@@ -30,25 +32,8 @@ MODULE_MANIFEST_FILENAME = "module.json"
 
 
 def _create_download_ssl_context() -> ssl.SSLContext:
-    """Use Windows CryptoAPI trust for this download, without global injection.
-
-    This dependency belongs in the main EXE: the optional ZIP isn't installed
-    yet. Missing truststore must not silently switch verification backends.
-    """
-    if sys.platform != "win32":
-        return ssl.create_default_context()
-    try:
-        import truststore
-    except ImportError as exc:
-        raise RuntimeError(
-            "Windows 인증서 저장소를 사용하는 truststore가 프로그램에 포함되지 않았습니다. "
-            "수정된 보탐매니저 배포본을 사용해 주세요. 소스 실행/빌드 환경에서는 "
-            "python -m pip install -r requirements-gui.txt 를 먼저 실행해 주세요."
-        ) from exc
-    context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.verify_mode = ssl.CERT_REQUIRED
-    context.check_hostname = True
-    return context
+    """Share the same verified Windows trust backend as GitHub data requests."""
+    return create_verified_ssl_context()
 
 
 @dataclass(frozen=True)
