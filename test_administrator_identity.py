@@ -118,7 +118,7 @@ class IntegrationTests(unittest.TestCase):
 
 class SeasonDialogTests(unittest.TestCase):
     """Exercise the real dialog's callbacks without opening any Tk windows."""
-    def run_dialog(self, *, name="담당자", cancel=False, save_error=False):
+    def run_dialog(self, *, name="담당자", cancel=False, save_error=False, profile_error=False, profile_cancel=False):
         import boss_timer_gui as gui
         from contextlib import ExitStack
         class Variable:
@@ -149,6 +149,10 @@ class SeasonDialogTests(unittest.TestCase):
         app._get_administrator_identity.return_value = dict(client_id="a" * 32, name="기존담당자")
         if save_error:
             app._save_administrator_identity.side_effect = OSError("save failed")
+        if profile_error:
+            app._prepare_schedule_profile_for_new_season.side_effect = PermissionError(13, 'Permission denied', 'boss-settings.txt')
+        if profile_cancel:
+            app._prepare_schedule_profile_for_new_season.return_value = False
         dialog = Mock()
         def interact():
             # Name is the last StringVar; it is prefilled from global identity.
@@ -182,6 +186,29 @@ class SeasonDialogTests(unittest.TestCase):
                 self.assertEqual(set(app.season_history_map), {"18"})
                 app._save_settings.assert_not_called()
                 app._activate_current_server_profile_for_new_season.assert_not_called()
+
+    def test_profile_permission_error_preserves_season_and_connection(self):
+        app, result = self.run_dialog(profile_error=True)
+        self.assertFalse(result)
+        self.assertEqual(app.current_season_no, '18')
+        self.assertEqual(app.current_season_started_at, '2026-09-01 00:00:00')
+        self.assertEqual(set(app.season_history_map), {'18'})
+        app._save_administrator_identity.assert_not_called()
+        app._record_season_history_transition.assert_not_called()
+        app._save_season_history.assert_not_called()
+        app._save_settings.assert_not_called()
+        app._activate_current_server_profile_for_new_season.assert_not_called()
+        app._show_centered_messagebox.assert_called_once()
+
+    def test_declining_existing_profile_preserves_season_identity_and_connection(self):
+        app, result = self.run_dialog(profile_cancel=True)
+        self.assertFalse(result)
+        self.assertEqual(app.current_season_no, '18')
+        self.assertEqual(set(app.season_history_map), {'18'})
+        app._save_administrator_identity.assert_not_called()
+        app._save_settings.assert_not_called()
+        app._save_season_history.assert_not_called()
+        app._activate_current_server_profile_for_new_season.assert_not_called()
 
 
 if __name__ == "__main__":

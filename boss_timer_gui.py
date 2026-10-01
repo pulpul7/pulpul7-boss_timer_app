@@ -70,7 +70,7 @@ ALERT_TAG = "alert_overlay"
 GRAPH_AREA_X = 29
 GRAPH_AREA_Y = 330
 GRAPH_TAG = "graph_overlay"
-DEFAULT_APP_VERSION = "v5.5.0"
+DEFAULT_APP_VERSION = "v5.5.1"
 DEFAULT_LAST_UPDATED = "2026-09-02"
 DEFAULT_AUTHOR_NAME = "나츠"
 DEFAULT_BUILD_DETAIL_VERSION = "unknown"
@@ -703,6 +703,7 @@ DEFAULT_SETTINGS_SEED_KEYS = (
     "precision_capture_rate",
     "precision_debug_logging",
     "precision_show_regions",
+    "ocr1_show_regions",
     "background_path",
     "font_family",
     "background_alignment",
@@ -1415,7 +1416,7 @@ class BossTimerApp:
                 season_key = stored_key
         return profile_id, profile_name, season_key
 
-    def _save_schedule_server_profile_selection(self) -> None:
+    def _save_schedule_server_profile_selection(self, *, raise_on_error=False) -> None:
         profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
         if not profile_id:
             return
@@ -1442,6 +1443,8 @@ class BossTimerApp:
                     os.remove(temporary_path)
                 except OSError:
                     pass
+            if raise_on_error:
+                raise
 
     def _get_schedule_server_profile_dir(self) -> str:
         profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
@@ -1940,11 +1943,95 @@ class BossTimerApp:
             if self._widget_available(getattr(self, window_name, None)):
                 refresh()
 
-    def _activate_current_server_profile_for_new_season(self) -> bool:
+    def _confirm_existing_new_season_profile(self, target, *, parent=None, resume=False) -> bool:
+        """An old trial season must not silently replace the displayed data."""
+        target = Path(target)
+        schedule_path = target / SCHEDULE_STATE_FILENAME
+        alarm_path = target / SCHEDULE_ALARM_SETTINGS_FILENAME
+        schedule = json.loads(schedule_path.read_text(encoding='utf-8-sig')) if schedule_path.exists() else {}
+        alarm = json.loads(alarm_path.read_text(encoding='utf-8-sig')) if alarm_path.exists() else {}
+        if not isinstance(schedule, dict) or not isinstance(alarm, dict):
+            raise ValueError("선택한 시즌의 스케줄/알람 파일 형식을 확인할 수 없습니다.")
+        counts = []
+        for key in ('schedule_events', 'schedule_active_entries', 'schedule_control_events'):
+            rows = schedule.get(key, [])
+            if not isinstance(rows, list):
+                raise ValueError("선택한 시즌의 스케줄 목록 형식을 확인할 수 없습니다.")
+            counts.append(len(rows))
+        chimes = alarm.get('chime_settings', {})
+        if not isinstance(chimes, dict):
+            raise ValueError("선택한 시즌의 차임벨 설정 형식을 확인할 수 없습니다.")
+        current_counts = [len(getattr(self, key, []) or []) for key in
+                          ('schedule_events', 'schedule_active_entries', 'schedule_control_events')]
+        def describe_chimes(value):
+            return ' / '.join(f"{label}: {('배포 기본값' if key not in value else Path(str(value[key])).name if value[key] else '사용 안 함')}"
+                              for key, label in SCHEDULE_ALARM_CHIME_TYPES)
+        target_schedule_text = (f"스케줄 {counts[0]}건 / 활성 {counts[1]}건 / 제어 {counts[2]}건"
+                                if schedule_path.exists() else ("저장 스케줄 없음 · 빈 상태로 이어하기" if resume
+                                                               else "스케줄 파일 없음 · 현재 화면의 스케줄을 이어받음"))
+        message = (
+            f"{target.parent.name.removeprefix('season_')}시즌에는 이전에 저장한 자료가 있습니다.\n"
+            "현재 화면의 자료를 이어받는 대신 아래 저장 자료를 불러옵니다.\n\n"
+            f"현재 화면: 스케줄 {current_counts[0]}건 / 활성 {current_counts[1]}건 / 제어 {current_counts[2]}건\n"
+            f"선택 시즌: {target_schedule_text}\n"
+            "현재 차임벨: " + describe_chimes(getattr(self, 'schedule_alarm_chime_settings', {}) or {}) + "\n"
+            "선택 시즌 차임벨: " + describe_chimes(chimes) + "\n\n"
+            + ("기존 시작일과 저장된 자료로 이어서 사용할까요?" if resume else "저장된 자료를 불러올까요?")
+            + "\n아니요를 선택하면 시즌 변경을 취소합니다."
+        )
+        return self._show_centered_messagebox('askyesno', '기존 시즌 자료 확인', message,
+                                              parent=parent, default='no') is True
+
+    def _prepare_schedule_profile_for_new_season(self, season_no, server_name, guild_name, *, parent=None) -> bool:
+        """Check/copy settings before committing season metadata or stopping Discord."""
+        from schedule_profile_migration import seed_profile, ensure_profile_defaults, SETTINGS_FILES
+        entry = self._build_github_server_entry_from_metadata(server_name, guild_name)
+        profile_id = self._normalize_schedule_server_profile_id(entry.get("id"))
+        if not profile_id:
+            raise ValueError('서버 정보에 숫자 또는 영문 식별자를 포함하세요. 예: 9, 오9')
+        season_key = self._normalize_schedule_server_profile_season_key(season_no)
+        profiles = Path(get_user_config_dir()) / SCHEDULE_SERVER_PROFILE_DIRNAME
+        previous_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
+        from season_storage import profile_season_directory
+        target = profile_season_directory(get_user_config_dir(), season_no) / profile_id
+        if (target.is_symlink() or (hasattr(target, 'is_junction') and target.is_junction())
+                or target.resolve().parent != target.parent.resolve()):
+            raise ValueError('시즌의 서버 설정 경로가 다른 폴더를 가리킵니다.')
+        source_season = self._get_active_schedule_server_profile_season_key()
+        if target.exists() and (source_season != season_key or previous_id != profile_id):
+            if not self._confirm_existing_new_season_profile(target, parent=parent):
+                return False
+        # Seed from current in-memory alarm choices, not an older disk snapshot.
+        if previous_id:
+            self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False,
+                                      reset_voice_queue=False, raise_on_error=True)
+        if previous_id and self._save_schedule_alarm_settings() is False:
+            raise OSError("현재 알람/차임벨 설정을 저장하지 못했습니다.")
+        seed_profile(profiles, season_key, profile_id,
+                     preferred_season_key=source_season
+                     if previous_id == profile_id else None)
+        ensure_profile_defaults(target, Path(get_resource_root()) / "init")
+        # Existing profile directories are deliberately not reseeded. Verify
+        # their files too, so permission failures cannot partially commit a season.
+        for relative in SETTINGS_FILES:
+            path = target / relative
+            if path.is_file():
+                with path.open("rb") as file:
+                    file.read(1)
+        # Only explicit season setup carries the currently displayed schedule.
+        # Do not turn ordinary server selection into a cross-server import.
+        if source_season != season_key and not (target / SCHEDULE_STATE_FILENAME).exists():
+            from schedule_profile_migration import seed_schedule_snapshot
+            snapshot = self._serialize_schedule_state_value(self._create_schedule_full_state_snapshot())
+            if seed_schedule_snapshot(target / SCHEDULE_STATE_FILENAME, snapshot,
+                                      source_season=source_season, target_season=season_key,
+                                      entry=entry, allow_empty=True):
+                self._append_debug_log("new_season_schedule_copied from=" + source_season + " to=" + season_key)
+        return True
+
+    def _activate_current_server_profile_for_new_season(self, *, resume=False, server_id=None, server_name=None) -> bool:
         """Use the server explicitly entered in season setup, not the old selection."""
         profile_id = self._normalize_schedule_server_profile_id(getattr(self, "schedule_server_profile_id", ""))
-        if not profile_id:
-            return False
         previous_profile_id = profile_id
         setup_entry = self._get_current_github_upload_server_entry()
         setup_profile_id = self._normalize_schedule_server_profile_id(setup_entry.get("id"))
@@ -1952,9 +2039,17 @@ class BossTimerApp:
         if setup_profile_id:
             profile_id = setup_profile_id
             profile_name = str(setup_entry.get("name") or setup_entry.get("id") or "").strip()
+        if server_id is not None:
+            profile_id = self._normalize_schedule_server_profile_id(server_id)
+            profile_name = str(server_name or profile_id)
+        if not profile_id:
+            return False
         target_season_key = self._get_current_schedule_server_profile_season_key()
         if target_season_key == self._get_active_schedule_server_profile_season_key() and profile_id == previous_profile_id:
             return False
+        # Resolve while the OLD season/server is still active. Discord belongs
+        # to the administrator's guild, which can move to another game server.
+        previous_discord_config = self._get_discord_bot_config_storage_path()
         was_bot_active = bool(
             bool(getattr(self, "discord_bot_expected_running", False))
             or bool(getattr(self, "discord_bot_last_status_payload", {}).get("ok"))
@@ -1966,9 +2061,28 @@ class BossTimerApp:
             self.discord_bot_expected_running = False
             bot_stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.5, force_timeout=1.0)
             self._refresh_discord_bot_status_ui()
+            if bot_stopped:
+                coordinator = getattr(self, "discord_handover", None)
+                if coordinator is not None:
+                    coordinator.release_after_stop()
         changed = self._activate_schedule_server_profile(profile_id, profile_name)
         if not changed:
             return False
+        # The target directory may already exist from an earlier trial season.
+        # General profile seeding intentionally leaves those directories alone;
+        # fill only the missing Discord INI on this explicit new-season path.
+        # Never copy connection/lease state or overwrite target credentials.
+        from runtime_storage import copy_missing
+        try:
+            inherited = (False if resume else copy_missing(
+                Path(previous_discord_config), Path(self._get_discord_bot_config_storage_path())))
+        except OSError as exc:
+            self._append_debug_log(f"discord_new_season_settings_copy_failed {type(exc).__name__}")
+            self.schedule_status_var.set("새 시즌 디스코드 설정을 이어받지 못했습니다. 이전 설정은 보존되어 있습니다.")
+            inherited = False
+        if inherited:
+            self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+            self._append_debug_log("discord_new_season_settings_inherited")
         self._upsert_github_server_entry_locally(setup_entry)
         self._sync_github_server_combo_to_loaded_meta()
         try:
@@ -1984,9 +2098,18 @@ class BossTimerApp:
                 text_channel_id=str(getattr(self, "discord_bot_text_channel_id", "") or ""),
             )
             if not validation_error:
-                self.discord_bot_expected_running = True
+                # Not a lost connection: the new-season launch is intentionally
+                # delayed. The watchdog must not schedule a second launch here.
+                self.discord_bot_expected_running = False
+                reconnect_profile = self._get_discord_bot_config_storage_path()
+                def reconnect_new_season():
+                    if (self._get_discord_bot_config_storage_path() != reconnect_profile
+                            or getattr(self, "discord_handover_busy", False)
+                            or self._is_discord_bot_process_alive()):
+                        return
+                    self._start_discord_bot_runtime()
                 try:
-                    self.root.after(3000, self._start_discord_bot_runtime)
+                    self.root.after(3000, reconnect_new_season)
                 except tk.TclError:
                     self.discord_bot_expected_running = False
         self._append_debug_log(
@@ -2548,7 +2671,7 @@ class BossTimerApp:
         self.log_history_mode_var = tk.StringVar(value="records")
         self.log_history_folder_path_var = tk.StringVar(value=self._get_logs_dir(create=False))
         self.archive_keep_seasons_var = tk.StringVar(value=str(self.archive_keep_seasons_default))
-        self.log_archive_title_var = tk.StringVar(value="보관 관리")
+        self.log_archive_title_var = tk.StringVar(value="시즌 / 보관 관리")
         self.log_archive_current_season_var = tk.StringVar(value="현재 시즌: -")
         self.log_archive_description_var = tk.StringVar(value="")
         self.log_archive_summary_var = tk.StringVar(value="")
@@ -3239,6 +3362,7 @@ class BossTimerApp:
                 get_schedule_snapshot=self._get_notice_schedule_snapshot,
                 apply_temporary_maintenance=self._apply_notice_temporary_maintenance,
                 get_preparation_profile=self._get_notice_preparation_profile,
+                get_output_context=self._get_notice_output_context,
             )
             self.notice_runtime = NoticeRuntime(host, get_user_config_dir(), get_resource_root(), APP_VERSION)
         self.notice_runtime.start()
@@ -3248,6 +3372,37 @@ class BossTimerApp:
         settings = self.edge_tts_settings
         return dict(signature=settings.cache_signature(), enabled=settings.enabled,
                     factory=lambda: EdgeTtsCache(settings))
+
+    def _get_notice_output_context(self):
+        """Capture host identity on Tk; all output I/O runs in the module worker."""
+        process = getattr(self, 'discord_bot_process', None)
+        secret = getattr(self, 'notice_output_secret', '')
+        profile = self._get_discord_bot_config_storage_path()
+        server_id = str(getattr(self, 'schedule_server_profile_id', '') or '')
+        season = str(self.current_season_no)
+        payload = getattr(self, 'discord_bot_last_status_payload', {}) or {}
+        if (not process or process.poll() is not None or not secret or not server_id
+                or getattr(self, 'discord_handover_busy', False)
+                or self._handover_audio_blocked() or not payload.get('voice_connected')
+                or payload.get('pid') != process.pid
+                or getattr(self, 'discord_bot_process_profile', '') != profile):
+            return None
+        pid, guild_id = process.pid, str(payload.get('guild_id') or '')
+        def request(command):
+            from notice_output_bridge import request_notice
+            if command.get('action') == 'stop' and process.poll() is not None:
+                return dict(pid=pid, id=command['id'], accepted=True, state='stopped')
+            if command.get('action') != 'stop' and (
+                    getattr(self, 'discord_bot_process', None) is not process or process.poll() is not None
+                    or getattr(self, 'discord_handover_busy', False)
+                    or self._handover_audio_blocked()
+                    or str(self.current_season_no) != season
+                    or str(getattr(self, 'schedule_server_profile_id', '') or '') != server_id
+                    or self._get_discord_bot_config_storage_path() != profile):
+                raise RuntimeError('서버/시즌/인계 상태가 변경되었습니다.')
+            return request_notice(DISCORD_BOT_STATUS_PORT, secret, pid, dict(command, guild_id=guild_id))
+        return dict(identity=(server_id, season, pid, secret), request=request,
+                    opportunities=list(payload.get('notice_opportunities') or []))
 
     def _get_notice_schedule_snapshot(self):
         """Read-only host facts. Notice rules live in the updateable module."""
@@ -3589,6 +3744,7 @@ class BossTimerApp:
         self.precision_debug_logging = str(settings.get("precision_debug_logging", "false")).lower() == "true"
         self.precision_auto_apply = str(settings.get("precision_auto_apply", "false")).lower() == "true"
         self.precision_show_regions = str(settings.get("precision_show_regions", "false")).lower() == "true"
+        self.ocr1_show_regions = str(settings.get("ocr1_show_regions", "true")).lower() == "true"
         if hasattr(self, "precision_capture_rate_var"):
             self.precision_capture_rate_var.set(str(self.precision_capture_rate))
         saved_bg = settings.get("background_path", DEFAULT_BG_KEY)
@@ -3928,6 +4084,7 @@ class BossTimerApp:
         }
 
     def _default_schedule_alarm_settings_payload(self) -> dict[str, object]:
+        from alarm_settings_storage import load_defaults
         default_offsets = [300, 60]
         boss_overrides = {
             str(item.get("boss_name") or ""): {
@@ -3937,7 +4094,7 @@ class BossTimerApp:
             for item in get_record_book_boss_catalog()
             if str(item.get("boss_name") or "").strip()
         }
-        return {
+        return load_defaults(os.path.join(get_resource_root(), 'init'), {
             "voice_rule_version": SCHEDULE_ALARM_VOICE_RULE_VERSION,
             "master_enabled": True,
             "local_audio_enabled": True,
@@ -3955,7 +4112,7 @@ class BossTimerApp:
             },
             "boss_overrides": boss_overrides,
             "fixed_boss_overrides": {},
-        }
+        })
 
     def _serialize_schedule_alarm_chime_path(self, path: object | None) -> str:
         raw_path = str(path or "").strip()
@@ -4073,9 +4230,12 @@ class BossTimerApp:
         payload["fixed_boss_enabled"] = bool(loaded.get("fixed_boss_enabled", payload["fixed_boss_enabled"]))
         payload["fixed_boss_skip_due_time"] = bool(loaded.get("fixed_boss_skip_due_time", payload["fixed_boss_skip_due_time"]))
         payload["voice_name"] = str(loaded.get("voice_name") or payload["voice_name"]).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
-        payload["chime_settings"] = self._normalize_schedule_alarm_chime_settings(loaded.get("chime_settings", payload.get("chime_settings", {})))
-        payload["boss_overrides"] = self._normalize_schedule_boss_alarm_settings_map(loaded.get("boss_overrides", {}))
-        payload["fixed_boss_overrides"] = self._normalize_schedule_boss_alarm_settings_map(loaded.get("fixed_boss_overrides", {}))
+        loaded_chimes = loaded.get('chime_settings')
+        payload["chime_settings"] = self._normalize_schedule_alarm_chime_settings({
+            **payload.get('chime_settings', {}),
+            **(loaded_chimes if isinstance(loaded_chimes, dict) else {})})
+        payload["boss_overrides"] = self._normalize_schedule_boss_alarm_settings_map(loaded.get("boss_overrides", payload['boss_overrides']))
+        payload["fixed_boss_overrides"] = self._normalize_schedule_boss_alarm_settings_map(loaded.get("fixed_boss_overrides", payload['fixed_boss_overrides']))
         return payload
 
     def _build_schedule_alarm_settings_payload(self) -> dict[str, object]:
@@ -4117,29 +4277,35 @@ class BossTimerApp:
             payload["fixed_boss_overrides"][canonical_name] = normalized_entry
         return payload
 
-    def _write_schedule_alarm_settings_payload(self, payload: dict[str, object]) -> None:
-        settings_path = self._get_schedule_alarm_settings_storage_path()
+    def _write_schedule_alarm_settings_payload(self, payload: dict[str, object], *, settings_path=None, save_ticket=None) -> bool:
+        from alarm_settings_storage import reserve_save, write_settings
+        settings_path = settings_path or self._get_schedule_alarm_settings_storage_path()
+        save_ticket = save_ticket or reserve_save(settings_path)
         try:
-            os.makedirs(os.path.dirname(settings_path), exist_ok=True)
-            with open(settings_path, "w", encoding="utf-8") as file:
-                json.dump(payload, file, ensure_ascii=False, indent=2)
-        except OSError:
-            return
-        self._save_default_schedule_alarm_settings_seed(payload)
+            saved = write_settings(settings_path, payload, save_ticket)
+        except OSError as exc:
+            self._append_debug_log(f'alarm_settings_save_failed {type(exc).__name__} path={settings_path}')
+            return False
+        # Ordinary saves are profile-local. They must never redefine defaults
+        # (especially from an old/empty profile during a server switch).
+        return saved
 
-    def _save_schedule_alarm_settings(self) -> None:
-        self._write_schedule_alarm_settings_payload(self._build_schedule_alarm_settings_payload())
+    def _save_schedule_alarm_settings(self) -> bool:
+        return self._write_schedule_alarm_settings_payload(self._build_schedule_alarm_settings_payload())
 
     def _save_schedule_alarm_settings_async(self) -> None:
+        from alarm_settings_storage import reserve_save
         payload = self._build_schedule_alarm_settings_payload()
+        settings_path = self._get_schedule_alarm_settings_storage_path()
+        save_ticket = reserve_save(settings_path)
 
         def worker() -> None:
-            self._write_schedule_alarm_settings_payload(payload)
+            self._write_schedule_alarm_settings_payload(payload, settings_path=settings_path, save_ticket=save_ticket)
 
         try:
             threading.Thread(target=worker, name="schedule-alarm-settings-save", daemon=True).start()
         except RuntimeError:
-            self._write_schedule_alarm_settings_payload(payload)
+            worker()
 
     def _save_default_schedule_alarm_settings_seed(self, payload: dict[str, object]) -> None:
         self._ensure_init_dir()
@@ -4300,22 +4466,9 @@ class BossTimerApp:
         self.season_history_map = normalized
 
     def _prune_missing_archive_history_entries(self) -> bool:
-        if not isinstance(self.season_history_map, dict) or not self.season_history_map:
-            return False
-        current_season_text = re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip())
-        archive_root = self._get_log_archive_dir()
-        removed = False
-        for season_no in list(self.season_history_map.keys()):
-            if season_no == current_season_text:
-                continue
-            expected_dir = os.path.join(archive_root, self._get_archive_season_label(season_no))
-            if os.path.isdir(expected_dir):
-                continue
-            self.season_history_map.pop(season_no, None)
-            removed = True
-        if removed:
-            self._save_season_history()
-        return removed
+        # A season with no record folder may still have valid start metadata.
+        # Keep it visible for explicit continuation/deletion in season management.
+        return False
 
     def _repair_runtime_season_state(self) -> bool:
         changed_settings = False
@@ -4396,7 +4549,7 @@ class BossTimerApp:
             self._save_settings()
         return self._has_ready_season()
 
-    def _save_season_history(self) -> None:
+    def _save_season_history(self, *, raise_on_error=False) -> None:
         entries = [
             {
                 "season_no": season_no,
@@ -4412,9 +4565,11 @@ class BossTimerApp:
             )
         ]
         try:
-            with open(SEASON_HISTORY_PATH, "w", encoding="utf-8") as file:
-                json.dump(entries, file, ensure_ascii=True, indent=2)
+            from runtime_storage import atomic_write
+            atomic_write(SEASON_HISTORY_PATH, (json.dumps(entries, ensure_ascii=False, indent=2) + '\n').encode('utf-8'))
         except OSError:
+            if raise_on_error:
+                raise
             return
 
     def _record_season_history_transition(
@@ -4423,6 +4578,8 @@ class BossTimerApp:
         previous_started_at: str | None,
         current_season_no: str | int | None,
         current_started_at: str | None,
+        *,
+        persist=True,
     ) -> None:
         previous_text = re.sub(r"[^0-9]", "", str(previous_season_no or "").strip())
         current_text = re.sub(r"[^0-9]", "", str(current_season_no or "").strip())
@@ -4448,7 +4605,7 @@ class BossTimerApp:
             current_entry["guild_name"] = str(current_entry.get("guild_name") or "").strip()
             self.season_history_map[current_text] = current_entry
             changed = True
-        if changed:
+        if changed and persist:
             self._save_season_history()
 
     def _sanitize_season_metadata_text(self, value: object) -> str:
@@ -4493,20 +4650,164 @@ class BossTimerApp:
 
     def _get_next_season_number_text(self) -> str:
         self._repair_runtime_season_state()
+        numbers = {int(value) for value in self._get_existing_archive_season_numbers()}
         if self._has_active_season():
-            try:
-                return str(int(self.current_season_no) + 1)
-            except ValueError:
-                return "1"
-        return "1"
+            numbers.add(int(self.current_season_no))
+        return str(max(numbers, default=0) + 1)
 
     def _get_existing_archive_season_numbers(self) -> set[str]:
-        season_numbers: set[str] = set()
-        for entry in self._get_archive_management_all_entries():
-            season_no_text = str(entry.get("season_no_text") or "").strip()
-            if season_no_text.isdigit():
-                season_numbers.add(str(int(season_no_text)))
+        season_numbers = {str(int(value)) for value in self.season_history_map if str(value).isdigit()}
+        profiles_root = Path(get_user_config_dir()) / SCHEDULE_SERVER_PROFILE_DIRNAME
+        if profiles_root.is_dir():
+            season_numbers.update(str(int(match[1])) for path in profiles_root.iterdir()
+                                  if path.is_dir() and not path.is_symlink()
+                                  and (match := re.fullmatch(r'season_(\d+)', path.name)))
+        archive_root = self._get_log_archive_dir()
+        for name in os.listdir(archive_root):
+            if os.path.isdir(os.path.join(archive_root, name)):
+                number = self._get_archive_entry_season_no_from_label(name)
+                if number.isdigit():
+                    season_numbers.add(str(int(number)))
         return season_numbers
+
+    def _get_stored_season_entry(self, season_no) -> dict:
+        from season_storage import read_season_entry, season_number
+        number = season_number(season_no)
+        entry = read_season_entry(get_user_config_dir(), number)
+        entry.update(dict(self.season_history_map.get(number) or {}))
+        return dict(entry, season_no=number)
+
+    def _ensure_season_storage(self, entry, *, server_id='') -> None:
+        from season_storage import save_season_entry
+        label = self._build_archive_season_label_with_context(
+            entry.get('archive_label') or f"{int(entry['season_no'])}차 시즌",
+            server_name=entry.get('server_name'), guild_name=entry.get('guild_name'))
+        save_season_entry(get_user_config_dir(), entry, label, server_id=server_id)
+
+    def _capture_season_transition_state(self) -> dict:
+        selection = Path(self._get_schedule_server_profile_selection_path())
+        return {
+            'season_no': self.current_season_no,
+            'started_at': self.current_season_started_at,
+            'history': {key: dict(value) for key, value in self.season_history_map.items()},
+            'profile': (self.schedule_server_profile_id, self.schedule_server_profile_name,
+                        self._get_active_schedule_server_profile_season_key()),
+            'state': self._create_schedule_full_state_snapshot(),
+            'alarm': self._build_schedule_alarm_settings_payload(),
+            'delete_history': [dict(row) for row in self.schedule_delete_history],
+            'selection': selection.read_bytes() if selection.exists() else None,
+        }
+
+    def _restore_season_transition_state(self, previous) -> None:
+        """Restore the old season after activation or persistence fails."""
+        from runtime_storage import atomic_write
+        self.current_season_no = previous['season_no']
+        self.current_season_started_at = previous['started_at']
+        self.season_history_map = previous['history']
+        self.schedule_server_profile_id, self.schedule_server_profile_name, self.schedule_server_profile_season_key = previous['profile']
+        self._restore_schedule_full_state_snapshot(previous['state'])
+        self._apply_schedule_alarm_settings_payload_to_runtime(previous['alarm'])
+        self.schedule_delete_history = previous['delete_history']
+        self.schedule_area_definitions = self._load_schedule_area_definitions()
+        self.schedule_boss_deleted_builtin_names = set()
+        self.schedule_boss_definitions = self._load_schedule_boss_definitions()
+        self.fixed_boss_entries = self._load_fixed_boss_definitions()
+        self.schedule_boss_metrics = self._load_schedule_boss_metrics()
+        self.schedule_break_entries = self._load_schedule_break_rules()
+        self.schedule_ocr_corrections = self._load_schedule_ocr_corrections()
+        self._rebuild_boss_name_resolution_maps()
+        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+        selection = Path(self._get_schedule_server_profile_selection_path())
+        if previous['selection'] is None:
+            selection.unlink(missing_ok=True)
+        else:
+            atomic_write(selection, previous['selection'])
+        self._save_season_history(raise_on_error=True)
+        self._save_settings()
+        self._reset_schedule_alarm_event_index()
+        self._bump_schedule_voice_broker_generation()
+        self._refresh_profile_settings_views()
+        self._refresh_schedule_view()
+
+    def _resume_stored_season(self, season_no, *, parent=None, administrator_name=None) -> bool:
+        """Switch to stored state; preserve its start time and do not import current rows."""
+        from season_storage import profile_season_directory, season_number
+        from schedule_profile_migration import ensure_profile_defaults
+        number = season_number(season_no)
+        if number == str(self.current_season_no):
+            self.schedule_status_var.set(f"{number}시즌을 이미 사용 중입니다.")
+            return True
+        entry = self._get_stored_season_entry(number)
+        started_at = self._normalize_season_started_at_text(entry.get('started_at'))
+        if not started_at:
+            raise ValueError('이 시즌의 시작일 정보가 없습니다. 보관관리의 시즌 정보 수정에서 시작일을 입력하세요.')
+        season_root = profile_season_directory(get_user_config_dir(), number)
+        profiles = sorted(path.name for path in season_root.iterdir()
+                          if path.is_dir() and not path.is_symlink()
+                          and re.fullmatch(r'[\w-]+', path.name, re.ASCII)) if season_root.is_dir() else []
+        stored_server = self._normalize_schedule_server_profile_id(entry.get('last_server_id'))
+        expected_server = self._normalize_schedule_server_profile_id(
+            self._build_github_server_entry_from_metadata(entry.get('server_name'), entry.get('guild_name')).get('id')) if (
+                entry.get('server_name') or entry.get('guild_name')) else ''
+        active_server = self._normalize_schedule_server_profile_id(getattr(self, 'schedule_server_profile_id', ''))
+        server_id = next((value for value in (stored_server, expected_server) if value in profiles), '')
+        if not server_id:
+            if profiles and (stored_server or expected_server):
+                raise ValueError('저장된 시즌의 서버 프로필을 찾지 못했습니다. 다른 서버 자료는 대신 불러오지 않습니다.')
+            if len(profiles) > 1:
+                raise ValueError('이 시즌에 여러 서버가 있지만 마지막 선택 정보를 찾을 수 없습니다. 시즌 정보의 서버를 확인하세요.')
+            server_id = profiles[0] if profiles else expected_server or active_server
+        if not server_id:
+            raise ValueError('이 시즌의 서버 정보를 확인할 수 없습니다.')
+        target = season_root / server_id
+        if (not target.resolve().is_relative_to(season_root.resolve()) or target.is_symlink()
+                or (hasattr(target, 'is_junction') and target.is_junction())):
+            raise ValueError('저장된 서버 프로필 경로를 확인할 수 없습니다.')
+        if not self._confirm_existing_new_season_profile(target, parent=parent, resume=True):
+            return False
+        # Inspect/prepare the destination before closing the old bot or changing
+        # metadata. No source-season schedule or credentials are copied here.
+        ensure_profile_defaults(target, Path(get_resource_root()) / 'init')
+        if active_server:
+            self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False,
+                                      reset_voice_queue=False, raise_on_error=True)
+            if self._save_schedule_alarm_settings() is False:
+                raise OSError('현재 알람 설정을 저장하지 못해 시즌 전환을 중단했습니다.')
+        if administrator_name is not None:
+            self._save_administrator_identity(administrator_name, str(entry.get('guild_name') or ''))
+        previous = self._capture_season_transition_state()
+        previous_number = str(previous['season_no'] or '')
+        entry.update(started_at=started_at, ended_at='')
+        self._ensure_season_storage(entry, server_id=server_id)
+        try:
+            if previous_number:
+                old = dict(self.season_history_map.get(previous_number) or {})
+                old.update(season_no=previous_number, ended_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                self.season_history_map[previous_number] = old
+            self.season_history_map[number] = entry
+            self.current_season_no = number
+            self.current_season_started_at = started_at
+            if not self._activate_current_server_profile_for_new_season(
+                    resume=True, server_id=server_id, server_name=entry.get('server_name') or server_id):
+                raise RuntimeError('저장된 시즌의 프로필을 활성화하지 못했습니다.')
+            self._save_schedule_server_profile_selection(raise_on_error=True)
+            self._save_season_history(raise_on_error=True)
+            self._save_settings()
+        except Exception as exc:
+            try:
+                self._restore_season_transition_state(previous)
+            except Exception as rollback_error:
+                self._append_debug_log(f'season_resume_rollback_failed {rollback_error}')
+                raise RuntimeError(f'시즌 변경 실패: {exc}\n이전 시즌 상태 저장도 실패했습니다: {rollback_error}') from exc
+            raise
+        if getattr(self, 'log_history_folder_path_var', None) is not None:
+            self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
+        self._update_archive_keep_seasons_description()
+        self.schedule_status_var.set(f"{self._get_archive_season_label(number)} 이어하기. 기존 시작일·설정·스케줄을 불러왔습니다.")
+        self._last_season_setup_action = 'resume'
+        if self._widget_available(getattr(self, 'log_archive_manage_frame', None)):
+            self._refresh_archive_management_view()
+        return True
 
     def _get_administrator_identity(self) -> dict:
         from administrator_identity import AdministratorIdentity
@@ -4571,6 +4872,7 @@ class BossTimerApp:
         return confirmed["value"]
 
     def _show_season_setup_dialog(self, parent: tk.Widget | None = None) -> bool:
+        self._last_season_setup_action = ''
         host = parent if self._widget_available(parent) else self.root
         try:
             identity = self._get_administrator_identity()
@@ -4578,7 +4880,7 @@ class BossTimerApp:
             self._show_centered_messagebox("showerror", "담당자 정보 확인", str(exc), parent=host)
             return False
         dialog = tk.Toplevel(host)
-        dialog.title("새 시즌 시작")
+        dialog.title("시즌 시작 / 이어하기")
         dialog.resizable(False, False)
         dialog.configure(bg="#eff6ff")
         try:
@@ -4603,7 +4905,7 @@ class BossTimerApp:
         guild_name_var = tk.StringVar(value=default_guild_name)
         administrator_name_var = tk.StringVar(value=identity["name"])
 
-        tk.Label(dialog, text="새 시즌 시작", font=self.header_font, bg="#1e3a8a", fg="#ffffff").place(x=0, y=0, width=460, height=40)
+        tk.Label(dialog, text="시즌 시작 / 이어하기", font=self.header_font, bg="#1e3a8a", fg="#ffffff").place(x=0, y=0, width=460, height=40)
         tk.Label(dialog, text="n차 입력", font=self.button_font, bg="#eff6ff", fg="#0f172a", anchor="w").place(x=22, y=58, width=78, height=24)
         entry = tk.Entry(
             dialog,
@@ -4656,19 +4958,24 @@ class BossTimerApp:
         start_day_values = [f"{day:02d}일" for day in range(1, 32)]
         start_hour_values = [f"{hour:02d}시" for hour in range(0, 24)]
         start_minute_values = [f"{minute:02d}분" for minute in range(0, 60)]
-        ttk.Combobox(dialog, textvariable=start_year_var, values=start_year_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=94, y=206, width=84, height=28)
-        ttk.Combobox(dialog, textvariable=start_month_var, values=start_month_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=186, y=206, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_day_var, values=start_day_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=252, y=206, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_hour_var, values=start_hour_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=318, y=206, width=58, height=28)
-        ttk.Combobox(dialog, textvariable=start_minute_var, values=start_minute_values, font=(self.current_font_family, 10, "bold"), state="normal").place(x=384, y=206, width=58, height=28)
+        start_time_widgets = []
+        for variable, values, x, width in (
+            (start_year_var, start_year_values, 94, 84), (start_month_var, start_month_values, 186, 58),
+            (start_day_var, start_day_values, 252, 58), (start_hour_var, start_hour_values, 318, 58),
+            (start_minute_var, start_minute_values, 384, 58)):
+            widget = ttk.Combobox(dialog, textvariable=variable, values=values,
+                                  font=(self.current_font_family, 10, "bold"), state="normal")
+            widget.place(x=x, y=206, width=width, height=28)
+            start_time_widgets.append(widget)
         tk.Label(
             dialog,
             text=(
                 "- 서버이전 기준으로 차수를 정하는걸 추천드립니다.\n"
                 "- 서버이전 차수 정보는 오딘카페 -> 공지사항에서 확인할 수 있습니다.\n"
                 "- 서버 정보 또는 길드 이름 중 하나는 꼭 입력하세요.\n"
-                "- 현재 시즌 차수를 입력 할 시 현재시즌 시작일이 변경 됩니다.\n"
-                "- 사용자 임의 차수를 입력하셔도 무방합니다."
+                "- 새 번호: 현재 자료를 이어받아 새 시즌을 시작합니다.\n"
+                "- 이전 번호: 저장된 시작일·서버·설정·스케줄로 이어합니다.\n"
+                "- 현재 번호: 확인 후 시즌 시작일을 변경합니다."
             ),
             font=(self.current_font_family, 9, "bold"),
             bg="#eff6ff",
@@ -4704,6 +5011,24 @@ class BossTimerApp:
                 status_var.set("숫자만 입력할 수 있습니다.")
                 return
             season_text = str(int(season_text))
+            try:
+                existing_numbers = self._get_existing_archive_season_numbers()
+            except (OSError, ValueError) as exc:
+                status_var.set(str(exc))
+                self._show_centered_messagebox('showerror', '시즌 목록 확인', str(exc), parent=dialog)
+                return
+            if (season_text != str(self.current_season_no or '').strip()
+                    and season_text in existing_numbers):
+                try:
+                    if self._resume_stored_season(season_text, parent=dialog,
+                                                  administrator_name=administrator_name):
+                        close_with(True)
+                    else:
+                        status_var.set("시즌 이어하기를 취소했습니다.")
+                except (OSError, ValueError, RuntimeError) as exc:
+                    status_var.set(str(exc))
+                    self._show_centered_messagebox('showerror', '시즌 이어하기', str(exc), parent=dialog)
+                return
             server_name_text = self._sanitize_season_metadata_text(server_name_var.get())
             guild_name_text = self._sanitize_season_metadata_text(guild_name_var.get())
             if not server_name_text and not guild_name_text:
@@ -4727,51 +5052,124 @@ class BossTimerApp:
                     current_season_text = str(int(self.current_season_no))
                 except ValueError:
                     current_season_text = ""
-            if season_text in self._get_existing_archive_season_numbers() and season_text != current_season_text:
-                status_var.set("보관 기록에 이미 존재하는 차수입니다.")
-                return
             timestamp_text = start_datetime.strftime("%Y-%m-%d %H:%M:%S")
             if current_season_text and season_text == current_season_text:
                 if not self._show_same_season_restart_dialog(timestamp_text, parent=dialog):
                     status_var.set("같은 시즌 재시작을 취소했습니다.")
                     return
+            # Fail before saving the new season or disconnecting the current bot.
+            # Never replace unreadable settings with defaults to get past an error.
+            try:
+                if self._prepare_schedule_profile_for_new_season(
+                        season_text, server_name_text, guild_name_text, parent=dialog) is False:
+                    status_var.set("기존 시즌 자료 불러오기를 취소했습니다. 시즌은 변경하지 않았습니다.")
+                    return
+            except (OSError, ValueError) as exc:
+                self._append_debug_log(f"season_setup_preflight_failed {type(exc).__name__}")
+                status_var.set("설정 파일을 읽거나 복사할 수 없어 시즌 변경을 중단했습니다.")
+                self._show_centered_messagebox(
+                    "showerror", "새 시즌 설정 확인",
+                    "설정 파일을 읽거나 복사할 수 없습니다.\n시즌 정보는 변경하지 않았습니다.\n\n"
+                    + str(exc) + "\n\n파일 접근 권한을 확인한 뒤 다시 시도해주세요.", parent=dialog)
+                return
             # Persist identity before changing the season, so migration uses
             # the previous active profile's ID and save failures change nothing.
             try:
                 self._save_administrator_identity(administrator_name, guild_name_text)
+                prepared_entry = dict(self.season_history_map.get(season_text) or {})
+                prepared_entry.update(season_no=season_text, started_at=timestamp_text, ended_at='',
+                                      server_name=server_name_text, guild_name=guild_name_text)
+                setup_entry = self._build_github_server_entry_from_metadata(server_name_text, guild_name_text)
+                self._ensure_season_storage(prepared_entry,
+                    server_id=self._normalize_schedule_server_profile_id(setup_entry.get('id')))
+                previous = self._capture_season_transition_state()
             except (OSError, ValueError) as exc:
                 status_var.set(str(exc))
                 return
-            self.current_season_no = season_text
-            self.current_season_started_at = timestamp_text
-            self._record_season_history_transition(
-                previous_season_text,
-                previous_started_text,
-                self.current_season_no,
-                self.current_season_started_at,
-            )
-            current_entry = dict(self.season_history_map.get(self.current_season_no) or {})
-            current_entry["season_no"] = self.current_season_no
-            current_entry["started_at"] = self.current_season_started_at
-            current_entry["ended_at"] = ""
-            current_entry["server_name"] = server_name_text
-            current_entry["guild_name"] = guild_name_text
-            current_entry["archive_label"] = str(current_entry.get("archive_label") or "").strip()
-            self.season_history_map[self.current_season_no] = current_entry
-            self._save_season_history()
+            try:
+                self.current_season_no = season_text
+                self.current_season_started_at = timestamp_text
+                self._record_season_history_transition(
+                    previous_season_text, previous_started_text,
+                    self.current_season_no, self.current_season_started_at, persist=False)
+                current_entry = dict(self.season_history_map.get(self.current_season_no) or {})
+                current_entry.update(season_no=self.current_season_no,
+                    started_at=self.current_season_started_at, ended_at='',
+                    server_name=server_name_text, guild_name=guild_name_text,
+                    archive_label=str(current_entry.get('archive_label') or '').strip())
+                self.season_history_map[self.current_season_no] = current_entry
+                self._activate_current_server_profile_for_new_season()
+                expected_id = self._normalize_schedule_server_profile_id(setup_entry.get('id'))
+                if (not expected_id or self.schedule_server_profile_id != expected_id
+                        or self._get_active_schedule_server_profile_season_key()
+                        != self._get_current_schedule_server_profile_season_key()):
+                    raise RuntimeError('새 시즌의 서버 프로필을 활성화하지 못했습니다.')
+                self._save_schedule_server_profile_selection(raise_on_error=True)
+                self._save_season_history(raise_on_error=True)
+                self._save_settings()
+            except Exception as exc:
+                self._append_debug_log(f'season_start_failed {type(exc).__name__}: {exc}')
+                message = f'시즌 시작을 완료하지 못했습니다.\n{exc}'
+                try:
+                    self._restore_season_transition_state(previous)
+                    message += '\n\n이전 시즌의 설정과 스케줄로 돌아왔습니다.'
+                except Exception as rollback_error:
+                    self._append_debug_log(f'season_start_rollback_failed {rollback_error}')
+                    message += f'\n\n이전 시즌 상태 저장도 실패했습니다:\n{rollback_error}'
+                status_var.set('시즌 시작에 실패했습니다. 안내창을 확인하세요.')
+                self._show_centered_messagebox('showerror', '시즌 시작 중단', message, parent=dialog)
+                return
             if hasattr(self, "log_history_folder_path_var") and self.log_history_folder_path_var is not None:
                 self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
             self._update_archive_keep_seasons_description()
-            self._save_settings()
-            # 새 시즌 스케줄은 분리하되 같은 서버의 보스/음성/디스코드
-            # 설정과 롤백 기준점은 유지한다.
-            self._activate_current_server_profile_for_new_season()
+            self._last_season_setup_action = 'start'
             close_with(True)
 
+        form_variables = (server_name_var, guild_name_var, start_year_var, start_month_var,
+                          start_day_var, start_hour_var, start_minute_var)
+        form_mode = {'resume': False, 'new_values': tuple(var.get() for var in form_variables)}
         def on_write(*_args) -> None:
             cleaned = re.sub(r"[^0-9]", "", season_var.get())
             if cleaned != season_var.get():
                 season_var.set(cleaned)
+                return
+            number = str(int(cleaned)) if cleaned else ''
+            try:
+                existing_numbers = self._get_existing_archive_season_numbers()
+            except (OSError, ValueError) as exc:
+                start_button.config(state='disabled')
+                status_var.set(str(exc))
+                return
+            start_button.config(state='normal')
+            resume_mode = bool(number and number != str(self.current_season_no or '').strip()
+                               and number in existing_numbers)
+            for widget in [server_entry, guild_entry, *start_time_widgets]:
+                widget.config(state='disabled' if resume_mode else 'normal')
+            start_button.config(text='이어하기' if resume_mode else '시작')
+            if resume_mode:
+                if not form_mode['resume']:
+                    form_mode['new_values'] = tuple(var.get() for var in form_variables)
+                try:
+                    stored = self._get_stored_season_entry(number)
+                    server_name_var.set(str(stored.get('server_name') or ''))
+                    guild_name_var.set(str(stored.get('guild_name') or ''))
+                    started = self._normalize_season_started_at_text(stored.get('started_at'))
+                    if started:
+                        selected_time = datetime.strptime(started, '%Y-%m-%d %H:%M:%S')
+                        for variable, fmt in ((start_year_var, '%Y년'), (start_month_var, '%m월'),
+                                              (start_day_var, '%d일'), (start_hour_var, '%H시'),
+                                              (start_minute_var, '%M분')):
+                            variable.set(selected_time.strftime(fmt))
+                    status_var.set(f'{number}시즌의 저장된 정보로 이어합니다.' if started else
+                                   f'{number}시즌의 시작일이 없습니다. 시즌관리에서 수정하세요.')
+                except (OSError, ValueError) as exc:
+                    status_var.set(str(exc))
+            else:
+                if form_mode['resume']:
+                    for variable, value in zip(form_variables, form_mode['new_values']):
+                        variable.set(value)
+                status_var.set('새 시즌은 시작과 동시에 폴더를 만듭니다.')
+            form_mode['resume'] = resume_mode
 
         season_var.trace_add("write", on_write)
         def open_settings_rollback() -> None:
@@ -4784,7 +5182,15 @@ class BossTimerApp:
                 pass
 
         tk.Button(dialog, text="설정롤백", font=self.button_font, bg="#f59e0b", fg="#422006", activebackground="#fbbf24", activeforeground="#422006", relief="raised", bd=1, highlightthickness=0, command=open_settings_rollback, cursor="hand2").place(x=326, y=388, width=82, height=28)
-        tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2").place(x=234, y=422, width=80, height=28)
+        def open_season_management():
+            close_with(False)
+            self.open_log_panel()
+            self.switch_record_subview('archive')
+        tk.Button(dialog, text='시즌관리', font=self.button_font, bg='#dbeafe', fg='#1d4ed8',
+                  command=open_season_management, cursor='hand2').place(x=22, y=388, width=90, height=28)
+        start_button = tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2")
+        start_button.place(x=234, y=422, width=80, height=28)
+        on_write()
         tk.Button(dialog, text="취소", font=self.button_font, bg="#e2e8f0", fg="#334155", activebackground="#cbd5e1", activeforeground="#334155", relief="raised", bd=1, highlightthickness=0, command=lambda: close_with(False), cursor="hand2").place(x=326, y=422, width=82, height=28)
         dialog.bind("<Return>", lambda _event: confirm())
         def raise_dialog() -> None:
@@ -6822,6 +7228,8 @@ class BossTimerApp:
         return [executable_path] if executable_path else []
 
     def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False) -> bool:
+        if automatic and getattr(self, "discord_handover_busy", False):
+            return False  # A delayed recovery cannot race the approved handover.
         # Validate persisted settings BEFORE creating any remote owner record.
         # In-memory defaults may still refer to another server at first launch.
         self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
@@ -6856,6 +7264,13 @@ class BossTimerApp:
             except Exception as exc:
                 self._show_centered_messagebox("showerror", "관리자 인계", str(exc), parent=self.schedule_window or self.root)
                 return False
+        if self._is_discord_bot_process_alive():
+            # Tk callbacks are serialized. Preserve the process handle rather
+            # than overwriting it with a duplicate spawned by another callback.
+            if getattr(self, "discord_bot_process_profile", None) == self._get_discord_bot_config_storage_path():
+                return True
+            self.schedule_status_var.set("기존 봇이 실행 중입니다. 종료를 확인한 뒤 다시 연결해주세요.")
+            return False
         command = self._get_discord_bot_launch_command()
         if not command:
             self.discord_bot_running = False
@@ -6883,12 +7298,15 @@ class BossTimerApp:
             env["BOSS_TIMER_DISCORD_VOICE_QUEUE"] = DISCORD_VOICE_BRIDGE_PATH
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             env["BOSS_TIMER_DISCORD_RETRY_RESERVED"] = "1" if automatic else "0"
+            self.notice_output_secret = uuid.uuid4().hex
+            env['BOSS_TIMER_NOTICE_SECRET'] = self.notice_output_secret
             self.discord_bot_process = subprocess.Popen(
                 command,
                 cwd=get_app_root(),
                 env=env,
                 creationflags=creationflags,
             )
+            self.discord_bot_process_profile = self._get_discord_bot_config_storage_path()
         except OSError as exc:
             self.discord_bot_process = None
             self.discord_bot_running = False
@@ -6998,8 +7416,12 @@ class BossTimerApp:
             }
         self.schedule_status_var.set("초대 요청으로 기존 봇을 종료했습니다. 3초 후 다시 연결합니다.")
 
+        reconnect_profile = self._get_discord_bot_config_storage_path()
         def restart_runtime() -> None:
             try:
+                if (self._get_discord_bot_config_storage_path() != reconnect_profile
+                        or getattr(self, "discord_handover_busy", False)):
+                    return
                 started = self._start_discord_bot_runtime(automatic=automatic_recovery)
                 if started:
                     self.schedule_status_var.set("초대 요청 채널로 디스코드 봇을 다시 연결하고 있습니다.")
@@ -22803,6 +23225,7 @@ class BossTimerApp:
     def _open_schedule_input_ocr_addon_restore_delay_dialog(self) -> None:
         from schedule_precision import normalize_capture_rate
         from precision_capture_ui import clear_preview, show_preview
+        from schedule_ocr_region_preview import is_open as ocr_preview_is_open
         host = self.schedule_input_ocr_addon_window if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists() else self.root
         if host is None:
             return
@@ -22825,12 +23248,41 @@ class BossTimerApp:
 
         rate_var = tk.StringVar(value=str(getattr(self, "precision_capture_rate", DEFAULT_CAPTURE_RATE)))
         regions_var = tk.BooleanVar(value=getattr(self, "precision_show_regions", False))
+        ocr_regions_var = tk.BooleanVar(value=ocr_preview_is_open(self))
+        ocr_preview_poll = {"after": None}
         preview_slots = self._get_precision_capture_slots()
         last_area = (getattr(self, "schedule_input_precision_report", None) or {}).get("area")
         area_var = tk.StringVar(value=last_area if last_area in preview_slots else next(iter(preview_slots)))
 
         def refresh_preview(*_args) -> None:
             show_preview(self, dialog, preview_slots, area_var.get(), regions_var.get())
+
+        def toggle_precision_preview() -> None:
+            self.precision_show_regions = bool(regions_var.get())
+            self._save_settings()
+            refresh_preview()
+
+        def toggle_ocr_preview() -> None:
+            self._set_schedule_ocr1_region_preview_enabled(bool(ocr_regions_var.get()))
+            ocr_regions_var.set(ocr_preview_is_open(self))
+
+        def sync_ocr_preview() -> None:
+            ocr_preview_poll["after"] = None
+            if not dialog.winfo_exists():
+                return
+            ocr_regions_var.set(ocr_preview_is_open(self))
+            ocr_preview_poll["after"] = dialog.after(250, sync_ocr_preview)
+
+        def destroy_preview_controls(event) -> None:
+            if event.widget is not dialog:
+                return
+            clear_preview(self)
+            if ocr_preview_poll["after"] is not None:
+                try:
+                    dialog.after_cancel(ocr_preview_poll["after"])
+                except tk.TclError:
+                    pass
+                ocr_preview_poll["after"] = None
 
         def close_dialog() -> None:
             clear_preview(self)
@@ -22856,8 +23308,10 @@ class BossTimerApp:
         rate_menu = ttk.Combobox(dialog, textvariable=rate_var,
                                 values=tuple(str(n) for n in range(2, 11)), state="readonly", width=5)
         rate_menu.place(x=222, y=14, width=60, height=26)
-        tk.Checkbutton(dialog, text="감지영역 미리보기", variable=regions_var, command=refresh_preview,
-                       font=self.button_font, bg="#eff6ff").place(x=12, y=52)
+        tk.Checkbutton(dialog, text="스샷찍기 영역", variable=ocr_regions_var, command=toggle_ocr_preview,
+                       font=self.button_font, bg="#eff6ff", anchor="w").place(x=12, y=52, width=146)
+        tk.Checkbutton(dialog, text="초단위 찍기 영역", variable=regions_var, command=toggle_precision_preview,
+                       font=self.button_font, bg="#eff6ff", anchor="w").place(x=166, y=52, width=168)
         tk.Label(dialog, text="미리볼 챕터", font=self.button_font, bg="#eff6ff").place(x=16, y=88)
         chapter_menu = ttk.Combobox(dialog, textvariable=area_var, values=tuple(preview_slots), state="readonly")
         chapter_menu.place(x=124, y=86, width=190, height=26)
@@ -22885,8 +23339,9 @@ class BossTimerApp:
         except tk.TclError:
             pass
         rate_menu.focus_set()
-        dialog.bind("<Destroy>", lambda event: clear_preview(self) if event.widget is dialog else None)
+        dialog.bind("<Destroy>", destroy_preview_controls)
         refresh_preview()
+        sync_ocr_preview()
 
     def _ensure_schedule_input_ocr_addon_window(self) -> None:
         if self.schedule_input_ocr_addon_window is not None and self.schedule_input_ocr_addon_window.winfo_exists():
@@ -32076,6 +32531,11 @@ class BossTimerApp:
             "    [void](Play-Clip $clipPath $true 0 0)\n"
             "    continue\n"
             "  }\n"
+            "  if ($parts[0] -eq '__PLAYNOW__') {\n"
+            "    try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
+            "    [void](Play-Clip $clipPath $false 0 0)\n"
+            "    continue\n"
+            "  }\n"
             "  if ($parts[0] -eq '__PRIME__') {\n"
             "    try { $clipPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[1])) } catch { continue }\n"
             "    if ([string]::IsNullOrWhiteSpace($clipPath)) { continue }\n"
@@ -32332,6 +32792,7 @@ class BossTimerApp:
         request_id: int,
         expires_at: datetime | None,
         max_duration_ms: int | None = None,
+        wait_for_finish: bool = True,
     ) -> bool:
         valid_clip_path = str(clip_path).strip()
         if not valid_clip_path:
@@ -32349,7 +32810,7 @@ class BossTimerApp:
                 ensure_ascii=False,
             )
         else:
-            command_name = "__PLAY__"
+            command_name = "__PLAY__" if wait_for_finish else "__PLAYNOW__"
             payload_text = valid_clip_path
         payload = base64.b64encode(payload_text.encode("utf-8")).decode("ascii")
         try:
@@ -33410,11 +33871,10 @@ class BossTimerApp:
         lead_duration_ms = 0
         for clip_path in valid_clip_paths[:-1]:
             clip_duration_ms = self._get_schedule_alarm_voice_duration_ms(clip_path)
-            if isinstance(clip_duration_ms, int) and clip_duration_ms > 0:
-                transition_trim_ms = 180 if clip_duration_ms > 900 else 40
-                lead_duration_ms += max(120, clip_duration_ms - transition_trim_ms)
-            else:
-                lead_duration_ms += 900
+            if not isinstance(clip_duration_ms, int) or clip_duration_ms <= 0:
+                clip_duration_ms = 900
+            transition_trim_ms = 180 if clip_duration_ms > 900 else 40
+            lead_duration_ms += max(120, clip_duration_ms - transition_trim_ms)
         return max(0, int(lead_duration_ms))
 
     def _get_schedule_alarm_due_time_lead_ms(self, clip_paths: list[str]) -> int:
@@ -33764,6 +34224,7 @@ class BossTimerApp:
             cluster_span_seconds = max(0.0, (target_second - first_target_second).total_seconds())
             combined_near_second_group = cluster_span_seconds <= float(SCHEDULE_SECOND_PRECISION_COMBINED_SECONDS)
             timed_clip_paths: list[tuple[datetime, str]] = []
+            spawn_members: list[dict[str, object]] = []
             if combined_near_second_group:
                 _primary_item, group_summary, _additional_count, all_invasion = (
                     self._get_schedule_alarm_compact_group_context(group_items)
@@ -33792,6 +34253,8 @@ class BossTimerApp:
                         member_items,
                         suffix_info_tokens=["젠"],
                     )
+                    spawn_members.append(dict(target_time=member_target_second,
+                                              name=member_summary, clip_paths=member_clip_paths))
                     speech_clip_paths.extend(member_clip_paths)
                     if member_clip_paths:
                         member_clip_groups.append((member_target_second, member_clip_paths))
@@ -33799,9 +34262,9 @@ class BossTimerApp:
                     continue
                 group_summary = ", ".join(sequence_parts)
                 fallback_text = group_summary
-                # 녹음 파일을 사용하지 않을 때도 큰 문장 하나로 합성해 중간이
-                # 끊기지 않도록 각 "이름 젠"을 캐시된 Edge 음성으로 이어 낸다.
-                tts_segments = list(sequence_parts)
+                # 이름과 '젠'을 따로 준비해 각 보스의 젠 시각에 맞춘다.
+                # 한 문장으로 합치면 보스 사이의 실제 간격이 사라진다.
+                tts_segments = []
                 phase = "SPAWN_CONFIRMED_NEAR_SEQUENCE"
             if not group_summary:
                 continue
@@ -33886,6 +34349,7 @@ class BossTimerApp:
                 offset_sec=0,
                 clip_paths=clip_paths,
                 timed_clip_paths=timed_clip_paths,
+                spawn_members=spawn_members,
                 fallback_text=fallback_text,
                 tts_segments=tts_segments,
                 category="general",
@@ -34082,6 +34546,7 @@ class BossTimerApp:
         offset_sec: int,
         clip_paths: list[str] | None = None,
         timed_clip_paths: list[tuple[datetime, str]] | None = None,
+        spawn_members: list[dict[str, object]] | None = None,
         fallback_text: str = "",
         tts_segments: list[str] | None = None,
         append_tts_segments: bool = False,
@@ -34141,6 +34606,8 @@ class BossTimerApp:
             "offset_sec": int(offset_sec),
             "clip_paths": prepared_clip_paths,
             "timed_clip_paths": prepared_timed_clip_paths,
+            "spawn_members": [dict(member, clip_paths=list(member.get("clip_paths") or []))
+                              for member in (spawn_members or [])],
             "fallback_text": str(fallback_text or "").strip(),
             "tts_segments": prepared_tts_segments,
             "append_tts_segments": bool(append_tts_segments),
@@ -34169,7 +34636,11 @@ class BossTimerApp:
             "generation": int(getattr(self, "schedule_voice_broker_generation", 0)),
         }
         if request["fallback_text"]:
-            if prepared_tts_segments:
+            if normalized_phase == "SPAWN_CONFIRMED_NEAR_SEQUENCE":
+                for member in request["spawn_members"]:
+                    self._prefetch_edge_tts_text(str(member.get("name") or ""), rate=int(rate))
+                self._prefetch_edge_tts_text("젠", rate=int(rate))
+            elif prepared_tts_segments:
                 for segment in prepared_tts_segments:
                     self._prefetch_edge_tts_text(segment, rate=int(rate))
             elif normalized_phase == "SPAWN_CONFIRMED":
@@ -34879,6 +35350,116 @@ class BossTimerApp:
         time.sleep(sleep_seconds)
         return True
 
+    def _play_schedule_voice_broker_near_sequence(self, request: dict[str, object], clip_paths: list[str]) -> None:
+        """Use one absolute timeline on both outputs; never flatten near spawns."""
+        lane = self._normalize_schedule_voice_lane(request.get("lane"))
+
+        def cancelled() -> bool:
+            return (self.schedule_voice_broker_stop_event.is_set()
+                    or self._schedule_voice_broker_request_is_stale(request, datetime.now())
+                    or self._handover_audio_blocked())
+
+        def wait_until(when: datetime) -> bool:
+            while not cancelled():
+                remaining = (when - datetime.now()).total_seconds()
+                if remaining <= 0:
+                    return True
+                time.sleep(min(0.02, remaining))
+            return False
+
+        if cancelled():
+            return
+        members = request.get("spawn_members") or []
+        timed = list(request.get("timed_clip_paths") or [])
+        if members:
+            groups = []
+            # All names and '젠' were prefetched at submission. Bound missing
+            # cache waits for the WHOLE batch, not a fresh timeout per boss.
+            first_target = min(member["target_time"] for member in members)
+            prepare_until = min(first_target, datetime.now() + timedelta(seconds=1))
+            for member in members:
+                if cancelled():
+                    return
+                target = member["target_time"]
+                if (datetime.now() - target).total_seconds() > 3:
+                    continue
+                paths = list(member.get("clip_paths") or []) if request.get("recording_preferred", True) else []
+                if not paths:
+                    paths = []
+                    for text in (str(member.get("name") or ""), "젠"):
+                        path = self._get_edge_tts_cached_path(text, rate=int(request.get("rate") or 0))
+                        if not path:
+                            self._prefetch_edge_tts_text(text, rate=int(request.get("rate") or 0))
+                            timeout = max(0.0, (prepare_until - datetime.now()).total_seconds())
+                            if timeout:
+                                path = self._wait_for_edge_tts_audio(text, timeout=timeout, rate=int(request.get("rate") or 0))
+                        if not path:
+                            paths = []
+                            break
+                        paths.append(path)
+                if paths:
+                    groups.append((target, paths))
+                else:
+                    self._append_debug_log(f"near_spawn_audio_missing boss={member.get('name')} target={target.isoformat()}")
+            chimes = [] if request.get("suppress_chime") else [p for p in clip_paths if self._is_schedule_alarm_chime_clip_path(p)]
+            timed = self._build_discord_near_confirmed_spawn_timed_clip_paths(groups, chime_paths=chimes)
+        timed = sorted(((when, str(path)) for when, path in timed
+                       if isinstance(when, datetime) and path
+                       and not (request.get("suppress_chime") and self._is_schedule_alarm_chime_clip_path(path))),
+                       key=lambda entry: entry[0])
+        if not timed or cancelled():
+            return  # Missing audio must not fall through to an early full sentence.
+        bridge_emitted = False
+        if request.get("allow_discord_bridge", True):
+            bridge_emitted = self._append_discord_voice_bridge_request(
+                clip_paths=[], timed_clip_paths=timed, fallback_text=str(request.get("fallback_text") or ""),
+                phase="SPAWN_CONFIRMED_NEAR_SEQUENCE", category=str(request.get("category") or "general"),
+                lane=lane, volume=float(request.get("volume") or 1.0),
+                target_time=request.get("target_time"), offset_sec=0)
+        muted = self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted)
+        def duration_ms(path: str) -> int:
+            value = self._get_schedule_alarm_voice_duration_ms(path)
+            return value if isinstance(value, int) and value > 0 else 900
+
+        end_at = max(when + timedelta(milliseconds=duration_ms(path))
+                     for when, path in timed) + timedelta(milliseconds=350)
+        reserved_until = time.monotonic() + max(0.0, (end_at - datetime.now()).total_seconds())
+        self._set_schedule_voice_lane_busy_until(lane, reserved_until, protect_central=lane == "center",
+                                                 generation=request.get("generation"))
+        self._append_debug_log(f"near_spawn_timed_start clips={len(timed)} local={int(not muted)} "
+                               f"first={timed[0][0].isoformat()} end={end_at.isoformat()}")
+        max_late_ms = 0
+        try:
+            if muted:
+                wait_until(end_at)
+                return
+            if lane == "center":
+                self._load_schedule_alarm_boss_audio_paths(list(dict.fromkeys(path for _, path in timed)))
+            for play_at, path in timed:
+                if not wait_until(play_at):
+                    return
+                started = datetime.now()
+                late_ms = max(0, round((started - play_at).total_seconds() * 1000))
+                if late_ms > 3000:
+                    self._write_schedule_alarm_voice_test_log("near_spawn_expired_clip", play_at=play_at, path=path, late_ms=late_ms)
+                    continue
+                max_late_ms = max(max_late_ms, late_ms)
+                if lane == "center":
+                    played = self._play_schedule_alarm_boss_audio_file(
+                        path, request_id=self.schedule_alarm_boss_audio_request_id, expires_at=None,
+                        wait_for_finish=False)
+                else:
+                    played = self._start_schedule_alarm_audio_sequence_process(
+                        [path], volume=float(request.get("volume") or 1.0),
+                        balance=self._get_schedule_voice_lane_balance(lane)) is not None
+                self._write_schedule_alarm_voice_test_log("near_spawn_local_timed_clip", play_at=play_at,
+                    started_at=started, late_ms=late_ms, path=path, played=bool(played))
+            wait_until(end_at)
+        finally:
+            self._release_schedule_voice_lane_busy_until(lane, time.monotonic(), reserved_until=reserved_until,
+                                                         protect_central=lane == "center", generation=request.get("generation"))
+            self._append_debug_log(f"near_spawn_timed_end cancelled={int(cancelled())} max_dispatch_late_ms={max_late_ms}")
+
     def _play_schedule_voice_broker_request(self, request: dict[str, object]) -> None:
         if self._handover_audio_blocked():
             return
@@ -34977,56 +35558,9 @@ class BossTimerApp:
             # paths were filtered in _submit_schedule_voice_request; a live
             # checkbox read at this point can otherwise change a queued
             # request from recordings to TTS mid-playback.
-            near_timed_clip_paths = [
-                (play_at, str(clip_path).strip())
-                for play_at, clip_path in (request.get("timed_clip_paths") or [])
-                if isinstance(play_at, datetime) and str(clip_path).strip()
-            ]
-            if (
-                str(request.get("phase") or "") == "SPAWN_CONFIRMED_NEAR_SEQUENCE"
-                and near_timed_clip_paths
-            ):
-                bridge_emitted = self._append_discord_voice_bridge_request(
-                    clip_paths=[],
-                    timed_clip_paths=near_timed_clip_paths,
-                    fallback_text=fallback_text,
-                    phase="SPAWN_CONFIRMED_NEAR_SEQUENCE",
-                    category=str(request.get("category") or "general"),
-                    lane=lane,
-                    volume=float(request.get("volume") or 1.0),
-                    target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
-                    offset_sec=0,
-                )
-                if bridge_emitted and self._should_mute_local_schedule_audio_for_discord_bot(True):
-                    final_play_at, final_clip_path = max(near_timed_clip_paths, key=lambda entry: entry[0])
-                    final_duration_ms = self._get_schedule_alarm_voice_duration_ms(final_clip_path)
-                    if not isinstance(final_duration_ms, int) or final_duration_ms <= 0:
-                        final_duration_ms = 900
-                    remaining_hold_seconds = max(
-                        0.8,
-                        (final_play_at - datetime.now()).total_seconds()
-                        + (final_duration_ms / 1000.0)
-                        + 0.35,
-                    )
-                    reserved_busy_until = time.monotonic() + min(20.0, remaining_hold_seconds)
-                    # 디코봇은 근접 젠을 별도 타임드 작업으로 재생한다. 이
-                    # 작업이 끝나기 전에 PRE_ALERT 브리지가 들어오면 음성
-                    # 클라이언트가 교체되어 이름/젠이 잘린다. 마지막 젠까지
-                    # 중앙 큐를 예약해 다음 안내가 뒤에 오도록 한다.
-                    self._set_schedule_voice_lane_busy_until(
-                        lane,
-                        reserved_busy_until,
-                        protect_central=(lane == "center"),
-                        generation=request.get("generation"),
-                    )
-                    self._write_schedule_alarm_voice_test_log(
-                        "discord_near_confirmed_spawn_timed_local_mute",
-                        request=self._summarize_schedule_alarm_voice_request_for_log(request),
-                        timed_clip_paths=near_timed_clip_paths,
-                        reserved_busy_until=reserved_busy_until,
-                        remaining_hold_seconds=remaining_hold_seconds,
-                    )
-                    return
+            if str(request.get("phase") or "") == "SPAWN_CONFIRMED_NEAR_SEQUENCE":
+                self._play_schedule_voice_broker_near_sequence(request, clip_paths)
+                return
             if (
                 not any(not self._is_schedule_alarm_chime_clip_path(path) for path in clip_paths)
                 and self._play_schedule_voice_broker_second_precision_tts_request(request, clip_paths)
@@ -35174,22 +35708,6 @@ class BossTimerApp:
                         lane=lane,
                     )
                 elif lane == "center":
-                    if (
-                        not bridge_emitted
-                        and str(request.get("phase") or "") == "SPAWN_CONFIRMED_NEAR_SEQUENCE"
-                    ):
-                        # 디코 브리지가 없는 로컬 재생도 브리지가 예정한 시작
-                        # 시각까지 기다려, 두 출력의 근접 젠 재생 속도/위치를
-                        # 같은 타임라인으로 맞춘다.
-                        local_sync_delay = max(0.0, (bridge_start_at - datetime.now()).total_seconds())
-                        if local_sync_delay > 0:
-                            self._write_schedule_alarm_voice_test_log(
-                                "near_sequence_local_bridge_timeline_wait",
-                                request=self._summarize_schedule_alarm_voice_request_for_log(request),
-                                delay_seconds=local_sync_delay,
-                                start_at=bridge_start_at,
-                            )
-                            time.sleep(min(1.0, local_sync_delay))
                     self._wait_for_discord_timed_voice_sequence_start(
                         bridge_emitted,
                         bridge_scheduled_start_at,
@@ -40100,86 +40618,23 @@ class BossTimerApp:
         previous_started_at = str(self.current_season_started_at or "").strip()
         if not self._show_season_setup_dialog(parent=parent):
             return
+        # Season setup publishes a missing destination schedule before activation.
+        # That activation loads the new profile (or its existing schedule).
+        # Never reset it after returning from the setup dialog.
         current_season = str(self.current_season_no or "").strip()
         current_started_at = str(self.current_season_started_at or "").strip()
-        season_changed = bool(current_season) and previous_season != current_season
-        season_restarted = bool(current_season and previous_season == current_season and previous_started_at != current_started_at)
-        first_activation = bool(current_season and not previous_season)
-        schedule_transition_changed = bool(season_changed or season_restarted or first_activation)
-        schedule_counts_before = self._get_schedule_runtime_item_counts()
-        schedule_archive_path: str | None = None
-        schedule_archive_counts = {"events": 0, "active": 0, "controls": 0, "total": 0}
-        shared_schedule_archive_path: str | None = None
-        schedule_reset_applied = False
-        schedule_archive_failed = False
-        if schedule_transition_changed:
-            archive_target_season = previous_season if previous_season else current_season
-            archive_target_started_at = previous_started_at if previous_started_at else current_started_at
-            archive_reason = "season_change" if season_changed else ("season_restart" if season_restarted else "season_start")
-            if int(schedule_counts_before.get("total", 0) or 0) > 0:
-                self._backup_current_schedule_shared_export(
-                    archive_target_season,
-                    archive_target_started_at,
-                )
-                schedule_archive_path, schedule_archive_counts = self._archive_current_schedule_for_season(
-                    archive_target_season,
-                    archive_target_started_at,
-                    archive_reason=archive_reason,
-                )
-                schedule_archive_failed = schedule_archive_path is None
-                if not schedule_archive_failed:
-                    shared_schedule_archive_path = self._archive_current_schedule_shared_export(
-                        archive_target_season,
-                        archive_target_started_at,
-                        archive_reason=f"{archive_reason}_stored",
-                    )
-            if not schedule_archive_failed:
-                self._reset_schedule_for_new_season()
-                schedule_reset_applied = True
         current_label = self._get_archive_season_label(self.current_season_no)
-        if previous_season and previous_season != str(self.current_season_no):
-            if schedule_archive_failed:
-                self.schedule_status_var.set(f"{current_label} 시작. 스케쥴 보관 파일 저장에 실패해 현재 스케쥴은 유지했습니다.")
-            elif int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
-                status_text = f"{current_label} 시작. 기존 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건을 시즌 파일로 보관하고 초기화했습니다."
-                if shared_schedule_archive_path:
-                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
-                self.schedule_status_var.set(status_text)
-            elif schedule_reset_applied:
-                status_text = f"{current_label} 시작. 스케쥴을 초기화하고 이후 기록은 새 시즌으로 저장됩니다."
-                if shared_schedule_archive_path:
-                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
-                self.schedule_status_var.set(status_text)
-            else:
-                self.schedule_status_var.set(f"{current_label} 시작. 이후 기록은 새 시즌으로 저장됩니다.")
-        elif previous_season and previous_season == str(self.current_season_no) and previous_started_at != str(self.current_season_started_at or "").strip():
-            moved_count = self._archive_preseason_records_for_season(self.current_season_no, str(self.current_season_started_at or ""))
-            if schedule_archive_failed:
-                self.schedule_status_var.set(f"{current_label} 재시작. 스케쥴 보관 파일 저장에 실패해 현재 스케쥴은 유지했습니다.")
-            elif moved_count > 0 and int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
-                status_text = f"{current_label} 재시작. 시작일 이전 기록 {moved_count}건을 별도 보관했고 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건도 초기화했습니다."
-                if shared_schedule_archive_path:
-                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
-                self.schedule_status_var.set(status_text)
-            elif moved_count > 0:
-                self.schedule_status_var.set(f"{current_label} 재시작. 시작일 이전 기록 {moved_count}건을 별도 보관했습니다.")
-            elif int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
-                status_text = f"{current_label} 재시작. 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건을 시즌 파일로 보관하고 초기화했습니다."
-                if shared_schedule_archive_path:
-                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
-                self.schedule_status_var.set(status_text)
-            else:
-                self.schedule_status_var.set(f"{current_label} 재시작. 시즌 시작점이 변경되었고 스케쥴을 초기화했습니다." if schedule_reset_applied else f"{current_label} 재시작. 시즌 시작점이 변경되었습니다.")
+        if previous_season == current_season and previous_started_at != current_started_at:
+            moved_count = self._archive_preseason_records_for_season(self.current_season_no, current_started_at)
+            self.schedule_status_var.set(
+                f"{current_label} 재시작. 스케쥴은 유지하고 시즌 시작점만 변경했습니다."
+                + (f" 시작일 이전 기록 {moved_count}건을 별도 보관했습니다." if moved_count else ""))
+        elif current_season in self._get_existing_archive_season_numbers() and str(
+                getattr(self, '_last_season_setup_action', '')) == 'resume':
+            self.schedule_status_var.set(f"{current_label} 이어하기. 기존 시작일·설정·스케줄을 불러왔습니다.")
         else:
-            if schedule_archive_failed:
-                self.schedule_status_var.set(f"{current_label}이(가) 활성화되었습니다. 스케쥴 보관 파일 저장에 실패해 현재 스케쥴은 유지했습니다.")
-            elif int(schedule_archive_counts.get("total", 0) or 0) > 0 and schedule_reset_applied:
-                status_text = f"{current_label}이(가) 활성화되었습니다. 기존 스케쥴 {int(schedule_archive_counts.get('total', 0) or 0)}건을 시즌 파일로 보관하고 초기화했습니다."
-                if shared_schedule_archive_path:
-                    status_text += " 저장용 스케쥴도 별도 보관했습니다."
-                self.schedule_status_var.set(status_text)
-            else:
-                self.schedule_status_var.set(f"{current_label}이(가) 활성화되었습니다.")
+            self.schedule_status_var.set(
+                f"{current_label} 시작. 현재 스케쥴을 유지하며 이후 변경은 이 시즌에 저장됩니다.")
         self._upsert_github_server_entry_locally(self._get_current_github_upload_server_entry())
         if self._widget_available(self.log_archive_manage_frame):
             self._refresh_archive_management_view()
@@ -46467,6 +46922,10 @@ class BossTimerApp:
         runtime_assets_dir = os.path.join(get_app_root(), "assets")
         if not os.path.isdir(resource_assets_dir):
             return
+        # Source execution already uses these resources directly. An older
+        # running instance must not rewrite the repository's release marker.
+        if os.path.normcase(os.path.abspath(resource_assets_dir)) == os.path.normcase(os.path.abspath(runtime_assets_dir)):
+            return
         marker_path = os.path.join(runtime_assets_dir, ".seed_version")
         try:
             if os.path.isdir(runtime_assets_dir) and os.path.exists(marker_path):
@@ -49901,6 +50360,7 @@ class BossTimerApp:
             "precision_debug_logging": str(getattr(self, "precision_debug_logging", False)).lower(),
             "precision_auto_apply": str(getattr(self, "precision_auto_apply", False)).lower(),
             "precision_show_regions": str(getattr(self, "precision_show_regions", False)).lower(),
+            "ocr1_show_regions": str(getattr(self, "ocr1_show_regions", True)).lower(),
             "schedule_share_use_boss_colors": str(schedule_share_use_boss_colors_value),
             "schedule_share_use_fixed_boss_colors": str(schedule_share_use_fixed_boss_colors_value),
             "schedule_share_include_break_rows": str(schedule_share_include_break_rows_value),
@@ -52042,10 +52502,23 @@ class BossTimerApp:
         self._show_schedule_ocr1_region_preview()
 
     def _show_schedule_ocr1_region_preview(self) -> None:
+        if not getattr(self, "ocr1_show_regions", True):
+            return
         if not self._widget_available(self.schedule_input_window):
             return
         from schedule_ocr_region_preview import open_preview
         open_preview(self, tuple(SCHEDULE_OCR_SLOT_GRID), SCHEDULE_OCR_CURRENT_TIME_BAND)
+
+    def _set_schedule_ocr1_region_preview_enabled(self, enabled: bool) -> None:
+        from schedule_ocr_region_preview import clear
+        changed = bool(enabled) != bool(getattr(self, "ocr1_show_regions", True))
+        self.ocr1_show_regions = bool(enabled)
+        if enabled:
+            self._show_schedule_ocr1_region_preview()
+        else:
+            clear(self)
+        if changed:
+            self._save_settings()
 
     def close_schedule_input_window(self) -> None:
         from schedule_ocr_region_preview import clear
@@ -52628,6 +53101,7 @@ class BossTimerApp:
         dialog.configure(bg="#eff6ff")
         self._center_window_over_parent(dialog, parent, 560, 300)
         draft_settings = self._normalize_schedule_alarm_chime_settings(getattr(self, "schedule_alarm_chime_settings", {}))
+        editing_profile = self._get_schedule_alarm_settings_storage_path()
         path_vars: dict[str, tk.StringVar] = {
             key: tk.StringVar(value=self._format_schedule_alarm_chime_display_name(draft_settings.get(key)))
             for key, _label in SCHEDULE_ALARM_CHIME_TYPES
@@ -52681,9 +53155,16 @@ class BossTimerApp:
             self.schedule_alarm_chime_status_var.set(f"{os.path.basename(clip_path)} 미리듣기")
 
         def save_settings() -> None:
+            if self._get_schedule_alarm_settings_storage_path() != editing_profile:
+                self.schedule_alarm_chime_status_var.set("서버/시즌이 변경되었습니다. 차임벨 창을 닫고 다시 열어 주세요.")
+                return
             draft_settings["skip_countdown"] = bool(skip_countdown_var.get())
+            previous_settings = self.schedule_alarm_chime_settings
             self.schedule_alarm_chime_settings = self._normalize_schedule_alarm_chime_settings(draft_settings)
-            self._save_schedule_alarm_settings()
+            if not self._save_schedule_alarm_settings():
+                self.schedule_alarm_chime_settings = previous_settings
+                self.schedule_alarm_chime_status_var.set("차임벨을 저장하지 못했습니다. 파일 권한을 확인하고 다시 시도해 주세요.")
+                return
             self._reload_schedule_alarm_audio_hosts(preload=True)
             self.schedule_alarm_status_var.set("차임벨 설정을 저장했습니다.")
             self.schedule_alarm_chime_status_var.set("저장했습니다.")
@@ -64311,7 +64792,20 @@ class BossTimerApp:
             padx=10,
             pady=8,
         )
-        self.log_archive_detail_text.place(x=156, y=90, width=176, height=199)
+        self.log_archive_detail_text.place(x=156, y=90, width=176, height=113)
+        self.log_archive_resume_button = tk.Button(self.log_archive_manage_frame, text='선택 시즌 이어하기',
+            command=self._resume_selected_archive_management_season, font=(self.current_font_family, 9, 'bold'),
+            bg='#2563eb', fg='#ffffff', activebackground='#1d4ed8', activeforeground='#ffffff',
+            relief='solid', bd=1, cursor='hand2')
+        self.log_archive_resume_button.place(x=156, y=208, width=176, height=24)
+        for title, command, y in (
+            ("선택 시즌 기록로그 관리", self._open_selected_archive_record_logs, 236),
+            ("기록표 기간 관리", self.open_record_book_file_window, 264),
+        ):
+            tk.Button(self.log_archive_manage_frame, text=title, command=command,
+                      font=(self.current_font_family, 9, "bold"), bg="#dbeafe", fg="#1d4ed8",
+                      activebackground="#bfdbfe", relief="solid", bd=1, cursor="hand2"
+                      ).place(x=156, y=y, width=176, height=24)
         self.log_archive_detail_open_button = tk.Button(
             self.log_archive_manage_frame,
             text="열기",
@@ -64683,7 +65177,12 @@ class BossTimerApp:
                 continue
 
     def _get_log_history_folder_path(self) -> str:
+        from archive_storage import relocate_legacy_log_path
         folder_path = (self.log_history_folder_path_var.get() or "").strip()
+        relocated = relocate_legacy_log_path(folder_path, get_app_root(), get_user_config_dir())
+        if relocated != folder_path:
+            folder_path = relocated
+            self.log_history_folder_path_var.set(folder_path)
         if not folder_path:
             folder_path = self._get_logs_dir(create=False)
             self.log_history_folder_path_var.set(folder_path)
@@ -65087,6 +65586,7 @@ class BossTimerApp:
         return
 
     def _get_archive_management_all_entries(self) -> list[dict[str, str]]:
+        from archive_storage import season_directory
         archive_dir = self._get_log_archive_dir()
         entries: list[dict[str, str]] = []
         try:
@@ -65096,7 +65596,10 @@ class BossTimerApp:
         current_season_text = re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip())
         for season_name in season_names:
             season_no_text = self._get_archive_entry_season_no_from_label(season_name)
-            season_root = os.path.join(archive_dir, season_name)
+            try:
+                season_root = season_directory(archive_dir, season_name)
+            except ValueError:
+                continue
             json_paths: list[str] = []
             month_names: set[str] = set()
             for current_root, _dirs, files in os.walk(season_root):
@@ -65114,7 +65617,10 @@ class BossTimerApp:
                 except OSError:
                     continue
                 total_record_count += len(self._read_log_records_from_path(file_path))
-            season_history = dict(self.season_history_map.get(season_no_text) or {})
+            try:
+                season_history = self._get_stored_season_entry(season_no_text) if season_no_text else {}
+            except (OSError, ValueError):
+                season_history = dict(self.season_history_map.get(season_no_text) or {})
             started_at_text = str(season_history.get("started_at") or "").strip()
             ended_at_text = str(season_history.get("ended_at") or "").strip()
             server_name_text = str(season_history.get("server_name") or "").strip()
@@ -65125,6 +65631,7 @@ class BossTimerApp:
                 {
                     "season_label": season_name,
                     "folder_name": season_name,
+                    "folder_path": season_root,
                     "season_no_text": season_no_text,
                     "server_name": server_name_text,
                     "guild_name": guild_name_text,
@@ -65144,6 +65651,45 @@ class BossTimerApp:
                     ),
                 }
             )
+        # Include settings-only seasons and old start metadata even when no
+        # record has ever been written. One row represents one numbered season.
+        grouped = {}
+        unnumbered = []
+        for row in entries:
+            number = row['season_no_text']
+            if not number:
+                unnumbered.append(row)
+                continue
+            if number not in grouped:
+                row['archive_labels'] = json.dumps([row['folder_name']], ensure_ascii=False)
+                grouped[number] = row
+            else:
+                first = grouped[number]
+                first['archive_labels'] = json.dumps(json.loads(first['archive_labels']) + [row['folder_name']], ensure_ascii=False)
+                for key in ('file_count', 'record_count', 'month_count'):
+                    first[key] = str(int(first[key]) + int(row[key]))
+        for number in self._get_existing_archive_season_numbers():
+            try:
+                stored = self._get_stored_season_entry(number)
+            except (OSError, ValueError):
+                stored = dict(self.season_history_map.get(number) or {})
+            profile_dir = os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME, f'season_{number}')
+            if number not in grouped:
+                label = self._build_archive_season_label_with_context(
+                    stored.get('archive_label') or f'{number}차 시즌',
+                    server_name=stored.get('server_name'), guild_name=stored.get('guild_name'))
+                grouped[number] = dict(season_label=label, folder_name=label,
+                    folder_path=os.path.join(archive_dir, label), season_no_text=number,
+                    server_name=str(stored.get('server_name') or ''), guild_name=str(stored.get('guild_name') or ''),
+                    started_at=str(stored.get('started_at') or ''), ended_at=str(stored.get('ended_at') or ''),
+                    file_count='0', record_count='0', month_count='0', latest_text='--',
+                    is_current=str(number == current_season_text), is_cleanup_target='False', archive_labels='[]')
+            grouped[number]['profile_path'] = profile_dir
+            grouped[number]['storage_state'] = ('기록·설정 폴더' if os.path.isdir(grouped[number]['folder_path'])
+                and os.path.isdir(profile_dir) else '설정 폴더만 존재' if os.path.isdir(profile_dir)
+                else '기록 폴더만 존재' if os.path.isdir(grouped[number]['folder_path']) else '시즌 이력만 존재')
+            grouped[number]['can_resume'] = str(bool(self._normalize_season_started_at_text(stored.get('started_at'))))
+        entries = list(grouped.values()) + unnumbered
         def sort_key(entry: dict[str, str]) -> tuple[int, int, str]:
             season_no_text = entry.get("season_no_text", "")
             if season_no_text.isdigit():
@@ -65186,7 +65732,7 @@ class BossTimerApp:
         status_text = "진행중" if entry.get("is_current") == "True" and not ended_at else ("종료됨" if ended_at else "기록만 존재")
         detail_lines = [
             f"시즌: {entry.get('season_label', '-')}",
-            f"폴더: {entry.get('folder_name', '-')}",
+            f"저장 경로: {entry.get('folder_path', entry.get('folder_name', '-'))}",
             f"상태: {status_text}",
             f"서버: {str(entry.get('server_name') or '-').strip() or '-'}",
             f"길드: {str(entry.get('guild_name') or '-').strip() or '-'}",
@@ -65197,6 +65743,9 @@ class BossTimerApp:
             f"기록 수: {entry.get('record_count', '0')}건",
             f"최근 기록: {entry.get('latest_text', '--')}",
         ]
+        if entry.get('profile_path'):
+            detail_lines.append(f"스케줄·설정: {entry['profile_path']}")
+            detail_lines.append(f"자료 상태: {entry.get('storage_state', '-')}")
         if entry.get("is_cleanup_target") == "True":
             detail_lines.append("정리대상: 현재 파일 유지 기준에서 벗어난 시즌입니다.")
         return "\n".join(detail_lines)
@@ -65207,6 +65756,37 @@ class BossTimerApp:
             self.log_archive_status_var.set("선택된 시즌이 없습니다.")
             return
         self._open_archive_management_season_folder(season_label)
+
+    def _resume_selected_archive_management_season(self) -> None:
+        entry = self._get_log_archive_selected_entry(self._collect_archive_management_entries())
+        if not entry or not str(entry.get('season_no_text') or '').isdigit():
+            self.log_archive_status_var.set('이어서 사용할 시즌을 선택하세요.')
+            return
+        try:
+            if self._resume_stored_season(entry['season_no_text'], parent=self.log_panel):
+                self.log_archive_status_var.set(f"{entry['season_label']}을 이어서 사용합니다.")
+            else:
+                self.log_archive_status_var.set('시즌 이어하기를 취소했습니다.')
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.log_archive_status_var.set(str(exc))
+            self._show_centered_messagebox('showerror', '시즌 이어하기', str(exc), parent=self.log_panel)
+
+    def _open_selected_archive_record_logs(self) -> None:
+        from archive_storage import season_directory
+        entry = self._get_log_archive_selected_entry(self._collect_archive_management_entries())
+        if not entry:
+            self.log_archive_status_var.set("관리할 시즌을 먼저 선택해 주세요.")
+            return
+        try:
+            folder = season_directory(self._get_log_archive_dir(), entry.get("folder_name") or entry["season_label"])
+        except (ValueError, KeyError):
+            self.log_archive_status_var.set("보관 폴더 경로가 올바르지 않습니다.")
+            return
+        if not os.path.isdir(folder):
+            self.log_archive_status_var.set("선택한 시즌 폴더를 찾을 수 없습니다.")
+            return
+        self.switch_record_subview("history", folder_path=folder)
+        self.log_status_var.set(f"{entry['season_label']} 기록로그 · 기록을 선택해 수정/삭제할 수 있습니다.")
 
     def _rename_selected_archive_management_season(self) -> None:
         entries = self._collect_archive_management_entries()
@@ -65219,7 +65799,11 @@ class BossTimerApp:
             self.log_archive_status_var.set("선택된 시즌 이름을 찾지 못했습니다.")
             return
         season_no_text = str(selected_entry.get("season_no_text") or "").strip()
-        season_entry = dict(self.season_history_map.get(season_no_text) or {"season_no": season_no_text})
+        try:
+            season_entry = self._get_stored_season_entry(season_no_text) if season_no_text else {}
+        except (OSError, ValueError) as exc:
+            self._show_centered_messagebox('showerror', '시즌 정보', str(exc), parent=self.log_panel)
+            return
         current_server = str(selected_entry.get("server_name") or season_entry.get("server_name") or "").strip()
         current_guild = str(selected_entry.get("guild_name") or season_entry.get("guild_name") or "").strip()
         current_started_at = str(selected_entry.get("started_at") or season_entry.get("started_at") or "").strip()
@@ -65333,20 +65917,27 @@ class BossTimerApp:
             if re.search(r'[<>:\"/\\\\|?*]', new_label):
                 status_var.set("Windows 폴더 이름에 사용할 수 없는 문자가 포함되어 있습니다.")
                 return
+            new_number = self._get_archive_entry_season_no_from_label(new_label)
+            if season_no_text and new_number and new_number != season_no_text:
+                status_var.set('시즌 번호는 이름 수정으로 변경할 수 없습니다. 시즌 시작/이어하기를 사용하세요.')
+                return
             old_github_entry = self._build_github_server_entry_from_metadata(current_server, current_guild)
             new_github_entry = self._build_github_server_entry_from_metadata(server_text, guild_text)
             old_dir = os.path.join(self._get_log_archive_dir(), current_label)
             new_dir = os.path.join(self._get_log_archive_dir(), new_label)
             if new_label != current_label:
-                if not os.path.isdir(old_dir):
-                    status_var.set("원본 시즌 폴더를 찾지 못했습니다.")
-                    return
                 if os.path.exists(new_dir):
                     status_var.set("같은 이름의 시즌 폴더가 이미 있습니다.")
                     return
                 try:
-                    os.rename(old_dir, new_dir)
-                except OSError:
+                    from archive_storage import season_directory
+                    old_dir = season_directory(self._get_log_archive_dir(), current_label)
+                    new_dir = season_directory(self._get_log_archive_dir(), new_label)
+                    if os.path.isdir(old_dir):
+                        os.rename(old_dir, new_dir)
+                    else:
+                        os.makedirs(new_dir, exist_ok=True)
+                except (OSError, ValueError):
                     status_var.set("시즌 폴더 이름을 변경하지 못했습니다.")
                     return
             if season_no_text:
@@ -65361,6 +65952,11 @@ class BossTimerApp:
                 season_entry["guild_name"] = guild_text
                 season_entry["started_at"] = str(started_at_text or "").strip()
                 self.season_history_map[season_no_text] = season_entry
+                try:
+                    self._ensure_season_storage(season_entry, server_id=season_entry.get('last_server_id', ''))
+                except (OSError, ValueError) as exc:
+                    status_var.set(str(exc))
+                    return
                 self._save_season_history()
                 if season_no_text == re.sub(r"[^0-9]", "", str(self.current_season_no or "").strip()):
                     self.current_season_started_at = str(started_at_text or "").strip()
@@ -65461,10 +66057,10 @@ class BossTimerApp:
         dialog.resizable(False, False)
         dialog.configure(bg="#fff1f2")
         self._center_window_over_parent(dialog, host, 420, 228)
-        tk.Label(dialog, text="과거 시즌 완전 삭제", font=self.header_font, bg="#fecdd3", fg="#881337").place(x=0, y=0, width=420, height=40)
+        tk.Label(dialog, text="과거 시즌 전체 삭제", font=self.header_font, bg="#fecdd3", fg="#881337").place(x=0, y=0, width=420, height=40)
         tk.Label(
             dialog,
-            text="폴더와 시즌 메타데이터가 함께 삭제됩니다.\n삭제하려면 아래에 시즌명을 정확히 입력하세요.",
+            text="이 시즌의 모든 서버 설정·스케줄·보관 기록·이력을 삭제합니다.\n삭제하려면 아래에 시즌명을 정확히 입력하세요.",
             font=(self.current_font_family, 9, "bold"),
             bg="#fff1f2",
             fg="#881337",
@@ -65499,19 +66095,54 @@ class BossTimerApp:
             if str(confirm_var.get() or "").strip() != current_label:
                 status_var.set("시즌명이 일치하지 않습니다.")
                 return
-            season_dir = os.path.join(self._get_log_archive_dir(), current_label)
             try:
-                if os.path.isdir(season_dir):
-                    shutil.rmtree(season_dir)
-            except OSError:
-                status_var.set("시즌 폴더를 삭제하지 못했습니다.")
+                from archive_storage import season_directory
+                season_no_text = str(selected_entry.get('season_no_text') or '').strip()
+                # Recheck after confirmation: the active season may have changed.
+                if (season_no_text == str(self.current_season_no)
+                        or (season_no_text and self._get_active_schedule_server_profile_season_key() == f'season_{season_no_text}')):
+                    status_var.set("현재 시즌은 삭제할 수 없습니다.")
+                    return
+                if season_no_text:
+                    from season_storage import delete_season_directories
+                    labels = json.loads(selected_entry.get('archive_labels') or '[]')
+                    labels = list(dict.fromkeys([*labels, current_label, self._get_archive_season_label(season_no_text)]))
+                    delete_season_directories(get_user_config_dir(), season_no_text, labels,
+                                              active_season=self.current_season_no)
+                else:
+                    season_dir = season_directory(self._get_log_archive_dir(), current_label)
+                    if os.path.isdir(season_dir):
+                        from season_storage import remove_season_directory
+                        remove_season_directory(season_dir, get_user_config_dir())
+            except PermissionError as exc:
+                status_var.set("접근 거부로 삭제를 중단했습니다. 안내창을 확인하세요.")
+                self._append_debug_log(f"season_delete_permission_denied season={current_label!r} error={exc}")
+                failed_path = str(getattr(exc, 'filename', '') or '선택한 시즌 폴더')
+                self._show_centered_messagebox(
+                    "showerror",
+                    title="시즌 삭제 접근 거부",
+                    message=(f"다음 경로에 접근할 수 없어 삭제를 중단했습니다.\n\n{failed_path}\n\n"
+                          "폴더 권한이 제한되었거나 다른 프로그램에서 사용 중입니다.\n"
+                          "다른 BossTimer를 종료하고, 이 프로그램을 관리자 권한으로\n"
+                          "다시 실행한 뒤 같은 시즌을 삭제해 주세요.\n"
+                          "파일을 사용하는 다른 프로그램이 있으면 함께 종료해 주세요.\n\n"
+                          "시즌 이력은 유지됩니다."),
+                    parent=dialog)
                 return
-            season_no_text = str(selected_entry.get("season_no_text") or "").strip()
+            except (OSError, ValueError) as exc:
+                status_var.set(f"시즌 삭제 중단: {exc}")
+                return
             if season_no_text:
-                self.season_history_map.pop(season_no_text, None)
-                self._save_season_history()
+                original_history = self.season_history_map.pop(season_no_text, None)
+                try:
+                    self._save_season_history(raise_on_error=True)
+                except OSError:
+                    if original_history is not None:
+                        self.season_history_map[season_no_text] = original_history
+                    status_var.set('폴더는 삭제했지만 시즌 이력을 저장하지 못했습니다. 다시 삭제를 실행하세요.')
+                    return
             self.log_archive_selected_season_var.set("")
-            self.log_archive_status_var.set(f"보관 시즌 '{current_label}'을 삭제했습니다.")
+            self.log_archive_status_var.set(f"시즌 '{current_label}'의 설정·스케줄·보관 기록·이력을 삭제했습니다.")
             self._refresh_archive_management_view()
             close_dialog()
 
@@ -65542,6 +66173,10 @@ class BossTimerApp:
         if self._widget_available(self.log_archive_delete_button):
             can_delete = bool(selected_entry and str(selected_entry.get("is_current") or "") != "True")
             self.log_archive_delete_button.config(state="normal" if can_delete else "disabled")
+        if self._widget_available(getattr(self, 'log_archive_resume_button', None)):
+            can_resume = bool(selected_entry and selected_entry.get('is_current') != 'True'
+                              and selected_entry.get('can_resume') == 'True')
+            self.log_archive_resume_button.config(state='normal' if can_resume else 'disabled')
         if not entries:
             self._set_log_archive_detail_text("표시할 시즌이 없습니다.")
             label = tk.Label(
@@ -65584,16 +66219,31 @@ class BossTimerApp:
             self.log_archive_rows_canvas.yview_moveto(0.0)
 
     def _open_archive_management_season_folder(self, season_label: str) -> None:
-        season_dir = os.path.join(self._get_log_archive_dir(), season_label)
-        if not os.path.isdir(season_dir):
-            self.log_archive_status_var.set("선택한 시즌 폴더를 찾을 수 없습니다.")
+        from archive_storage import season_directory
+        try:
+            season_dir = season_directory(self._get_log_archive_dir(), season_label)
+        except ValueError:
+            self.log_archive_status_var.set("보관 폴더 경로가 올바르지 않습니다.")
             return
+        if not os.path.isdir(season_dir):
+            number = self._get_archive_entry_season_no_from_label(season_label)
+            if number:
+                from season_storage import profile_season_directory
+                try:
+                    season_dir = str(profile_season_directory(get_user_config_dir(), number))
+                except ValueError as exc:
+                    self.log_archive_status_var.set(str(exc))
+                    return
+            if not os.path.isdir(season_dir):
+                self.log_archive_status_var.set('시즌 이력만 남아 있습니다. 시즌 정보 수정 또는 삭제로 관리할 수 있습니다.')
+                return
         try:
             os.startfile(season_dir)
         except OSError:
             self.log_archive_status_var.set("시즌 폴더를 열 수 없습니다.")
 
     def run_archive_management_cleanup(self) -> None:
+        from archive_storage import season_directory
         if not self._has_active_season():
             self.log_archive_status_var.set("먼저 시즌을 시작해야 보관 정리를 실행할 수 있습니다.")
             return
@@ -65607,10 +66257,14 @@ class BossTimerApp:
             full_path = os.path.join(archive_dir, name)
             if not os.path.isdir(full_path):
                 continue
-            match = re.fullmatch(r"(\d+)차 시즌", name)
-            if not match:
+            season_no = self._get_archive_entry_season_no_from_label(name)
+            if not season_no.isdigit():
                 continue
-            if int(match.group(1)) < threshold:
+            if int(season_no) < threshold:
+                try:
+                    full_path = season_directory(archive_dir, name)
+                except ValueError:
+                    continue
                 removable_dirs.append(full_path)
                 removable_labels.append(name)
         if not removable_dirs:
@@ -65627,9 +66281,12 @@ class BossTimerApp:
         removed_count = 0
         for directory in removable_dirs:
             try:
+                directory = season_directory(archive_dir, os.path.basename(directory))
+                if self._get_archive_entry_season_no_from_label(os.path.basename(directory)) == str(self.current_season_no):
+                    continue
                 shutil.rmtree(directory)
                 removed_count += 1
-            except OSError:
+            except (OSError, ValueError):
                 continue
         self.log_archive_status_var.set(f"보관 시즌 폴더 {removed_count}개를 정리했습니다.")
         self._refresh_archive_management_view()
@@ -66342,7 +66999,7 @@ class BossTimerApp:
             self.record_subtab_indicator.place_configure(x=LOG_RECORD_SUBTAB_INDICATOR_CANDIDATE[0], width=LOG_RECORD_SUBTAB_INDICATOR_CANDIDATE[2])
             self.record_section_divider.config(bg="#f59e0b")
 
-    def switch_record_subview(self, mode: str) -> None:
+    def switch_record_subview(self, mode: str, *, folder_path: str | None = None) -> None:
         try:
             previous_mode = self.log_record_subview_var.get()
             if mode == "archive" and previous_mode != "archive":
@@ -66379,7 +67036,7 @@ class BossTimerApp:
                         activebackground="#bfdbfe",
                         activeforeground="#1d4ed8",
                     )
-                    self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
+                    self.log_history_folder_path_var.set(folder_path or self._get_logs_dir(create=False))
                     if previous_mode == "archive" and not self._sanitize_boss_name(self.log_boss_name_var.get()) and self.log_non_archive_boss_name:
                         self.log_boss_name_var.set(self.log_non_archive_boss_name)
                     self.show_log_file_list()

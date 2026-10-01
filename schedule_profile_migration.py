@@ -1,10 +1,48 @@
-"""Carry settings, not schedules, across seasons for the same server."""
+"""Settings-only profile migration plus opt-in, explicit new-season schedule copy."""
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import tempfile
+from copy import deepcopy
+
+
+def seed_schedule_snapshot(target, snapshot, *, source_season, target_season, entry, allow_empty=False):
+    """Explicit new-season copy only; normal server switches never call this.
+
+    snapshot is already encoded with the application's datetime serializer.
+    Publish without replacement, including a concurrent writer's empty schedule.
+    """
+    from runtime_storage import copy_missing
+    target = Path(target)
+    if target.exists() or source_season == target_season:
+        return False
+    if not isinstance(snapshot, dict):
+        raise ValueError("이전 시즌 스케쥴 형식을 확인할 수 없습니다.")
+    for key in ('schedule_events', 'schedule_active_entries', 'schedule_control_events'):
+        if not isinstance(snapshot.get(key, []), list):
+            raise ValueError("이전 시즌 스케쥴 목록 형식을 확인할 수 없습니다.")
+    if not allow_empty and not any(snapshot.get(key) for key in ('schedule_events', 'schedule_active_entries', 'schedule_control_events')):
+        return False
+    payload = deepcopy(snapshot)
+    old_meta = payload.get('schedule_last_import_meta') or {}
+    meta = {key: old_meta[key] for key in (
+        'start_datetime', 'reference_datetime', 'imported_at', 'generated_until',
+        'scheduled_count', 'active_count', 'control_count') if isinstance(old_meta, dict) and key in old_meta}
+    meta.update(source_type='season_copy', copied_from_season=source_season,
+                season_no=str(target_season).removeprefix('season_'), github_server_id=str(entry['id']),
+                server_name=str(entry.get('name') or entry['id']),
+                source_name='이전 시즌 스케쥴 복사', source_path=str(entry.get('schedule') or ''))
+    payload['schedule_last_import_meta'] = meta
+    # Old undo snapshots must not restore another season's metadata.
+    payload['schedule_tree_quick_cut_history'] = []
+    payload['schedule_active_quick_cut_history'] = []
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.season-schedule-', dir=target.parent) as temporary:
+        staged = Path(temporary) / 'schedule.json'
+        staged.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+        return copy_missing(staged, target)
 
 
 SETTINGS_FILES = (
@@ -161,6 +199,12 @@ def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=N
         if candidate.parent.name == preferred_season_key:
             source = candidate
             break
+    # Explicit season setup can move to a lower, unused number. The currently
+    # active same-server profile still owns the settings, even in that case.
+    if preferred_season_key and re.fullmatch(r"season_(?:\d+|unset)", preferred_season_key):
+        preferred = root / preferred_season_key / server_id
+        if preferred != target and preferred.is_dir():
+            source = preferred
     legacy = source is None and not has_season_profile
     if legacy:
         source = root / server_id

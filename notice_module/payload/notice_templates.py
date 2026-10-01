@@ -87,7 +87,7 @@ for key, name in (
           if key == 'dawn' else '분/초 확정 스케줄에서 자동 등록 · 기존 참여 독려와 합계 하루 2회'),
          ('알림제목', '시작시간', '보스목록'))
 EXAMPLES['보스목록'] = '내일 새벽 2시 30분 최하층 강글'
-EXAMPLES['참여안내'] = '오늘 저녁 22시 공성전 외 주요보스들이 있습니다. 많은 참여 부탁드립니다.'
+EXAMPLES['참여안내'] = '오늘 저녁 22시 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.'
 
 
 def migrate_participation_templates(state):
@@ -146,36 +146,59 @@ def migrate_date_templates(state):
         state['generation'] += 1
 
 
-def _spoken_boss_entries(source, now=None):
-    """Morning groups span less than an hour from their earliest boss."""
+def _boss_speech_group(source):
     from .notice_management import parse_time
     ordered = sorted(source, key=lambda entry: parse_time(entry['at']))
-    groups = []
-    for entry in ordered:
-        when = parse_time(entry['at'])
-        if (groups and entry.get('period') == '아침'
-                and groups[-1][0].get('period') == '아침'
-                and when.date() == parse_time(groups[-1][0]['at']).date()
-                and when - parse_time(groups[-1][0]['at']) < timedelta(hours=1)):
-            groups[-1].append(entry)
-        else:
-            groups.append([entry])
-    spoken = []
-    for group in groups:
-        first = group[0]
-        when = parse_time(first['at'])
-        split = date_time_values({'시작시간': when.strftime('%m월 %d일 %H시 %M분'),
-                                  '_start_date': when.date().isoformat()}, now)
-        names = list(dict.fromkeys(entry['name'] for entry in group))
-        name_text = ', '.join(names) if len(names) <= 2 else f'{names[0]} 외 {len(names) - 1}개'
-        spoken.append(' '.join(part for part in (split['시작날짜'], first.get('period', ''),
-                                                  split['시작시간'], name_text) if part))
-    return ', '.join(spoken)
+    if not ordered:
+        return []
+    start = parse_time(ordered[0]['at'])
+    return [entry for entry in ordered if parse_time(entry['at']) - start < timedelta(minutes=30)]
+
+
+def _boss_group_names(group):
+    names = list(dict.fromkeys(entry['name'] for entry in group))
+    return ', '.join(names) if len(names) <= 2 else f'{names[0]} 외 {len(names) - 1}개'
+
+
+def _spoken_boss_entries(source, now=None):
+    """Speak one time for the first, non-chaining 30-minute window only.
+
+    Keep the full input untouched: this is a speech projection, not a change
+    to the schedule or the registered event's supporting data.
+    """
+    from .notice_management import parse_time
+    group = _boss_speech_group(source)
+    if not group:
+        return ''
+    first = group[0]
+    when = parse_time(first['at'])
+    split = date_time_values({'시작시간': when.strftime('%m월 %d일 %H시 %M분'),
+                              '_start_date': when.date().isoformat()}, now)
+    name_text = _boss_group_names(group)
+    return ' '.join(part for part in (split['시작날짜'], first.get('period', ''),
+                                      split['시작시간'], name_text) if part)
+
+
+def spoken_title_dates(title):
+    """Expand numeric dates for speech only; do not rewrite the stored title."""
+    pattern = r'(?<![\d/])(?:(\d{4}|\d{2})/)?(\d{1,2})/(\d{1,2})(?![\d/])(?:\s*\(([월화수목금토일])(?:요일)?\))?'
+    def expand(match):
+        year, month, day, weekday = match.groups()
+        try:
+            date(int(year) if year and len(year) == 4 else 2000 + int(year) if year else 2000,
+                 int(month), int(day))
+        except ValueError:
+            return match.group(0)
+        return ((f'{int(year)}년 ' if year else '') + f'{int(month)}월 {int(day)}일'
+                + (f' {weekday}요일' if weekday else ''))
+    return re.sub(pattern, expand, title)
 
 
 def date_time_values(values, now=None):
     """Derive speech fields; original absolute dates remain untouched in storage."""
     result = dict(values)
+    if isinstance(result.get('공지제목'), str):
+        result['공지제목'] = spoken_title_dates(result['공지제목'])
     pattern = r'(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일\s+(\d{1,2})시(?:\s*(\d{1,2})분)?'
     for label, source in (('시작', 'start'), ('종료', 'end')):
         raw = values.get(label + '일시') or values.get(label + '시간', '')
@@ -202,13 +225,20 @@ def date_time_values(values, now=None):
         result[label + '일시'] = ' '.join(part for part in (day_text, clock_text) if part)
     if values.get('_boss_entries'):
         result['보스목록'] = _spoken_boss_entries(values['_boss_entries'], now)
+        # Older saved templates use {시작시간} + {알림제목} instead of
+        # {보스목록}/{참여안내}. Apply the same window without replacing the
+        # user's wording, stored title or full supporting schedule.
+        result['알림제목'] = _boss_group_names(_boss_speech_group(values['_boss_entries']))
     elif not result.get('보스목록') and result.get('알림제목') and result.get('시작일시'):
         result['보스목록'] = result['시작일시'] + ' ' + result['알림제목']
     if values.get('_participation_name'):
         period = '' if values.get('_midnight') else '저녁 '
-        result['참여안내'] = (values.get('_manual_participation') or
-            f"{result['시작날짜']} {period}{result['시작시간']} {values['_participation_name']} 있습니다. 많은 참여 부탁드립니다.")
-        result['보스목록'] = f"{result['시작날짜']} {period}{result['시작시간']} {result.get('알림제목', '')}"
+        if values.get('_boss_entries'):
+            automatic = result['보스목록'] + ' 일정이 있습니다. 많은 참여 부탁드립니다.'
+        else:
+            automatic = f"{result['시작날짜']} {period}{result['시작시간']} {values['_participation_name']} 있습니다. 많은 참여 부탁드립니다."
+            result['보스목록'] = f"{result['시작날짜']} {period}{result['시작시간']} {result.get('알림제목', '')}"
+        result['참여안내'] = values.get('_manual_participation') or automatic
     elif not result.get('참여안내') and result.get('보스목록'):
         result['참여안내'] = result['보스목록'] + ' 일정이 있습니다. 많은 참여 부탁드립니다.'
     return result

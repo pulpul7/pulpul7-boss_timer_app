@@ -8,7 +8,10 @@ from precision_capture_widgets import CaptureProgress
 
 class DialogTests(unittest.TestCase):
     def setUp(self):
-        self.root=tk.Tk()
+        try:
+            self.root=tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f'Tk 초기화 사용 불가: {exc}')
         self.root.geometry('700x500+100+100')
         self.root.update()
         self.app=object.__new__(BossTimerApp)

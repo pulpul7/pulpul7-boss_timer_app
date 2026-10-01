@@ -12,6 +12,96 @@ import boss_timer_gui as gui
 
 
 class ScheduleServerProfileSwitchTests(unittest.TestCase):
+    def test_new_season_preflight_rejects_unreadable_existing_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / 'server_profiles/season_19/9/init/schedule_boss_definitions.txt'
+            target.parent.mkdir(parents=True)
+            target.write_text('preserve boss data')
+            app = Mock()
+            app.schedule_server_profile_id = '9'
+            app._build_github_server_entry_from_metadata.return_value = {'id': '오9'}
+            app._normalize_schedule_server_profile_id.side_effect = gui.BossTimerApp._normalize_schedule_server_profile_id
+            app._normalize_schedule_server_profile_season_key.return_value = 'season_19'
+            app._get_active_schedule_server_profile_season_key.return_value = 'season_18'
+            original_open = Path.open
+            def denied(path, *args, **kwargs):
+                if path == target:
+                    raise PermissionError(13, 'Permission denied', str(path))
+                return original_open(path, *args, **kwargs)
+            with patch.object(gui, 'get_user_config_dir', return_value=str(root)), \
+                 patch('schedule_profile_migration.seed_profile') as seed, \
+                 patch('schedule_profile_migration.ensure_profile_defaults'), \
+                 patch.object(Path, 'open', denied):
+                with self.assertRaises(PermissionError):
+                    gui.BossTimerApp._prepare_schedule_profile_for_new_season(app, '19', '오9', 'guild')
+                seed.assert_called_once_with(root / 'server_profiles', 'season_19', '9', preferred_season_key='season_18')
+            self.assertEqual(target.read_text(), 'preserve boss data')
+            app._save_settings.assert_not_called()
+            app._stop_discord_bot_runtime_core.assert_not_called()
+
+    def test_new_season_carries_discord_only_and_preserves_existing_target(self):
+        for target_server, existing, active in (("9", False, False), ("7", False, True), ("9", True, True)):
+            with self.subTest(server=target_server, existing=existing, active=active), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / 'season_18/9/discord_bot.ini'
+                target = root / f'season_19/{target_server}/discord_bot.ini'
+                source.parent.mkdir(parents=True)
+                target.parent.mkdir(parents=True)  # Already visited/initialized profile.
+                original = '[discord_bot]\nbot_token=fake-unit-token\napplication_id=123\n'
+                source.write_text(original, encoding='utf-8')
+                (source.parent / 'schedule_state.json').write_text('old schedule')
+                (source.parent / 'discord_bot.ini.connection.json').write_text('old lease')
+                if existing:
+                    target.write_text('existing target credentials', encoding='utf-8')
+                app = Mock()
+                app.schedule_server_profile_id = '9'
+                app.schedule_server_profile_name = '오9'
+                app._normalize_schedule_server_profile_id.side_effect = gui.BossTimerApp._normalize_schedule_server_profile_id
+                app._get_current_github_upload_server_entry.return_value = {'id': f'오{target_server}', 'name': f'오{target_server}'}
+                app._get_current_schedule_server_profile_season_key.return_value = 'season_19'
+                app._get_active_schedule_server_profile_season_key.return_value = 'season_18'
+                app._get_discord_bot_config_storage_path.return_value = str(source)
+                def activate(*args):
+                    app._get_discord_bot_config_storage_path.return_value = str(target)
+                    return True
+                app._activate_schedule_server_profile.side_effect = activate
+                app.discord_bot_expected_running = active
+                app.discord_handover_busy = False
+                app.discord_bot_last_status_payload = {}
+                app._is_discord_bot_process_alive.return_value = False
+                app._stop_discord_bot_runtime_core.return_value = True
+                app._get_discord_bot_settings_validation_error.return_value = ''
+                app._load_discord_bot_settings.return_value = {'bot_token': 'fake-unit-token'}
+                self.assertTrue(gui.BossTimerApp._activate_current_server_profile_for_new_season(app))
+                self.assertEqual(target.read_text(encoding='utf-8'), 'existing target credentials' if existing else original)
+                self.assertEqual(source.read_text(encoding='utf-8'), original)
+                self.assertFalse((target.parent / 'schedule_state.json').exists())
+                self.assertFalse((target.parent / 'discord_bot.ini.connection.json').exists())
+                if existing:
+                    app._apply_discord_bot_settings_to_runtime.assert_not_called()
+                else:
+                    app._apply_discord_bot_settings_to_runtime.assert_called_once_with({'bot_token': 'fake-unit-token'})
+                if active:
+                    app.root.after.assert_called_once()
+                    self.assertEqual(app.root.after.call_args.args[0], 3000)
+                    self.assertFalse(app.discord_bot_expected_running)
+                    callback = app.root.after.call_args.args[1]
+                    callback()
+                    app._start_discord_bot_runtime.assert_called_once()
+                    app._start_discord_bot_runtime.reset_mock()
+                    app.discord_handover_busy = True
+                    callback()
+                    app._start_discord_bot_runtime.assert_not_called()
+                    app.discord_handover_busy = False
+                    app._get_discord_bot_config_storage_path.return_value = 'another-season.ini'
+                    callback()
+                    app._start_discord_bot_runtime.assert_not_called()
+                    app.discord_handover.release_after_stop.assert_called_once()
+                else:
+                    app.root.after.assert_not_called()
+                    app.discord_handover.release_after_stop.assert_not_called()
+
     def test_new_season_uses_explicit_setup_server_instead_of_old_dropdown(self):
         app = Mock()
         app.schedule_server_profile_id = "9"
@@ -23,6 +113,7 @@ class ScheduleServerProfileSwitchTests(unittest.TestCase):
         app.discord_bot_expected_running = False
         app.discord_bot_last_status_payload = {}
         app._is_discord_bot_process_alive.return_value = False
+        app._get_discord_bot_config_storage_path.return_value = 'missing-unit-discord.ini'
         app._activate_schedule_server_profile.return_value = True
         self.assertTrue(gui.BossTimerApp._activate_current_server_profile_for_new_season(app))
         app._activate_schedule_server_profile.assert_called_once_with("7", "오7")

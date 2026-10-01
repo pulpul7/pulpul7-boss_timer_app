@@ -13,11 +13,12 @@ MODULE_API = 1
 
 class UiAdapter:
     """Compatibility inside the module, exposing only the narrow host API."""
-    def __init__(self, host, collect_now=None):
+    def __init__(self, host, collect_now=None, output_status=None):
         self.host = host
         self.root = host.root
         self.collect_notices_now = collect_now
         self.preview_synthesizer = getattr(host, "preview_synthesizer", None)
+        self.notice_output_status = output_status or (lambda: '자동 송출을 지원하는 본체가 필요합니다.')
 
     @property
     def schedule_server_profile_id(self):
@@ -57,6 +58,11 @@ class NoticePlugin:
         self.unsubscribe = None
         self.retry = None
         self.retry_count = 0
+        self.audio_after_id = None
+        self.audio_worker = None
+        self.audio_controller = None
+        self.audio_identity = None
+        self.audio_status = '디코 연결 대기'
 
     def health_check(self):
         # Import the management implementation before claiming a healthy start.
@@ -67,11 +73,13 @@ class NoticePlugin:
         from .notice_opportunities import opportunity_allowed
         from .notice_audio import NoticeAudioController
         from .notice_local_transport import LocalNoticeTransport
+        from .notice_discord_transport import DiscordNoticeTransport
+        from .notice_host_opportunities import completed_opportunities
         from .notice_template_ui import NoticeTemplateWindow
         from .notice_schedule import synchronize_schedule
         from .notice_server_open import server_open_override
         return {"ok": callable(NoticeManagementWindow), "api_version": MODULE_API,
-                "features": ["notice_management", "validity", "history", "public_notice_collection", "notice_period_analysis", "extension_polling", "boss_opportunity_policy", "schedule_participation", "relative_date_templates", "speech_preparation"]}
+                "features": ["notice_management", "validity", "history", "public_notice_collection", "notice_period_analysis", "extension_polling", "boss_opportunity_policy", "schedule_participation", "relative_date_templates", "speech_preparation", "discord_automatic_output"]}
 
     def start(self):
         self.stopped = False
@@ -81,6 +89,64 @@ class NoticePlugin:
         self.collection_after_id = self.host.call_later(3000, self._collection_tick)
         if callable(getattr(self.host, 'get_schedule_snapshot', None)):
             self.schedule_after_id = self.host.call_later(0, self._schedule_tick)
+        if callable(getattr(self.host, 'get_output_context', None)):
+            self.audio_after_id = self.host.call_later(500, self._audio_tick)
+
+    def _audio_tick(self):
+        if self.stopped:
+            return
+        try:
+            context = self.host.get_output_context()  # Only this capture touches Tk-owned state.
+            snapshot = self.host.get_schedule_snapshot() if context else None
+            if self.audio_worker is not None and self.audio_worker.is_alive():
+                return
+            def work():
+                try:
+                    from .notice_audio import NoticeAudioController
+                    from .notice_discord_transport import DiscordNoticeTransport
+                    identity = context['identity'] if context else None
+                    if (identity != self.audio_identity or self.stopped
+                            or (self.audio_controller and self.audio_controller.closed)):
+                        if self.audio_controller and not self.audio_controller.close():
+                            self.audio_status = self.audio_controller.state
+                            return
+                        self.audio_controller = None
+                        self.audio_identity = None
+                    if self.stopped or not context:
+                        self.audio_status = '디코 연결/인계 완료 대기'
+                        return
+                    if self.audio_controller is None:
+                        store = NoticeStore(self.host.data_root, identity[0])
+                        self.audio_controller = NoticeAudioController(store,
+                            DiscordNoticeTransport(context['request']), prepared_audio=self.prepared_audio)
+                        self.audio_identity = identity
+                    # The bot atomically arbitrates its playback slot; a busy
+                    # boss never gets preempted by this low-priority request.
+                    from .notice_host_opportunities import completed_opportunities
+                    opportunities = completed_opportunities(context.get('opportunities', []), snapshot, local_now())
+                    # Try each completed boss opportunity until one request has
+                    # acquired the single notice slot; then ordinary due notices.
+                    for opportunity in opportunities:
+                        self.audio_controller.step(boss_busy=False, opportunity=opportunity)
+                        if self.audio_controller.active or self.audio_controller.fault:
+                            break
+                    else:
+                        self.audio_controller.step(boss_busy=False)
+                    self.audio_status = self.audio_controller.state
+                except Exception as exc:
+                    self.audio_status = f'자동 안내 대기: {type(exc).__name__}'
+                    self.host.log(f'notice_output_failed {type(exc).__name__}')
+                finally:
+                    if self.stopped and self.audio_controller:
+                        self.audio_controller.close()
+            self.audio_worker = threading.Thread(target=work, name='notice-output', daemon=True)
+            self.audio_worker.start()
+        except Exception as exc:
+            self.audio_status = '자동 안내 상태 확인 실패 · 송출 보류'
+            self.host.log(f'notice_output_context_failed {type(exc).__name__}')
+        finally:
+            if not self.stopped:
+                self.audio_after_id = self.host.call_later(500, self._audio_tick)
 
     def notify_schedule_changed(self):
         """Thread-safe notification only: no Tk, disk, network or playback."""
@@ -231,7 +297,8 @@ class NoticePlugin:
                 self.window.window.lift()
                 return
             self.window.window.destroy()
-        self.window = NoticeManagementWindow(UiAdapter(self.host, self.request_collection), self.host.data_root)
+        self.window = NoticeManagementWindow(UiAdapter(self.host, self.request_collection,
+            lambda: self.audio_status), self.host.data_root)
 
     def restore_settings(self, payload):
         server_id = self.host.get_server()[0]
@@ -246,6 +313,11 @@ class NoticePlugin:
     def stop(self):
         self.stopped = True
         self.stop_event.set()
+        if self.audio_after_id is not None:
+            self.host.cancel_later(self.audio_after_id)
+            self.audio_after_id = None
+        if self.audio_controller and (self.audio_worker is None or not self.audio_worker.is_alive()):
+            threading.Thread(target=self.audio_controller.close, name='notice-output-stop', daemon=True).start()
         if self.unsubscribe is not None:
             self.unsubscribe()
             self.unsubscribe = None

@@ -43,6 +43,15 @@ def regions(app, area, clock_band, extra=False):
     return result
 
 
+def is_open(app):
+    """Popup existence, including its temporary hide during capture."""
+    preview = getattr(app, '_ocr1_region_preview', None)
+    try:
+        return bool(preview and not preview.closed and preview.window.winfo_exists())
+    except tk.TclError:
+        return False
+
+
 def clear(app):
     preview = getattr(app, '_ocr1_region_preview', None)
     app._ocr1_region_preview = None
@@ -111,7 +120,9 @@ class Preview:
         tk.Label(self.window, text='챕터는 미리보기용 · 최초 판독은 3/4칸 후보 글자 영역을 함께 사용',
                  bg='#eff6ff', fg='#334155', anchor='w').pack(fill='x', padx=10)
         tk.Label(self.window, textvariable=self.status, bg='#eff6ff', fg='#334155', anchor='w').pack(fill='x', padx=10, pady=4)
-        self.window.protocol('WM_DELETE_WINDOW', lambda: clear(app))
+        # Explicit X means "off"; capture/owner cleanup still uses clear/hide
+        # without changing the saved preference.
+        self.window.protocol('WM_DELETE_WINDOW', lambda: app._set_schedule_ocr1_region_preview_enabled(False))
         self.window.bind('<Destroy>', self.destroyed)
         self.tick()
 

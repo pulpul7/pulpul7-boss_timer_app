@@ -709,6 +709,14 @@ class NoticeStore:
             initial = not status.get("first_success")
             articles = state.setdefault("articles", {})
             pinned_ids = {row["id"] for row in listing}
+            # Include all successfully fetched bodies before analysis, so a
+            # class notice can resolve maintenance even when listed above it.
+            related_articles = {key: dict(value, body_error=errors.get(key, value.get('body_error', '')))
+                                for key, value in articles.items()}
+            for row in listing:
+                if fetched.get(row['id']):
+                    related_articles[row['id']] = {**related_articles.get(row['id'], {}),
+                                                   **row, **fetched[row['id']], 'body_error': ''}
             changed = 0
             for row in listing:
                 key, category = row["id"], row["category"]
@@ -731,7 +739,7 @@ class NoticeStore:
                 article["recent"] = bool(date and (now.date() - timedelta(days=3)).isoformat() <= date <= now.date().isoformat())
                 articles[key] = article
                 if body:
-                    analysis = analyze_notice(article)
+                    analysis = analyze_notice(article, related_articles=related_articles.values(), now=now)
                     article["analysis"] = analysis
                     if not analysis["windows"] or any([fact["issue"] for fact in analysis["windows"]]):
                         article.setdefault("uncertain_first_seen", timestamp)

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-14 19:46:06",
+  "updated_at": "2026-09-29 22:21:02",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1334,17 +1334,17 @@
     },
     "c:\\mycode\\bosstimer\\wave\\안내방송_비행기3.wav": {
       "signature": [
-        1779362600033548900,
-        347940
-      ],
-      "duration_ms": 1973
-    },
-    "c:\\mycode\\bosstimer\\wave\\안내방송_비행기2.wav": {
-      "signature": [
         1779362957250690500,
         185084
       ],
       "duration_ms": 1049
+    },
+    "c:\\mycode\\bosstimer\\wave\\안내방송_비행기2.wav": {
+      "signature": [
+        1779362600033548900,
+        347940
+      ],
+      "duration_ms": 1973
     },
     "c:\\mycode\\bosstimer\\voice\\boss\\감길드 쟁탈전 신청마감.wav": {
       "signature": [

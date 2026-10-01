@@ -8,7 +8,7 @@ import re
 
 from .notice_management import KST, encode_time, parse_time
 
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2
 START_NOTICE_MINUTES = 15
 DISCOVERY_VALID_HOURS = 24  # Announcement lifetime, NOT the unknown event deadline.
 DATE = r"(?:(?:20\d{2})\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일|(?:20\d{2}[./-])?\d{1,2}[./-]\d{1,2}"
@@ -17,6 +17,10 @@ WEEKDAY = r"(?:\s*\([월화수목금토일](?:요일)?\))?"
 RANGE = re.compile(rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?P<start>{TIME})\s*[~～∼–—]\s*"
                    rf"(?:(?P<end_date>{DATE}){WEEKDAY}\s*)?(?P<end>{TIME})(?![\d:])")
 POINT = re.compile(rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?P<time>{TIME})(?![\d:])")
+AFTER_MAINTENANCE = re.compile(
+    rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?:정기\s*)?점검\s*(?:이후|후)\s*[~～∼–—]\s*"
+    rf"(?P<end_date>{DATE}){WEEKDAY}\s*(?P<end>{TIME})(?![\d:])")
+CLASS_SHARED_PERIOD = re.compile(r"클래스변경권(?:판매|구매)및클래스변경기간")
 KINDS = {"maintenance": "점검", "transfer_sale": "이전권 판매", "transfer_use": "서버 이전",
          "class_purchase": "클래스 변경권 구매/획득", "class_use": "클래스 변경권 사용",
          "item_drop": "아이템 획득", "item_exchange": "아이템 교환/조합",
@@ -61,9 +65,11 @@ def _kind(line, category):
     if category == "maintenance" and re.search(r"점검.{0,10}(?:일시|시간|일정|기간)", compact):
         return "maintenance"
     if category == "class_change":
+        if CLASS_SHARED_PERIOD.search(compact):
+            return "class_purchase"
         if any([word in compact for word in ("판매기간", "구매기간", "획득기간", "수령기간")]):
             return "class_purchase"
-        if "사용기간" in compact:
+        if any(word in compact for word in ('사용기간', '이용기간', '클래스변경기간')):
             return "class_use"
     if category == "event":
         for kind, words in (("item_drop", ("드롭기간", "드랍기간", "획득기간", "획득기한")),
@@ -75,7 +81,7 @@ def _kind(line, category):
     return None
 
 
-def analyze_notice(article):
+def analyze_notice(article, *, related_articles=(), now=None):
     category = article.get("category")
     if category in {"update", "general"}:
         return {"version": ANALYSIS_VERSION, "windows": [], "status": "공지 발견 1회 안내 · 반복 없음"}
@@ -128,6 +134,29 @@ def analyze_notice(article):
                 fact.update(start=encode_time(start), end=encode_time(end), issue="")
             except ValueError as exc:
                 fact["issue"] = str(exc)
+        elif category == 'class_change' and len(list(AFTER_MAINTENANCE.finditer(line))) == 1:
+            match = AFTER_MAINTENANCE.search(line)
+            try:
+                day = _date(match['date'], article.get('published_date'))
+                end = _time(_date(match['end_date'], article.get('published_date')), match['end'])
+                if end <= day:
+                    raise ValueError('종료일이 점검 시작 날짜보다 빠릅니다.')
+                fact.update(end=encode_time(end), issue='', start_condition='maintenance_end',
+                            start_date=day.date().isoformat(),
+                            note='종료 시각 확정 · 시작은 해당 날짜 정기점검 종료 후 (시각 미확정)')
+                if now is not None:
+                    from .notice_server_open import server_open_override
+                    maintenance = {}
+                    for index, related in enumerate(related_articles):
+                        if related.get('category') == 'maintenance':
+                            maintenance[str(index)] = dict(related, analysis=analyze_notice(related))
+                    opening = server_open_override({'articles': maintenance}, now)
+                    if (opening and parse_time(opening['maintenance_start']).date() == day.date()
+                            and parse_time(opening['server_open']) < end):
+                        fact.update(start=opening['server_open'], start_source_id=opening['source_id'],
+                                    note='해당 날짜 정기점검 공지의 종료 시각과 연결 · 종료 시각은 클래스 변경 공지 기준')
+            except (ValueError, TypeError) as exc:
+                fact.update(start=None, end=None, issue=str(exc))
         elif not has_range and point_deadline:
             points = list(POINT.finditer(line))
             if len(points) == 1:
@@ -137,6 +166,10 @@ def analyze_notice(article):
                 except ValueError as exc:
                     fact["issue"] = str(exc)
         windows.append(fact)
+        if category == 'class_change' and CLASS_SHARED_PERIOD.search(re.sub(r'\s+', '', line)):
+            counters['class_use'] = counters.get('class_use', 0) + 1
+            windows.append(dict(fact, key=f"class_use/{counters['class_use']}",
+                                kind='class_use', label=KINDS['class_use']))
     # Conflicting duplicate sale-slot numbers must never silently choose one.
     seen = {}
     for fact in windows:
@@ -153,8 +186,12 @@ def analyze_notice(article):
             if sum(other["kind"] == fact["kind"] for other in windows) > 1:
                 fact.update(start=None, end=None, issue="같은 종류의 아이템 기간이 여러 개입니다. 대상별 구분을 확인해 주세요.")
     good = sum(not fact["issue"] for fact in windows)
+    partial = sum(not fact['issue'] and not fact['start'] and fact.get('start_condition') == 'maintenance_end'
+                  for fact in windows)
     return {"version": ANALYSIS_VERSION, "windows": list(seen.values()),
-            "status": f"기간 확인 {good}개 / 확인 필요 {len(windows) - good}개" if windows else "기간 미확정 · 원문 확인 필요"}
+            "status": (f"기간 확인 {good - partial}개 / 종료 확정·점검 후 시작 {partial}개 / 확인 필요 {len(windows) - good}개"
+                       if partial else f"기간 확인 {good}개 / 확인 필요 {len(windows) - good}개")
+                      if windows else "기간 미확정 · 원문 확인 필요"}
 
 
 def _spoken_time(value):
@@ -180,6 +217,8 @@ def notice_events(article, analysis):
         from .notice_templates import event_template_key, render_template
         template_key = event_template_key(article, suffix, fact)
         values = {"공지제목": article["title"], "기한종류": (fact or {}).get("label", "")}
+        if fact and not fact.get('start') and fact.get('start_condition') == 'maintenance_end':
+            values.update(시작시간='점검 종료 후', _start_date=fact['start_date'])
         for field, source_field in (("시작시간", "start"), ("종료시간", "end")):
             when = parse_time((fact or {}).get(source_field))
             if when:
@@ -201,6 +240,16 @@ def notice_events(article, analysis):
 
     for fact in analysis["windows"]:
         start, end = parse_time(fact["start"]), parse_time(fact["end"])
+        if (fact['kind'] in {'class_purchase', 'class_use'} and end and not fact['issue']
+                and not start and fact.get('start_condition') == 'maintenance_end'):
+            # This is an explicit deadline, NOT an invented opening time.
+            # Until the maintenance is resolved, generate only end-based speech.
+            buying = fact['kind'] == 'class_purchase'
+            add(fact['key'] + '/deadline', '클래스 변경권 ' + ('구매' if buying else '사용') + ' 마감 안내',
+                max(datetime.fromisoformat(fact['start_date']).replace(tzinfo=KST),
+                    end - timedelta(hours=24)), end, fact, 'major_boss_after')
+            events[-1]['policy'] = 'deadline_repeat'
+            continue
         if fact["kind"].startswith("item_") and end and not fact["issue"]:
             label = fact["label"]
             add(fact["key"] + "/deadline", article["title"] + " · " + label + " 마감",

@@ -113,6 +113,37 @@ class AudioTests(unittest.TestCase):
         self.controller.step(boss_busy=False)
         self.assertIn(('play', 123), self.transport.calls)
 
+    def test_unprepared_first_notice_does_not_block_ready_notice(self):
+        self.store.register(dict(id='ready', title='준비된 안내', tts_text='준비 완료',
+                                 valid_from=self.now, valid_until=self.now + timedelta(hours=1)))
+        pool = Mock()
+        lease = Mock()
+        pool.acquire.side_effect = lambda server, request: lease if request['id'] == 'ready' else None
+        self.controller.prepared_audio = pool
+        self.transport.prepare_prepared = Mock(return_value=123)
+        self.transport.states[123] = 'ready'
+        self.controller.step(boss_busy=False)
+        self.assertEqual([call.args[1]['id'] for call in pool.acquire.call_args_list], ['notice', 'ready'])
+        self.assertEqual(self.controller.active['request']['id'], 'ready')
+        self.transport.prepare_prepared.assert_called_once_with(lease)
+        self.assertIsNone(self.store.snapshot()['events']['notice']['last_delivery'])
+        self.controller.step(boss_busy=False)
+        self.assertIn(('play', 123), self.transport.calls)
+
+    def test_unprepared_notice_is_retried_after_cooldown(self):
+        pool = Mock()
+        pool.acquire.return_value = None
+        self.controller.prepared_audio = pool
+        self.controller.step(boss_busy=False)
+        pool.acquire.return_value = Mock()
+        self.transport.prepare_prepared = Mock(return_value=123)
+        self.controller.step(boss_busy=False)
+        self.assertIsNone(self.controller.active)
+        self.seconds = 31
+        self.controller.step(boss_busy=False)
+        self.assertEqual(self.controller.active['request']['id'], 'notice')
+        self.transport.prepare_prepared.assert_called_once()
+
     def test_pending_schedule_change_stops_prepared_handle_immediately(self):
         self.start_playing()
         pool = Mock()
@@ -186,6 +217,58 @@ class AudioTests(unittest.TestCase):
         self.controller.close()
         self.controller.step(boss_busy=False)
         self.assertIsNone(self.controller.active)
+
+    def test_stop_timeout_retries_only_stop_until_confirmed(self):
+        handle = self.start_playing()
+        self.transport.allow_pause = False
+        self.transport.stop = Mock(side_effect=TimeoutError())
+        self.assertFalse(self.controller.interrupt_for_boss())
+        self.assertTrue(self.controller.fault)
+        self.controller.step(boss_busy=False)
+        self.transport.stop.assert_called_once_with(handle)
+        calls = list(self.transport.calls)
+        self.seconds = 3
+        self.controller.step(boss_busy=False)
+        self.assertEqual(self.transport.stop.call_count, 2)
+        self.assertEqual(self.transport.calls, calls)
+        self.transport.stop.side_effect = None
+        self.transport.stop.return_value = True
+        self.seconds = 6
+        self.controller.step(boss_busy=False)
+        self.assertFalse(self.controller.fault)
+        self.assertIsNone(self.controller.active)
+        self.assertIsNone(self.store.snapshot()['events']['notice']['last_delivery'])
+        self.seconds = 37
+        self.controller.step(boss_busy=False)
+        self.assertIsNotNone(self.controller.active)
+
+    def test_completed_audio_waits_for_stop_confirmation_without_replaying(self):
+        handle = self.start_playing()
+        self.transport.states[handle] = 'completed'
+        self.transport.allow_stop = False
+        self.controller.step(boss_busy=False)
+        self.assertTrue(self.controller.fault)
+        self.assertIsNotNone(self.controller.pending_completion)
+        self.assertIsNone(self.store.snapshot()['events']['notice']['last_delivery'])
+        self.transport.allow_stop = True
+        self.seconds = 3
+        self.controller.step(boss_busy=False)
+        self.assertFalse(self.controller.fault)
+        self.controller.step(boss_busy=False)
+        self.assertIsNotNone(self.store.snapshot()['events']['notice']['last_delivery'])
+        self.assertEqual(sum(call[0] == 'prepare' for call in self.transport.calls), 1)
+
+    def test_stop_recovery_does_not_complete_edited_audio(self):
+        handle = self.start_playing()
+        self.transport.states[handle] = 'completed'
+        self.transport.allow_stop = False
+        self.controller.step(boss_busy=False)
+        self.store.edit_tts('notice', '변경된 안내')
+        self.transport.allow_stop = True
+        self.seconds = 3
+        self.controller.step(boss_busy=False)
+        self.controller.step(boss_busy=False)
+        self.assertIsNone(self.store.snapshot()['events']['notice']['last_delivery'])
 
     def test_failed_player_retries_after_cooldown_without_completion(self):
         handle = self.start_playing()

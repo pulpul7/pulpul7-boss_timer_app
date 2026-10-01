@@ -54,8 +54,8 @@ python_root = Path(sys.executable).resolve().parent
 dll_dir = python_root / "DLLs"
 tcl_root = python_root / "tcl"
 project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
-BUILD_VERSION = "v5.5.0"
-BUILD_LAST_UPDATED = "2026-09-28"
+BUILD_VERSION = "v5.5.1"
+BUILD_LAST_UPDATED = "2026-09-29"
 DISTRIBUTION_DEFAULT_SETTING_OVERRIDES = {
     "precision_auto_apply": "false",
     "precision_capture_rate": "5",

@@ -3,9 +3,10 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace as NS, MethodType
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+import tkinter as tk
 
-from schedule_ocr_region_preview import regions, Preview, clear, suspend, capture_popup_right
+from schedule_ocr_region_preview import regions, Preview, clear, suspend, capture_popup_right, is_open
 
 
 class RegionPreviewTests(unittest.TestCase):
@@ -110,6 +111,21 @@ class RegionPreviewTests(unittest.TestCase):
         self.assertIsNone(preview.signature)
         self.assertFalse(preview.closed)
 
+    def test_popup_checkbox_state_is_not_changed_by_capture_hide(self):
+        preview = self.preview()
+        preview.window.winfo_exists.return_value = True
+        self.assertTrue(is_open(preview.app))
+        suspend(preview.app)
+        self.assertTrue(is_open(preview.app))
+        clear(preview.app)
+        self.assertFalse(is_open(preview.app))
+        self.assertFalse(is_open(NS()))
+
+    def test_destroyed_popup_query_is_safe(self):
+        preview = self.preview()
+        preview.window.winfo_exists.side_effect = tk.TclError('destroyed')
+        self.assertFalse(is_open(preview.app))
+
     def test_closing_cancels_timer_and_clears_windows(self):
         preview = self.preview()
         overlay = preview.overlay
@@ -120,6 +136,109 @@ class RegionPreviewTests(unittest.TestCase):
         preview.window.destroy.assert_called_once()
         preview.close()
         preview.window.destroy.assert_called_once()
+
+    def test_capture_settings_checkboxes_route_independently_and_sync_popup_close(self):
+        tree = ast.parse(Path(__file__).with_name('boss_timer_gui.py').read_text(encoding='utf-8-sig'))
+        method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == '_open_schedule_input_ocr_addon_restore_delay_dialog')
+        class Variable:
+            def __init__(self, value=None): self.value = value
+            def get(self): return self.value
+            def set(self, value): self.value = value
+        dialog = Mock()
+        dialog.winfo_exists.return_value = True
+        dialog.after.return_value = 'preview-sync'
+        boxes = {}
+        def checkbox(*args, **kwargs):
+            widget = Mock()
+            boxes[kwargs['text']] = (kwargs, widget)
+            return widget
+        gui = NS(Toplevel=Mock(return_value=dialog), StringVar=Variable, BooleanVar=Variable,
+                 TclError=tk.TclError, Label=Mock(), Button=Mock(), Checkbutton=checkbox)
+        namespace = dict(tk=gui, ttk=NS(Combobox=Mock()), DEFAULT_CAPTURE_RATE=5)
+        setter = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == '_set_schedule_ocr1_region_preview_enabled')
+        exec(compile(ast.Module(body=[method, setter], type_ignores=[]), 'capture-settings', 'exec'), namespace)
+        app = NS(root=Mock(), schedule_input_ocr_addon_window=None,
+                 schedule_input_ocr_addon_settings_window=None,
+                 _center_window_over_parent=Mock(), _get_precision_capture_slots=lambda: {'니플하임': []},
+                 button_font=('맑은 고딕', 10), percent_font=('맑은 고딕', 9),
+                 popup_open=True, _save_settings=Mock())
+        app._show_schedule_ocr1_region_preview = Mock(side_effect=lambda: setattr(app, 'popup_open', True))
+        app._set_schedule_ocr1_region_preview_enabled = MethodType(namespace[setter.name], app)
+        with patch('precision_capture_ui.clear_preview') as clear_precision, \
+             patch('precision_capture_ui.show_preview') as show_precision, \
+             patch('schedule_ocr_region_preview.is_open', side_effect=lambda a: a.popup_open), \
+             patch('schedule_ocr_region_preview.clear', side_effect=lambda a: setattr(a, 'popup_open', False)) as clear_ocr:
+            namespace[method.name](app)
+            left, left_widget = boxes['스샷찍기 영역']
+            right, right_widget = boxes['초단위 찍기 영역']
+            self.assertLess(left_widget.place.call_args.kwargs['x'], right_widget.place.call_args.kwargs['x'])
+            self.assertTrue(left['variable'].get())
+            left['variable'].set(False)
+            left['command']()
+            clear_ocr.assert_called_once_with(app)
+            self.assertFalse(left['variable'].get())
+            self.assertFalse(app.ocr1_show_regions)
+            app._save_settings.assert_called_once()
+            left['variable'].set(True)
+            left['command']()
+            app._show_schedule_ocr1_region_preview.assert_called_once()
+            self.assertTrue(left['variable'].get())
+            self.assertTrue(app.ocr1_show_regions)
+            self.assertEqual(app._save_settings.call_count, 2)
+            app._set_schedule_ocr1_region_preview_enabled(False)  # Popup's X.
+            dialog.after.call_args.args[1]()
+            self.assertFalse(left['variable'].get())
+            right['variable'].set(True)
+            right['command']()
+            self.assertTrue(show_precision.call_args.args[-1])
+            self.assertTrue(app.precision_show_regions)
+            self.assertEqual(app._save_settings.call_count, 4)
+            self.assertEqual(clear_ocr.call_count, 2)
+            destroyed = next(call.args[1] for call in dialog.bind.call_args_list if call.args[0] == '<Destroy>')
+            destroyed(NS(widget=dialog))
+            dialog.after_cancel.assert_called_once_with('preview-sync')
+            clear_precision.assert_called_once_with(app)
+            self.assertEqual(app._save_settings.call_count, 4)  # Cleanup cannot overwrite the preference.
+
+    def test_disabled_preference_blocks_automatic_popup_reopen(self):
+        tree = ast.parse(Path(__file__).with_name('boss_timer_gui.py').read_text(encoding='utf-8-sig'))
+        method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == '_show_schedule_ocr1_region_preview')
+        namespace = dict(SCHEDULE_OCR_SLOT_GRID=self.grid, SCHEDULE_OCR_CURRENT_TIME_BAND=self.band)
+        exec(compile(ast.Module(body=[method], type_ignores=[]), 'preview-reopen', 'exec'), namespace)
+        app = NS(ocr1_show_regions=False, schedule_input_window=Mock(), _widget_available=lambda window: True)
+        with patch('schedule_ocr_region_preview.open_preview') as opened:
+            namespace[method.name](app)
+            opened.assert_not_called()
+            app.ocr1_show_regions = True
+            namespace[method.name](app)
+            opened.assert_called_once()
+
+    def test_checkbox_settings_read_write_roundtrip(self):
+        import configparser
+        tree = ast.parse(Path(__file__).with_name('boss_timer_gui.py').read_text(encoding='utf-8-sig'))
+        keys = ('ocr1_show_regions', 'precision_show_regions')
+        loader = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '_load_settings')
+        assignments = [n for n in loader.body if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Attribute) and t.attr in keys for t in n.targets)]
+        saver = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '_save_settings')
+        settings_dict = next(n for n in ast.walk(saver) if isinstance(n, ast.Dict)
+                             and any(isinstance(k, ast.Constant) and k.value == 'ocr1_show_regions' for k in n.keys))
+        expressions = {k.value: value for k, value in zip(settings_dict.keys, settings_dict.values)
+                       if isinstance(k, ast.Constant) and k.value in keys}
+        self.assertEqual(len(assignments), 2)
+        for selected in (True, False):
+            app = NS(ocr1_show_regions=selected, precision_show_regions=not selected)
+            config = configparser.ConfigParser()
+            config['settings'] = {key: eval(compile(ast.Expression(expressions[key]), 'saved-pref', 'eval'),
+                                           {'self': app}) for key in keys}
+            restarted = NS()
+            exec(compile(ast.Module(body=assignments, type_ignores=[]), 'load-pref', 'exec'),
+                 {'self': restarted, 'settings': config['settings']})
+            self.assertEqual(restarted.ocr1_show_regions, selected)
+            self.assertEqual(restarted.precision_show_regions, not selected)
 
 
 if __name__ == '__main__':

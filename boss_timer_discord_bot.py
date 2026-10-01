@@ -14,6 +14,7 @@ import os
 import queue
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -530,6 +531,8 @@ class VoiceBridgeJob:
     timed_clips: tuple[tuple[datetime, str], ...] = ()
     fallback_text: str = ""
     scope_id: str = ""
+    target_time: str = ""
+    offset_sec: int = 0
 
     @property
     def key(self) -> str:
@@ -656,6 +659,8 @@ class VoiceBridgeReader:
             timed_clips=tuple(timed_clips),
             fallback_text=str(payload.get("fallback_text") or "").strip(),
             scope_id=scope_id,
+            target_time=str(payload.get('target_time') or ''),
+            offset_sec=60 if str(payload.get('offset_sec')) == '60' else 0,
         )
 
 
@@ -681,6 +686,7 @@ class BotStatus:
         self.voice_bridge_last_id = ""
         self.voice_bridge_last_heartbeat_id = ""
         self.voice_bridge_receipts: list[dict[str, str]] = []
+        self.notice_opportunities = []
         self.text_commands_enabled = True
         self.nacl_available = False
         self.nacl_import_error = ""
@@ -713,6 +719,7 @@ class BotStatus:
                 "voice_bridge_receipt_protocol": 1,
                 "voice_bridge_receipt_modes": ["sequential"],
                 "voice_bridge_receipts": [dict(row) for row in self.voice_bridge_receipts],
+                "notice_opportunities": [dict(row) for row in self.notice_opportunities],
                 "text_commands_enabled": self.text_commands_enabled,
                 "nacl_available": self.nacl_available,
                 "nacl_import_error": self.nacl_import_error,
@@ -735,6 +742,17 @@ class BotStatus:
                          "at": datetime.now().isoformat(timespec="milliseconds")})
             self.voice_bridge_receipts = rows[-128:]
 
+    def record_notice_opportunity(self, job):
+        if (job.scope_id or job.offset_sec != 60 or not job.target_time
+                or job.phase not in {'PRE_ALERT', 'FIXED_PRE_ALERT', 'PRE_ALERT_SEQUENCE', 'FIXED_PRE_ALERT_SEQUENCE'}):
+            return
+        with self.lock:
+            rows = [row for row in self.notice_opportunities if row['id'] != job.id]
+            rows.append(dict(id=job.id, phase=job.phase, scheduled_at=job.target_time,
+                             created_at=job.created_at.isoformat(), text=job.fallback_text,
+                             at=datetime.now().isoformat(timespec='milliseconds')))
+            self.notice_opportunities = rows[-32:]
+
 
 STATUS = BotStatus()
 
@@ -750,6 +768,31 @@ def force_process_exit_after_shutdown(delay_seconds: float = 1.25) -> None:
 
 
 class StatusHandler(BaseHTTPRequestHandler):
+    notice_bot = None
+
+    def do_POST(self) -> None:
+        import hmac
+        from notice_output_bridge import handle_notice_command
+        bot = self.notice_bot
+        secret = os.environ.get('BOSS_TIMER_NOTICE_SECRET', '')
+        if (self.path != '/notice' or not secret or bot is None
+                or not hmac.compare_digest(self.headers.get('X-Notice-Secret', ''), secret)):
+            self.send_error(403)
+            return
+        future = None
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 16384:
+                raise ValueError('invalid request size')
+            self.connection.settimeout(2)
+            command = json.loads(self.rfile.read(length))
+            future = asyncio.run_coroutine_threadsafe(handle_notice_command(bot, command, STATUS), bot.client.loop)
+            self._send_json(future.result(timeout=3))
+        except Exception:
+            if future is not None:
+                future.cancel()
+            self.send_error(409, 'Notice command rejected')
+
     def log_message(self, _format: str, *_args: Any) -> None:
         return
 
@@ -771,7 +814,14 @@ class StatusHandler(BaseHTTPRequestHandler):
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
-    allow_reuse_address = True
+    # Windows SO_REUSEADDR permits competing listeners on the same port.
+    # The status listener also gates startup before any Discord login.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def start_status_server() -> ThreadingHTTPServer | None:
@@ -1137,6 +1187,7 @@ class DiscordScheduleBot:
         self.voice_play_lock = asyncio.Lock()
         self.voice_transition_lock = asyncio.Lock()
         self.notice_output = None
+        StatusHandler.notice_bot = self
         self.regular_voice_job_active = False
         self.timed_bridge_tasks: dict[str, tuple[str, asyncio.Task[Any]]] = {}
         self.cancelled_voice_bridge_scopes: dict[str, float] = {}
@@ -3142,6 +3193,8 @@ class DiscordScheduleBot:
                             completed = False
                     cancelled = self._is_voice_bridge_scope_cancelled(job.scope_id) or STATUS.shutdown_requested.is_set()
                     STATUS.record_bridge_result(job.id, "cancelled" if cancelled else "completed" if completed else "failed", job.scope_id)
+                    if completed and not cancelled:
+                        STATUS.record_notice_opportunity(job)
                     continue
                 clips = self._build_clips_for_job(job)
                 if not clips:
@@ -3160,6 +3213,8 @@ class DiscordScheduleBot:
                 self.regular_voice_job_active = False
 
     async def _play_timed_bridge_clips(self, job: VoiceBridgeJob) -> None:
+        confirm_notice = job.offset_sec == 60 and job.phase in {'PRE_ALERT_SEQUENCE', 'FIXED_PRE_ALERT_SEQUENCE'}
+        all_completed = bool(job.timed_clips)
         try:
             # 초읽기 중 0초 젠(침공 포함)도 같은 Discord PCM 스트림으로
             # 합성해야 한다. 별도 timed clip으로 재생하면 뒤 요청이 현재
@@ -3215,15 +3270,21 @@ class DiscordScheduleBot:
                             scope_id=job.scope_id,
                         )
                     else:
-                        await self._play_clip(
+                        completed = await self._play_clip(
                             clip_path,
                             volume=job.volume,
                             gap_sec=0.0,
                             trim_silence=True,
                             scope_id=job.scope_id,
+                            confirm_eof=confirm_notice,
                         )
+                        if confirm_notice and completed is not True:
+                            all_completed = False
                 finally:
                     self._cleanup_audio_source(prepared_source)
+            if confirm_notice and all_completed and not self._is_voice_bridge_scope_cancelled(job.scope_id):
+                STATUS.record_bridge_result(job.id, 'completed', job.scope_id)
+                STATUS.record_notice_opportunity(job)
         except asyncio.CancelledError:
             log(f"bridge_timed_task_cancelled id={job.id} scope={job.scope_id} phase={job.phase}")
             raise

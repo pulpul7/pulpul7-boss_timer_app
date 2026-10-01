@@ -16,6 +16,8 @@ import threading
 import time
 
 RETRY_SECONDS = 30
+MAX_CANDIDATE_ATTEMPTS = 64
+STOP_RETRY_SECONDS = 2
 
 
 class NoticeAudioController:
@@ -31,6 +33,7 @@ class NoticeAudioController:
         self.cooldowns = {}
         self.closed = False
         self.fault = ""
+        self.stop_retry_at = 0.0
         self.state = "대기"
         self.pending_completion = None
 
@@ -50,13 +53,16 @@ class NoticeAudioController:
                 raise RuntimeError("알리미 음소거/정지가 확인되지 않았습니다.")
         except Exception as exc:
             # No further playback or completion is allowed while an old player
-            # might still be audible. The host handles the output-level fallback.
-            self.fault = str(exc)
+            # might still be audible. Retry only stop, never play or resume.
+            self.fault = str(exc) or type(exc).__name__
+            self.stop_retry_at = self.clock() + STOP_RETRY_SECONDS
             self.state = "출력 정지 확인 실패 · 자동 안내 차단"
             return False
         if retry:
             self.cooldowns[self.active["request"]["id"]] = self.clock() + RETRY_SECONDS
         self.active = None
+        self.fault = ""
+        self.stop_retry_at = 0.0
         return True
 
     def interrupt_for_boss(self):
@@ -90,8 +96,12 @@ class NoticeAudioController:
     def step(self, *, boss_busy, opportunity=None):
         """One bounded scheduler step; synthesis/playback remain asynchronous."""
         with self.lock:
-            if self.closed or self.fault:
+            if self.closed:
                 return
+            if self.fault:
+                if self.clock() >= self.stop_retry_at and self._drop(retry=True):
+                    self.state = "출력 정지 확인 완료 · 자동 안내 복구"
+                return  # A fresh step revalidates delivery before any playback.
             try:
                 if self.pending_completion is not None:
                     done = self.store.complete_delivery(self.pending_completion)
@@ -109,8 +119,8 @@ class NoticeAudioController:
                         # Take the success token only after confirmed EOF, then
                         # release this player's resources before advancing queue.
                         token = self.active["request"]["token"]
+                        self.pending_completion = token
                         if self._drop():
-                            self.pending_completion = token
                             done = self.store.complete_delivery(token)
                             self.pending_completion = None
                             self.state = "안내 완료" if done else "변경된 완료 신호 무시"
@@ -137,16 +147,23 @@ class NoticeAudioController:
                     self.state = "보스 안내 대기 · 알리미 후순위"
                     return
                 self.cooldowns = {key: until for key, until in self.cooldowns.items() if self.clock() < until}
-                request = self.store.automatic_candidate(opportunity, exclude_ids=self.cooldowns)
-                if not request:
-                    self.state = "대기"
+                waiting_for_audio = False
+                for _ in range(MAX_CANDIDATE_ATTEMPTS):
+                    request = self.store.automatic_candidate(opportunity, exclude_ids=self.cooldowns)
+                    if not request:
+                        self.state = '사전 음성 준비 대기' if waiting_for_audio else '대기'
+                        return
+                    lease = (self.prepared_audio.acquire(self.store.server_id, request)
+                             if self.prepared_audio is not None else None)
+                    if self.prepared_audio is None or lease is not None:
+                        break
+                    # Skip unprepared speech briefly, so a ready notice can use
+                    # this opportunity. Never synthesize on the playback path.
+                    self.cooldowns[request['id']] = self.clock() + RETRY_SECONDS
+                    waiting_for_audio = True
+                else:
+                    self.state = '사전 음성 준비 대기'
                     return
-                lease = None
-                if self.prepared_audio is not None:
-                    lease = self.prepared_audio.acquire(self.store.server_id, request)
-                    if lease is None:
-                        self.state = '사전 음성 준비 대기'
-                        return  # Never start network synthesis at the playback opportunity.
                 # A failed prepare must not starve all other valid notices.
                 self.cooldowns[request["id"]] = self.clock() + RETRY_SECONDS
                 try:

@@ -40,7 +40,7 @@ class NoticeManagementWindow:
         notice_styles(win)
         title_band(win, f"알리미 관리  ·  {self.server_name}",
                    "이 PC의 해당 서버 설정만 저장합니다. 수집은 각 클라이언트가 독립적으로 수행합니다.")
-        tk.Label(win, text="기간 미확정은 발견 안내 1회 후 폐기 · 자동 송출은 연결 준비 중 · 미리듣기는 이 PC에서만 재생합니다.",
+        tk.Label(win, text="기간 미확정은 발견 안내 1회 후 폐기 · 자동 송출은 연결된 디코봇에서만 · 미리듣기는 이 PC에서만 재생합니다.",
                  bg="#fef3c7", fg="#92400e", anchor="w", padx=8, pady=6).pack(fill="x", padx=18, pady=8)
         self.tabs = tabs = NoticeTabs(win)
         tabs.pack(fill="both", expand=True, padx=16, pady=4)
@@ -203,7 +203,8 @@ class NoticeManagementWindow:
             self._details(history)
         collection = state.get("collection", {})
         self.status.set(f"{self.server_name} · 알림 {len(self.tree.get_children())}개 / 이력 {len(self.history_tree.get_children())}개 · "
-                        f"{collection.get('status', '수집 대기')} · 자동 송출 연결 준비 중")
+                        f"{collection.get('status', '수집 대기')} · "
+                        f"{getattr(getattr(self, 'app', None), 'notice_output_status', lambda: '자동 송출 상태 확인 필요')()}")
 
     def _sources(self, parent):
         header = ttk.Frame(parent)
@@ -266,11 +267,12 @@ class NoticeManagementWindow:
                         'conflict': '기존 임시점검과 충돌 · 수동 확인 필요', 'failed': '등록 실패 · 수동 확인 필요'}
             facts.append('임시점검 1회 등록: ' + statuses.get(imported.get('status'), '확인 필요')
                          + ' / ' + display_time(imported.get('scheduled_at')))
-        if item.get("uncertain_first_seen") and item.get("category") in {"maintenance", "transfer", "class_change", "event"}:
+        if (item.get("uncertain_first_seen") and item.get("category") in {"maintenance", "transfer", "class_change", "event"}
+                and (not analysis.get('windows') or any(fact.get('issue') for fact in analysis['windows']))):
             facts.append("기간 미확정 발견 안내: 등록 후 24시간 이내 1회 · 재생 완료 시 자동 폐기 (원문은 유지)")
         for fact in analysis.get("windows", []):
             facts.append(f"• {fact['label']}: {display_time(fact['start'])} ~ {display_time(fact['end'])}"
-                         f"\n  {fact.get('issue') or '기간 확인'}\n  근거: {fact['evidence']}")
+                         f"\n  {fact.get('issue') or fact.get('note') or '기간 확인'}\n  근거: {fact['evidence']}")
         self._set_text(self.source_detail, f"{item['title']}\n작성일: {item.get('published_date') or '미확정'}"
                        f"\n출처: {item['url']}\n최근 본문 확인: {display_time(item.get('last_checked'))}"
                        f"\n본문 변경 감지: {display_time(item.get('changed_at'))} / 판본 {item.get('revision', 0)}"
@@ -315,7 +317,7 @@ class NoticeManagementWindow:
                   f"{item['source_recovery']['reason']}") if item.get('source_recovery') else "",
                  f"종료·폐기: {display_time(item.get('retired_at'))}" if history else "",
                  f"출처: {item['source_url'] or '수동 등록 / 출처 없음'}",
-                 f"안내 조건: {policy_description(item)} (TTS 미연결)",
+                 f"안내 조건: {policy_description(item)} (보스 음성 우선 · 디코 연결 필요)",
                  "유형별 실행: " + ('켜짐' if event_template_enabled(getattr(self, 'source_state', {}), item) else '꺼짐 · 기본 설정에서 변경'),
                  f"오늘 같은 정책 그룹의 재생 완료: {count}회" if item.get("policy", "once") != "once" else "",
                  f"분석 보류: {item.get('analysis_hold') or '없음'}",
@@ -706,4 +708,4 @@ class NoticeManagementWindow:
 
     def _save_settings(self):
         if self._run(lambda: self.store.configure(self._settings_value())):
-            self.status.set(f"{self.server_name}의 수집 / 송출 설정을 저장했습니다. 실제 TTS 송출은 아직 연결되지 않았습니다.")
+            self.status.set(f"{self.server_name}의 수집 / 송출 설정을 저장했습니다. 자동 송출은 디코 연결·음성 사전 준비 후 실행합니다.")

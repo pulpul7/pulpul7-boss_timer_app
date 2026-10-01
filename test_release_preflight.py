@@ -22,7 +22,7 @@ def function(name, function_name, namespace):
 
 class ReleasePreflightTests(unittest.TestCase):
     def test_version_matches_metadata_specs_fallback_and_seed_markers(self):
-        version = 'v5.5.0'
+        version = 'v5.5.1'
         from build_release import build_version
         self.assertEqual(build_version(), version)
         for filename, constant in [('boss_timer_gui.py', 'DEFAULT_APP_VERSION'), ('boss_timer_gui.spec', 'BUILD_VERSION')]:
@@ -55,6 +55,29 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn('default_notice_settings.json', [Path(source).name for source, _ in init])
         for source, _ in module + init:
             self.assertNotIn(Path(source).suffix.lower(), {'.log', '.jsonl', '.tmp', '.pyc'})
+
+    def test_actual_resource_inventory_has_no_private_runtime_files(self):
+        spec = tree('boss_timer_gui.spec')
+        private = next(n for n in spec.body if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == 'DISTRIBUTION_PRIVATE_RUNTIME_FILENAMES'
+                               for t in n.targets))
+        namespace = dict(Path=Path, DISTRIBUTION_PRIVATE_RUNTIME_FILENAMES=ast.literal_eval(private.value))
+        collect = function('boss_timer_gui.spec', 'collect_tree', namespace)
+        validate = function('boss_timer_gui.spec', 'assert_distribution_has_no_private_runtime_data', namespace)
+        inventory = []
+        for folder in ('assets', 'notice_module', 'init', 'icons', 'voice', 'wave', 'user_voice', 'tts_캐쉬'):
+            inventory += collect(ROOT / folder, folder,
+                                 excluded_relative_prefixes={'command'} if folder == 'tts_캐쉬' else None)
+        validate(inventory)
+        for source, _ in inventory:
+            self.assertNotIn(Path(source).suffix.lower(), {'.log', '.jsonl', '.tmp', '.pyc'})
+        for filename in namespace['DISTRIBUTION_PRIVATE_RUNTIME_FILENAMES']:
+            with self.assertRaises(RuntimeError):
+                validate([(str(ROOT / 'assets' / filename), 'assets')])
+
+    def test_confirmed_host_version_is_compatible_with_version_parser(self):
+        from ai_module_updater import app_version_tuple
+        self.assertGreater(app_version_tuple('v5.5.1'), app_version_tuple('v5.3.1.fix'))
 
 
 if __name__ == '__main__':

@@ -121,6 +121,12 @@ class MigrationTests(unittest.TestCase):
                 seed_profile(self.root, "season_18", "9")
         self.assertFalse((self.root / "season_18/9").exists())
 
+    def test_explicit_active_season_is_used_even_when_new_number_is_lower(self):
+        self.put("season_18/9/schedule_alarm_settings.json", "old empty chimes")
+        self.put("season_26/9/schedule_alarm_settings.json", "current chimes")
+        seed_profile(self.root, "season_19", "9", preferred_season_key="season_26")
+        self.assertEqual((self.root / "season_19/9/schedule_alarm_settings.json").read_text(), "current chimes")
+
     def test_baseline_rejects_other_server(self):
         self.baseline()
         with self.assertRaises(ValueError):

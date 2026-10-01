@@ -13,11 +13,14 @@ import unittest
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import boss_timer_gui
+import boss_timer_discord_bot as bot_module
 from boss_timer_discord_bot import (
     BUILTIN_DISCORD_VOICE_COMMANDS,
+    BotStatus,
     DISCORD_COUNTDOWN_COMPOSITE_WARMUP_SEC,
     DiscordScheduleBot,
     TIMED_REPLACE_CURRENT_AUDIO_PHASES,
@@ -39,6 +42,56 @@ from edge_tts_voice import (
     save_edge_tts_settings,
 )
 from edge_tts_module import get_edge_tts_module_status, install_edge_tts_module
+from voice_test_scenarios import VOICE_TEST_SCENARIOS
+
+
+def _voice_test_index(display_no):
+    return next(index for index, row in enumerate(VOICE_TEST_SCENARIOS) if row['display_no'] == display_no)
+
+
+def _fake_status():
+    # Unconfigured Mock booleans are truthy and falsely block reconnect loops.
+    status = mock.Mock(spec=BotStatus())
+    for name, value in vars(BotStatus()).items():
+        if isinstance(value, (bool, int, float, str)):
+            setattr(status, name, value)
+    status.shutdown_requested.is_set.return_value = False
+    return status
+
+
+class _IsolatedRuntimeTestCase(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='boss-edge-unit-')
+        self.addCleanup(temporary.cleanup)
+        self.runtime_root = Path(temporary.name)
+        original_root = Path(boss_timer_gui.get_user_config_dir()).resolve()
+        def isolated(value):
+            if isinstance(value, (str, Path)):
+                path = Path(value)
+                if path.is_absolute() and path.is_relative_to(original_root):
+                    destination = self.runtime_root / path.relative_to(original_root)
+                    return str(destination) if isinstance(value, str) else destination
+            return value
+        for module in (boss_timer_gui, bot_module):
+            for name, value in list(vars(module).items()):
+                if name.isupper() and isinstance(value, (str, Path)):
+                    replacement = isolated(value)
+                    if replacement != value:
+                        patcher = mock.patch.object(module, name, replacement)
+                        patcher.start()
+                        self.addCleanup(patcher.stop)
+        # These helpers bind their default paths at import time, independently
+        # of the module constants. Explicit paths used by tests stay intact.
+        for helper in (load_custom_discord_voice_commands, load_disabled_builtin_discord_voice_commands,
+                       save_custom_discord_voice_commands):
+            patcher = mock.patch.object(helper, '__defaults__', tuple(isolated(value) for value in helper.__defaults__))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for module, name, value in ((boss_timer_gui, 'get_user_config_dir', lambda: str(self.runtime_root)),
+                                   (bot_module, 'STATUS', BotStatus()), (bot_module, 'log', mock.Mock())):
+            patcher = mock.patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
 
 class _FakeCommunicate:
@@ -66,7 +119,7 @@ class _FallbackCommunicate:
         Path(path).write_bytes(b"ID3" + (b"\x00" * 64))
 
 
-class EdgeTtsModuleInstallTests(unittest.TestCase):
+class EdgeTtsModuleInstallTests(_IsolatedRuntimeTestCase):
     def test_installer_replaces_module_only_after_valid_zip_is_downloaded(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             module_dir = Path(temp_dir) / "tts_module"
@@ -102,7 +155,7 @@ class EdgeTtsModuleInstallTests(unittest.TestCase):
             self.assertTrue(get_edge_tts_module_status(str(module_dir)).installed)
 
 
-class DiscordScheduleInputTests(unittest.TestCase):
+class DiscordScheduleInputTests(_IsolatedRuntimeTestCase):
     def test_near_confirmed_spawn_uses_timed_replacement_path(self):
         self.assertIn("SPAWN_CONFIRMED_NEAR_SEQUENCE", TIMED_REPLACE_CURRENT_AUDIO_PHASES)
 
@@ -237,7 +290,7 @@ class DiscordScheduleInputTests(unittest.TestCase):
         self.assertEqual(paths, ["min/15min01.wav"])
 
 
-class EdgeTtsSettingsTests(unittest.TestCase):
+class EdgeTtsSettingsTests(_IsolatedRuntimeTestCase):
     def test_missing_settings_use_distribution_voice_controls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             loaded = load_edge_tts_settings(os.path.join(temp_dir, "missing.ini"))
@@ -265,8 +318,9 @@ class EdgeTtsSettingsTests(unittest.TestCase):
         self.assertEqual(loaded.pitch_value, "+15Hz")
 
 
-class EdgeTtsCacheTests(unittest.TestCase):
+class EdgeTtsCacheTests(_IsolatedRuntimeTestCase):
     def setUp(self):
+        super().setUp()
         _FakeCommunicate.call_count = 0
         self.settings = EdgeTtsSettings(
             enabled=True,
@@ -470,7 +524,7 @@ class EdgeTtsCacheTests(unittest.TestCase):
         cache.stop()
 
 
-class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
+class BossTimerEdgeTtsPriorityTests(_IsolatedRuntimeTestCase):
     def test_server_profile_paths_are_isolated_under_appdata(self):
         app = object.__new__(BossTimerApp)
         app.schedule_server_profile_id = "odin-9"
@@ -534,14 +588,14 @@ class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
         cases = BossTimerApp._build_schedule_alarm_voice_test_cases(
             app,
             delay_seconds=1,
-            selected_rule_index=17,
+            selected_rule_index=_voice_test_index('7'),
         )
 
         self.assertEqual(len(cases), 1)
         self.assertEqual(cases[0]["normal_offsets"], [60])
         self.assertNotIn(610, cases[0]["normal_offsets"])
 
-    def test_spawn_voice_tests_are_scheduled_six_seconds_after_start(self):
+    def test_spawn_voice_tests_reserve_lead_for_enabled_countdown(self):
         app = object.__new__(BossTimerApp)
         now = datetime(2026, 8, 31, 18, 0, 0)
         app._get_schedule_reference_datetime = lambda: now
@@ -556,14 +610,14 @@ class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
         app._normalize_schedule_alarm_offsets = lambda values: sorted({int(value) for value in values}, reverse=True)
         app._normalize_schedule_event_items = lambda values: list(values)
 
-        for rule_index in (0, 1):
-            cases = BossTimerApp._build_schedule_alarm_voice_test_cases(
-                app,
-                delay_seconds=1,
-                selected_rule_index=rule_index,
-            )
-            self.assertEqual(len(cases), 1)
-            self.assertEqual(cases[0]["target_at"], now + timedelta(seconds=6))
+        for countdown in (False, True):
+            app._is_schedule_alarm_voice_test_mode_enabled = lambda mode: mode == 'second_precision' or countdown
+            for number in ('1', '2'):
+                with self.subTest(countdown=countdown, number=number):
+                    cases = app._build_schedule_alarm_voice_test_cases(1, _voice_test_index(number))
+                    self.assertEqual(len(cases), 1)
+                    lead = 21 if countdown and number == '1' else 6
+                    self.assertEqual(cases[0]['target_at'], now + timedelta(seconds=lead))
 
     def test_complex_general_and_invasion_voice_tests_keep_requested_schedule_and_precision(self):
         app = object.__new__(BossTimerApp)
@@ -592,15 +646,16 @@ class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
             ("라이노르", 420, True),
         ]
 
-        for rule_index, precision in ((9, "minute"), (10, "second")):
+        for precision in ('minute', 'second'):
+            app._is_schedule_alarm_voice_test_mode_enabled = lambda mode: mode == 'second_precision' and precision == 'second'
             cases = BossTimerApp._build_schedule_alarm_voice_test_cases(
                 app,
                 delay_seconds=1,
-                selected_rule_index=rule_index,
+                selected_rule_index=_voice_test_index('9-1'),
             )
 
             self.assertEqual(len(cases), 1)
-            self.assertEqual(cases[0]["duration_seconds"], 440)
+            self.assertEqual(cases[0]["duration_seconds"], 451)
             self.assertEqual(
                 [
                     (
@@ -1040,7 +1095,7 @@ class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
 
         self.assertEqual(
             message,
-            "발할라 대전 1분 전입니다.",
+            "발할라 대전 일분 전입니다.",
         )
 
     def test_valhalla_end_notice_is_nineteen_minutes_after_start(self):
@@ -1230,7 +1285,7 @@ class BossTimerEdgeTtsPriorityTests(unittest.TestCase):
                 self.assertFalse(os.path.exists(original_path))
 
 
-class ScheduleBossMetricFormTests(unittest.TestCase):
+class ScheduleBossMetricFormTests(_IsolatedRuntimeTestCase):
     def test_duration_field_updates_form_state_while_typing(self):
         app = object.__new__(BossTimerApp)
         app.schedule_boss_metric_source_mode_var = mock.Mock()
@@ -1247,7 +1302,7 @@ class ScheduleBossMetricFormTests(unittest.TestCase):
         )
 
 
-class DiscordTimedCompositeTests(unittest.TestCase):
+class DiscordTimedCompositeTests(_IsolatedRuntimeTestCase):
     def test_legacy_bot_group_uses_one_name_and_does_not_repeat_invasion(self):
         primary_name, additional_count, all_invasion = compact_alert_names(
             ("니드호그", "셀로비아", "침공 라타토스크", "침공 비요른")
@@ -1370,7 +1425,7 @@ class DiscordTimedCompositeTests(unittest.TestCase):
         self.assertAlmostEqual(DiscordScheduleBot._get_timed_job_playback_volume(job), 1.0)
 
 
-class DiscordGatewayRecoveryTests(unittest.TestCase):
+class DiscordGatewayRecoveryTests(_IsolatedRuntimeTestCase):
     @staticmethod
     def _schedule_message_for_guild(guild_id, channel_id=700):
         guild = type("Guild", (), {"id": guild_id})()
@@ -1396,6 +1451,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.config = {"server_id": str(server_id)}
         bot.message_content_enabled = True
         bot._resolve_text_channel = mock.AsyncMock(return_value=target_channel)
+        bot._resolve_voice_panel_channel = mock.AsyncMock(return_value=target_channel)
         bot._queue_local_schedule_request = mock.AsyncMock()
         return bot
 
@@ -1417,7 +1473,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         odin9_bot._queue_local_schedule_request.assert_not_awaited()
         message.add_reaction.assert_awaited_once_with("✅")
 
-    def test_builtin_voice_command_is_queued_only_from_configured_text_channel(self):
+    def test_builtin_voice_command_is_queued_only_from_soundboard_channel(self):
         message, channel = self._schedule_message_for_guild(800)
         message.content = "광역체크"
         bot = self._message_bot_for_server(800, channel)
@@ -1430,6 +1486,8 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         self.assertEqual(payload["voice_command"], "광역체크")
         self.assertEqual(payload["tts_text"], "광역 체크해주세요.")
         message.add_reaction.assert_awaited_once_with("🔊")
+        bot._resolve_voice_panel_channel.assert_awaited_once_with(message.guild)
+        bot._resolve_text_channel.assert_not_awaited()
 
     def test_builtin_voice_command_is_ignored_in_other_text_channel(self):
         message, _message_channel = self._schedule_message_for_guild(800, channel_id=701)
@@ -1443,13 +1501,36 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         message.add_reaction.assert_not_awaited()
 
     def test_all_slash_commands_have_owned_server_guard(self):
+        # Exercise every registered command, including guarded helper/alias
+        # delegation, rather than counting one spelling of an inline guard.
+        commands = {}
+        def register(**options):
+            def decorate(callback):
+                command = SimpleNamespace(callback=callback)
+                commands[options['name']] = command
+                return command
+            return decorate
+        bot = object.__new__(DiscordScheduleBot)
+        bot.config = {'server_id': '800'}
+        bot.tree = SimpleNamespace(command=register)
+        bot.discord = SimpleNamespace(app_commands=SimpleNamespace(describe=lambda **kwargs: lambda fn: fn))
+        bot._bind_commands()
+        self.assertTrue(commands)
+        async def check_foreign_guild():
+            for name, command in commands.items():
+                with self.subTest(command=name):
+                    interaction = SimpleNamespace(guild_id=900, guild=SimpleNamespace(id=900),
+                        response=SimpleNamespace(send_message=mock.AsyncMock(), defer=mock.AsyncMock()),
+                        followup=SimpleNamespace(send=mock.AsyncMock()))
+                    required = {key: 'test' for key, param in inspect.signature(command.callback).parameters.items()
+                                if key != 'interaction' and param.default is inspect.Parameter.empty}
+                    await command.callback(interaction, **required)
+                    interaction.response.send_message.assert_not_awaited()
+                    interaction.response.defer.assert_not_awaited()
+                    interaction.followup.send.assert_not_awaited()
+                    self.assertEqual(bot.config, {'server_id': '800'})
+        asyncio.run(check_foreign_guild())
         source = inspect.getsource(DiscordScheduleBot._bind_commands)
-
-        self.assertEqual(source.count("@self.tree.command"), 9)
-        self.assertEqual(
-            source.count("if not self._should_handle_interaction(interaction):"),
-            9,
-        )
         self.assertNotIn('self.config["server_id"]', source)
         self.assertNotIn('save_config_value("server_id"', source)
 
@@ -1562,7 +1643,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.client.get_channel.return_value = foreign_channel
 
         with (
-            mock.patch("boss_timer_discord_bot.STATUS"),
+            mock.patch("boss_timer_discord_bot.STATUS", new_callable=_fake_status),
             mock.patch("boss_timer_discord_bot.log"),
         ):
             connected, message = asyncio.run(bot._connect_voice_channel("456"))
@@ -1594,7 +1675,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.tree.sync = mock.AsyncMock()
 
         with (
-            mock.patch("boss_timer_discord_bot.STATUS"),
+            mock.patch("boss_timer_discord_bot.STATUS", new_callable=_fake_status),
             mock.patch("boss_timer_discord_bot.log"),
         ):
             asyncio.run(bot._sync_commands())
@@ -1785,6 +1866,9 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
 
         app._recover_discord_bot_runtime("응답 끊김")
 
+        config_path = Path(app._get_discord_bot_config_storage_path())
+        self.assertTrue(config_path.is_relative_to(self.runtime_root))
+        self.assertTrue(Path(str(config_path) + '.connection.json').is_file())
         request = app._reconnect_discord_bot_runtime_from_request.call_args.args[0]
         self.assertTrue(request["automatic_recovery"])
         self.assertEqual(request["reconnect_reason"], "응답 끊김")
@@ -1957,7 +2041,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
 
         scheduled_callbacks[0][1]()
 
-        app._start_discord_bot_runtime.assert_called_once_with()
+        app._start_discord_bot_runtime.assert_called_once_with(automatic=False)
         self.assertFalse(app.discord_bot_reconnect_in_progress)
 
     def test_local_reconnect_request_cannot_change_owned_server(self):
@@ -1994,7 +2078,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         guild.change_voice_state = mock.AsyncMock()
         bot.client = mock.Mock()
         bot.client.get_guild.return_value = guild
-        fake_status = mock.Mock()
+        fake_status = _fake_status()
 
         with (
             mock.patch("boss_timer_discord_bot.STATUS", fake_status),
@@ -2018,10 +2102,10 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.client.get_guild.return_value = guild
 
         with (
-            mock.patch("boss_timer_discord_bot.STATUS"),
+            mock.patch("boss_timer_discord_bot.STATUS", new_callable=_fake_status),
             mock.patch("boss_timer_discord_bot.asyncio.sleep", new=mock.AsyncMock()) as sleep_mock,
         ):
-            disconnected = asyncio.run(bot._disconnect_stale_configured_voice_session())
+            disconnected = asyncio.run(bot._disconnect_stale_configured_voice_session(force=True))
 
         self.assertTrue(disconnected)
         guild.change_voice_state.assert_awaited_once_with(channel=None)
@@ -2033,15 +2117,17 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.client.is_ready.return_value = False
         bot.client.close = mock.AsyncMock()
         bot.gateway_disconnected_at = 1.0
-        fake_status = mock.Mock()
-        fake_status.shutdown_requested.is_set.return_value = False
+        fake_status = _fake_status()
+        fake_status.shutdown_requested.is_set.side_effect = [False, True]
 
         with (
             mock.patch("boss_timer_discord_bot.STATUS", fake_status),
             mock.patch("boss_timer_discord_bot.asyncio.sleep", new=mock.AsyncMock()),
             mock.patch("boss_timer_discord_bot.time.monotonic", return_value=22.0),
         ):
-            asyncio.run(bot._gateway_recovery_loop())
+            async def bounded_recovery():
+                await asyncio.wait_for(bot._gateway_recovery_loop(), timeout=1)
+            asyncio.run(bounded_recovery())
 
         bot.client.close.assert_awaited_once_with()
         self.assertTrue(any(call.kwargs.get("online") is False for call in fake_status.update.call_args_list))
@@ -2054,7 +2140,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.gateway_disconnected_at = None
         bot.last_voice_reconnect_attempt_at = 0.0
         bot._connect_configured_voice_channel = mock.AsyncMock()
-        fake_status = mock.Mock()
+        fake_status = _fake_status()
         fake_status.shutdown_requested.is_set.side_effect = [False, True]
 
         with (
@@ -2062,7 +2148,9 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
             mock.patch("boss_timer_discord_bot.asyncio.sleep", new=mock.AsyncMock()),
             mock.patch("boss_timer_discord_bot.time.monotonic", return_value=6.0),
         ):
-            asyncio.run(bot._gateway_recovery_loop())
+            async def bounded_recovery():
+                await asyncio.wait_for(bot._gateway_recovery_loop(), timeout=1)
+            asyncio.run(bounded_recovery())
 
         bot._connect_configured_voice_channel.assert_awaited_once_with()
 
@@ -2075,7 +2163,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         bot.last_voice_reconnect_attempt_at = 0.0
         bot._connect_configured_voice_channel = mock.AsyncMock(return_value=True)
         bot._publish_voice_reconnect_recovery_log = mock.AsyncMock()
-        fake_status = mock.Mock()
+        fake_status = _fake_status()
         fake_status.shutdown_requested.is_set.side_effect = [False, True]
 
         with (
@@ -2083,7 +2171,9 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
             mock.patch("boss_timer_discord_bot.asyncio.sleep", new=mock.AsyncMock()),
             mock.patch("boss_timer_discord_bot.time.monotonic", return_value=6.0),
         ):
-            asyncio.run(bot._gateway_recovery_loop())
+            async def bounded_recovery():
+                await asyncio.wait_for(bot._gateway_recovery_loop(), timeout=1)
+            asyncio.run(bounded_recovery())
 
         bot._connect_configured_voice_channel.assert_awaited_once_with()
         bot._publish_voice_reconnect_recovery_log.assert_awaited_once_with()
@@ -2128,7 +2218,7 @@ class DiscordGatewayRecoveryTests(unittest.TestCase):
         self.assertIn("자동 재접속 완료", message)
 
 
-class ScheduleAlarmOrderingTests(unittest.TestCase):
+class ScheduleAlarmOrderingTests(_IsolatedRuntimeTestCase):
     def test_fixed_due_world_boss_uses_recorded_boss_and_time_clips(self):
         app = object.__new__(BossTimerApp)
         app._get_schedule_alarm_boss_voice_path = lambda *, boss_name="", **_kwargs: (
@@ -2323,8 +2413,10 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
         app._normalize_schedule_alarm_offsets = lambda values: sorted({int(value) for value in values}, reverse=True)
         app._normalize_schedule_event_items = lambda items: items
 
-        minute_case = app._build_schedule_alarm_voice_test_cases(1, selected_rule_index=9)[0]
-        second_case = app._build_schedule_alarm_voice_test_cases(1, selected_rule_index=10)[0]
+        app._is_schedule_alarm_voice_test_mode_enabled = lambda mode: False
+        minute_case = app._build_schedule_alarm_voice_test_cases(1, _voice_test_index('9-1'))[0]
+        app._is_schedule_alarm_voice_test_mode_enabled = lambda mode: mode == 'second_precision'
+        second_case = app._build_schedule_alarm_voice_test_cases(1, _voice_test_index('9-1'))[0]
 
         self.assertEqual(minute_case["normal_offsets"], [300, 60])
         self.assertEqual(second_case["normal_offsets"], [300, 60])
@@ -2339,7 +2431,8 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
         app._normalize_schedule_alarm_offsets = lambda values: sorted({int(value) for value in values}, reverse=True)
         app._normalize_schedule_event_items = lambda items: items
 
-        case = app._build_schedule_alarm_voice_test_cases(1, selected_rule_index=11)[0]
+        app._is_schedule_alarm_voice_test_mode_enabled = lambda mode: mode == 'second_precision'
+        case = app._build_schedule_alarm_voice_test_cases(1, _voice_test_index('9-3'))[0]
 
         self.assertEqual(case["normal_offsets"], [60])
         self.assertEqual([event["boss_name"] for event in case["events"]], [
@@ -2357,7 +2450,8 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
         app._normalize_schedule_alarm_offsets = lambda values: sorted({int(value) for value in values}, reverse=True)
         app._normalize_schedule_event_items = lambda items: items
 
-        case = app._build_schedule_alarm_voice_test_cases(1, selected_rule_index=12)[0]
+        app._is_schedule_alarm_voice_test_mode_enabled = lambda mode: mode == 'second_precision'
+        case = app._build_schedule_alarm_voice_test_cases(1, _voice_test_index('9-4'))[0]
         offsets = [
             int((event["scheduled_at"] - case["target_at"]).total_seconds())
             for event in case["events"]
@@ -2871,8 +2965,8 @@ class ScheduleAlarmOrderingTests(unittest.TestCase):
         self.assertEqual(paths, ["voice/boss/발할라 대전.wav", "voice/min/1min01.wav"])
 
 
-class DiscordBotLifecycleTests(unittest.TestCase):
-    def test_startup_sends_disconnect_only_session_even_without_status_runtime(self):
+class DiscordBotLifecycleTests(_IsolatedRuntimeTestCase):
+    def test_startup_without_local_bot_never_disconnects_remote_administrator(self):
         app = object.__new__(BossTimerApp)
         app.discord_bot_startup_cleanup_failed = False
         app._query_discord_bot_status_port = mock.Mock(return_value={})
@@ -2884,7 +2978,7 @@ class DiscordBotLifecycleTests(unittest.TestCase):
 
         self.assertTrue(cleaned)
         app._stop_discord_bot_runtime_core.assert_not_called()
-        app._run_discord_bot_disconnect_only.assert_called_once_with()
+        app._run_discord_bot_disconnect_only.assert_not_called()
         self.assertFalse(app.discord_bot_startup_cleanup_failed)
 
     def test_runtime_stop_requests_graceful_shutdown_before_force_cleanup(self):
@@ -2926,7 +3020,7 @@ class DiscordBotLifecycleTests(unittest.TestCase):
         self.assertFalse(app.discord_bot_startup_cleanup_failed)
 
 
-class DiscordVoiceCommandTests(unittest.TestCase):
+class DiscordVoiceCommandTests(_IsolatedRuntimeTestCase):
     def test_media_lookup_prefers_wav_over_mp4_and_ignores_spacing(self):
         app = object.__new__(BossTimerApp)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3044,7 +3138,7 @@ class DiscordVoiceCommandTests(unittest.TestCase):
         bot._resolve_text_channel.assert_not_awaited()
 
 
-class ServerProfileDiscordSettingsTests(unittest.TestCase):
+class ServerProfileDiscordSettingsTests(_IsolatedRuntimeTestCase):
     def test_discord_config_path_is_scoped_to_active_server_profile(self):
         app = BossTimerApp.__new__(BossTimerApp)
         app.schedule_server_profile_id = "odin9"

@@ -113,6 +113,11 @@ def evening_notices(snapshot, state, now):
                   '_participation_name': name + other, '_manual_participation': target.get('manual_text', ''),
                   '_manual_source': target.get('manual_source', ''), '_manual_revision': target.get('manual_revision'),
                   '_midnight': at == end}
+        # Keep the configured event priority. Speak its time just once and
+        # include only the following 30-minute window; retain all rows in body.
+        values['_boss_entries'] = [dict(name=row.get('display_name') or row['boss_name'],
+                                       at=row['scheduled_at'], period='' if at == end else '저녁')
+                                  for row in future if parse_time(row['scheduled_at']) >= at]
         plans = [('evening_first', first_opportunity(rows, day)),
                  ('evening_second', dict(kind='world_boss', at=encode_time(day.replace(hour=20))))]
         for slot, plan in plans:

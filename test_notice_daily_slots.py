@@ -57,12 +57,32 @@ class DailySlotTests(unittest.TestCase):
         self.snapshot['events'] = [self.row('길던', 21), self.row('공성전', 22), self.row('프레이', 21, star=True)]
         self.refresh()
         self.assertEqual(self.event('evening_first')['tts_text'],
-            '오늘 저녁 22시 공성전 외 주요보스들이 있습니다. 많은 참여 부탁드립니다.')
+            '오늘 저녁 22시 공성전 일정이 있습니다. 많은 참여 부탁드립니다.')
         self.snapshot['events'] = [self.row('프레이', 22, star=True)]
         self.refresh()
         self.assertEqual(self.event('evening_first')['tts_text'],
-            '오늘 저녁 22시 프레이가 있습니다. 많은 참여 부탁드립니다.')
+            '오늘 저녁 22시 프레이 일정이 있습니다. 많은 참여 부탁드립니다.')
         self.assertEqual([event_priority(name) for name in ('공성전', '트리니트리그', '방어전', '점령전', '지옥성체', '길던')], list(range(6)))
+
+    def test_evening_window_counts_names_once_and_preserves_full_body(self):
+        self.snapshot['events'] = [self.row('공성전', 22), self.row('프레이', 22, 10, star=True),
+                                   self.row('오딘', 22, 29, star=True), self.row('제외보스', 22, 30, star=True)]
+        self.refresh()
+        event = self.event('evening_first')
+        self.assertEqual(event['tts_text'], '오늘 저녁 22시 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.')
+        self.assertIn('제외보스', event['body'])
+        self.assertEqual(self.event('evening_second')['tts_text'], event['tts_text'])
+
+    def test_existing_name_and_time_template_uses_the_same_group(self):
+        from notice_module.payload.notice_templates import render_template
+        self.snapshot['events'] = [self.row('공성전', 22), self.row('프레이', 22, 10, star=True),
+                                   self.row('오딘', 22, 29, star=True), self.row('제외보스', 22, 30, star=True)]
+        self.refresh()
+        event = self.event('evening_first')
+        state = {'tts_templates': {'participation.general':
+                 '오늘은 {시작시간}에 {알림제목} 일정이 있습니다. 많은 참여 부탁드립니다.'}}
+        self.assertEqual(render_template(state, 'participation.general', event['tts_values'], now=self.now),
+                         '오늘은 22시에 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.')
 
     def test_chain_priority_then_highest_chapter_then_time(self):
         day = self.now.replace(hour=0)

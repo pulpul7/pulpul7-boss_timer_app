@@ -63,6 +63,34 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(HandoverError):
             other.request("second")
 
+    def test_previous_scope_requires_same_owner_shutdown_and_unchanged_record(self):
+        self.active_owner()
+        other = HandoverRecord(self.repo.get, self.repo.put, dict(self.scope, season="19"))
+        with self.assertRaises(HandoverError):
+            other.request('first')  # No implicit bypass, even for the same ID.
+        _, sha = other.read(recovery_client='first', inspect_own_active=True)
+        with self.assertRaises(HandoverError):
+            other.release_previous_scope('first', sha)
+        with self.assertRaises(HandoverError):
+            other.release_previous_scope('second', sha, stopped=True)
+        self.record.request('second')  # Another transfer began after inspection.
+        with self.assertRaises(HandoverError):
+            other.release_previous_scope('first', sha, stopped=True)
+        self.assertEqual(self.record.read()[0]['receiver'], 'second')
+
+    def test_previous_scope_release_does_not_import_old_artifact(self):
+        self.active_owner()
+        old, sha = self.record.read()
+        old['artifact'] = {'path': 'completed-old-season-schedule'}
+        self.record.write(old, sha)
+        other = HandoverRecord(self.repo.get, self.repo.put, dict(self.scope, server='odin8', season='19'))
+        _, sha = other.read(recovery_client='first', inspect_own_active=True)
+        other.release_previous_scope('first', sha, stopped=True)
+        row = other.request('first')
+        self.assertEqual(row['phase'], 'joining')
+        self.assertEqual(row['scope'], other.scope)
+        self.assertIsNone(row['artifact'])
+
     def test_concurrent_request_and_stale_completion_cannot_overwrite(self):
         self.active_owner()
         row = self.record.request("second")
@@ -115,6 +143,16 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(row["scope"]["season"], "19")
         self.assertEqual(row["phase"], "joining")
         self.assertIsNone(row["artifact"])
+
+    def test_legacy_idle_record_never_reuses_expired_previous_season_artifact(self):
+        self.active_owner()
+        data, sha = self.record.read()
+        data.update(owner='', phase='idle', deadline=0,
+                    artifact={'path': 'old-season'}, receiver='first', released=True)
+        self.record.write(data, sha)
+        other = HandoverRecord(self.repo.get, self.repo.put, dict(self.scope, season='19'))
+        row = other.request('first')
+        self.assertIsNone(row['artifact'])
 
     def test_failed_solo_start_can_retry_after_scope_correction(self):
         row = self.record.request('first')
@@ -218,6 +256,44 @@ class HandoverTests(unittest.TestCase):
         manager = DiscordHandover(app)
         manager._ui = lambda callback, wait=True: callback()
         return manager
+
+    def test_same_admin_can_recover_previous_season_after_confirmed_shutdown(self):
+        app = self.app('first')
+        old = self.coordinator(app)
+        request = old.record.request(old.client)
+        old.record.change(request['request'], old.client, phases={'joining'}, phase='active')
+        app.current_season_no = '19'
+        app._show_centered_messagebox.return_value = True
+        new = self.coordinator(app)
+        new._show()
+        new._incoming()
+        final, _ = new.record.read()
+        self.assertEqual(final['phase'], 'active')
+        self.assertEqual(final['scope']['season'], '19')
+        self.assertFalse(new.policy.snapshot()['handover_hold'])
+        app._stop_discord_bot_runtime_core.assert_called_once()
+        app._apply_loaded_schedule_shared_payload.assert_not_called()
+        self.assertEqual(app._show_centered_messagebox.call_args.args[1], '이전 시즌 담당 기록 정리')
+
+    def test_declined_or_failed_shutdown_keeps_previous_owner_record(self):
+        for confirm, stopped in ((False, True), (True, False)):
+            with self.subTest(confirm=confirm, stopped=stopped):
+                self.repo = Repository()
+                app = self.app('first')
+                old = self.coordinator(app)
+                request = old.record.request(old.client)
+                old.record.change(request['request'], old.client, phases={'joining'}, phase='active')
+                original, original_sha = old.record.read()
+                app.current_season_no = '19'
+                app._show_centered_messagebox.return_value = confirm
+                app._stop_discord_bot_runtime_core.side_effect = None
+                app._stop_discord_bot_runtime_core.return_value = stopped
+                new = self.coordinator(app)
+                new._show()
+                new._incoming()
+                self.assertEqual(old.record.read(), (original, original_sha))
+                app._start_discord_bot_runtime.assert_not_called()
+                self.assertTrue(new.policy.snapshot()['handover_hold'])
 
     def wait_for(self, condition):
         deadline = time.monotonic() + 5

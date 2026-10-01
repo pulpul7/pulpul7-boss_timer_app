@@ -31,6 +31,7 @@ class NoticeHost:
     get_schedule_snapshot: object = None  # Optional read-only facts, called on the GUI thread.
     apply_temporary_maintenance: object = None  # Optional idempotent GUI-thread command.
     get_preparation_profile: object = None  # GUI captures immutable voice settings + isolated factory.
+    get_output_context: object = None  # Optional authenticated, GUI-owned Discord transport.
 
 
 class _SourceLoader(importlib.abc.Loader):

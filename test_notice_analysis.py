@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from notice_module.payload.notice_analysis import analyze_notice, notice_events
 from notice_module.payload.notice_management import KST, NoticeStore, event_status
@@ -181,6 +182,32 @@ class ReconciliationTests(unittest.TestCase):
         self.store.finish_collection(token, [], {}, {})
         self.article["body"] += "\n본문 수정"
         self.assertNotIn(event["id"], self.collect()["events"])
+
+    def test_title_date_upgrade_does_not_replay_completed_one_shot(self):
+        self.article.update(category='update', title='9/9(수) 업데이트 후 확인된 문제 안내', body='문제 안내')
+        with patch('notice_module.payload.notice_templates.spoken_title_dates', side_effect=lambda value: value):
+            event = next(iter(self.collect()['events'].values()))
+            self.assertIn('9/9(수)', event['tts_text'])
+            self.assertTrue(self.store.complete_delivery(self.store.delivery_token(event['id'])))
+        self.collect()
+        self.assertIsNone(self.store.delivery_token(event['id']))
+
+    def test_same_collection_links_class_to_maintenance_even_when_listed_later(self):
+        self.store.clock = lambda: datetime(2026, 10, 1, 10, tzinfo=KST)
+        article = source('클래스 변경권 판매 및 클래스 변경 기간: 9월 30일(수) 점검 후 ~ 10월 7일(수) 08:00',
+                         'class_change', '클래스 변경 시즌 15 안내')
+        article.update(published_date='2026-09-30', first_seen=self.store.clock().isoformat())
+        maintenance = source('점검 일정\n9월 30일(수) 08:00 ~ 11:30', 'maintenance', '9/30(수) 정기 점검 안내')
+        maintenance.update(id='CT9G/1970', published_date='2026-09-29')
+        listing = [{k: item[k] for k in ('id', 'url', 'title', 'category', 'published_date')}
+                   for item in (article, maintenance)]
+        fetched = {item['id']: dict(item, content_hash=item['body']) for item in (article, maintenance)}
+        token, _ = self.store.claim_collection(manual=True)
+        self.store.finish_collection(token, listing, fetched, {})
+        state = self.store.snapshot()
+        for fact in state['articles'][article['id']]['analysis']['windows']:
+            self.assertEqual(fact['start'], '2026-09-30T11:30:00+09:00')
+        self.assertEqual(len([e for e in state['events'].values() if e['category'] == 'class_change']), 3)
 
     def test_unknown_expiry_does_not_extend_with_each_collection(self):
         event = self.unknown()

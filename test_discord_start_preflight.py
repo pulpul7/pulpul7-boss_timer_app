@@ -69,6 +69,22 @@ class StartPreflightTests(unittest.TestCase):
         self.assertFalse(self.launch(app, automatic=True))
         app._show_centered_messagebox.assert_not_called()
 
+    def test_delayed_automatic_recovery_cannot_launch_during_handover(self):
+        app = self.app()
+        app.discord_handover_busy = True
+        self.assertFalse(self.launch(app, automatic=True))
+        app._load_discord_bot_settings.assert_not_called()
+        app._get_discord_bot_launch_command.assert_not_called()
+
+    def test_second_launch_reuses_only_own_same_profile_process(self):
+        for profile, expected in (('test.ini', True), ('old-season.ini', False), (None, False)):
+            with self.subTest(profile=profile):
+                app = self.app()
+                app._is_discord_bot_process_alive = Mock(return_value=True)
+                app.discord_bot_process_profile = profile
+                self.assertEqual(self.launch(app, handover_approved=True), expected)
+                app._get_discord_bot_launch_command.assert_not_called()
+
     def test_name_registration_cancel_does_not_start_handover(self):
         app = self.app()
         app._ensure_administrator_name.return_value = False

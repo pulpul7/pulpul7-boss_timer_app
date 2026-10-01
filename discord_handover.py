@@ -43,19 +43,39 @@ class HandoverRecord:
                 and not str(data.get("connection", "")).startswith("완료")
                 and (data.get("phase") == "failed" or expired_join))
 
-    def read(self, *, recovery_client=None):
+    def own_active_scope(self, data, client):
+        """Completed ownership only, not another admin or an in-flight transfer."""
+        return bool(data and client and data.get("phase") == "active"
+                    and data.get("owner") == client
+                    and data.get("receiver") in (None, "", client)
+                    and isinstance(data.get("scope"), dict)
+                    and data["scope"].get("guild") == self.scope["guild"])
+
+    def read(self, *, recovery_client=None, inspect_own_active=False):
         data, sha, error = self.get(self.path)
         if error:
             raise HandoverError(error)
         if data is not None and (not isinstance(data, dict) or data.get("schema") != 1):
             raise HandoverError("인계 기록 형식을 확인할 수 없습니다.")
-        # Cross-scope recovery is allowed only for this installation's failed
-        # solo startup. Active owners and transferred artifacts remain protected.
+        # Ordinary requests/polling remain strict. Own active records may be
+        # inspected for explicit recovery, but cannot be claimed by request().
         if (data and data.get("scope") != self.scope
                 and not (data.get("phase") == "idle" and not data.get("owner"))
-                and not self.abandoned_self_join(data, recovery_client)):
+                and not self.abandoned_self_join(data, recovery_client)
+                and not (inspect_own_active and self.own_active_scope(data, recovery_client))):
             raise HandoverError("다른 서버·시즌의 담당 기록입니다. 기존 담당자가 종료한 뒤 설정을 확인하세요.")
         return data, sha
+
+    def release_previous_scope(self, client, expected_sha, *, stopped=False):
+        """Release exactly the reviewed record, only after local shutdown succeeded."""
+        if stopped is not True:
+            raise HandoverError("기존 로컬 봇 종료 확인이 필요합니다.")
+        data, sha = self.read(recovery_client=client, inspect_own_active=True)
+        if sha != expected_sha or not self.own_active_scope(data, client) or data.get("scope") == self.scope:
+            raise HandoverError("담당 기록이 변경되어 이전 시즌 기록 복구를 중단했습니다. 다시 확인해주세요.")
+        data.update(owner="", receiver="", phase="idle", artifact=None, released=True,
+                    updated=time.time(), message="동일 담당자의 이전 시즌 봇 종료 확인")
+        self.write(data, sha)
 
     def write(self, data, sha):
         ok, error = self.put(self.path, data, sha=sha, message="BossTimer administrator handover")
@@ -65,7 +85,8 @@ class HandoverRecord:
     def request(self, client, now=None):
         now = time.time() if now is None else now
         old, sha = self.read(recovery_client=client)
-        recovering = bool(old and old.get("receiver") == client and old.get("released")
+        recovering = bool(old and old.get("phase") not in {"active", "idle"}
+                          and old.get("receiver") == client and old.get("released")
                           and (old.get("phase") == "failed" or now > old.get("deadline", now)))
         if old and old.get("phase") not in {"active", "idle", "failed"} and not recovering:
             raise HandoverError("다른 인계가 진행 중이거나 미완료 상태입니다. 기존 담당자 확인이 필요합니다.")
@@ -233,7 +254,20 @@ class DiscordHandover:
 
     def _incoming(self):
         try:
-            existing, _ = self.record.read(recovery_client=self.client)
+            existing, existing_sha = self.record.read(recovery_client=self.client, inspect_own_active=True)
+            if (existing and existing.get("scope") != self.scope
+                    and self.record.own_active_scope(existing, self.client)):
+                confirmed = self._ui(lambda: self.app._show_centered_messagebox(
+                    "askyesno", "이전 시즌 담당 기록 정리",
+                    "이 담당자 ID의 이전 서버·시즌 운영 기록이 남아 있습니다.\n"
+                    "기존 봇을 종료하고 현재 시즌으로 이어서 접속할까요?\n"
+                    "이전 시즌 스케줄을 가져오지 않으며 현재 설정과 스케줄은 유지합니다.\n"
+                    "같은 담당자 ID를 다른 PC에 복사했다면 그 PC의 봇도 먼저 종료해주세요.",
+                    parent=self.dialog.window))
+                if not confirmed:
+                    raise HandoverError("이전 시즌 담당 기록 정리를 취소했습니다.")
+                stopped = self._ui(lambda: self.app._stop_discord_bot_runtime_core())
+                self.record.release_previous_scope(self.client, existing_sha, stopped=stopped)
             if existing and existing.get("scope") != self.scope and self.record.abandoned_self_join(existing, self.client):
                 confirmed = self._ui(lambda: self.app._show_centered_messagebox(
                     "askyesno", "이전 접속 실패 기록 복구",
@@ -367,7 +401,8 @@ class DiscordHandover:
             try:
                 data, sha = self.record.read()
                 if data and data.get("owner") == self.client and data.get("phase") == "active":
-                    data.update(owner="", phase="idle", updated=time.time(), message="담당 관리자 종료")
+                    data.update(owner="", receiver="", phase="idle", artifact=None, released=True,
+                                updated=time.time(), message="담당 관리자 종료")
                     self.record.write(data, sha)
             except Exception as exc:
                 self.app._append_debug_log(f"handover_release_failed type={type(exc).__name__}")
