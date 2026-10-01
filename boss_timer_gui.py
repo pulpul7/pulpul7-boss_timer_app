@@ -3057,6 +3057,7 @@ class BossTimerApp:
         self.schedule_summary_after_id = None
         self.schedule_summary_last_reference_second: datetime | None = None
         self.schedule_summary_last_precise_reference: datetime | None = None
+        self.schedule_summary_countdown_update_at: datetime | None = None
         self.schedule_alarm_after_id = None
         self.schedule_alarm_last_tick_second: datetime | None = None
         self.schedule_alarm_cached_cutoff_second: datetime | None = None
@@ -14880,13 +14881,26 @@ class BossTimerApp:
         return rebuilt_rows
 
     def _format_schedule_remaining_parts(self, total_seconds: float) -> tuple[str, str]:
-        seconds_value = max(0, int(math.ceil(total_seconds)))
+        # Match the floor countdown used by precision_time_tracker. Rounding
+        # 125.2 up to 126 otherwise makes a measured timer appear one second late.
+        seconds_value = max(0, int(total_seconds))
         days, remainder = divmod(seconds_value, 86400)
         hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
         if days > 0:
             return f"{days}일 {hours:02d}:{minutes:02d}", f":{seconds:02d}"
         return f"{hours:02d}:{minutes:02d}", f":{seconds:02d}"
+
+    def _get_schedule_countdown_display_update_at(self, scheduled_times, reference_now):
+        boundaries = []
+        for scheduled_at in scheduled_times:
+            remaining = (scheduled_at - reference_now).total_seconds()
+            if remaining > 0:
+                # The displayed integer falls just AFTER this boundary. Include
+                # the target's fractional phase instead of waiting for PC :SS.00.
+                boundaries.append(scheduled_at - timedelta(seconds=int(remaining))
+                                  + timedelta(milliseconds=1))
+        return min(boundaries) if boundaries else None
 
     def _get_schedule_item_identity(self, kind: str, item: dict[str, object]) -> tuple[str, str, str, str]:
         scheduled_at = item.get("scheduled_at")
@@ -16674,6 +16688,7 @@ class BossTimerApp:
         return success
 
     def _update_schedule_next_boss_summary(self) -> None:
+        self.schedule_summary_countdown_update_at = None
         reference_now = (
             self.schedule_summary_last_precise_reference
             if isinstance(self.schedule_summary_last_precise_reference, datetime)
@@ -16761,6 +16776,11 @@ class BossTimerApp:
             self.schedule_following_boss_var.set("")
             self.schedule_following_boss_remaining_var.set("")
             self.schedule_following_boss_seconds_var.set("")
+        countdown_times = [next_time]
+        if following_row is not None and next_boss != "정기점검":
+            countdown_times.append(following_row[0])
+        self.schedule_summary_countdown_update_at = self._get_schedule_countdown_display_update_at(
+            countdown_times, reference_now)
         self._update_schedule_summary_label_styles()
         self._layout_schedule_summary_labels()
 
@@ -18147,8 +18167,9 @@ class BossTimerApp:
         if second_precision is None:
             second_precision = self._is_schedule_second_precision(item)
         if second_precision:
-            # Preserve the 0.1-second preview calculation; round only its whole-second label.
-            total_seconds = max(0, int(math.ceil(remaining_seconds)))
+            # Keep the measured/preview datetime intact; floor only the label,
+            # using the same convention as the game countdown and summary.
+            total_seconds = max(0, int(remaining_seconds))
             hours, remainder = divmod(total_seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             return f"{hours:02d}시 {minutes:02d}분 {seconds:02d}초", ""
@@ -43292,6 +43313,7 @@ class BossTimerApp:
         if self.schedule_window is None or not self.schedule_window_open or not self.schedule_window.winfo_exists():
             self.schedule_summary_last_reference_second = None
             self.schedule_summary_last_precise_reference = None
+            self.schedule_summary_countdown_update_at = None
             self._trace_periodic_callback_duration(
                 "schedule_summary_tick",
                 callback_started_at,
@@ -43313,7 +43335,9 @@ class BossTimerApp:
         blink_phase_changed = self._update_schedule_recently_elapsed_blink_phase() if blink_active else False
         expired_blink_identities = self._get_schedule_recently_elapsed_blink_expired_identities(reference_now)
         precise_display_active = bool(str(getattr(self, "schedule_second_precision_offset_target_key", "") or "").strip())
-        if second_changed or precise_display_active:
+        countdown_update_at = getattr(self, 'schedule_summary_countdown_update_at', None)
+        countdown_changed = isinstance(countdown_update_at, datetime) and precise_reference_now >= countdown_update_at
+        if second_changed or precise_display_active or countdown_changed:
             self._update_schedule_next_boss_summary()
             self._update_schedule_second_precision_selected_seconds_label()
         if second_changed and not blink_active and self._run_schedule_pre_event_today_focus_if_needed(reference_now):
@@ -43339,6 +43363,11 @@ class BossTimerApp:
         )
         if precise_display_active:
             delay_ms = 100
+        countdown_update_at = getattr(self, 'schedule_summary_countdown_update_at', None)
+        if isinstance(countdown_update_at, datetime):
+            countdown_delay_ms = max(20, int(math.ceil(
+                (countdown_update_at - precise_reference_now).total_seconds() * 1000)))
+            delay_ms = min(delay_ms, countdown_delay_ms)
         if blink_active:
             delay_ms = min(delay_ms, 200)
         if blink_active and self.schedule_tree_recently_elapsed_blink_next_toggle_at > 0:
