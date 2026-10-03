@@ -1,4 +1,16 @@
 ﻿import configparser
+_startup_runtime = None
+if __name__ == "__main__":
+    # Acquire the GUI guard and show loading before optional/heavy imports.
+    from startup_runtime import bootstrap
+    _startup_runtime = bootstrap()
+
+
+def _startup_stage(index: int, detail: str = "") -> None:
+    if _startup_runtime is not None:
+        _startup_runtime.stage(index, detail)
+
+
 import ctypes
 import base64
 import bisect
@@ -1067,7 +1079,6 @@ SCHEDULE_ALARM_DEFAULT_CHIME_PATHS = {
     "fixed": "wave/안내방송_비행기3.wav",
     "rapid_chain": "wave/안내방송_비행기2.wav",
 }
-SCHEDULE_ALARM_FEMALE_VOICE_NAME = "Microsoft Heami Desktop - Korean"
 SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS = 60
 SCHEDULE_ALARM_COUNTDOWN_AUDIO_ALIAS = "boss_timer_countdown_audio"
 SCHEDULE_ALARM_BOSS_AUDIO_ALIAS = "boss_timer_boss_audio"
@@ -1817,7 +1828,6 @@ class BossTimerApp:
             0,
             self._parse_int(str(payload.get("second_precision_expire_hours") or "168"), 168),
         )
-        self.schedule_alarm_voice_name = str(payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
         self.schedule_alarm_chime_settings = self._normalize_schedule_alarm_chime_settings(payload.get("chime_settings", {}))
         self.schedule_alarm_common_offsets = self._normalize_schedule_alarm_offsets(payload.get("common_offsets", []))
         self.schedule_boss_alarm_settings = self._normalize_schedule_boss_alarm_settings_map(payload.get("boss_overrides", {}))
@@ -1831,7 +1841,7 @@ class BossTimerApp:
             self.schedule_second_precision_expire_hours_var.set(str(self.schedule_second_precision_expire_hours_default))
             self.schedule_fixed_boss_alarm_enabled_var.set(self.schedule_fixed_boss_alarm_enabled_default)
             self.schedule_fixed_boss_skip_due_time_var.set(self.schedule_fixed_boss_skip_due_time_default)
-            self.schedule_alarm_voice_label_var.set(self.schedule_alarm_voice_name)
+            self._refresh_schedule_alarm_voice_label()
         except (AttributeError, tk.TclError):
             pass
 
@@ -1843,12 +1853,14 @@ class BossTimerApp:
         if not profile_id or not target_dir:
             return False
         try:
+            access_checks = set()
             source = seed_profile(
                 os.path.join(get_user_config_dir(), SCHEDULE_SERVER_PROFILE_DIRNAME),
                 self._get_active_schedule_server_profile_season_key(), profile_id,
                 preferred_season_key=preferred_season_key,
+                access_checks=access_checks,
             )
-            ensure_profile_defaults(target_dir, os.path.join(get_resource_root(), "init"))
+            ensure_profile_defaults(target_dir, os.path.join(get_resource_root(), "init"), access_checks=access_checks)
         except (OSError, ValueError) as exc:
             self._append_debug_log(f"schedule_server_profile_seed_failed {type(exc).__name__}: {exc}")
             # Do not proceed with defaults after an incomplete settings migration.
@@ -2019,10 +2031,11 @@ class BossTimerApp:
                                       reset_voice_queue=False, raise_on_error=True)
         if previous_id and self._save_schedule_alarm_settings() is False:
             raise OSError("현재 알람/차임벨 설정을 저장하지 못했습니다.")
-        seed_profile(profiles, season_key, profile_id,
+        access_checks = set()
+        seed_profile(profiles, season_key, profile_id, access_checks=access_checks,
                      preferred_season_key=source_season
                      if previous_id == profile_id else None)
-        ensure_profile_defaults(target, Path(get_resource_root()) / "init")
+        ensure_profile_defaults(target, Path(get_resource_root()) / "init", access_checks=access_checks)
         # Existing profile directories are deliberately not reseeded. Verify
         # their files too, so permission failures cannot partially commit a season.
         for relative in SETTINGS_FILES:
@@ -2187,6 +2200,7 @@ class BossTimerApp:
         return copied_any
 
     def __init__(self, root: tk.Tk, *, scheduler_worker: bool = False) -> None:
+        _startup_stage(1, "현재 시즌과 서버 프로필을 확인합니다.")
         self.root = root
         self.root.report_callback_exception = self._report_callback_exception
         # Must precede early season selection as well as distribution seeding.
@@ -2363,6 +2377,7 @@ class BossTimerApp:
         self.main_window_y = 100
         self.settings_window_x = 140
         self.settings_window_y = 140
+        _startup_stage(2, "기존 자료를 보존하면서 필요한 기본 파일과 설정을 준비합니다.")
         self._seed_init_directory_from_resources()
         self._seed_runtime_default_files_from_resource_init()
         self._seed_runtime_edge_tts_cache_from_resources()
@@ -2538,6 +2553,7 @@ class BossTimerApp:
         self.log_stats_section_vars: dict[str, tk.BooleanVar] = {}
         self.log_stats_boss_vars: dict[str, tk.BooleanVar] = {}
         self.version_info_window = None
+        _startup_stage(3, "보스 설정과 TTS 모듈·음성 캐시를 준비합니다.")
         self.record_book_catalog = get_record_book_boss_catalog()
         self.record_book_catalog_map = {item["boss_name"]: item for item in self.record_book_catalog}
         self.record_book_catalog_order_map = {item["boss_name"]: index for index, item in enumerate(self.record_book_catalog)}
@@ -2584,7 +2600,6 @@ class BossTimerApp:
         self.schedule_fixed_boss_skip_due_time_default = bool(schedule_alarm_payload.get("fixed_boss_skip_due_time", True))
         self.schedule_second_precision_expire_hours_default = max(0, self._parse_int(str(schedule_alarm_payload.get("second_precision_expire_hours") or "168"), 168))
         self.schedule_alarm_voice_rule_version = str(schedule_alarm_payload.get("voice_rule_version") or SCHEDULE_ALARM_VOICE_RULE_VERSION).strip() or SCHEDULE_ALARM_VOICE_RULE_VERSION
-        self.schedule_alarm_voice_name = str(schedule_alarm_payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
         self.schedule_alarm_chime_settings = self._normalize_schedule_alarm_chime_settings(schedule_alarm_payload.get("chime_settings", {}))
         self.schedule_alarm_common_offsets = self._normalize_schedule_alarm_offsets(schedule_alarm_payload.get("common_offsets", []))
         self.schedule_boss_alarm_settings = self._normalize_schedule_boss_alarm_settings_map(schedule_alarm_payload.get("boss_overrides", {}))
@@ -2593,6 +2608,7 @@ class BossTimerApp:
         self._sync_schedule_alarm_settings_with_boss_definitions()
         self._sync_schedule_fixed_boss_alarm_settings_with_definitions()
         self.record_book_sections = ["절대자", *RECORD_BOOK_AREAS, "기타"]
+        _startup_stage(4, "기록표와 평균 기록 캐시를 읽습니다.")
         self.record_book_data_month_key = datetime.now().strftime("%Y-%m")
         self.record_book_data = self._load_record_book_data()
         self.record_book_dirty = False
@@ -2818,7 +2834,7 @@ class BossTimerApp:
         self.schedule_alarm_selected_boss_var = tk.StringVar(value="보스를 선택하세요.")
         self.schedule_alarm_boss_enabled_var = tk.BooleanVar(value=False)
         self.schedule_alarm_boss_tab_var = tk.StringVar(value="normal")
-        self.schedule_alarm_voice_label_var = tk.StringVar(value=self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME)
+        self.schedule_alarm_voice_label_var = tk.StringVar(value="")
         self.schedule_alarm_voice_test_delay_var = tk.StringVar(value="1")
         self.schedule_alarm_voice_test_status_var = tk.StringVar(value="")
         # These are test-run switches, not global alarm preferences.  A test
@@ -3093,8 +3109,6 @@ class BossTimerApp:
         self.schedule_alarm_second_precision_gen_pending_keys: set[str] = set()
         self.schedule_alarm_tts_queue: queue.Queue[dict[str, object] | None] = queue.Queue()
         self.schedule_alarm_tts_stop_event = threading.Event()
-        self.schedule_alarm_tts_process: subprocess.Popen | None = None
-        self.schedule_alarm_tts_process_voice_name = ""
         self.schedule_alarm_tts_category_generation: dict[str, int] = {}
         self.schedule_alarm_edge_tts_active_category = ""
         self.schedule_alarm_edge_tts_active_until = 0.0
@@ -3288,6 +3302,7 @@ class BossTimerApp:
         self.schedule_input_custom_server_open_expires_at: datetime | None = None
         self.schedule_input_custom_server_open_saved_at: datetime | None = None
         self.schedule_second_precision_startup_cleared = False
+        _startup_stage(5, "저장된 스케줄과 서버 정보를 불러옵니다.")
         self._load_schedule_state()
         self._restore_github_cache_from_import_meta()
         self.schedule_github_server_entries = self._merge_local_github_server_entries(self._load_github_server_entries_cache())
@@ -3332,16 +3347,16 @@ class BossTimerApp:
             self._schedule_alarm_tick()
         else:
             self._cleanup_stale_discord_bot_runtime_at_startup()
+            _startup_stage(6, "메인 화면을 구성합니다. Discord 로그인은 화면을 연 뒤 진행합니다.")
             self._build_ui()
+            if _startup_runtime is not None:
+                _startup_runtime.reveal(self.root)
             self._ensure_startup_season_configuration()
             self.schedule_github_server_entries = self._merge_local_github_server_entries(self.schedule_github_server_entries)
             self._sync_github_server_combo_to_loaded_meta()
-            self._sync_github_server_combo_to_loaded_meta()
             try:
-                self.root.after(150, self._sync_github_server_combo_to_loaded_meta)
                 self.root.after(350, self._sync_startup_remote_schedule_if_needed)
                 self.root.after(700, self._connect_discord_gateway_at_startup)
-                self.root.after(1200, self._sync_github_server_combo_to_loaded_meta)
             except tk.TclError:
                 pass
             self._schedule_main_clock_tick()
@@ -3634,7 +3649,6 @@ class BossTimerApp:
             self.schedule_alarm_common_offsets = self._normalize_schedule_alarm_offsets(payload.get("common_offsets", []))
             self.schedule_boss_alarm_settings = self._normalize_schedule_boss_alarm_settings_map(payload.get("boss_overrides", {}))
             self.schedule_fixed_boss_alarm_settings = self._normalize_schedule_boss_alarm_settings_map(payload.get("fixed_boss_overrides", {}))
-            self.schedule_alarm_voice_name = str(payload.get("voice_name") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
             self._bump_schedule_voice_broker_generation()
             self._append_debug_log("scheduler_worker_alarm_settings_reloaded")
 
@@ -4134,7 +4148,6 @@ class BossTimerApp:
             "second_precision_expire_hours": 168,
             "fixed_boss_enabled": True,
             "fixed_boss_skip_due_time": True,
-            "voice_name": SCHEDULE_ALARM_FEMALE_VOICE_NAME,
             "chime_settings": {
                 "skip_countdown": True,
                 **SCHEDULE_ALARM_DEFAULT_CHIME_PATHS,
@@ -4258,7 +4271,6 @@ class BossTimerApp:
         payload["second_precision_expire_hours"] = max(0, self._parse_int(str(loaded.get("second_precision_expire_hours") or "168"), 168))
         payload["fixed_boss_enabled"] = bool(loaded.get("fixed_boss_enabled", payload["fixed_boss_enabled"]))
         payload["fixed_boss_skip_due_time"] = bool(loaded.get("fixed_boss_skip_due_time", payload["fixed_boss_skip_due_time"]))
-        payload["voice_name"] = str(loaded.get("voice_name") or payload["voice_name"]).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
         loaded_chimes = loaded.get('chime_settings')
         payload["chime_settings"] = self._normalize_schedule_alarm_chime_settings({
             **payload.get('chime_settings', {}),
@@ -4281,7 +4293,6 @@ class BossTimerApp:
             "second_precision_expire_hours": max(0, self._parse_int(self.schedule_second_precision_expire_hours_var.get() if hasattr(self, "schedule_second_precision_expire_hours_var") else "0", 0)),
             "fixed_boss_enabled": bool(getattr(self, "schedule_fixed_boss_alarm_new_entry_enabled_default", self.schedule_fixed_boss_alarm_enabled_default)),
             "fixed_boss_skip_due_time": bool(self.schedule_fixed_boss_skip_due_time_var.get()) if hasattr(self, "schedule_fixed_boss_skip_due_time_var") else bool(getattr(self, "schedule_fixed_boss_skip_due_time_default", True)),
-            "voice_name": str(getattr(self, "schedule_alarm_voice_name", "") or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME,
             "chime_settings": {
                 "skip_countdown": bool(chime_settings.get("skip_countdown", True)),
                 **{
@@ -5473,19 +5484,11 @@ class BossTimerApp:
             if bool(self.schedule_alarm_master_var.get()):
                 self._ensure_schedule_alarm_boss_audio_host_process()
 
-        def prewarm_near_host() -> None:
-            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_ai_recording_preferred_var.get()):
-                self._ensure_schedule_alarm_near_boss_audio_host_process()
-
-        def prewarm_gen_host() -> None:
-            if bool(self.schedule_alarm_master_var.get()) and bool(self.schedule_alarm_ai_recording_preferred_var.get()):
-                self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
-
         def prewarm_countdown_host() -> None:
             # 초읽기 테스트와 실제 알림 모두 첫 재생 전에 플레이어/클립을
             # 준비한다. Open은 볼륨 0으로 처리하므로 음성 조각이 새지 않는다.
             if bool(self.schedule_alarm_master_var.get()):
-                self._ensure_schedule_alarm_countdown_audio_host_process()
+                self._prewarm_schedule_alarm_countdown_audio_host_async()
 
         schedule(3500, self._normalize_existing_schedule_shared_archive_names)
         schedule(600, self._prefetch_schedule_alarm_edge_tts_common_phrases)
@@ -10403,6 +10406,10 @@ class BossTimerApp:
                 continue
             for file_name in file_names:
                 if not file_name.lower().endswith(".json"):
+                    continue
+                # Archives written by the current exporter already have their
+                # final name; avoid parsing/deserializing every saved schedule.
+                if re.search(r"스케쥴\(저장용\)_\d{8}_\d{6}_[a-z0-9_]+\.json$", file_name):
                     continue
                 source_path = os.path.join(archive_dir, file_name)
                 if not os.path.isfile(source_path):
@@ -31103,6 +31110,7 @@ class BossTimerApp:
                 loaded = configure_edge_tts_module(
                     EDGE_TTS_MODULE_DIR,
                     allow_development_fallback=not bool(getattr(sys, "frozen", False)),
+                    force_reload=True,
                 )
                 if not loaded:
                     raise RuntimeError(get_edge_tts_module_error())
@@ -31179,7 +31187,6 @@ class BossTimerApp:
         self._prewarm_schedule_alarm_countdown_audio_host_async()
         if not self._is_schedule_alarm_ai_recording_preferred():
             return
-        self._ensure_schedule_alarm_boss_audio_host_process()
         self._ensure_schedule_alarm_near_boss_audio_host_process()
         self._ensure_schedule_alarm_second_precision_gen_audio_host_process()
         if bool(self.schedule_alarm_countdown_enabled_var.get()) and self._schedule_alarm_countdown_requires_audio_host():
@@ -31239,7 +31246,7 @@ class BossTimerApp:
         cache = getattr(self, "edge_tts_cache", None)
         if not speech_text or cache is None or not cache.configured:
             self._write_schedule_alarm_voice_test_log(
-                "edge_tts_unavailable_ms_tts_suppressed",
+                "edge_tts_unavailable",
                 text=speech_text,
             )
             return None
@@ -31251,7 +31258,7 @@ class BossTimerApp:
         )
         if not clip_path:
             self._write_schedule_alarm_voice_test_log(
-                "edge_tts_failed_ms_tts_suppressed",
+                "edge_tts_failed",
                 text=speech_text,
                 error=str(cache.last_error or "응답 없음"),
             )
@@ -32430,8 +32437,6 @@ class BossTimerApp:
                 beep=False,
                 category="countdown",
                 rate=3,
-                purge=True,
-                async_mode=True,
             )
         return True
 
@@ -32875,17 +32880,24 @@ class BossTimerApp:
             self._terminate_schedule_alarm_audio_process(existing)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         preload_paths: list[str] = []
+        preload_seen: set[str] = set()
+
+        def preload(path: str) -> None:
+            key = os.path.normcase(os.path.abspath(path))
+            if key not in preload_seen:
+                preload_seen.add(key)
+                preload_paths.append(path)
+
         warmup_clip_path = self._get_schedule_alarm_audio_warmup_clip_path()
         if warmup_clip_path:
-            preload_paths.append(warmup_clip_path)
+            preload(warmup_clip_path)
         for subdir in ("boss", "min", "info", "sec", "etc"):
             for clip_path in self._get_schedule_alarm_voice_files(subdir):
-                if clip_path not in preload_paths:
-                    preload_paths.append(clip_path)
+                preload(clip_path)
         for key, _label in SCHEDULE_ALARM_CHIME_TYPES:
             clip_path = self._get_schedule_alarm_chime_path(key, countdown=False)
-            if clip_path and clip_path not in preload_paths:
-                preload_paths.append(clip_path)
+            if clip_path:
+                preload(clip_path)
         try:
             process = subprocess.Popen(
                 self._build_schedule_alarm_boss_audio_host_command(preload_paths),
@@ -33189,8 +33201,6 @@ class BossTimerApp:
                 beep=False,
                 category="countdown",
                 rate=3,
-                purge=True,
-                async_mode=True,
             )
             if hasattr(self, "schedule_alarm_status_var") and self.schedule_alarm_status_var is not None:
                 self.schedule_alarm_status_var.set("AI 녹음파일 우선 사용이 꺼져 있어 edge-tts 초읽기 테스트를 재생합니다.")
@@ -33213,104 +33223,6 @@ class BossTimerApp:
                 self.schedule_alarm_status_var.set(f"초읽기 음성을 다시 불러와서 {sample_text} 테스트를 재생합니다.")
             else:
                 self.schedule_alarm_status_var.set("초읽기 음성 재로드는 했지만 테스트 재생을 시작하지 못했습니다.")
-
-    def _build_schedule_alarm_tts_command(self, text: str) -> list[str]:
-        voice_name = str(self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
-        script = (
-            "$voice = New-Object -ComObject SAPI.SpVoice\n"
-            f"$preferredVoice = {json.dumps(voice_name, ensure_ascii=False)}\n"
-            "$selected = $voice.GetVoices() | Where-Object { $_.GetDescription() -eq $preferredVoice } | Select-Object -First 1\n"
-            "if ($selected) { $voice.Voice = $selected }\n"
-            "$voice.Rate = 0\n"
-            f"[void]$voice.Speak({json.dumps(text, ensure_ascii=False)})\n"
-        )
-        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-        return ["powershell", "-NoProfile", "-EncodedCommand", encoded]
-
-    def _build_schedule_alarm_tts_host_command(self) -> list[str]:
-        voice_name = str(self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
-        script = (
-            "[Console]::InputEncoding = [System.Text.Encoding]::UTF8\n"
-            "$voice = New-Object -ComObject SAPI.SpVoice\n"
-            f"$preferredVoice = {json.dumps(voice_name, ensure_ascii=False)}\n"
-            "$selected = $voice.GetVoices() | Where-Object { $_.GetDescription() -eq $preferredVoice } | Select-Object -First 1\n"
-            "if ($selected) { $voice.Voice = $selected }\n"
-            "while (($line = [Console]::In.ReadLine()) -ne $null) {\n"
-            "  if ($line -eq '__EXIT__') { break }\n"
-            "  if ([string]::IsNullOrWhiteSpace($line)) { continue }\n"
-            "  $parts = $line.Split('|', 4)\n"
-            "  if ($parts.Length -lt 4 -or $parts[0] -ne '__SPEAK__') { continue }\n"
-            "  try { $rate = [int]$parts[1] } catch { $rate = 0 }\n"
-            "  try { $flags = [int]$parts[2] } catch { $flags = 0 }\n"
-            "  try { $text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($parts[3])) } catch { $text = '' }\n"
-            "  if ([string]::IsNullOrWhiteSpace($text)) { continue }\n"
-            "  $voice.Rate = [Math]::Max(-10, [Math]::Min(10, $rate))\n"
-            "  [void]$voice.Speak($text, $flags)\n"
-            "}\n"
-        )
-        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-        return ["powershell", "-NoProfile", "-EncodedCommand", encoded]
-
-    def _ensure_schedule_alarm_tts_process(self) -> subprocess.Popen | None:
-        voice_name = str(self.schedule_alarm_voice_name or SCHEDULE_ALARM_FEMALE_VOICE_NAME).strip() or SCHEDULE_ALARM_FEMALE_VOICE_NAME
-        existing = self.schedule_alarm_tts_process
-        if (
-            existing is not None
-            and existing.poll() is None
-            and self.schedule_alarm_tts_process_voice_name == voice_name
-            and existing.stdin is not None
-        ):
-            return existing
-        if existing is not None:
-            try:
-                if existing.stdin is not None:
-                    existing.stdin.write("__EXIT__\n")
-                    existing.stdin.flush()
-            except OSError:
-                pass
-            try:
-                existing.terminate()
-            except OSError:
-                pass
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        try:
-            process = subprocess.Popen(
-                self._build_schedule_alarm_tts_host_command(),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                encoding="utf-8",
-                creationflags=creationflags,
-            )
-        except OSError:
-            self.schedule_alarm_tts_process = None
-            self.schedule_alarm_tts_process_voice_name = ""
-            return None
-        self.schedule_alarm_tts_process = process
-        self.schedule_alarm_tts_process_voice_name = voice_name
-        return process
-
-    def _speak_schedule_alarm_text(self, text: str, *, rate: int = 0, purge: bool = False, async_mode: bool = False) -> None:
-        speech_text = str(text or "").strip()
-        if not speech_text:
-            return
-        process = self._ensure_schedule_alarm_tts_process()
-        if process is None or process.stdin is None:
-            return
-        flags = 0
-        if async_mode:
-            flags |= 1
-        if purge:
-            flags |= 2
-        payload_text = base64.b64encode(speech_text.encode("utf-8")).decode("ascii")
-        payload = f"__SPEAK__|{max(-10, min(10, int(rate)))}|{flags}|{payload_text}\n"
-        try:
-            process.stdin.write(payload)
-            process.stdin.flush()
-        except OSError:
-            self.schedule_alarm_tts_process = None
-            self.schedule_alarm_tts_process_voice_name = ""
 
     def _drop_pending_schedule_alarm_queue_items(self, *, category: str) -> None:
         normalized_category = str(category or "general").strip() or "general"
@@ -33435,7 +33347,7 @@ class BossTimerApp:
                         duration_ms / 1000.0,
                     )
                 self._write_schedule_alarm_voice_test_log(
-                    "edge_tts_play" if played else "edge_tts_play_failed_ms_tts_suppressed",
+                    "edge_tts_play" if played else "edge_tts_play_failed",
                     text=text,
                     clip_path=clip_path,
                     clip_paths=clip_paths,
@@ -33469,19 +33381,6 @@ class BossTimerApp:
             self.schedule_alarm_tts_queue.put_nowait(None)
         except queue.Full:
             pass
-        if self.schedule_alarm_tts_process is not None:
-            try:
-                if self.schedule_alarm_tts_process.stdin is not None:
-                    self.schedule_alarm_tts_process.stdin.write("__EXIT__\n")
-                    self.schedule_alarm_tts_process.stdin.flush()
-            except OSError:
-                pass
-            try:
-                self.schedule_alarm_tts_process.terminate()
-            except OSError:
-                pass
-        self.schedule_alarm_tts_process = None
-        self.schedule_alarm_tts_process_voice_name = ""
         countdown_audio_thread = self.schedule_alarm_countdown_audio_thread
         if countdown_audio_thread is not None and countdown_audio_thread.is_alive():
             countdown_audio_thread.join(timeout=0.3)
@@ -33507,8 +33406,6 @@ class BossTimerApp:
         category: str = "general",
         rate: int = 0,
         volume_steps: int | None = None,
-        purge: bool = False,
-        async_mode: bool = False,
         expires_at: datetime | None = None,
         play_at: datetime | None = None,
         replace_pending: bool = True,
@@ -33532,7 +33429,6 @@ class BossTimerApp:
                 category=normalized_category,
                 rate=int(rate),
                 volume_steps=safe_volume_steps,
-                async_mode=bool(async_mode),
             )
             return
         self._write_schedule_alarm_voice_test_log(
@@ -33542,8 +33438,6 @@ class BossTimerApp:
             category=normalized_category,
             rate=int(rate),
             volume_steps=safe_volume_steps,
-            purge=bool(purge),
-            async_mode=bool(async_mode),
             expires_at=expires_at,
             play_at=play_at,
             replace_pending=bool(replace_pending),
@@ -33562,8 +33456,6 @@ class BossTimerApp:
                 "category": normalized_category,
                 "rate": int(rate),
                 "volume_steps": safe_volume_steps,
-                "purge": bool(purge),
-                "async_mode": bool(async_mode),
                 "expires_at": expires_at if isinstance(expires_at, datetime) else None,
                 "play_at": play_at if isinstance(play_at, datetime) else None,
                 "generation": generation,
@@ -38404,8 +38296,6 @@ class BossTimerApp:
                                         beep=False,
                                         category="countdown",
                                         rate=3,
-                                        purge=True,
-                                        async_mode=True,
                                         expires_at=expires_at,
                                     )
                             else:
@@ -38414,8 +38304,6 @@ class BossTimerApp:
                                     beep=False,
                                     category="countdown",
                                     rate=3,
-                                    purge=True,
-                                    async_mode=True,
                                     expires_at=expires_at,
                                 )
                 if not discord_countdown_prescheduled and 2 <= remaining_seconds <= countdown_start + 1:
@@ -38442,8 +38330,6 @@ class BossTimerApp:
                                 beep=False,
                                 category="countdown",
                                 rate=3,
-                                purge=True,
-                                async_mode=True,
                                 play_at=play_at,
                                 expires_at=play_at + timedelta(milliseconds=950),
                                 replace_pending=False,
@@ -54040,8 +53926,6 @@ class BossTimerApp:
             beep=False,
             category="general",
             rate=0,
-            purge=False,
-            async_mode=True,
         )
 
     def _build_schedule_alarm_voice_test_event(
@@ -67769,12 +67653,14 @@ def main() -> None:
         return
     scheduler_worker = scheduler_worker_requested
     root = tk.Tk()
-    if scheduler_worker:
+    if scheduler_worker or _startup_runtime is not None:
         try:
             root.withdraw()
         except tk.TclError:
             pass
     configure_tk_scaling(root)
+    if _startup_runtime is not None:
+        _startup_runtime.attach(root)
     try:
         app = BossTimerApp(root, scheduler_worker=scheduler_worker)
     except PermissionError as exc:
@@ -67782,6 +67668,8 @@ def main() -> None:
         # Reuse the normal centered popup with startup-safe default fonts.
         error_view = BossTimerApp.__new__(BossTimerApp)
         error_view.root = root
+        if _startup_runtime is not None:
+            _startup_runtime.finish()
         root.title("보스전 타이머 · 설정 접근 오류")
         root.geometry("560x180")
         root.deiconify()
@@ -67792,8 +67680,15 @@ def main() -> None:
             "기존 설정과 스케줄은 삭제하지 마세요.\n\n" + str(exc), parent=root)
         root.destroy()
         return
+    except BaseException:
+        if _startup_runtime is not None:
+            _startup_runtime.finish()
+        raise
     if not scheduler_worker:
         app._set_elapsed_color("#cbd5e1")
+    if _startup_runtime is not None:
+        _startup_runtime.finish(app._append_debug_log)
+        root.deiconify()
     root.mainloop()
 
 

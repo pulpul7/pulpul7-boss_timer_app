@@ -189,6 +189,12 @@ class DiscordAuthority:
         self.current = None
         self.outgoing_requests = set()
         self.calls = set()
+        self.incoming_progress_token = ""
+        self.outgoing_progress_token = ""
+        self.outgoing_progress_done = False
+        self.outgoing_progress_result = ""
+        self.outgoing_progress_runtime = ""
+        self.last_progress = {}
         self.lock = threading.RLock()
         app.root.after(100, self._drain)
         app.root.after(500, self._poll)
@@ -234,6 +240,49 @@ class DiscordAuthority:
     def _status(self):
         status = self.app._query_discord_bot_status_port(timeout=.3)
         return status if self.app._discord_bot_status_matches(status) else {}
+
+    def _progress(self, role, token, step, detail, *, peer="", create=False):
+        """Post display-only updates; never wait for Tk or fetch remote data."""
+        value = (token, step, detail, peer)
+        if not create and self.last_progress.get(role) == value:
+            return
+        self.last_progress[role] = value
+        def show():
+            try:
+                if getattr(self, role + "_progress_token") != token:
+                    return  # Ignore an older operation's late display updates.
+                from discord_connection_progress import show_connection_progress
+                popup = (show_connection_progress(self.app, role=role, token=token) if create
+                         else getattr(self.app, "discord_connection_progress", None))
+                if popup is not None and popup.token == token and popup.role == role:
+                    popup.update(step, detail, peer)
+            except Exception as exc:
+                self.app._append_debug_log(f"authority_progress_display_failed type={type(exc).__name__}")
+        self._ui(show, wait=False)
+
+    def _finish_progress(self, role, token, detail, *, success=True, close=False):
+        try:
+            popup = getattr(self.app, "discord_connection_progress", None)
+            if popup is not None and popup.token == token and popup.role == role:
+                if close:
+                    popup.close()
+                else:
+                    popup.finish(detail, success=success)
+        except Exception as exc:
+            self.app._append_debug_log(f"authority_progress_finish_failed type={type(exc).__name__}")
+
+    def _observe_outgoing_progress(self, status):
+        # Reuse the existing authority poll's status. No extra query or timer.
+        if (not self.outgoing_progress_done or not status.get("runtime_id")
+                or status.get("runtime_id") != self.outgoing_progress_runtime):
+            return
+        if not status.get("voice_connected"):
+            token, result = self.outgoing_progress_token, self.outgoing_progress_result
+            online = bool(status.get("online"))
+            self.outgoing_progress_done = False
+            detail = result + ("\n음성 연결 종료 · 봇 연결 유지 · 권한 없음" if online
+                               else "\n음성 연결 종료 · 봇 연결 상태를 확인하세요.")
+            self._ui(lambda: self._finish_progress("outgoing", token, detail, success=online), wait=False)
 
     def _observe(self, data, status, checked_at=None):
         self._assert_profile()
@@ -300,6 +349,8 @@ class DiscordAuthority:
         try:
             self._assert_profile()
         except AuthorityError:
+            self._finish_progress("incoming", self.incoming_progress_token, "", close=True)
+            self._finish_progress("outgoing", self.outgoing_progress_token, "", close=True)
             self.alive = False
             return
         if self.poll_inflight:
@@ -345,6 +396,7 @@ class DiscordAuthority:
                             and data.get("phase") == "requested" and data["request"] not in self.outgoing_requests):
                         self.outgoing_requests.add(data["request"])
                         threading.Thread(target=self._outgoing, args=(deepcopy(data), entry), daemon=True).start()
+                    self._observe_outgoing_progress(status)
                     call = data["members"].get(self.client, {}).get("call", {})
                     if (status.get("online") and call.get("state") == "pending"
                             and call.get("runtime") == self.runtime and time.time() < call.get("expires", 0)
@@ -370,6 +422,9 @@ class DiscordAuthority:
         self.busy = True
         self.app.discord_handover_busy = True
         self.current = None
+        self.incoming_progress_token = uuid.uuid4().hex
+        self._progress("incoming", self.incoming_progress_token, "bot", "봇 연결 상태를 확인하고 있습니다.",
+                       peer="Discord에서 요청한 관리자 접속" if remote else "디코 실행 · 관리자 접속", create=True)
         threading.Thread(target=self._incoming, args=(remote, call, channel, done, expected_owner), daemon=True).start()
 
     def _answer_remote_call(self, call, result, message):
@@ -398,6 +453,8 @@ class DiscordAuthority:
             else:
                 raise AuthorityError("봇 연결이 완료되지 않았습니다. 봇 연결은 유지하며 다시 시도할 수 있습니다.")
             runtime = str(status["runtime_id"])
+            self._progress("incoming", self.incoming_progress_token, "owner",
+                           "봇 연결 확인 완료 · 현재 담당 관리자를 확인하고 있습니다.")
             try:
                 with self.lock:
                     existing, _ = self.record.read()
@@ -414,6 +471,11 @@ class DiscordAuthority:
                     self.record.migrate_legacy(exc.sha)
                     existing, _ = self.record.read()
             owner = self.record.online_members(existing).get(existing.get("owner"), {})
+            if owner:
+                self._progress("incoming", self.incoming_progress_token, "owner",
+                               "현재 담당자 정보를 확인했습니다. 승계 여부를 확인하고 있습니다.",
+                               peer=f"현재 담당자: {owner.get('name') or '담당자'} · "
+                                    f"{owner.get('server') or ''} · {owner.get('season') or ''}차")
             if (owner.get("runtime") == existing.get("owner_runtime") and existing.get("owner")
                     and existing.get("owner") != self.client and not remote):
                 if not self._ui(lambda: self.app._show_centered_messagebox("askyesno", "관리자 승계",
@@ -436,9 +498,20 @@ class DiscordAuthority:
                 self.current = self.record.request(self.client, runtime, channel,
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner)
             request_id = self.current["request"]
+            if self.current["phase"] == "requested":
+                self._progress("incoming", self.incoming_progress_token, "handover",
+                               "기존 관리자의 송출 중단과 스케줄 비교·업로드를 기다립니다.\n"
+                               "업로드 성공·실패와 관계없이 기존 제한시간 안에서 승계합니다.")
+            else:
+                self._progress("incoming", self.incoming_progress_token, "authority",
+                               "기존 담당자가 없어 승계 대기를 생략하고 관리자 권한을 확인합니다.")
             wait_until = time.monotonic() + HANDOVER_SECONDS
             while self.current["phase"] == "requested":
                 if self.current.get("released") or time.monotonic() >= wait_until:
+                    self._progress("incoming", self.incoming_progress_token, "authority",
+                                   ("기존 관리자 처리: " + str(self.current.get("upload") or "완료")
+                                    if self.current.get("released") else "기존 관리자 대기 시간이 끝났습니다.")
+                                   + "\n새 관리자 권한을 획득하고 있습니다.")
                     with self.lock:
                         grant_checked_at = time.monotonic()
                         latest, _ = self.record.read()
@@ -456,6 +529,9 @@ class DiscordAuthority:
             with self.lock:
                 self.policy.resume()
                 self._observe(self.current, self._status(), grant_checked_at)
+            self._progress("incoming", self.incoming_progress_token, "voice",
+                           "관리자 권한 확인 완료 · 음성채널에 입장하고 있습니다.\n"
+                           "현재 PC의 스케줄을 그대로 사용합니다.")
             deadline = time.monotonic() + JOIN_SECONDS
             while time.monotonic() < deadline:
                 status = self._status()
@@ -490,6 +566,13 @@ class DiscordAuthority:
 
     def _outgoing(self, data, entry):
         # _observe already revoked this lease; never pause a later local owner.
+        token = self.outgoing_progress_token = data["request"]
+        self.outgoing_progress_runtime = data.get("owner_runtime") or ""
+        self.outgoing_progress_done = False
+        receiver = data.get("members", {}).get(data.get("receiver"), {})
+        self._progress("outgoing", token, "stop", "새 관리자의 승계 요청으로 송출 권한을 반납했습니다.",
+                       peer=f"새 담당자: {receiver.get('name') or '담당자'} · "
+                            f"{receiver.get('server') or ''} · {receiver.get('season') or ''}차", create=True)
         completed = threading.Event()
         outcome = ["업로드 제한시간 초과"]
         deadline = time.monotonic() + max(0, min(HANDOVER_SECONDS, data.get("deadline", time.time()) - time.time()))
@@ -503,11 +586,21 @@ class DiscordAuthority:
                     and time.monotonic() < deadline)
         def upload():
             try:
+                self._progress("outgoing", token, "upload", "현재 스케줄과 서버 자료를 비교하고 있습니다.")
                 expected = self._ui(lambda: deepcopy(self.app._build_github_schedule_payload("0.0.0")))
                 expected["payload"].update(share_prefix=str(entry["id"]), server_name=entry["name"])
                 ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
-                    handover_schedule_payload=expected, handover_guard=may_upload)
-                outcome[0] = "성공" if ok else "실패: " + message
+                    handover_schedule_payload=expected, handover_guard=may_upload,
+                    progress_callback=lambda message: self._progress("outgoing", token, "upload", message)
+                    if not completed.is_set() and time.monotonic() < deadline else None)
+                # A successful comparison may skip the upload. Preserve that
+                # result instead of reporting every successful return as a PUT.
+                detail = str(message or ("성공" if ok else "업로드 실패"))
+                outcome[0] = detail if ok else "실패: " + detail
+                self.app._append_debug_log(
+                    f"authority_handover_upload_result request={data['request']} "
+                    f"server={entry['id']} success={int(ok)} detail={outcome[0]}"
+                )
             except Exception as exc:
                 outcome[0] = "실패: " + str(exc)
             finally:
@@ -519,7 +612,11 @@ class DiscordAuthority:
                 self.record.change(data["request"], self.client, phases={"requested"}, released=True, upload=outcome[0])
         except AuthorityError:
             pass  # A late upload cannot update a new authority generation.
-        self._ui(lambda: self.app.schedule_status_var.set("봇 연결됨 · 권한 없음 · 인계 업로드 " + outcome[0]), wait=False)
+        result = outcome[0]
+        self.outgoing_progress_result = result
+        self.outgoing_progress_done = True
+        self._progress("outgoing", token, "voice", result + "\n음성 연결 종료와 봇 대기 상태를 확인하고 있습니다.")
+        self._ui(lambda: self.app.schedule_status_var.set("봇 연결됨 · 권한 없음 · 인계 업로드 " + result), wait=False)
 
     def _release(self, *, request_id="", runtime=None):
         runtime = self.runtime if runtime is None else runtime
@@ -561,6 +658,7 @@ class DiscordAuthority:
         threading.Thread(target=worker, daemon=True).start()
 
     def _finish(self, message, done, result):
+        self._finish_progress("incoming", self.incoming_progress_token, message, success=result, close=not result)
         self.busy = False
         self.app.discord_handover_busy = False
         self.app.schedule_status_var.set(message)

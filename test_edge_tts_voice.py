@@ -856,7 +856,7 @@ class BossTimerEdgeTtsPriorityTests(_IsolatedRuntimeTestCase):
             ],
         )
 
-    def test_alarm_tts_worker_plays_edge_audio_without_ms_tts(self):
+    def test_alarm_tts_worker_plays_edge_audio(self):
         app = object.__new__(BossTimerApp)
         app.schedule_alarm_tts_stop_event = threading.Event()
         app.schedule_alarm_tts_queue = queue.Queue()
@@ -867,15 +867,12 @@ class BossTimerEdgeTtsPriorityTests(_IsolatedRuntimeTestCase):
         app._play_schedule_alarm_boss_audio_paths = lambda paths, **_kwargs: played.append(paths) or True
         app._get_schedule_alarm_clip_sequence_duration_ms = lambda _paths, fallback_ms=1800: fallback_ms
         app._write_schedule_alarm_voice_test_log = lambda *_args, **_kwargs: None
-        app._speak_schedule_alarm_text = lambda *_args, **_kwargs: self.fail("MS TTS must stay suppressed")
         app.schedule_alarm_tts_queue.put(
             {
                 "text": "edge only",
                 "beep": False,
                 "category": "general",
                 "rate": 0,
-                "purge": False,
-                "async_mode": False,
                 "expires_at": None,
             }
         )

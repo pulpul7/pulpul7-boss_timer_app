@@ -48,6 +48,14 @@
       "updated_at": 1790688857,
       "volume_steps": 0
     },
+    "04c371ced1fd19487807bbafabe3b7e74be6f73a7d12b2039b5e715bd07d7258": {
+      "path": "message/04c371ced1fd19487807bbafabe3b7e74be6f73a7d12b2039b5e715bd07d7258.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 니드호그 타임입니다.",
+      "updated_at": 1790994999,
+      "volume_steps": 0
+    },
     "052cd85707d813c937d39cdcbdbe87d9348b51a69f5a57e57d66aa5e3ffa55db": {
       "path": "sec/52.mp3",
       "rate_steps": 3,
@@ -2376,6 +2384,14 @@
       "updated_at": 1790822358,
       "volume_steps": 0
     },
+    "bc43112270e6360788060754c5fb58bb646b8ffea7fcfdd85e35254d5034b3f4": {
+      "path": "message/bc43112270e6360788060754c5fb58bb646b8ffea7fcfdd85e35254d5034b3f4.mp3",
+      "rate_steps": 3,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+30%|+0%|+15Hz",
+      "text": "삼 이 일",
+      "updated_at": 1790995015,
+      "volume_steps": 0
+    },
     "bc4a9d70833f8532a833d8e00d7fdfc7e15b54d42a950c6eb42f7984a8aed9da": {
       "path": "message/bc4a9d70833f8532a833d8e00d7fdfc7e15b54d42a950c6eb42f7984a8aed9da.mp3",
       "rate_steps": 1,
@@ -2904,6 +2920,14 @@
       "updated_at": 1790817606,
       "volume_steps": 0
     },
+    "e3e6b3ce5b462cd2de33b422609735befb30bfaa28692f07df9db7e6de4e5934": {
+      "path": "message/e3e6b3ce5b462cd2de33b422609735befb30bfaa28692f07df9db7e6de4e5934.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "티르 5분 남았습니다.",
+      "updated_at": 1790992618,
+      "volume_steps": 0
+    },
     "e4958cd89efc58e2a802ac504e53c042de26a3a0989189187f0e3945f4deb1f5": {
       "path": "message/e4958cd89efc58e2a802ac504e53c042de26a3a0989189187f0e3945f4deb1f5.mp3",
       "rate_steps": 0,
@@ -3193,5 +3217,6 @@
       "volume_steps": 0
     }
   },
+  "pruned_settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
   "version": 1
 }

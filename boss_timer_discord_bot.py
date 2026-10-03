@@ -3366,16 +3366,41 @@ class DiscordScheduleBot:
         encoded = json.dumps(text_parts, ensure_ascii=False, sort_keys=True).encode('utf-8')
         return hashlib.sha256(encoded).hexdigest()[:16]
 
-    def _build_boss_notice_embed(self, entries: list[dict[str, str]], *, at: datetime, color: int) -> Any:
-        date_text = '오늘' if at.date() == datetime.now().date() else at.strftime('%m/%d')
-        # Separate code blocks receive client-controlled margins. Keep every
-        # notice's ANSI colors/reset, but join their bodies without blank rows.
+    @staticmethod
+    def _boss_notice_names(group_id: str, message: str) -> str:
+        names = []
+        for member in group_id.split('||'):
+            raw_key, separator, at_text = member.rpartition('|')
+            if separator and parse_datetime(at_text) is not None:
+                # Dynamic event IDs use normal/invasion:name|spawn-time.
+                candidates = [raw_key]
+            else:
+                # Fixed groups use name|name; control IDs use type:name.
+                candidates = member.removesuffix(':종료').split('|')
+            for candidate in candidates:
+                name = candidate.rsplit(':', 1)[-1].strip()
+                if name and name not in names:
+                    names.append(name)
+        if not names:
+            text = re.sub(r'^곧\s+', '', message.strip())
+            name = re.split(r'\s+(?:\d+\s*(?:분|초)|젠\b|타임|등장)', text, maxsplit=1)[0]
+            names = [name or '보스']
+        return ', '.join(names)
+
+    def _build_boss_notice_embed(
+        self, entries: list[dict[str, str]], *, at: datetime, color: int, boss_names: str,
+    ) -> Any:
+        # One code block keeps adjacent notices as tightly spaced text lines.
+        # Preserve each line's ANSI reset so colors never bleed into the next.
         notice_lines = [
             entry['text'].removeprefix('```ansi\n').removesuffix('\n```')
             for entry in entries
         ]
+        name = ' '.join(boss_names.split())
+        if len(name) > 190:
+            name = name[:189] + '…'
         embed = self.discord.Embed(
-            title=f"✦ 보탐매니저 안내 · BossTimer | {date_text} {self._notice_clock_text(at)}",
+            title=f"✦ {name} ✦\u2003\u2003\u2003\u2003{self._notice_clock_text(at)}",
             description='```ansi\n' + '\n'.join(notice_lines) + '\n```' if notice_lines else None,
             color=color,
         )
@@ -3419,6 +3444,14 @@ class DiscordScheduleBot:
                     job.scope_id, job.category, identity, target_key,
                 ) if group_id and target else None
                 group = self.boss_notice_groups.get(group_key) if group_key else None
+                # The fresh spawn result is final, including for delayed or
+                # repeated jobs. Never edit it into an "edited" message again.
+                if group and group.get('completed'):
+                    return
+                completed = job.offset_sec == 0 and phase.startswith(('SPAWN', 'DUE'))
+                previous_group = group
+                boss_names = str(group.get('boss_names') or '') if group else ''
+                boss_names = boss_names or self._boss_notice_names(group_id, message)
                 stage_key = f"{phase.removesuffix('_SEQUENCE')}|{job.offset_sec}|{message}"
                 old_entries = list(group.get('entries') or []) if group else []
                 if any(entry.get('stage_key') == stage_key for entry in old_entries):
@@ -3428,14 +3461,26 @@ class DiscordScheduleBot:
                     colored_message = colored_message.removesuffix('\n```')[:990] + '…\x1b[0m\n```'
                 entries = old_entries + [dict(stage_key=stage_key, text=colored_message)]
                 color = int(group['color']) if group else self._find_notice_color(message)
-                embed = self._build_boss_notice_embed(entries, at=now, color=color)
+                embed = self._build_boss_notice_embed(entries, at=now, color=color, boss_names=boss_names)
                 # Start a continuation before Discord's per-embed/message limits.
                 if len(embed.description or '') > 4096 or len(embed) > 6000:
                     entries = entries[-1:]
                     group = None
-                    embed = self._build_boss_notice_embed(entries, at=now, color=color)
+                    embed = self._build_boss_notice_embed(entries, at=now, color=color, boss_names=boss_names)
                 signature = self._boss_notice_text_signature([embed.to_dict()])
                 sent_message = None
+                if completed and previous_group:
+                    if not self._send_allowed():
+                        return
+                    try:
+                        await previous_group['message'].delete()
+                        log(f"text_notice_spawn_deleted phase={phase} message_id={previous_group['message_id']} "
+                            f"at={time.time():.3f}")
+                    except self.discord.NotFound:
+                        pass  # Already removed manually; still send the fresh result.
+                    if group_key:
+                        self.boss_notice_groups.pop(group_key, None)
+                    group = None
                 if group:
                     try:
                         if not self._send_allowed():
@@ -3457,9 +3502,10 @@ class DiscordScheduleBot:
                 if group_key and target:
                     self.boss_notice_groups[group_key] = dict(
                         message=sent_message, message_id=str(sent_message.id), entries=entries, color=color,
+                        boss_names=boss_names,
                         updated_at=now_timestamp, target_at=group_target_at,
                         expires_at=max(now_timestamp, group_target_at) + 300,
-                        completed=phase.startswith(('SPAWN', 'DUE')) or job.offset_sec == 0,
+                        completed=completed,
                     )
                     if len(self.boss_notice_groups) > 200:
                         oldest = min(self.boss_notice_groups, key=lambda key: self.boss_notice_groups[key]['updated_at'])

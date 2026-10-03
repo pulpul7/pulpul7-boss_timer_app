@@ -29,7 +29,7 @@ class AlarmStorageTests(unittest.TestCase):
                 chime_settings={'general': 'wave/custom.wav'}, fixed_boss_enabled=True)))
             namespace = dict(os=os, json=json, get_resource_root=lambda: str(root),
                 get_record_book_boss_catalog=lambda: [], SCHEDULE_ALARM_VOICE_RULE_VERSION='test',
-                SCHEDULE_ALARM_FEMALE_VOICE_NAME='voice', SCHEDULE_ALARM_DEFAULT_CHIME_PATHS={'general': 'wave/default.wav'})
+                SCHEDULE_ALARM_DEFAULT_CHIME_PATHS={'general': 'wave/default.wav'})
             default = self.method('_default_schedule_alarm_settings_payload', namespace)
             load = self.method('_load_schedule_alarm_settings', namespace)
             app = NS(_default_schedule_alarm_settings_payload=lambda: default(None),

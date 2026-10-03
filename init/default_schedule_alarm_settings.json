@@ -13,7 +13,6 @@
   "second_precision_expire_hours": 169,
   "fixed_boss_enabled": true,
   "fixed_boss_skip_due_time": true,
-  "voice_name": "Microsoft Heami Desktop - Korean",
   "chime_settings": {
     "skip_countdown": true,
     "general": "wave/안내방송_비행기1.wav",

@@ -27,6 +27,8 @@ from edge_tts_module import get_default_edge_tts_module_dir, get_edge_tts_module
 _edge_tts = None
 _edge_tts_module_dir = ""
 _edge_tts_module_error = "TTS 모듈을 설치해주세요."
+_edge_tts_module_key = None
+_edge_tts_module_lock = threading.RLock()
 
 
 DEFAULT_EDGE_TTS_VOICE = "ko-KR-SunHiNeural"
@@ -114,13 +116,35 @@ def configure_edge_tts_module(
     module_dir: str | None = None,
     *,
     allow_development_fallback: bool = False,
+    force_reload: bool = False,
 ) -> bool:
-    """Load the optional module after it has been installed or updated."""
-    global _edge_tts, _edge_tts_module_dir, _edge_tts_module_error
-    _edge_tts = None
-    _edge_tts_module_dir = ""
+    """Reuse an unchanged engine; installations explicitly force a reload."""
+    with _edge_tts_module_lock:
+        return _configure_edge_tts_module(
+            module_dir, allow_development_fallback=allow_development_fallback,
+            force_reload=force_reload,
+        )
+
+
+def _configure_edge_tts_module(module_dir, *, allow_development_fallback, force_reload):
+    global _edge_tts, _edge_tts_module_dir, _edge_tts_module_error, _edge_tts_module_key
     status = get_edge_tts_module_status(module_dir or get_default_edge_tts_module_dir())
     package_root = os.path.join(status.module_dir, "packages") if status.installed else ""
+    def fingerprint(path):
+        try:
+            info = os.stat(path)
+            return info.st_mtime_ns, info.st_size
+        except OSError:
+            return None
+    key = (os.path.normcase(os.path.abspath(status.module_dir)), status.installed,
+           status.version, bool(allow_development_fallback),
+           fingerprint(os.path.join(status.module_dir, "module.json")),
+           fingerprint(os.path.join(package_root, "edge_tts", "__init__.py")) if package_root else None)
+    if not force_reload and _edge_tts is not None and key == _edge_tts_module_key:
+        return True
+    _edge_tts = None
+    _edge_tts_module_dir = ""
+    _edge_tts_module_key = None
     if package_root:
         normalized_root = os.path.normcase(os.path.abspath(package_root))
         sys.path[:] = [
@@ -138,6 +162,7 @@ def configure_edge_tts_module(
             _edge_tts = importlib.import_module("edge_tts")
             _edge_tts_module_dir = status.module_dir
             _edge_tts_module_error = ""
+            _edge_tts_module_key = key
             return True
         except Exception as exc:
             _edge_tts_module_error = f"TTS 모듈을 불러오지 못했습니다: {type(exc).__name__}: {exc}"
@@ -147,6 +172,7 @@ def configure_edge_tts_module(
             _edge_tts = importlib.import_module("edge_tts")
             _edge_tts_module_dir = "개발 환경"
             _edge_tts_module_error = ""
+            _edge_tts_module_key = key
             return True
         except Exception:
             pass
@@ -164,7 +190,8 @@ def get_edge_tts_module_error() -> str:
 
 # Source runs remain convenient for development.  Frozen distributions call
 # configure_edge_tts_module from the GUI and therefore require the module ZIP.
-configure_edge_tts_module(allow_development_fallback=not bool(getattr(sys, "frozen", False)))
+if not bool(getattr(sys, "frozen", False)):
+    configure_edge_tts_module(allow_development_fallback=True)
 
 
 def load_edge_tts_settings(path: str) -> EdgeTtsSettings:
@@ -250,12 +277,16 @@ class EdgeTtsCache:
         self._temp_dir = ""
         self._persistent_dir = os.path.abspath(str(persistent_dir or "").strip()) if str(persistent_dir or "").strip() else ""
         self._manifest_path = os.path.join(self._persistent_dir, "manifest.json") if self._persistent_dir else ""
+        self._pruned_settings_signature = ""
         self._manifest_entries = self._load_manifest_entries()
         self.last_error = ""
         self.last_voice = ""
         self.last_clear_removed_count = 0
         try:
-            self.startup_pruned_count = self._prune_persistent_cache_for_active_settings()
+            self.startup_pruned_count = (
+                0 if self._pruned_settings_signature == self._settings.cache_signature()
+                else self._prune_persistent_cache_for_active_settings()
+            )
         except OSError as exc:
             # 백신/인덱서의 순간 잠금 때문에 앱 시작 자체가 실패하지 않게 한다.
             self.startup_pruned_count = 0
@@ -273,6 +304,7 @@ class EdgeTtsCache:
         entries = payload.get("entries") if isinstance(payload, dict) else None
         if not isinstance(entries, dict):
             return {}
+        self._pruned_settings_signature = str(payload.get("pruned_settings") or "")
         return {
             str(key): dict(value)
             for key, value in entries.items()
@@ -286,7 +318,8 @@ class EdgeTtsCache:
         temporary_path = (
             f"{self._manifest_path}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp"
         )
-        payload = {"version": 1, "entries": self._manifest_entries}
+        payload = {"version": 1, "entries": self._manifest_entries,
+                   "pruned_settings": self._pruned_settings_signature}
         try:
             with open(temporary_path, "w", encoding="utf-8") as stream:
                 json.dump(payload, stream, ensure_ascii=False, indent=2, sort_keys=True)
@@ -356,6 +389,7 @@ class EdgeTtsCache:
                 except OSError:
                     pass
         self._manifest_entries = retained_entries
+        self._pruned_settings_signature = self._settings.cache_signature()
         with self._lock:
             self._save_manifest_locked()
         return int(removed_count)
@@ -748,6 +782,7 @@ class EdgeTtsCache:
             persistent_dir = self._persistent_dir
             if persistent:
                 self._manifest_entries.clear()
+                self._pruned_settings_signature = ""
         if temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
         removed_count = 0

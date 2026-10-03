@@ -335,11 +335,23 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# Visible while the one-file bootloader extracts resources, before Python/Tk
+# can create the responsive, stage-aware application loading window.
+splash = Splash(
+    str(project_root / "assets" / "startup_loading.png"),
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=None,
+    always_on_top=False,
+    minify_script=True,
+)
 pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
+    splash.binaries,
     a.binaries,
     a.datas,
     [],

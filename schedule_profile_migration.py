@@ -102,10 +102,20 @@ def build_distribution_baseline(resource_init, destination, groups, *, server_id
     return manifest
 
 
-def ensure_profile_defaults(profile, resource_init):
+def _ensure_profile_access_once(profile, root, access_checks):
+    """Share only successful scans within one immediate profile preparation."""
+    key = (os.path.normcase(os.path.abspath(profile)), os.path.normcase(os.path.abspath(root)))
+    if access_checks is not None and key in access_checks:
+        return
+    checked = ensure_profile_access(profile, root)
+    if checked and access_checks is not None:
+        access_checks.add(key)
+
+
+def ensure_profile_defaults(profile, resource_init, *, access_checks=None):
     """Fill absent settings only, independently of whether any editor was opened."""
     profile = Path(profile)
-    ensure_profile_access(profile, profile.parent.parent)
+    _ensure_profile_access_once(profile, profile.parent.parent, access_checks)
     groups = {group: [(str(profile / relative), relative) for relative in files]
               for group, files in DEFAULT_GROUPS.items()}
     # Validate the full distribution before publishing any missing setting.
@@ -170,7 +180,7 @@ def copy_baseline(source_profile, target_profile, destination):
     return True
 
 
-def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=None):
+def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=None, access_checks=None):
     """Publish a complete new profile atomically; existing profiles are untouched.
 
     Legacy flat data is used only for the first migration of that server. Once
@@ -182,7 +192,7 @@ def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=N
     target = root / season_key / server_id
     if not target.resolve().is_relative_to(root):
         raise ValueError("서버 폴더 밖에는 설정을 복사하지 않습니다.")
-    ensure_profile_access(target, root)
+    _ensure_profile_access_once(target, root, access_checks)
     if target.exists():
         return None
     candidates = []
