@@ -243,10 +243,10 @@ class HandoverTests(unittest.TestCase):
             app.connected = False
             return True
         app._stop_discord_bot_runtime_core = Mock(side_effect=stop)
-        def upload(entry, progress_callback):
+        def upload(entry, progress_callback, handover_schedule_payload=None):
             path = entry["schedule"]
             _, sha, _ = self.repo.get(path)
-            self.repo.put(path, app.raw, sha=sha)
+            self.repo.put(path, handover_schedule_payload or app.raw, sha=sha)
             progress_callback("업로드 완료")
             return True, "ok", entry
         app._upload_current_schedule_to_github_data = Mock(side_effect=upload)

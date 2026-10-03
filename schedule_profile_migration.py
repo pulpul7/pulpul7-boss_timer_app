@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 import re
 import shutil
-import tempfile
 from copy import deepcopy
+from profile_access import ensure_profile_access
+from runtime_storage import temporary_data_directory
 
 
 def seed_schedule_snapshot(target, snapshot, *, source_season, target_season, entry, allow_empty=False):
@@ -39,7 +40,7 @@ def seed_schedule_snapshot(target, snapshot, *, source_season, target_season, en
     payload['schedule_tree_quick_cut_history'] = []
     payload['schedule_active_quick_cut_history'] = []
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.season-schedule-', dir=target.parent) as temporary:
+    with temporary_data_directory(target.parent, prefix='.season-schedule-') as temporary:
         staged = Path(temporary) / 'schedule.json'
         staged.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
         return copy_missing(staged, target)
@@ -104,6 +105,7 @@ def build_distribution_baseline(resource_init, destination, groups, *, server_id
 def ensure_profile_defaults(profile, resource_init):
     """Fill absent settings only, independently of whether any editor was opened."""
     profile = Path(profile)
+    ensure_profile_access(profile, profile.parent.parent)
     groups = {group: [(str(profile / relative), relative) for relative in files]
               for group, files in DEFAULT_GROUPS.items()}
     # Validate the full distribution before publishing any missing setting.
@@ -117,7 +119,7 @@ def ensure_profile_defaults(profile, resource_init):
             if target.exists():
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(prefix=".setting-seed-", dir=target.parent) as temporary:
+            with temporary_data_directory(target.parent, prefix=".setting-seed-") as temporary:
                 staged = Path(temporary) / "setting"
                 shutil.copy2(distribution_source(resource_init, relative), staged)
                 try:
@@ -128,7 +130,7 @@ def ensure_profile_defaults(profile, resource_init):
     baseline = profile / "settings_rollback/baseline"
     if not baseline.exists():
         baseline.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix=".baseline-seed-", dir=baseline.parent) as temporary:
+        with temporary_data_directory(baseline.parent, prefix=".baseline-seed-") as temporary:
             stage = Path(temporary) / "baseline"
             build_distribution_baseline(resource_init, stage, groups, server_id=profile.name, season_key=profile.parent.name)
             stage.rename(baseline)
@@ -180,6 +182,7 @@ def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=N
     target = root / season_key / server_id
     if not target.resolve().is_relative_to(root):
         raise ValueError("서버 폴더 밖에는 설정을 복사하지 않습니다.")
+    ensure_profile_access(target, root)
     if target.exists():
         return None
     candidates = []
@@ -188,7 +191,12 @@ def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=N
     for folder in root.glob("season_*"):
         match = re.fullmatch(r"season_(\d+)", folder.name)
         profile = folder / server_id
-        if not profile.is_dir():
+        try:
+            is_profile = profile.is_dir()
+        except PermissionError:
+            ensure_profile_access(profile, root)
+            is_profile = profile.is_dir()
+        if not is_profile:
             continue
         has_season_profile = True
         if match and int(match[1]) < season_no:
@@ -208,13 +216,15 @@ def seed_profile(profiles_root, season_key, server_id, *, preferred_season_key=N
     legacy = source is None and not has_season_profile
     if legacy:
         source = root / server_id
+    if source is not None:
+        ensure_profile_access(source, root, legacy=legacy)
     if source is None or not source.is_dir():
         return None
     if not source.resolve().is_relative_to(root):
         raise ValueError("서버 폴더 밖의 설정은 이어받지 않습니다.")
     target.parent.mkdir(parents=True, exist_ok=True)
-    # TemporaryDirectory owns only this unique staging directory, never a profile.
-    with tempfile.TemporaryDirectory(prefix=".settings-seed-", dir=target.parent) as temporary:
+    # Own only this staging directory; published profiles inherit data-root ACLs.
+    with temporary_data_directory(target.parent, prefix=".settings-seed-") as temporary:
         stage = Path(temporary) / "profile"
         if legacy:
             shutil.copytree(source, stage)

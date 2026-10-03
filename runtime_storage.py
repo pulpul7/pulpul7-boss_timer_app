@@ -4,10 +4,12 @@ Migration copies only missing files once, before defaults are seeded. Original
 files are left intact. An existing AppData file (even empty) is never replaced.
 """
 from pathlib import Path
+from contextlib import contextmanager
 import json
 import os
 import shutil
 import tempfile
+import uuid
 
 
 LEGACY_FILES = (
@@ -24,6 +26,27 @@ LEGACY_DIRS = (
     "boss_capture_records", "cache/github_data", "notice_data", "update_ai",
 )
 MIGRATION_MARKER = "portable_data_migration_v1.json"
+
+
+@contextmanager
+def temporary_data_directory(parent, *, prefix):
+    """Stage persistent data with its parent's Windows ACL, not a private ACL.
+
+    tempfile's private directory ACL survives rename and hard-link publication.
+    A directory under the managed data parent must inherit that parent's ACL
+    so elevated creation does not lock out a later ordinary-user launch.
+    """
+    parent = Path(parent).resolve()
+    if not prefix or Path(prefix).name != prefix or "/" in prefix or "\\" in prefix:
+        raise ValueError("잘못된 임시 데이터 폴더 이름입니다.")
+    temporary = parent / (prefix + uuid.uuid4().hex)
+    os.mkdir(temporary, mode=0o777 if os.name == "nt" else 0o700)
+    try:
+        yield temporary
+    finally:
+        if temporary.is_symlink() or not temporary.resolve().is_relative_to(parent):
+            raise ValueError("임시 데이터 폴더 밖의 경로는 정리하지 않습니다.")
+        shutil.rmtree(temporary)
 
 
 def copy_missing(source: Path, target: Path) -> bool:

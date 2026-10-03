@@ -10,12 +10,16 @@ def visual_state(kind, tick=0, stopping=False):
     if stopping:
         return 1, '#b45309', '봇 종료 중…', False
     if kind == 'online':
-        return 3, '#15803d', '디스코드봇 종료', False
+        return 3, '#15803d', '디코 종료 · 권한 반납', False
+    if kind == 'standby':
+        return 2, '#2563eb', '디코 실행 · 권한 얻기', False
+    if kind == 'joining':
+        return 2, '#7c3aed', '관리자 · 입장 중', False
     if kind == 'pending':
-        return (0,1,2,2,1,0)[tick % 6], CONNECTING_COLORS[(tick//3) % 3], '연결 중 · 종료', True
+        return (0,1,2,2,1,0)[tick % 6], CONNECTING_COLORS[(tick//3) % 3], '봇 연결 중', True
     if kind == 'error':
         return 0, '#b91c1c', None, False
-    return 0, '#5865f2', '디스코드봇 실행', False
+    return 0, '#5865f2', '디코 실행 · 재연결', False
 
 
 def load_frames(master, path):

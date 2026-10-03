@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import configparser
+import hashlib
 import json
 import os
 import queue
@@ -30,7 +31,8 @@ from pathlib import Path
 from typing import Any
 from voice_bridge_receipts import observe_audio_source
 from discord_notice_output import DiscordNoticeOutput
-from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, is_access_error, ACCESS_ERROR_TEXT
+from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL, is_access_error, ACCESS_ERROR_TEXT, _read_state_text
+from discord_query_routing import QueryLedger
 
 try:
     with warnings.catch_warnings():
@@ -48,6 +50,7 @@ DISCORD_PCM_BYTES_PER_SECOND = 48000 * 2 * 2
 DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS = 250
 DISCORD_COUNTDOWN_COMPOSITE_IDLE_KEEPALIVE_SEC = 10.0
 DISCORD_COUNTDOWN_COMPOSITE_WARMUP_SEC = 1.2
+QUERY_ROUTING_WAIT_TEXT = "조회 담당자의 응답을 기다리고 있습니다."
 # Edge TTS 원본은 녹음 WAV보다 체감 음량이 작다. 모든 Edge 캐시를 기존
 # 10/11초 보정 수준으로 재생해 초읽기와 연쇄 안내의 음량이 바뀌지 않게 한다.
 EDGE_TTS_PLAYBACK_GAIN = 1.80
@@ -533,6 +536,7 @@ class VoiceBridgeJob:
     scope_id: str = ""
     target_time: str = ""
     offset_sec: int = 0
+    notice_group_id: str = ""
 
     @property
     def key(self) -> str:
@@ -648,6 +652,10 @@ class VoiceBridgeReader:
             volume = max(0.0, min(1.0, float(payload.get("volume", 1.0))))
         except (TypeError, ValueError):
             volume = 1.0
+        try:
+            offset_sec = max(0, min(86400, int(payload.get('offset_sec') or 0)))
+        except (TypeError, ValueError):
+            offset_sec = 0
         return VoiceBridgeJob(
             id=job_id,
             created_at=created_at,
@@ -660,7 +668,8 @@ class VoiceBridgeReader:
             fallback_text=str(payload.get("fallback_text") or "").strip(),
             scope_id=scope_id,
             target_time=str(payload.get('target_time') or ''),
-            offset_sec=60 if str(payload.get('offset_sec')) == '60' else 0,
+            offset_sec=offset_sec,
+            notice_group_id=str(payload.get('notice_group_id') or '').strip(),
         )
 
 
@@ -669,12 +678,21 @@ class BotStatus:
         self.started_at = datetime.now()
         self.pid = os.getpid()
         self.online = False
+        self.connected_at = 0.0
         self.guild_id = ""
         self.voice_channel_id = ""
         self.voice_connected = False
+        self.voice_authority_generation = 0
         self.last_error = ""
         self.configuration_error = ""
-        self.standby = False
+        self.voice_error = ""
+        self.voice_reconnect_attempts = 0
+        self.standby = True
+        self.runtime_id = uuid.uuid4().hex
+        self.client_id = ""
+        self.application_id = ""
+        self.send_authorized = False
+        self.authority_joining = False
         self.handover_hold = False
         self.reconnect_attempts = 0
         self.connection_control = True
@@ -698,12 +716,23 @@ class BotStatus:
             return {
                 "ok": True,
                 "pid": self.pid,
+                "control_protocol": CONTROL_PROTOCOL,
+                "runtime_id": self.runtime_id,
+                "client_id": self.client_id,
+                "application_id": self.application_id,
+                "config_path": str(CONFIG_PATH.resolve()),
+                "send_authorized": self.send_authorized,
+                "authority_joining": self.authority_joining,
                 "online": self.online,
+                "connected_at": self.connected_at,
                 "guild_id": self.guild_id,
                 "voice_channel_id": self.voice_channel_id,
                 "voice_connected": self.voice_connected,
+                "voice_authority_generation": self.voice_authority_generation,
                 "last_error": self.last_error,
                 "configuration_error": self.configuration_error,
+                "voice_error": self.voice_error,
+                "voice_reconnect_attempts": self.voice_reconnect_attempts,
                 "standby": self.standby,
                 "handover_hold": self.handover_hold,
                 "reconnect_attempts": self.reconnect_attempts,
@@ -1182,7 +1211,7 @@ class DiscordScheduleBot:
         self.schedule_reader = ScheduleReader()
         self.voice_bridge_reader = VoiceBridgeReader(VOICE_BRIDGE_PATH)
         self.announced: set[str] = set()
-        self.play_queue: queue.Queue[AlertJob | VoiceBridgeJob | None] = queue.Queue()
+        self.play_queue: queue.Queue[tuple[int, AlertJob | VoiceBridgeJob] | None] = queue.Queue()
         self.voice_client: Any = None
         self.voice_play_lock = asyncio.Lock()
         self.voice_transition_lock = asyncio.Lock()
@@ -1192,6 +1221,8 @@ class DiscordScheduleBot:
         self.timed_bridge_tasks: dict[str, tuple[str, asyncio.Task[Any]]] = {}
         self.cancelled_voice_bridge_scopes: dict[str, float] = {}
         self.text_notice_keys: set[str] = set()
+        self.boss_notice_groups: dict[tuple[str, ...], dict[str, Any]] = {}
+        self.boss_notice_lock = asyncio.Lock()
         self.current_voice_scope_id = ""
         self.current_voice_playback_token: object | None = None
         self.current_voice_player_thread: Any = None
@@ -1210,6 +1241,17 @@ class DiscordScheduleBot:
         self.schedule_request_lock = asyncio.Lock()
         self.config = load_config()
         self.connection_policy = ConnectionPolicy(CONFIG_PATH)
+        state = self.connection_policy.snapshot()
+        self.connection_policy.update(protocol=CONTROL_PROTOCOL, runtime_id=STATUS.runtime_id,
+                                      standby=True, authority_until=0, authority_active=False, voice_requested=False)
+        STATUS.update(client_id=state["client_id"], application_id=str(self.config.get("application_id") or ""))
+        self.authority_watch_task = None
+        self.authority_connect_task = None
+        self.connected_authority_generation = None
+        self.voice_authority_was_owned = False
+        self.commands_registered = False
+        self.command_generation = None
+        self.next_command_sync_at = 0
         self.voice_connect_lock = asyncio.Lock()
         self.voice_channel_panel_message_id = str(self.config.get("voice_panel_message_id") or "").strip()
         self.custom_voice_commands = load_custom_discord_voice_commands()
@@ -1225,18 +1267,513 @@ class DiscordScheduleBot:
         self._bind_commands()
 
     def _connection_state(self):
-        policy = getattr(self, "connection_policy", None)
-        if policy is None:  # Lightweight offline test doubles.
-            return {"standby": STATUS.standby, "error": STATUS.configuration_error, "retries": STATUS.reconnect_attempts}
-        state = policy.snapshot()
-        STATUS.update(standby=state["standby"], reconnect_attempts=state["retries"],
-                      handover_hold=state["handover_hold"],
-                      configuration_error=state["error"])
+        state = self.connection_policy.snapshot()
+        owns = ConnectionPolicy.has_authority(state, STATUS.runtime_id, allow_joining=True)
+        STATUS.update(standby=not owns, reconnect_attempts=state["retries"],
+                      handover_hold=state["handover_hold"], configuration_error=state["error"],
+                      voice_error=state["voice_error"], voice_reconnect_attempts=state["voice_retries"],
+                      send_authorized=owns and state["authority_active"] and state["voice_requested"] and not state["voice_error"],
+                      authority_joining=owns and not state["authority_active"])
         return state
 
     def _connection_is_blocked(self):
         state = self._connection_state()
-        return bool(state["standby"] or state["error"] or state.get("handover_role") == "outgoing")
+        return bool(not ConnectionPolicy.has_authority(state, STATUS.runtime_id, allow_joining=True)
+                    or not state["voice_requested"] or state["voice_error"] or state["error"])
+
+    def _send_allowed(self):
+        state = self._connection_state()
+        task = asyncio.current_task()
+        expected = getattr(task, "boss_authority_generation", state["authority_generation"])
+        return bool(STATUS.online and ConnectionPolicy.has_authority(state, STATUS.runtime_id)
+                    and state["voice_requested"] and not state["voice_error"]
+                    and expected == state["authority_generation"])
+
+    def _tag_authority_task(self):
+        task = asyncio.current_task()
+        if task is not None and not hasattr(task, "boss_authority_generation"):
+            task.boss_authority_generation = self._connection_state()["authority_generation"]
+
+    def _authority_voice_client_type(self, expected_generation):
+        bot = self
+        class AuthorityVoiceClient(bot.discord.VoiceClient):
+            def owns_authority(voice_self):
+                local = bot.connection_policy.snapshot()
+                return (ConnectionPolicy.has_authority(local, STATUS.runtime_id, allow_joining=True)
+                        and local["authority_generation"] == expected_generation)
+
+            def cleanup(voice_self):
+                # A late disconnect must not remove a replacement from the
+                # library's per-guild voice-client registry.
+                if getattr(voice_self.guild, "voice_client", None) is voice_self:
+                    super().cleanup()
+
+            async def disconnect(voice_self, *, force=False):
+                voice_self.stop()
+                try:
+                    # Revoked instances never send a guild leave, so no leave
+                    # acknowledgement will arrive for them.
+                    await voice_self._connection.disconnect(force=force, wait=voice_self.owns_authority())
+                finally:
+                    voice_self.cleanup()
+
+            def create_connection_state(voice_self):
+                state = super().create_connection_state()
+                generation = expected_generation
+                voice_self.authority_generation = generation
+                connect, disconnect = state._voice_connect, state._voice_disconnect
+                def authorized():
+                    return voice_self.owns_authority()
+                async def guarded_connect(**kw):
+                    if not authorized():
+                        raise RuntimeError("관리자 권한이 변경되어 음성 접속을 중단했습니다.")
+                    await connect(**kw)
+                async def guarded_disconnect():
+                    # A superseded PC must not send a guild-wide leave and kick
+                    # the new owner's voice session. Local resources still close.
+                    if authorized():
+                        await disconnect()
+                state._voice_connect, state._voice_disconnect = guarded_connect, guarded_disconnect
+                return state
+
+            def send_audio_packet(voice_self, data, *, encode=True):
+                # AudioPlayer runs on its own thread; fence every packet even
+                # when the asyncio loop stalls or an old clip is still alive.
+                local = bot.connection_policy.snapshot()
+                if (not STATUS.online or not ConnectionPolicy.has_authority(local, STATUS.runtime_id)
+                        or not local["voice_requested"]
+                        or local["authority_generation"] != voice_self.authority_generation):
+                    return
+                super().send_audio_packet(data, encode=encode)
+        return AuthorityVoiceClient
+
+    async def _close_voice_client(self, voice, *, reason):
+        if voice is None:
+            return
+        try:
+            await asyncio.wait_for(voice.disconnect(force=True), timeout=3)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log(f"voice_cleanup_failed reason={reason} type={type(exc).__name__} error={exc!r}")
+        finally:
+            for close in (voice.stop, voice.cleanup):
+                try:
+                    close()
+                except Exception as exc:
+                    log(f"voice_resource_cleanup_failed reason={reason} type={type(exc).__name__} error={exc!r}")
+            if self.voice_client is voice:
+                self.voice_client = None
+                STATUS.update(voice_connected=False)
+
+    async def _disconnect_authority_voice(self):
+        for _, task in list(self.timed_bridge_tasks.values()):
+            task.cancel()
+        while True:
+            try:
+                self.play_queue.get_nowait()
+            except queue.Empty:
+                break
+        async with self.voice_transition_lock:
+            await self._stop_current_voice_playback_and_wait(reason="authority_lost")
+        if self.notice_output is not None:
+            await self.notice_output.stop()
+        async with self.voice_connect_lock:
+            voice = self.voice_client
+            await self._close_voice_client(voice, reason="authority_lost")
+        STATUS.update(voice_connected=False)
+
+    async def _authority_watch_loop(self):
+        while not STATUS.shutdown_requested.is_set():
+            try:
+                state = self._connection_state()
+                owns = ConnectionPolicy.has_authority(state, STATUS.runtime_id, allow_joining=True)
+                requested = owns and state["voice_requested"]
+                if self.voice_authority_was_owned and not requested:
+                    reason = ("state_read_error" if state["error"] else "voice_released" if not state["voice_requested"]
+                              else "lease_expired" if state["authority_until"] <= time.monotonic() else "authority_revoked")
+                    log(f"voice_authority_stopped reason={reason} generation={state['authority_generation']} "
+                        f"lease_remaining_sec={state['authority_until'] - time.monotonic():.3f}")
+                self.voice_authority_was_owned = requested
+                if not owns or not state["voice_requested"]:
+                    if self.authority_connect_task is not None and not self.authority_connect_task.done():
+                        self.authority_connect_task.cancel()
+                        await asyncio.gather(self.authority_connect_task, return_exceptions=True)
+                    if self.voice_client is not None:
+                        await self._disconnect_authority_voice()
+                    STATUS.update(voice_connected=False)
+                elif STATUS.online and not state["voice_error"]:
+                    generation = state["authority_generation"]
+                    if (self.authority_connect_task is not None and not self.authority_connect_task.done()
+                            and getattr(self.authority_connect_task, "voice_generation", generation) != generation):
+                        self.authority_connect_task.cancel()
+                        await asyncio.gather(self.authority_connect_task, return_exceptions=True)
+                    if self.connected_authority_generation != generation:
+                        if self.authority_connect_task is None or self.authority_connect_task.done():
+                            self.authority_connect_task = asyncio.create_task(self._join_authority_voice(generation))
+                            self.authority_connect_task.voice_generation = generation
+                if (state["command_sync_allowed"] and self.client.is_ready()
+                        and (not self.commands_registered or self.command_generation != state["authority_generation"])
+                        and time.monotonic() >= self.next_command_sync_at):
+                    if self.command_sync_task is None or self.command_sync_task.done():
+                        self.next_command_sync_at = time.monotonic() + 30
+                        self.command_sync_task = asyncio.create_task(self._sync_commands())
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log(f"authority_watch_failed type={type(exc).__name__} error={exc!r}")
+            await asyncio.sleep(.1)
+
+    async def _join_authority_voice(self, generation):
+        try:
+            if self.voice_client is not None:
+                await self._disconnect_authority_voice()
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                return
+            await self._disconnect_stale_configured_voice_session(wait_seconds=.5, force=True)
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                return
+            connected = await self._connect_configured_voice_channel(automatic=False, expected_generation=generation)
+            if not connected:
+                raise RuntimeError(STATUS.last_error or "음성채널 입장에 실패했습니다.")
+            self.connected_authority_generation = generation
+            # Publish panels only after the GUI commits active ownership.
+            self.voice_panel_startup_task = asyncio.create_task(self._initialize_voice_panel_when_authorized(generation))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if self.connection_policy.snapshot()["authority_generation"] == generation:
+                self.connection_policy.update(voice_error=str(exc))
+                STATUS.update(last_error=str(exc), voice_connected=False)
+
+    async def _initialize_voice_panel_when_authorized(self, generation):
+        while ConnectionPolicy.has_authority(self._connection_state(), STATUS.runtime_id, allow_joining=True):
+            if self._connection_state()["authority_generation"] != generation:
+                return
+            if self._send_allowed():
+                self._tag_authority_task()
+                await self._initialize_voice_panel_after_ready()
+                return
+            await asyncio.sleep(.1)
+
+    async def _defer_interaction_once(self, interaction) -> bool | None:
+        if not self._is_configured_server_id(getattr(interaction, "guild_id", None)):
+            return False
+        # The successful first acknowledgement selects one handler across PCs.
+        try:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+        except self.discord.HTTPException as exc:
+            if getattr(exc, "code", None) == 10062:
+                return None  # Expired interactions cannot participate in routing.
+            if getattr(exc, "code", None) == 40060:
+                return False
+            raise
+        except self.discord.InteractionResponded:
+            return False
+        return True
+
+    async def _reply_private_text(self, interaction, body: str, *, ansi: bool = False) -> None:
+        # Leave room for code fences and keep every Discord message below 2000.
+        lines = []
+        for line in body.splitlines():
+            lines.extend(line[offset:offset + 1850] for offset in range(0, len(line), 1850))
+            if not line:
+                lines.append("")
+        chunks, current = [], ""
+        for line in lines:
+            candidate = current + "\n" + line if current else line
+            if current and len(candidate) > 1850:
+                chunks.append(current)
+                current = line
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        for chunk in chunks:
+            await interaction.followup.send(
+                f"```ansi\n{chunk}\n```" if ansi else chunk,
+                ephemeral=True, allowed_mentions=self.discord.AllowedMentions.none(),
+            )
+
+    async def _handle_readonly_query(self, interaction, query: str) -> bool:
+        """Use the cached responder directly; shared routing is only a fallback."""
+        if not self._is_configured_server_id(getattr(interaction, "guild_id", None)):
+            return True
+        state = self._connection_state()
+        members = state.get("query_members", [])
+        own_member = next((member for member in members if member.get("client_id") == STATUS.client_id
+                           and member.get("runtime") == STATUS.runtime_id), {})
+        owns = self._send_allowed()
+        preferred = members[0] if members and state.get("query_until", 0) > time.monotonic() else {}
+        direct = owns or (preferred.get("client_id") == STATUS.client_id
+                          and preferred.get("runtime") == STATUS.runtime_id and not preferred.get("sending"))
+        if direct and not owns:
+            # A newly elected sender can precede a still-cached standby PC.
+            await asyncio.sleep(.25)
+        elif not direct:
+            # Let the selected PC acknowledge first without any GitHub round trip.
+            await asyncio.sleep(.75)
+        coordinator = await self._defer_interaction_once(interaction)
+        if coordinator is None:
+            return True
+        if coordinator and direct:
+            try:
+                log(f"query_direct query_id={interaction.id} query={query} client_id={STATUS.client_id[:8]} sender={int(owns)}")
+                await self._execute_readonly_query(interaction, query, own_member)
+            except Exception as exc:
+                log(f"query_direct_failed query_id={interaction.id} type={type(exc).__name__} error={exc!r}")
+                await self._reply_private_text(interaction, "조회 자료를 표시하지 못했습니다. 다시 시도하세요.")
+            return True
+        if coordinator:
+            if self.connection_policy.snapshot().get("query_protocol") != 1:
+                await self._reply_private_text(interaction, "조회 연결 정보가 준비되지 않았습니다. GUI와 봇을 모두 새 버전으로 실행한 뒤 다시 조회하세요.")
+                return True
+            await interaction.edit_original_response(content=QUERY_ROUTING_WAIT_TEXT,
+                                                     allowed_mentions=self.discord.AllowedMentions.none())
+        elif not await self._is_query_routing_pending(interaction):
+            return True  # The direct responder already claimed this query.
+        # Only a missing/late direct responder goes through the shared CAS ledger.
+        tasks = [asyncio.create_task(self._participate_readonly_query(interaction, query))]
+        if coordinator:
+            tasks.append(asyncio.create_task(self._coordinate_readonly_query(interaction, query)))
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return True
+
+    async def _is_query_routing_pending(self, interaction) -> bool:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                # original_response() caches its first value; fetch fresh while
+                # the initial ack is still loading on another PC.
+                message = await interaction.followup.fetch_message("@original")
+            except self.discord.HTTPException:
+                return False
+            if message.content == QUERY_ROUTING_WAIT_TEXT:
+                return True
+            if not message.flags.loading:
+                return False
+            await asyncio.sleep(.1)
+        return False
+
+    def _cache_query_responder(self, message):
+        if not message.get("retries") or not message.get("source"):
+            return
+        state = self.connection_policy.snapshot()
+        generation = int(message.get("routing_generation", -1))
+        if generation < state.get("query_routing_generation", -1):
+            return
+        member = message["source"]
+        members = [value for value in state.get("query_members", []) if value.get("client_id") != member.get("client_id")]
+        members.append(member)
+        members.sort(key=lambda value: (not bool(value.get("sending")), -float(value.get("connected_at", 0)), value.get("client_id", "")))
+        self.connection_policy.update(query_members=QueryLedger.order_candidates(members, member),
+                                      query_responder=member, query_routing_generation=generation,
+                                      query_until=time.monotonic() + 10)
+
+    async def _query_routing_results(self, interaction, query, operation):
+        request_id = f"query_{interaction.id}_{STATUS.runtime_id}_{operation}"
+        result_path = DISCORD_SCHEDULE_REQUEST_DIR / "results" / (request_id + ".json")
+        await self._queue_local_schedule_request(dict(
+            operation=operation, request_id=request_id, query_id=str(interaction.id), query=query,
+            server_id=self._get_configured_server_id(), runtime_id=STATUS.runtime_id,
+            created_at=time.time(), raw_text="스케줄 조회 담당자 선택",
+        ))
+        deadline = time.monotonic() + 120
+        last_payload = None
+        try:
+            while time.monotonic() < deadline and not STATUS.shutdown_requested.is_set():
+                try:
+                    result = json.loads(_read_state_text(result_path))
+                except (FileNotFoundError, PermissionError, ValueError):
+                    await asyncio.sleep(.1)
+                    continue
+                if result != last_payload:
+                    last_payload = result
+                    yield result
+                message = result.get("message")
+                if not result.get("ok") or not isinstance(message, dict) or message.get("state") != "progress":
+                    return
+                await asyncio.sleep(.1)
+            yield dict(ok=False, message="조회 응답을 받지 못했습니다. 관리자를 변경하고 다시 시도하세요.")
+        finally:
+            try:
+                result_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    async def _coordinate_readonly_query(self, interaction, query):
+        announced = 0
+        try:
+            async for result in self._query_routing_results(interaction, query, "readonly_query_route"):
+                if not result.get("ok"):
+                    await self._reply_private_text(interaction, "조회 요청을 처리하지 못했습니다. 관리자를 변경하고 다시 시도하세요.")
+                    log(f"query_route_failed query_id={interaction.id} error={result.get('message')!r}")
+                    return
+                message = result["message"]
+                retries = message.get("retries", [])
+                for retry in retries[announced:]:
+                    previous = retry["previous"]
+                    following = retry.get("next")
+                    previous_name = f"{previous.get('name') or '담당자'} ({previous.get('display_id') or previous.get('client_id', '')[:8]})"
+                    if following:
+                        next_name = f"{following.get('name') or '담당자'} ({following.get('display_id') or following.get('client_id', '')[:8]})"
+                        text = f"{previous_name} 담당자가 3초 안에 응답하지 않아 {next_name} 담당자로 조회 담당자를 변경하고 다시 시도합니다."
+                    else:
+                        text = f"{previous_name} 담당자가 3초 안에 응답하지 않았습니다. 관리자를 변경하고 다시 시도하세요."
+                    await self._reply_private_text(interaction, text)
+                announced = len(retries)
+                if message.get("state") == "unavailable" and not retries:
+                    await self._reply_private_text(interaction, "조회할 관리자가 없습니다. 관리자를 변경하거나 봇 연결을 확인한 뒤 다시 시도하세요.")
+        except OSError as exc:
+            log(f"query_route_local_failed query_id={interaction.id} error={exc!r}")
+            await self._reply_private_text(interaction, "조회 요청을 전달하지 못했습니다. 관리자를 변경하고 다시 시도하세요.")
+
+    async def _participate_readonly_query(self, interaction, query):
+        selected = False
+        try:
+            async for result in self._query_routing_results(interaction, query, "readonly_query_wait"):
+                message = result.get("message")
+                if not result.get("ok"):
+                    log(f"query_participation_failed query_id={interaction.id} error={message!r}")
+                if result.get("ok") and isinstance(message, dict):
+                    self._cache_query_responder(message)
+                if result.get("ok") and isinstance(message, dict) and message.get("state") == "selected":
+                    selected = True
+                    await self._execute_readonly_query(interaction, query, message.get("source", {}))
+        except Exception as exc:
+            log(f"query_response_failed query_id={interaction.id} type={type(exc).__name__} error={exc!r}")
+            if selected:
+                await self._reply_private_text(interaction, "조회 자료를 표시하지 못했습니다. 관리자를 변경하고 다시 시도하세요.")
+
+    async def _execute_readonly_query(self, interaction, query, member):
+        if self._send_allowed():
+            self._tag_authority_task()
+        if query == "help":
+            from discord_command_help import COMMAND_HELP
+            await self._reply_private_text(interaction, COMMAND_HELP)
+            return
+        source = (f"응답 담당자: {member.get('name', '담당자')} · {member.get('display_id') or STATUS.client_id[:8]} · "
+                  f"{member.get('server', '')} · {member.get('season', '')}차 · 이 PC의 로컬 자료")
+        await self._reply_private_text(interaction, source)
+        if self._send_allowed() and query in {"schedule", "plain", "image"}:
+            channel = await self._resolve_text_channel(getattr(interaction, "guild", None))
+            if channel is None:
+                await self._reply_private_text(interaction, "안내 채널을 찾지 못했습니다. /보탐채널을 먼저 실행하세요.")
+                return
+            if query == "schedule":
+                await self._send_schedule_text(channel)
+            elif query == "plain":
+                await self._send_schedule_plain_text(channel)
+            else:
+                image_path = await self._request_local_schedule_copy_image()
+                if not image_path:
+                    await self._reply_private_text(interaction, "로컬 스케쥴복사 이미지를 만들지 못했습니다. 프로그램이 실행 중인지 확인하고 다시 요청하세요.")
+                    return
+                if not self._send_allowed():
+                    await self._reply_private_text(interaction, "송출 담당자가 변경되었습니다. 다시 조회하세요.")
+                    return
+                await channel.send(content="✦ 보탐매니저 스케쥴", file=self.discord.File(image_path, filename="bosstimer_schedule.png"))
+                await self._cleanup_bot_text_channel_messages(channel)
+            await self._reply_private_text(interaction, f"스케쥴을 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.")
+            return
+        if query in {"schedule", "plain"}:
+            rows = self.schedule_reader.upcoming_rows(limit=120)
+            if query == "schedule":
+                body = self._format_schedule_rows_as_ansi(rows)
+            else:
+                body = "\n".join(
+                    f"{scheduled_at.strftime('%H%M')} {str(row.get('name') or '')}"
+                    for row in rows
+                    if isinstance((scheduled_at := row.get("scheduled_at")), datetime)
+                ) or "예정된 스케쥴이 없습니다."
+            await self._reply_private_text(interaction, body, ansi=query == "schedule")
+        elif query == "voices":
+            entries = self._get_discord_voice_command_menu_entries()
+            if not entries:
+                await self._reply_private_text(interaction, "등록된 음성 명령이 없습니다.")
+                return
+            if self._send_allowed():
+                channel = await self._resolve_voice_panel_channel(getattr(interaction, "guild", None))
+                current_id = str(getattr(getattr(interaction, "channel", None), "id", "") or "")
+                if channel is None or str(channel.id) != current_id:
+                    text = f"사운드보드 명령은 <#{channel.id}> 채팅채널에서만 사용할 수 있습니다." if channel else "전용 채팅채널에서 /음성채널을 먼저 실행하세요."
+                    await self._reply_private_text(interaction, text)
+                    return
+                if self._send_allowed():
+                    owner_id = str(getattr(getattr(interaction, "user", None), "id", "") or "")
+                    view = self._build_discord_voice_command_menu_view(owner_id=owner_id)
+                    await interaction.followup.send(
+                        f"등록 음성 {len(entries)}개입니다. 📢 기본 · 🔊 사용자 TTS · 📁 파일 전용\n"
+                        "음성 버튼을 누르면 송출합니다. 이전/다음 버튼으로 목록을 넘길 수 있습니다.",
+                        view=view, ephemeral=True,
+                    )
+                    return
+            body = (f"등록 음성 {len(entries)}개 (송출 권한이 있으면 재생할 수 있습니다.)\n"
+                    + "\n".join(f"• {name}" for _, name, _ in entries))
+            await self._reply_private_text(interaction, body)
+        elif query == "image":
+            image_path = await self._request_local_schedule_copy_image()
+            if image_path:
+                await interaction.followup.send(
+                    file=self.discord.File(image_path, filename="bosstimer_schedule.png"),
+                    ephemeral=True, allowed_mentions=self.discord.AllowedMentions.none(),
+                )
+            else:
+                await self._reply_private_text(interaction, "로컬 스케쥴복사 이미지를 만들지 못했습니다. 프로그램이 실행 중인지 확인하고 다시 요청하세요.")
+
+    async def _administrator_command(self, interaction, operation, *, target="", channel=""):
+        if not await self._defer_interaction_once(interaction):
+            return
+        permissions = getattr(getattr(interaction, "user", None), "guild_permissions", None)
+        if not (getattr(permissions, "administrator", False) or getattr(permissions, "manage_guild", False)):
+            await interaction.followup.send("Discord 서버 관리자 또는 서버 관리 권한이 필요합니다.", ephemeral=True)
+            return
+        if operation == "administrator_list":
+            state = self._connection_state()
+            members = state.get("query_members", [])
+            if members and state.get("query_until", 0) > time.monotonic():
+                rows = ["접속한 관리자 (관리자 ID는 프로그램 설치별 ID입니다.)",
+                        "접속 요청: /보탐 담당자이름 (예: /보탐 나츠) · 이름 중복 시 /보탐 ID"]
+                for member in members:
+                    role = "송출 중" if member.get("sending") else "입장 중" if member.get("joining") else "권한 없음"
+                    rows.append(f"{member.get('name', '담당자')} · {member.get('display_id') or member.get('client_id', '')[:8]} · "
+                                f"{member.get('server', '')} · {member.get('season', '')}차 · {role}")
+                await self._reply_private_text(interaction, "\n".join(rows))
+                return
+        request_id = str(interaction.id)
+        if not channel and operation == "administrator_connect":
+            voice = getattr(getattr(interaction, "user", None), "voice", None)
+            channel = str(getattr(getattr(voice, "channel", None), "id", "") or "")
+        payload = dict(operation=operation, request_id=request_id, server_id=self._get_configured_server_id(),
+                       runtime_id=STATUS.runtime_id, created_at=time.time(), target_administrator=target,
+                       target_client_id=target,
+                       voice_channel_id=channel, raw_text="관리자 제어")
+        try:
+            await self._queue_local_schedule_request(payload)
+        except OSError as exc:
+            log(f"administrator_request_write_failed operation={operation} type={type(exc).__name__} error={exc!r}")
+            await interaction.followup.send("관리자 요청을 프로그램에 전달하지 못했습니다. 프로그램의 연결 상태를 확인하세요.", ephemeral=True)
+            return
+        result_path = DISCORD_SCHEDULE_REQUEST_DIR / "results" / (request_id + ".json")
+        deadline = time.monotonic() + 65
+        while time.monotonic() < deadline:
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                result_path.unlink(missing_ok=True)
+                message = str(result.get("message") or "요청 완료")
+                for offset in range(0, len(message), 1900):
+                    await interaction.followup.send(message[offset:offset+1900], ephemeral=True, allowed_mentions=self.discord.AllowedMentions.none())
+                return
+            except FileNotFoundError:
+                pass
+            await asyncio.sleep(.2)
+        await interaction.followup.send("프로그램의 요청 응답을 받지 못했습니다. 관리자 목록과 프로그램 상태를 확인하세요.", ephemeral=True)
 
     def _block_connection_error(self, message):
         policy = getattr(self, "connection_policy", None)
@@ -1245,14 +1782,7 @@ class DiscordScheduleBot:
         STATUS.update(configuration_error=message, last_error=message)
 
     def _claim_connection_retry(self):
-        policy = getattr(self, "connection_policy", None)
-        if self._connection_is_blocked():
-            return False
-        allowed = policy.claim_retry() if policy is not None else False
-        state = self._connection_state()
-        if not allowed and state["retries"] >= MAX_RETRIES:
-            STATUS.update(last_error="자동 재접속 10회 제한에 도달했습니다. /보탐의 접속 또는 프로그램에서 수동 실행하세요.")
-        return allowed
+        return self.connection_policy.claim_voice_retry()
 
     def _validate_authenticated_application(self, actual_id: Any) -> None:
         expected = str(self.config.get("application_id") or "").strip()
@@ -1624,6 +2154,12 @@ class DiscordScheduleBot:
         return f"보탐매니저 메시지 보관을 {label}으로 설정했습니다. 사용자 글과 고정 메시지는 유지합니다."
 
     async def _cleanup_bot_text_channel_messages(self, channel: Any, *, keep_count: int | None = None) -> None:
+        # Commands and announcements can clean up the same channel concurrently.
+        # Serialize cleanup with box updates so a newly updated box stays safe.
+        async with self.boss_notice_lock:
+            await self._cleanup_bot_text_channel_messages_locked(channel, keep_count=keep_count)
+
+    async def _cleanup_bot_text_channel_messages_locked(self, channel: Any, *, keep_count: int | None = None) -> None:
         """Keep the channel compact without ever deleting user or pinned messages."""
         if keep_count is None:
             keep_count = self._text_channel_keep_count()
@@ -1636,23 +2172,49 @@ class DiscordScheduleBot:
             return
         retained = 0
         protected_panel_id = str(getattr(self, "voice_channel_panel_message_id", "") or "")
+        now = time.time()
+        groups_by_message = {
+            str(group.get('message_id') or ''): group
+            for group in self.boss_notice_groups.values()
+            if float(group.get('expires_at') or 0) > now
+        }
         try:
+            candidates = []
             async for message in channel.history(limit=None):
                 author_id = str(getattr(getattr(message, "author", None), "id", "") or "")
                 message_id = str(getattr(message, "id", "") or "")
                 if author_id != bot_user_id or bool(getattr(message, "pinned", False)) or message_id == protected_panel_id:
                     continue
+                group = groups_by_message.get(message_id)
+                if group and not group.get('completed') and float(group.get('target_at') or 0) + 15 > now:
+                    continue  # Keep an active boss's earlier box for its next stage.
+                updated_at = float(group.get('updated_at') or 0) if group else 0
+                created_at = getattr(message, 'created_at', None)
+                candidates.append((max(updated_at, created_at.timestamp() if isinstance(created_at, datetime) else 0), message))
+            # Editing a boss box does not change its Discord creation ID. Count
+            # its latest announcement as recent activity when applying retention.
+            candidates.sort(key=lambda item: (item[0], int(getattr(item[1], 'id', 0))), reverse=True)
+            for _activity_at, message in candidates:
                 if retained < max(0, int(keep_count)):
                     retained += 1
                     continue
                 try:
+                    if not self._send_allowed():
+                        return
                     await message.delete()
+                    log(f"text_channel_cleanup_deleted channel_id={getattr(channel, 'id', '')} "
+                        f"message_id={message.id} at={time.time():.3f}")
+                    for key, group in list(self.boss_notice_groups.items()):
+                        if str(group.get('message_id') or '') == str(getattr(message, 'id', '')):
+                            self.boss_notice_groups.pop(key, None)
                 except Exception:
                     continue
         except Exception as exc:
             log(f"text_channel_cleanup_failed channel_id={getattr(channel, 'id', '')} error={exc}")
 
     async def _cleanup_voice_panel_channel_messages(self, channel: Any) -> None:
+        if not self._send_allowed():
+            return False
         """Keep a dedicated soundboard channel readable: panel + one newest message."""
         if channel is None or not hasattr(channel, "history"):
             return
@@ -1679,6 +2241,8 @@ class DiscordScheduleBot:
             log(f"voice_panel_channel_cleanup_failed channel_id={getattr(channel, 'id', '')} error={exc}")
 
     async def _cleanup_voice_panel_after_activity(self, channel: Any) -> None:
+        if not self._send_allowed():
+            return False
         """Let Discord post an acknowledgement, then compact the soundboard channel."""
         if channel is None:
             return
@@ -1704,6 +2268,8 @@ class DiscordScheduleBot:
             pass
 
     async def _publish_discord_voice_channel_panel(self, channel: Any, guild: Any) -> tuple[bool, str]:
+        if not self._send_allowed():
+            return False, "관리자 권한이 없습니다."
         target = await self._resolve_voice_panel_channel(guild)
         if target is None or target.id != getattr(channel, "id", None):
             return False, "사운드보드 전용 채팅채널을 먼저 지정하세요."
@@ -1784,8 +2350,12 @@ class DiscordScheduleBot:
                 log(f"voice_panel_history_lookup_failed channel_id={getattr(channel, 'id', '')} error={exc}")
         try:
             if panel_message is not None:
+                if not self._send_allowed():
+                    return False, "관리자 권한이 변경되었습니다."
                 await panel_message.edit(content=panel_content, view=view)
             else:
+                if not self._send_allowed():
+                    return False, "관리자 권한이 변경되었습니다."
                 panel_message = await channel.send(panel_content, view=view)
                 try:
                     await panel_message.pin(reason="보탐매니저 음성채널 선택 UI")
@@ -1847,6 +2417,9 @@ class DiscordScheduleBot:
     def _should_handle_interaction(self, interaction: Any) -> bool:
         guild_id = str(getattr(interaction, "guild_id", "") or "").strip()
         if self._is_configured_server_id(guild_id):
+            if not self._send_allowed():
+                return False
+            self._tag_authority_task()
             return True
         command = getattr(interaction, "command", None)
         command_name = str(getattr(command, "name", "") or "unknown")
@@ -1862,7 +2435,8 @@ class DiscordScheduleBot:
         @self.client.event
         async def on_ready() -> None:
             self.gateway_disconnected_at = None
-            STATUS.update(online=True, last_error="")
+            STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="")
+            self.connection_policy.success()
             log(f"discord_gateway_ready user={self.client.user}")
             if self.disconnect_only:
                 disconnected = await self._disconnect_stale_configured_voice_session(wait_seconds=1.0, force=True)
@@ -1874,7 +2448,7 @@ class DiscordScheduleBot:
                 return
             # Do not force-disconnect a possibly live administrator's session.
             # Automatic retries have one shared, persistent budget.
-            await self._connect_configured_voice_channel(automatic=False)
+            # Gateway login never requests voice or administrator ownership.
             # Start the bridge and shutdown watchers before any Discord message
             # maintenance. Fetching/deleting the persistent soundboard panel can
             # be delayed by Discord rate limits; it must never block heartbeats
@@ -1885,15 +2459,12 @@ class DiscordScheduleBot:
                 self.play_task = self.client.loop.create_task(self._play_loop())
             if self.shutdown_task is None or self.shutdown_task.done():
                 self.shutdown_task = self.client.loop.create_task(self._shutdown_watch_loop())
-            if self.command_sync_task is None or self.command_sync_task.done():
-                self.command_sync_task = self.client.loop.create_task(self._sync_commands())
+            if self.authority_watch_task is None or self.authority_watch_task.done():
+                self.authority_watch_task = self.client.loop.create_task(self._authority_watch_loop())
             if self.gateway_recovery_task is None or self.gateway_recovery_task.done():
                 self.gateway_recovery_task = self.client.loop.create_task(self._gateway_recovery_loop())
             log(f"discord_ready user={self.client.user} edge_tts_gain={EDGE_TTS_PLAYBACK_GAIN:.2f}")
-            if self.voice_panel_startup_task is None or self.voice_panel_startup_task.done():
-                self.voice_panel_startup_task = self.client.loop.create_task(
-                    self._initialize_voice_panel_after_ready()
-                )
+
 
         @self.client.event
         async def on_disconnect() -> None:
@@ -1905,7 +2476,7 @@ class DiscordScheduleBot:
         @self.client.event
         async def on_resumed() -> None:
             self.gateway_disconnected_at = None
-            STATUS.update(online=True, last_error="")
+            STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="")
             await self._ensure_voice_connection()
             log("discord_gateway_resumed")
 
@@ -1919,7 +2490,10 @@ class DiscordScheduleBot:
             # health status or voice panel (including channel=None on leave).
             if not self._is_configured_guild(getattr(member, "guild", None)):
                 return
-            if self._connection_state()["standby"]:
+            if (self._connection_is_blocked() or self.voice_client is None
+                    or not self.voice_client.is_connected()
+                    or getattr(self.voice_client, "authority_generation", None)
+                    != self._connection_state()["authority_generation"]):
                 return
             after_channel = getattr(after, "channel", None)
             if after_channel is not None and not self._is_configured_guild(getattr(after_channel, "guild", None)):
@@ -1949,7 +2523,26 @@ class DiscordScheduleBot:
                 log(f"voice_channel_panel_move_refresh_failed error={exc}")
 
         @self.client.event
+        async def on_raw_message_edit(payload: Any) -> None:
+            # Observe only our tracked notices. Never rewrite a message here:
+            # compare these server events with the outbound signature to tell
+            # content changes from a Discord client-only redraw.
+            message_id = str(payload.message_id)
+            if not any(str(group.get('message_id') or '') == message_id
+                       for group in self.boss_notice_groups.values()):
+                return
+            data = payload.data
+            signature = (self._boss_notice_text_signature(data['embeds'])
+                         if 'embeds' in data else '-')
+            log(f"text_notice_gateway_edit message_id={message_id} at={time.time():.3f} "
+                f"signature={signature} has_content={int('content' in data)} "
+                f"content_length={len(str(data.get('content') or ''))}")
+
+        @self.client.event
         async def on_message(message: Any) -> None:
+            if not self._send_allowed():
+                return
+            self._tag_authority_task()
             asyncio.create_task(
                 self._cleanup_voice_panel_after_activity(getattr(message, "channel", None))
             )
@@ -1977,7 +2570,7 @@ class DiscordScheduleBot:
                 pass
 
     async def _handle_schedule_text_message(self, message: Any) -> None:
-        if not self.message_content_enabled:
+        if not self.message_content_enabled or not self._send_allowed():
             return
         author = getattr(message, "author", None)
         if author is None or bool(getattr(author, "bot", False)):
@@ -2059,9 +2652,9 @@ class DiscordScheduleBot:
         """Recover a stuck gateway or voice connection without waiting for a new alert."""
         while not STATUS.shutdown_requested.is_set():
             await asyncio.sleep(2.0)
-            if self._connection_is_blocked():
-                continue
             if self.client.is_ready():
+                if self._connection_is_blocked() or not self._connection_state()["authority_active"]:
+                    continue
                 self.gateway_disconnected_at = None
                 STATUS.update(online=True)
                 voice_is_connected = bool(
@@ -2075,7 +2668,6 @@ class DiscordScheduleBot:
                 if now_value - self.last_voice_reconnect_attempt_at < 5.0:
                     continue
                 self.last_voice_reconnect_attempt_at = now_value
-                log("voice_reconnect_watchdog_attempt")
                 reconnected = await self._connect_configured_voice_channel()
                 if reconnected is True:
                     await self._publish_voice_reconnect_recovery_log()
@@ -2118,6 +2710,12 @@ class DiscordScheduleBot:
         return f"초읽기 {label} 요청을 보탐매니저에 전달했습니다. 적용 결과는 프로그램의 디스코드 요청 기록에서 확인할 수 있습니다."
 
     async def _queue_local_schedule_request(self, payload: dict[str, Any]) -> None:
+        operation = str(payload.get("operation") or "")
+        if not operation.startswith("administrator_") and operation not in {"readonly_query_route", "readonly_query_wait"}:
+            if not self._send_allowed():
+                return
+            payload.update(runtime_id=STATUS.runtime_id,
+                           authority_generation=self._connection_state()["authority_generation"])
         request_id = re.sub(r"[^0-9A-Za-z_-]", "", str(payload.get("request_id") or "")) or uuid.uuid4().hex
         timestamp = int(time.time() * 1000)
         async with self.schedule_request_lock:
@@ -2135,6 +2733,8 @@ class DiscordScheduleBot:
                     pass
 
     async def _publish_voice_reconnect_recovery_log(self) -> None:
+        if not self._send_allowed():
+            return False
         message = "보탐매니저 음성 연결이 끊어져 자동 재접속했습니다."
         try:
             channel = await self._resolve_text_channel()
@@ -2150,6 +2750,8 @@ class DiscordScheduleBot:
                     timestamp=datetime.now(),
                 )
                 embed.set_footer(text="BossTimer 음성 연결 자동 복구")
+                if not self._send_allowed():
+                    return
                 await channel.send(embed=embed)
                 await self._cleanup_bot_text_channel_messages(channel)
                 log(
@@ -2216,62 +2818,20 @@ class DiscordScheduleBot:
         return True
 
     async def _join_from_interaction(self, interaction, target="보탐"):
-        if not await self._allow_connection_control(interaction):
+        if not self._should_handle_interaction(interaction):
             return
         channel_id, description = self._resolve_invite_voice_channel(interaction, target)
         if not channel_id:
             await interaction.response.send_message(description, ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        async with self.voice_connect_lock:
-            self.connection_policy.resume()
-            self._connection_state()
-            if not self.config.get("default_voice_channel_id"):
-                self.config["default_voice_channel_id"] = self.config.get("voice_channel_id", "")
-            # Preserve the configured default before on_voice_state_update saves
-            # a caller's temporary destination as the current channel.
-            save_config_value("default_voice_channel_id", self.config["default_voice_channel_id"])
-            ok, message = await self._connect_voice_channel(channel_id)
-            if ok:
-                self.config["voice_channel_id"] = channel_id
-                save_config_value("voice_channel_id", channel_id)
-        await interaction.followup.send(f"{description}\n{message}", ephemeral=True)
+        await self._administrator_command(interaction, "administrator_connect", target=STATUS.client_id, channel=channel_id)
 
     async def _standby_from_interaction(self, interaction):
-        if not await self._allow_connection_control(interaction):
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        # Persist the stop gate BEFORE yielding to any audio/connection work.
-        self.connection_policy.pause()
-        STATUS.update(standby=True, last_error="대기 상태입니다. 프로그램에서 수동 실행할 때까지 자동 접속하지 않습니다.")
-        if self.play_task is not None:
-            self.play_task.cancel()
-            await asyncio.gather(self.play_task, return_exceptions=True)
-        tasks = [task for _, task in self.timed_bridge_tasks.values()]
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        try:
-            async with self.voice_connect_lock:
-                async with self.voice_transition_lock:
-                    await self._stop_current_voice_playback_and_wait(reason="standby")
-                if self.voice_client is not None:
-                    await asyncio.wait_for(self.voice_client.disconnect(force=True), timeout=5)
-        except Exception as exc:
-            log(f"standby_voice_disconnect_failed error={exc}")
-        STATUS.update(voice_connected=False)
-        try:
-            await interaction.followup.send(
-                "대기 상태로 전환했습니다. 자동 접속과 송출을 중단합니다. "
-                "이 PC에서 다시 운영하려면 프로그램의 봇 버튼으로 수동 실행하세요.", ephemeral=True)
-        finally:
-            # Release Gateway too: this old instance must not also answer a
-            # replacement administrator's /보탐 접속 interaction.
-            await self.client.close()
+        if self._should_handle_interaction(interaction):
+            await self._administrator_command(interaction, "administrator_release")
 
     def _bind_commands(self) -> None:
-        @self.tree.command(name="대기", description="관리자 인계를 위해 송출과 자동 접속을 중단합니다.")
+        @self.tree.command(name="대기", description="송출 권한을 반납하고 음성채널에서 나옵니다. 봇 연결은 유지합니다.")
         async def standby(interaction: Any) -> None:
             await self._standby_from_interaction(interaction)
 
@@ -2346,18 +2906,26 @@ class DiscordScheduleBot:
                 ephemeral=True,
             )
 
-        @self.tree.command(name="보탐", description="스케쥴 조회 / 접속 / 초읽기·초읽기해제 / 메시지 보관 0~50")
-        @self.discord.app_commands.describe(동작="비우면 조회. ? 도움말, 접속, 초읽기, 초읽기해제 또는 보관 개수 0~50")
+        @self.tree.command(name="보탐", description="스케쥴 조회 / 담당자 이름으로 접속 / 초읽기 / 메시지 보관 0~50")
+        @self.discord.app_commands.describe(동작="비우면 조회. 관리자(목록), 담당자 이름(예: 나츠), 접속, ?, 초읽기 또는 보관 개수 0~50")
         async def bosstimer_ansi(interaction: Any, 동작: str = "") -> None:
             동작 = 동작.strip()
+            if 동작.startswith("관리자"):
+                target = 동작[len("관리자"):].strip()
+                await self._administrator_command(interaction, "administrator_connect" if target else "administrator_list", target=target)
+                return
             if 동작 == "접속":
                 await self._join_from_interaction(interaction)
                 return
-            if not self._should_handle_interaction(interaction):
+            # Names and bare IDs are administrator control even on standby.
+            # Mutations need send authority; explicit queries have a private fallback.
+            if 동작 and 동작 not in {"?", "초읽기", "초읽기해제"} and not re.fullmatch(r"[0-9]{1,2}", 동작):
+                await self._administrator_command(interaction, "administrator_connect", target=동작)
                 return
-            if 동작 == "?":
-                from discord_command_help import COMMAND_HELP
-                await interaction.response.send_message(COMMAND_HELP, ephemeral=True)
+            if 동작 in {"", "?"}:
+                await self._handle_readonly_query(interaction, "help" if 동작 == "?" else "schedule")
+                return
+            if not self._should_handle_interaction(interaction):
                 return
             if 동작 in {"초읽기", "초읽기해제"}:
                 await interaction.response.defer(ephemeral=True, thinking=True)
@@ -2369,31 +2937,16 @@ class DiscordScheduleBot:
             if 동작:
                 if not re.fullmatch(r"[0-9]{1,2}", 동작) or int(동작) > 50:
                     await interaction.response.send_message(
-                        "사용법: /보탐 (조회), /보탐 접속, /보탐 초읽기, /보탐 초읽기해제, /보탐 0~50 (0은 제한 없음)", ephemeral=True)
+                        "사용법: /보탐 (조회), /보탐 관리자 (목록), /보탐 나츠 (담당자 접속), /보탐 접속, /보탐 초읽기, /보탐 초읽기해제, /보탐 0~50 (0은 제한 없음)", ephemeral=True)
                     return
                 await interaction.response.defer(ephemeral=True, thinking=True)
                 result = await self._set_text_channel_keep_count(int(동작), getattr(interaction, "guild", None))
                 await interaction.followup.send(result, ephemeral=True)
                 return
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            channel = await self._resolve_text_channel(getattr(interaction, "guild", None))
-            if channel is None:
-                await interaction.followup.send("안내 채널을 찾지 못했습니다. /보탐채널을 먼저 실행하세요.", ephemeral=True)
-                return
-            await self._send_schedule_text(channel)
-            await interaction.followup.send(f"컬러 스케쥴을 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.", ephemeral=True)
 
         @self.tree.command(name="보탐텍스트", description="시간과 보스명만 있는 복사용 스케쥴 텍스트를 전송합니다.")
         async def bosstimer_plain_text(interaction: Any) -> None:
-            if not self._should_handle_interaction(interaction):
-                return
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            channel = await self._resolve_text_channel(getattr(interaction, "guild", None))
-            if channel is None:
-                await interaction.followup.send("안내 채널을 찾지 못했습니다. /보탐채널을 먼저 실행하세요.", ephemeral=True)
-                return
-            await self._send_schedule_plain_text(channel)
-            await interaction.followup.send(f"복사용 스케쥴을 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.", ephemeral=True)
+            await self._handle_readonly_query(interaction, "plain")
 
         @self.tree.command(name="음성추가", description="이름과 읽을 음성을 입력합니다. 기본 음성 이름은 덮어씁니다.")
         async def add_voice_command(interaction: Any, 이름: str, 음성: str = "") -> None:
@@ -2468,20 +3021,7 @@ class DiscordScheduleBot:
 
         @self.tree.command(name="음성목록", description="클릭해서 재생할 수 있는 보탐매니저 음성 목록을 엽니다.")
         async def voice_command_list(interaction: Any) -> None:
-            if not await self._require_soundboard_channel(interaction):
-                return
-            entries = self._get_discord_voice_command_menu_entries()
-            if not entries:
-                await interaction.response.send_message("등록된 음성 명령이 없습니다.", ephemeral=True)
-                return
-            owner_id = str(getattr(getattr(interaction, "user", None), "id", "") or "")
-            view = self._build_discord_voice_command_menu_view(owner_id=owner_id)
-            await interaction.response.send_message(
-                f"등록 음성 {len(entries)}개입니다. 📢 기본 · 🔊 사용자 TTS · 📁 파일 전용\n"
-                "사운드보드 버튼을 누르면 바로 송출합니다. 20개를 넘으면 이전/다음으로 넘길 수 있습니다.",
-                view=view,
-                ephemeral=True,
-            )
+            await self._handle_readonly_query(interaction, "voices")
 
         @self.tree.command(name="음성", description="사운드보드 채팅채널에서 음성 버튼 목록을 엽니다.")
         async def voice_command_list_alias(interaction: Any) -> None:
@@ -2489,38 +3029,23 @@ class DiscordScheduleBot:
 
         @self.tree.command(name="이미지", description="로컬 스케쥴복사 설정 그대로 만든 이미지를 안내 채널에 전송합니다.")
         async def bosstimer_image(interaction: Any) -> None:
-            if not self._should_handle_interaction(interaction):
-                return
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            channel = await self._resolve_text_channel(getattr(interaction, "guild", None))
-            if channel is None:
-                await interaction.followup.send("안내 채널을 찾지 못했습니다. /보탐채널을 먼저 실행하세요.", ephemeral=True)
-                return
-            image_path = await self._request_local_schedule_copy_image()
-            if not image_path:
-                await interaction.followup.send(
-                    "실행 중인 로컬 보스타이머에서 스케쥴복사 이미지를 만들지 못했습니다. "
-                    "로컬 보스타이머를 켠 뒤 다시 실행하세요.",
-                    ephemeral=True,
-                )
-                return
-            await channel.send(
-                content="✦ 보탐매니저 스케쥴",
-                file=self.discord.File(image_path, filename="bosstimer_schedule.png"),
-            )
-            await self._cleanup_bot_text_channel_messages(channel)
-            await interaction.followup.send(f"스케쥴 이미지를 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.", ephemeral=True)
+            await self._handle_readonly_query(interaction, "image")
 
     async def _sync_commands(self) -> None:
         try:
+            generation = self._connection_state()["authority_generation"]
             server_id = self._get_configured_server_id()
             if not server_id:
                 STATUS.update(last_error="서버 ID가 없어 명령어를 등록하지 않았습니다.")
                 log("command_sync_skipped server_id_not_configured")
                 return
             guild = self.discord.Object(id=int(server_id))
+            if not self._connection_state()["command_sync_allowed"]:
+                return
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
+            self.commands_registered = True
+            self.command_generation = generation
             log(f"command_sync_complete guild_id={server_id} scope=guild channel_policy=2 commands=보탐[0~50,초읽기,초읽기해제],음성,음성목록")
         except Exception as exc:
             STATUS.update(last_error=f"명령어 동기화 실패: {exc}")
@@ -2690,10 +3215,14 @@ class DiscordScheduleBot:
         return "\n".join(lines)
 
     async def _send_schedule_text(self, channel: Any) -> None:
+        if not self._send_allowed():
+            return False
         rows = self.schedule_reader.upcoming_rows(limit=120)
         body = self._format_schedule_rows_as_ansi(rows)
         wrapped = f"```ansi\n{body}\n```"
         if len(wrapped) <= 2000:
+            if not self._send_allowed():
+                return
             await channel.send(wrapped)
             await self._cleanup_bot_text_channel_messages(channel)
             return
@@ -2702,15 +3231,21 @@ class DiscordScheduleBot:
         for line in plain_lines:
             candidate = "\n".join(chunk + [line])
             if chunk and len(candidate) + 12 > 2000:
+                if not self._send_allowed():
+                    return
                 await channel.send(f"```ansi\n{'\n'.join(chunk)}\n```")
                 chunk = [line]
             else:
                 chunk.append(line)
         if chunk:
+            if not self._send_allowed():
+                return
             await channel.send(f"```ansi\n{'\n'.join(chunk)}\n```")
         await self._cleanup_bot_text_channel_messages(channel)
 
     async def _send_schedule_plain_text(self, channel: Any) -> None:
+        if not self._send_allowed():
+            return False
         """Post only HHMM and boss name so the result can be copied verbatim."""
         lines = [
             f"{scheduled_at.strftime('%H%M')} {str(row.get('name') or '')}"
@@ -2721,11 +3256,15 @@ class DiscordScheduleBot:
         for line in lines:
             candidate = "\n".join(chunk + [line])
             if chunk and len(candidate) > 2000:
+                if not self._send_allowed():
+                    return
                 await channel.send("\n".join(chunk))
                 chunk = [line]
             else:
                 chunk.append(line)
         if chunk:
+            if not self._send_allowed():
+                return
             await channel.send("\n".join(chunk))
         await self._cleanup_bot_text_channel_messages(channel)
 
@@ -2790,7 +3329,62 @@ class DiscordScheduleBot:
             )
         return f"```ansi\n{escape}{default_code}m{colored}{reset}\n```"
 
+    @staticmethod
+    def _notice_clock_text(at: datetime) -> str:
+        hour = at.hour % 12 or 12
+        return f"{'오전' if at.hour < 12 else '오후'} {hour}:{at.minute:02d}"
+
+    @staticmethod
+    def _boss_notice_group_identity(group_id: str, target: datetime) -> tuple[str, str, float]:
+        """Compare actual occurrences, not a voice sequence's first/last time."""
+        members = []
+        member_targets = []
+        for member in group_id.split('||'):
+            boss_id, separator, at_text = member.rpartition('|')
+            at = parse_datetime(at_text) if separator else None
+            if not boss_id or at is None:
+                # Fixed/control IDs do not include occurrence times. Their
+                # supplied target still separates recurring announcements.
+                return group_id, target.replace(microsecond=0).isoformat(), target.timestamp()
+            members.append((boss_id, at.isoformat()))
+            member_targets.append(at.timestamp())
+        # Dynamic IDs already include every exact spawn time. A pre-alert uses
+        # the first target while a near-spawn sequence uses the last target;
+        # comparing the separate target would split the very same boss group.
+        identity = json.dumps(sorted(set(members)), ensure_ascii=False, separators=(',', ':'))
+        return identity, '', max(member_targets)
+
+    @staticmethod
+    def _boss_notice_text_signature(embeds: list[dict[str, Any]]) -> str:
+        # Log a hash, not raw ANSI control codes or full message contents.
+        # Ignore server-added embed metadata; only compare displayed text.
+        text_parts = [dict(
+            title=embed.get('title') or '', description=embed.get('description') or '',
+            fields=[dict(name=field.get('name') or '', value=field.get('value') or '')
+                    for field in embed.get('fields') or []],
+        ) for embed in embeds]
+        encoded = json.dumps(text_parts, ensure_ascii=False, sort_keys=True).encode('utf-8')
+        return hashlib.sha256(encoded).hexdigest()[:16]
+
+    def _build_boss_notice_embed(self, entries: list[dict[str, str]], *, at: datetime, color: int) -> Any:
+        date_text = '오늘' if at.date() == datetime.now().date() else at.strftime('%m/%d')
+        # Separate code blocks receive client-controlled margins. Keep every
+        # notice's ANSI colors/reset, but join their bodies without blank rows.
+        notice_lines = [
+            entry['text'].removeprefix('```ansi\n').removesuffix('\n```')
+            for entry in entries
+        ]
+        embed = self.discord.Embed(
+            title=f"✦ 보탐매니저 안내 · BossTimer | {date_text} {self._notice_clock_text(at)}",
+            description='```ansi\n' + '\n'.join(notice_lines) + '\n```' if notice_lines else None,
+            color=color,
+        )
+        return embed
+
     async def _send_voice_bridge_text_notice(self, job: VoiceBridgeJob) -> None:
+        if not self._send_allowed():
+            return False
+        self._tag_authority_task()
         phase = str(job.phase or "").strip().upper()
         message = str(job.fallback_text or "").strip()
         if (
@@ -2802,29 +3396,78 @@ class DiscordScheduleBot:
         ):
             return
         dedupe_key = f"{phase}|{message}|{job.scope_id}|{job.created_at.strftime('%Y%m%d%H%M%S')}"
-        if dedupe_key in self.text_notice_keys:
-            return
-        self.text_notice_keys.add(dedupe_key)
-        if len(self.text_notice_keys) > 1000:
-            self.text_notice_keys = set(list(self.text_notice_keys)[-500:])
         channel = await self._resolve_text_channel()
         if channel is None:
             return
         try:
-            colored_message = self._format_voice_notice_ansi(message)
-            embed = self.discord.Embed(
-                title="✦ 보탐매니저 안내",
-                # ANSI code block itself provides a compact mobile-friendly
-                # panel.  Avoid a long box border that can overflow narrow
-                # Discord mobile views.
-                description=colored_message,
-                color=self._find_notice_color(message),
-                timestamp=datetime.now(),
-            )
-            embed.set_footer(text=f"{phase.replace('_', ' ')}  •  BossTimer")
-            await channel.send(embed=embed)
+            async with self.boss_notice_lock:
+                if not self._send_allowed() or dedupe_key in self.text_notice_keys:
+                    return
+                now = datetime.now()
+                now_timestamp = time.time()
+                for key, old in list(self.boss_notice_groups.items()):
+                    if float(old.get('expires_at') or 0) <= now_timestamp:
+                        self.boss_notice_groups.pop(key, None)
+                target = parse_datetime(job.target_time)
+                group_id = str(job.notice_group_id or '').strip()
+                identity, target_key, group_target_at = (
+                    self._boss_notice_group_identity(group_id, target)
+                    if group_id and target else ('', '', 0.0)
+                )
+                group_key = (
+                    str(getattr(channel, 'id', '')), str(self._connection_state()['authority_generation']),
+                    job.scope_id, job.category, identity, target_key,
+                ) if group_id and target else None
+                group = self.boss_notice_groups.get(group_key) if group_key else None
+                stage_key = f"{phase.removesuffix('_SEQUENCE')}|{job.offset_sec}|{message}"
+                old_entries = list(group.get('entries') or []) if group else []
+                if any(entry.get('stage_key') == stage_key for entry in old_entries):
+                    return
+                colored_message = self._format_voice_notice_ansi(message)
+                if len(colored_message) > 1024:
+                    colored_message = colored_message.removesuffix('\n```')[:990] + '…\x1b[0m\n```'
+                entries = old_entries + [dict(stage_key=stage_key, text=colored_message)]
+                color = int(group['color']) if group else self._find_notice_color(message)
+                embed = self._build_boss_notice_embed(entries, at=now, color=color)
+                # Start a continuation before Discord's per-embed/message limits.
+                if len(embed.description or '') > 4096 or len(embed) > 6000:
+                    entries = entries[-1:]
+                    group = None
+                    embed = self._build_boss_notice_embed(entries, at=now, color=color)
+                signature = self._boss_notice_text_signature([embed.to_dict()])
+                sent_message = None
+                if group:
+                    try:
+                        if not self._send_allowed():
+                            return
+                        sent_message = await group['message'].edit(embed=embed)
+                        log(f"text_notice_updated phase={phase} message_id={group['message_id']} "
+                            f"boxes={len(entries)} signature={signature} at={time.time():.3f}")
+                    except self.discord.NotFound:
+                        # A manually removed box must not prevent the next notice.
+                        if group_key:
+                            self.boss_notice_groups.pop(group_key, None)
+                if sent_message is None:
+                    if not self._send_allowed():
+                        return
+                    sent_message = await channel.send(embed=embed)
+                    log(f"text_notice_sent phase={phase} channel_id={getattr(channel, 'id', '')} "
+                        f"message_id={sent_message.id} boxes={len(entries)} signature={signature} "
+                        f"at={time.time():.3f} text={message}")
+                if group_key and target:
+                    self.boss_notice_groups[group_key] = dict(
+                        message=sent_message, message_id=str(sent_message.id), entries=entries, color=color,
+                        updated_at=now_timestamp, target_at=group_target_at,
+                        expires_at=max(now_timestamp, group_target_at) + 300,
+                        completed=phase.startswith(('SPAWN', 'DUE')) or job.offset_sec == 0,
+                    )
+                    if len(self.boss_notice_groups) > 200:
+                        oldest = min(self.boss_notice_groups, key=lambda key: self.boss_notice_groups[key]['updated_at'])
+                        self.boss_notice_groups.pop(oldest, None)
+                self.text_notice_keys.add(dedupe_key)
+                if len(self.text_notice_keys) > 1000:
+                    self.text_notice_keys = set(list(self.text_notice_keys)[-500:])
             await self._cleanup_bot_text_channel_messages(channel)
-            log(f"text_notice_sent phase={phase} channel_id={getattr(channel, 'id', '')} text={message}")
         except Exception as exc:
             log(f"text_notice_failed phase={phase} error={exc}")
 
@@ -3036,10 +3679,11 @@ class DiscordScheduleBot:
             log(f"stale_voice_session_disconnect_failed channel_id={stale_channel_id} error={exc}")
             return False
 
-    async def _connect_configured_voice_channel(self, *, automatic: bool = True) -> bool:
+    async def _connect_configured_voice_channel(self, *, automatic: bool = True, expected_generation=None) -> bool:
         if self._connection_is_blocked():
             return False
-        channel_id = str(self.config.get("voice_channel_id") or "").strip()
+        generation = self._connection_state()["authority_generation"] if expected_generation is None else expected_generation
+        channel_id = str(self._connection_state().get("voice_channel_id") or self.config.get("voice_channel_id") or "").strip()
         if not channel_id:
             STATUS.update(guild_id=self._get_configured_server_id(), voice_channel_id="", voice_connected=False)
             log("voice_channel_not_configured")
@@ -3048,16 +3692,30 @@ class DiscordScheduleBot:
         if lock is None:
             self.voice_connect_lock = lock = asyncio.Lock()
         async with lock:
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                return False
             if self.voice_client is not None and self.voice_client.is_connected():
                 return True
-            if automatic and not self._claim_connection_retry():
-                return False
-            connected, _message = await self._connect_voice_channel(channel_id)
+            if automatic:
+                try:
+                    if not self._claim_connection_retry():
+                        self._connection_state()
+                        return False
+                except OSError as exc:
+                    log(f"voice_retry_state_failed type={type(exc).__name__} error={exc!r}")
+                    return False
+            if automatic:
+                attempt = self.connection_policy.snapshot()["voice_retries"]
+                log(f"voice_reconnect_watchdog_attempt generation={generation} attempt={attempt}/{MAX_RETRIES}")
+            connected, _message = await self._connect_voice_channel(channel_id, expected_generation=generation)
             return bool(connected)
 
-    async def _connect_voice_channel(self, channel_id: str) -> tuple[bool, str]:
+    async def _connect_voice_channel(self, channel_id: str, *, expected_generation=None) -> tuple[bool, str]:
         if self._connection_is_blocked():
             return False, STATUS.configuration_error or "대기 상태입니다."
+        generation = self._connection_state()["authority_generation"] if expected_generation is None else expected_generation
+        if self._connection_state()["authority_generation"] != generation:
+            return False, "관리자 권한이 변경되었습니다."
         channel_id = str(channel_id or "").strip()
         configured_guild_id = self._get_configured_server_id()
         if not channel_id.isdigit():
@@ -3065,6 +3723,7 @@ class DiscordScheduleBot:
         if not configured_guild_id:
             STATUS.update(voice_connected=False, last_error="서버 ID가 설정되지 않았습니다.")
             return False, "서버 ID가 설정되지 않았습니다."
+        pending_voice = None
         try:
             channel = self.client.get_channel(int(channel_id))
             if channel is None:
@@ -3074,36 +3733,65 @@ class DiscordScheduleBot:
             channel_guild_id = str(getattr(getattr(channel, "guild", None), "id", "") or "")
             if channel_guild_id != configured_guild_id:
                 message = "서버 ID와 음성채널의 서버가 다릅니다. 봇 설정에서 이 서버의 음성채널 ID를 다시 입력하고 봇을 재실행하세요."
-                self._block_connection_error(message)
+                self.connection_policy.update(voice_error=message)
                 raise DiscordConfigurationError(message)
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                return False, "관리자 권한이 변경되었습니다."
+            cached_voice = getattr(channel.guild, "voice_client", None)
+            if cached_voice is not None:
+                if (cached_voice.is_connected()
+                        and getattr(cached_voice, "authority_generation", None) == generation):
+                    self.voice_client = cached_voice
+                else:
+                    await self._close_voice_client(cached_voice, reason="before_reconnect")
+                    if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                        return False, "관리자 권한이 변경되었습니다."
             if self.voice_client is not None and getattr(self.voice_client, "is_connected", lambda: False)():
                 if getattr(self.voice_client, "channel", None) and self.voice_client.channel.id == int(channel_id):
                     STATUS.update(voice_channel_id=channel_id, voice_connected=True)
                     return True, "이미 해당 음성채널에 연결되어 있습니다."
                 await asyncio.wait_for(self.voice_client.move_to(channel), timeout=8.0)
             else:
-                self.voice_client = await asyncio.wait_for(channel.connect(self_deaf=True, reconnect=False), timeout=12.0)
-            if self._connection_is_blocked():
-                await self.voice_client.disconnect(force=True)
+                voice_type = self._authority_voice_client_type(generation)
+                def create_voice(client, voice_channel):
+                    nonlocal pending_voice
+                    pending_voice = voice_type(client, voice_channel)
+                    self.voice_client = pending_voice
+                    return pending_voice
+                self.voice_client = await asyncio.wait_for(
+                    channel.connect(cls=create_voice, timeout=10.0, self_deaf=True, reconnect=False), timeout=12.0)
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                await self._close_voice_client(self.voice_client, reason="authority_changed_during_join")
                 return False, "대기 전환으로 접속을 중단했습니다."
             if getattr(self, "connection_policy", None) is not None:
-                self.connection_policy.success()
+                self.connection_policy.update(voice_retries=0, voice_next_retry=0)
                 self._connection_state()
             guild_id = str(getattr(getattr(channel, "guild", None), "id", self.config.get("server_id", "")) or "")
-            STATUS.update(guild_id=guild_id, voice_channel_id=channel_id, voice_connected=True, last_error="")
+            STATUS.update(guild_id=guild_id, voice_channel_id=channel_id, voice_connected=True,
+                          voice_authority_generation=generation, last_error="")
             log(f"voice_connected guild_id={guild_id} channel_id={channel_id}")
             return True, "음성채널에 연결했습니다."
+        except asyncio.CancelledError:
+            await self._close_voice_client(pending_voice, reason="voice_join_cancelled")
+            raise
         except Exception as exc:
+            await self._close_voice_client(pending_voice, reason="voice_join_failed")
+            if self._connection_state()["authority_generation"] != generation:
+                return False, "관리자 권한이 변경되었습니다."
             if is_access_error(exc):
-                self._block_connection_error(ACCESS_ERROR_TEXT)
-            STATUS.update(voice_channel_id=channel_id, voice_connected=False, last_error=f"음성채널 연결 실패: {exc}")
-            log(f"voice_connect_failed channel_id={channel_id} error={exc}")
-            return False, f"음성채널 연결 실패: {exc}"
+                self.connection_policy.update(voice_error=ACCESS_ERROR_TEXT)
+            detail = "음성 연결 응답시간 초과" if isinstance(exc, TimeoutError) else str(exc) or type(exc).__name__
+            message = f"음성채널 연결 실패: {detail}"
+            STATUS.update(voice_channel_id=channel_id, voice_connected=False, last_error=message)
+            log(f"voice_connect_failed channel_id={channel_id} generation={generation} type={type(exc).__name__} error={exc!r}")
+            return False, message
 
     async def _schedule_loop(self) -> None:
+        schedule_task = asyncio.current_task()
         while not STATUS.shutdown_requested.is_set():
             try:
                 state = self._connection_state()
+                schedule_task.boss_authority_generation = state["authority_generation"]
                 if state.get("handover_hold"):
                     if not getattr(self, "_handover_audio_stopped", False):
                         self._handover_audio_stopped = True
@@ -3114,47 +3802,58 @@ class DiscordScheduleBot:
                     await asyncio.sleep(.1)
                     continue
                 self._handover_audio_stopped = False
-                if STATUS.standby or STATUS.handover_hold:
-                    await asyncio.sleep(.25)
+                if not self._send_allowed():
+                    self.voice_bridge_reader.read_new_jobs()  # Drop standby backlog.
+                    await asyncio.sleep(.1)
                     continue
                 if config_bool(self.config, "voice_bridge_enabled", True):
                     STATUS.update(voice_bridge_enabled=True)
+                    generation = state["authority_generation"]
                     for job in self.voice_bridge_reader.read_new_jobs():
+                        if not self._send_allowed() or self._connection_state()["authority_generation"] != generation:
+                            break
                         if isinstance(job, VoiceBridgeControl):
                             await self._handle_voice_bridge_control(job)
                         else:
-                            self.play_queue.put(job)
+                            self.play_queue.put((generation, job))
                             # 채팅 전송 지연이 음성 시작 시각에 영향을 주지 않도록
                             # 별도 작업으로 보낸다. 초읽기 숫자/분리 젠 조각은 메서드에서
                             # 걸러내고 실제 안내 문장만 남긴다.
-                            self.client.loop.create_task(self._send_voice_bridge_text_notice(job))
+                            notice_task = self.client.loop.create_task(self._send_voice_bridge_text_notice(job))
+                            notice_task.boss_authority_generation = generation
                 else:
                     STATUS.update(voice_bridge_enabled=False)
                     now = datetime.now()
                     for job in self.schedule_reader.due_jobs(now, self.announced):
                         self.announced.add(job.key)
-                        self.play_queue.put(job)
+                        self.play_queue.put((state["authority_generation"], job))
                 if len(self.announced) > 5000:
                     self.announced = set(list(self.announced)[-2500:])
             except Exception as exc:
                 STATUS.update(last_error=f"스케쥴 확인 실패: {exc}")
                 log(f"schedule_loop_failed error={exc}")
+            finally:
+                if schedule_task is not None and hasattr(schedule_task, "boss_authority_generation"):
+                    del schedule_task.boss_authority_generation
             await asyncio.sleep(VOICE_BRIDGE_POLL_INTERVAL_SEC if config_bool(self.config, "voice_bridge_enabled", True) else 0.25)
 
     async def _play_loop(self) -> None:
+        playback_task = asyncio.current_task()
         while not STATUS.shutdown_requested.is_set():
             job = None
             try:
                 # An indefinitely blocked executor queue.get prevents Client.run
                 # from returning during standby or Gateway recovery.
                 try:
-                    job = self.play_queue.get_nowait()
+                    queued = self.play_queue.get_nowait()
                 except queue.Empty:
                     await asyncio.sleep(.05)
                     continue
-                if job is None:
+                if queued is None:
                     continue
-                if STATUS.standby:
+                generation, job = queued
+                playback_task.boss_authority_generation = generation
+                if not self._send_allowed():
                     continue
                 self.regular_voice_job_active = True
                 await self._ensure_voice_connection()
@@ -3179,6 +3878,7 @@ class DiscordScheduleBot:
                     log(f"bridge_play_start id={job.id} phase={job.phase} clips={len(clips)} timed_clips={len(timed_clips)} latency_ms={latency_ms} text={job.fallback_text}")
                     if timed_clips:
                         timed_task = self.client.loop.create_task(self._play_timed_bridge_clips(job))
+                        timed_task.boss_authority_generation = generation
                         self.timed_bridge_tasks[job.id] = (job.scope_id, timed_task)
                         timed_task.add_done_callback(
                             lambda completed_task, job_id=job.id: self._finish_timed_bridge_task(job_id, completed_task)
@@ -3211,6 +3911,8 @@ class DiscordScheduleBot:
                 log(f"play_loop_failed type={type(exc).__name__} error={exc!r}")
             finally:
                 self.regular_voice_job_active = False
+                if playback_task is not None and hasattr(playback_task, "boss_authority_generation"):
+                    del playback_task.boss_authority_generation
 
     async def _play_timed_bridge_clips(self, job: VoiceBridgeJob) -> None:
         confirm_notice = job.offset_sec == 60 and job.phase in {'PRE_ALERT_SEQUENCE', 'FIXED_PRE_ALERT_SEQUENCE'}
@@ -3290,7 +3992,7 @@ class DiscordScheduleBot:
             raise
 
     def _is_voice_bridge_scope_cancelled(self, scope_id: str) -> bool:
-        if STATUS.standby or STATUS.handover_hold:
+        if not self._send_allowed():
             return True
         scope_text = str(scope_id or "").strip()
         return bool(scope_text and scope_text in self.cancelled_voice_bridge_scopes)
@@ -3313,6 +4015,8 @@ class DiscordScheduleBot:
             self.current_timed_composite_scope_id = ""
 
     async def _install_prepared_notice_output(self, source, *, scope_id: str, deadline: float) -> bool:
+        if not self._send_allowed():
+            return False
         """Reserve a silent notice output; caller owns source if rejected.
 
         Future module bridge must revalidate its delivery token before play().
@@ -3385,6 +4089,8 @@ class DiscordScheduleBot:
         return True, waited_ms, joined
 
     async def _handle_voice_bridge_control(self, control: VoiceBridgeControl) -> None:
+        if not self._send_allowed():
+            return False
         if control.action == "heartbeat":
             STATUS.update(voice_bridge_last_heartbeat_id=control.id)
             return
@@ -3401,6 +4107,8 @@ class DiscordScheduleBot:
                     timestamp=datetime.now(),
                 )
                 embed.set_footer(text="BossTimer 자동 복구")
+                if not self._send_allowed():
+                    return
                 await channel.send(embed=embed)
                 await self._cleanup_bot_text_channel_messages(channel)
                 log(
@@ -3432,6 +4140,8 @@ class DiscordScheduleBot:
         playback_joined = True
         cancel_mode = "drain"
         async with self.voice_transition_lock:
+            if not self._send_allowed():
+                return
             composite_source = self.current_timed_composite_source
             cancel_scope = getattr(composite_source, "cancel_scope", None)
             if self.current_timed_composite_scope_id == scope_id and callable(cancel_scope):
@@ -3476,6 +4186,9 @@ class DiscordScheduleBot:
 
     async def _ensure_voice_connection(self) -> None:
         if self._connection_is_blocked():
+            return
+        state = self._connection_state()
+        if getattr(asyncio.current_task(), "boss_authority_generation", state["authority_generation"]) != state["authority_generation"]:
             return
         if self.voice_client is not None and self.voice_client.is_connected():
             STATUS.update(voice_connected=True)
@@ -4382,12 +5095,12 @@ class DiscordScheduleBot:
         except DiscordConfigurationError:
             # Keep the status endpoint available, without reconnecting with
             # the wrong identity. The GUI can stop/restart after correction.
-            STATUS.shutdown_requested.wait()
+            STATUS.shutdown_requested.wait(1)
         except Exception as exc:
             if is_access_error(exc):
                 self._block_connection_error(ACCESS_ERROR_TEXT)
                 STATUS.update(online=False, voice_connected=False)
-                STATUS.shutdown_requested.wait()
+                STATUS.shutdown_requested.wait(1)
                 return self.message_content_enabled
             privileged_intents_error = getattr(self.discord, "PrivilegedIntentsRequired", ())
             if (
@@ -4497,10 +5210,10 @@ def main() -> int:
         state = policy.snapshot()
         STATUS.update(standby=state["standby"], reconnect_attempts=state["retries"],
                       configuration_error=state["error"])
-        if state["standby"] or state["error"] or (state["retries"] >= MAX_RETRIES and not reserved_launch):
-            STATUS.update(last_error=state["error"] or ("대기 상태입니다." if state["standby"] else "자동 재접속 10회 제한에 도달했습니다."))
-            STATUS.shutdown_requested.wait()
-            break
+        if state["error"] or (state["retries"] >= MAX_RETRIES and not reserved_launch):
+            STATUS.update(last_error=state["error"] or "자동 재접속 10회 제한에 도달했습니다.")
+            STATUS.shutdown_requested.wait(1)
+            continue
         if needs_retry and not policy.claim_retry():
             STATUS.shutdown_requested.wait(1.0)
             continue

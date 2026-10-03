@@ -292,6 +292,10 @@ datas += collect_tree(tcl_root / "tk8.6", "_tk_data")
 assert_distribution_has_no_private_runtime_data(datas)
 
 binaries = []
+notice_ffmpeg_path = project_root / "ffmpeg.exe"
+if not notice_ffmpeg_path.is_file():
+    raise RuntimeError("알리미 차임벨 음성 준비에 필요한 ffmpeg.exe를 프로젝트 폴더에 넣어 주세요.")
+binaries.append((str(notice_ffmpeg_path), "."))
 for dll_name in ("tcl86t.dll", "tk86t.dll"):
     dll_path = dll_dir / dll_name
     if dll_path.exists():

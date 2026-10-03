@@ -38,7 +38,8 @@ from tkinter import ttk
 from schedule_precision import DEFAULT_CAPTURE_RATE
 from ai_update_center import AiUpdateCenter
 from notice_runtime import NoticeHost, NoticeRuntime
-from discord_connection_policy import ConnectionPolicy, MAX_RETRIES
+from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_audio_resources
+from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL
 from https_transport import urlopen_verified
 
 from audio_pipeline import AudioPipeline, OutputConditionEvaluator, OutputDecision, OutputTarget, PlaybackRequest
@@ -1608,6 +1609,7 @@ class BossTimerApp:
     def _ensure_settings_rollback_baseline(self) -> tuple[bool, str]:
         """Create a fixed baseline from shipped defaults, not first-use live data."""
         from schedule_profile_migration import build_distribution_baseline
+        from runtime_storage import temporary_data_directory
         baseline_dir = self._get_settings_rollback_baseline_dir()
         manifest_path = os.path.join(baseline_dir, SETTINGS_ROLLBACK_MANIFEST_FILENAME)
         try:
@@ -1620,7 +1622,7 @@ class BossTimerApp:
             if os.path.exists(baseline_dir):
                 raise ValueError("불완전한 롤백 기준점이 있습니다. 배포 기본설정 복구를 사용하세요.")
             os.makedirs(os.path.dirname(baseline_dir), exist_ok=True)
-            with tempfile.TemporaryDirectory(prefix=".baseline-seed-", dir=os.path.dirname(baseline_dir)) as temporary:
+            with temporary_data_directory(os.path.dirname(baseline_dir), prefix=".baseline-seed-") as temporary:
                 stage = os.path.join(temporary, "baseline")
                 build_distribution_baseline(
                     os.path.join(get_resource_root(), "init"), stage,
@@ -1859,7 +1861,7 @@ class BossTimerApp:
         )
         return True
 
-    def _activate_schedule_server_profile(self, server_id: object, server_name: object = "") -> bool:
+    def _activate_schedule_server_profile(self, server_id: object, server_name: object = "", *, preserve_schedule: bool = False) -> bool:
         profile_id = self._normalize_schedule_server_profile_id(server_id)
         if not profile_id:
             return False
@@ -1898,16 +1900,17 @@ class BossTimerApp:
         self._save_schedule_server_profile_selection()
         self._ensure_init_dir()
 
-        self.schedule_events = []
-        self.schedule_active_entries = []
-        self.schedule_control_events = []
-        self.schedule_second_precision_offsets = {}
-        self.schedule_last_import_meta = None
-        self.schedule_tree_quick_cut_history = []
-        self.schedule_active_quick_cut_history = []
-        self.schedule_delete_history = []
-        self.schedule_delete_active_cutoff_datetime = None
-        self._load_schedule_state()
+        if not preserve_schedule:
+            self.schedule_events = []
+            self.schedule_active_entries = []
+            self.schedule_control_events = []
+            self.schedule_second_precision_offsets = {}
+            self.schedule_last_import_meta = None
+            self.schedule_tree_quick_cut_history = []
+            self.schedule_active_quick_cut_history = []
+            self.schedule_delete_history = []
+            self.schedule_delete_active_cutoff_datetime = None
+            self._load_schedule_state()
         self.schedule_area_definitions = self._load_schedule_area_definitions()
         self.schedule_boss_deleted_builtin_names = set()
         self.schedule_boss_definitions = self._load_schedule_boss_definitions()
@@ -1920,7 +1923,8 @@ class BossTimerApp:
         self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
         self._sync_schedule_alarm_settings_with_boss_definitions()
         self._sync_schedule_fixed_boss_alarm_settings_with_definitions()
-        self._load_schedule_delete_history()
+        if not preserve_schedule:
+            self._load_schedule_delete_history()
         self._reset_schedule_alarm_event_index()
         self._bump_schedule_voice_broker_generation()
         self._refresh_profile_settings_views()
@@ -1947,6 +1951,14 @@ class BossTimerApp:
     def _confirm_existing_new_season_profile(self, target, *, parent=None, resume=False) -> bool:
         """An old trial season must not silently replace the displayed data."""
         target = Path(target)
+        if resume:
+            number = target.parent.name.removeprefix('season_')
+            message = (
+                f"{self._get_archive_season_label(number)}을 이어갈까요?\n\n"
+                "현재 스케줄을 그대로 유지하며 기존 시즌 시작일부터 이어갑니다."
+            )
+            return self._show_centered_messagebox('askyesno', '시즌 이어하기', message,
+                                                  parent=parent, default='no') is True
         schedule_path = target / SCHEDULE_STATE_FILENAME
         alarm_path = target / SCHEDULE_ALARM_SETTINGS_FILENAME
         schedule = json.loads(schedule_path.read_text(encoding='utf-8-sig')) if schedule_path.exists() else {}
@@ -1968,8 +1980,7 @@ class BossTimerApp:
             return ' / '.join(f"{label}: {('배포 기본값' if key not in value else Path(str(value[key])).name if value[key] else '사용 안 함')}"
                               for key, label in SCHEDULE_ALARM_CHIME_TYPES)
         target_schedule_text = (f"스케줄 {counts[0]}건 / 활성 {counts[1]}건 / 제어 {counts[2]}건"
-                                if schedule_path.exists() else ("저장 스케줄 없음 · 빈 상태로 이어하기" if resume
-                                                               else "스케줄 파일 없음 · 현재 화면의 스케줄을 이어받음"))
+                                if schedule_path.exists() else "스케줄 파일 없음 · 현재 화면의 스케줄을 이어받음")
         message = (
             f"{target.parent.name.removeprefix('season_')}시즌에는 이전에 저장한 자료가 있습니다.\n"
             "현재 화면의 자료를 이어받는 대신 아래 저장 자료를 불러옵니다.\n\n"
@@ -1977,7 +1988,7 @@ class BossTimerApp:
             f"선택 시즌: {target_schedule_text}\n"
             "현재 차임벨: " + describe_chimes(getattr(self, 'schedule_alarm_chime_settings', {}) or {}) + "\n"
             "선택 시즌 차임벨: " + describe_chimes(chimes) + "\n\n"
-            + ("기존 시작일과 저장된 자료로 이어서 사용할까요?" if resume else "저장된 자료를 불러올까요?")
+            + "저장된 자료를 불러올까요?"
             + "\n아니요를 선택하면 시즌 변경을 취소합니다."
         )
         return self._show_centered_messagebox('askyesno', '기존 시즌 자료 확인', message,
@@ -2066,9 +2077,23 @@ class BossTimerApp:
                 coordinator = getattr(self, "discord_handover", None)
                 if coordinator is not None:
                     coordinator.release_after_stop()
-        changed = self._activate_schedule_server_profile(profile_id, profile_name)
+        if resume:
+            changed = self._activate_schedule_server_profile(profile_id, profile_name, preserve_schedule=True)
+        else:
+            changed = self._activate_schedule_server_profile(profile_id, profile_name)
         if not changed:
             return False
+        if resume:
+            # Kept rows belong to the resumed season, not a downloaded version
+            # from the season/server that was active before this switch.
+            meta = dict(self.schedule_last_import_meta) if isinstance(self.schedule_last_import_meta, dict) else {}
+            for key in ('scheduleVersion', 'bossConfigVersion', 'dataVersion'):
+                meta.pop(key, None)
+            meta.update(source_type='season_resume', season_no=str(self.current_season_no),
+                        github_server_id=str(setup_entry.get('id') or profile_id),
+                        server_name=profile_name, source_name='시즌 이어하기',
+                        source_path=str(setup_entry.get('schedule') or ''))
+            self.schedule_last_import_meta = meta
         # The target directory may already exist from an earlier trial season.
         # General profile seeding intentionally leaves those directories alone;
         # fill only the missing Discord INI on this explicit new-season path.
@@ -2108,7 +2133,7 @@ class BossTimerApp:
                             or getattr(self, "discord_handover_busy", False)
                             or self._is_discord_bot_process_alive()):
                         return
-                    self._start_discord_bot_runtime()
+                    self._start_discord_bot_runtime(gateway_only=True)
                 try:
                     self.root.after(3000, reconnect_new_season)
                 except tk.TclError:
@@ -3315,6 +3340,7 @@ class BossTimerApp:
             try:
                 self.root.after(150, self._sync_github_server_combo_to_loaded_meta)
                 self.root.after(350, self._sync_startup_remote_schedule_if_needed)
+                self.root.after(700, self._connect_discord_gateway_at_startup)
                 self.root.after(1200, self._sync_github_server_combo_to_loaded_meta)
             except tk.TclError:
                 pass
@@ -3360,7 +3386,7 @@ class BossTimerApp:
                 get_parent=lambda: getattr(self, "schedule_window", None) or self.root,
                 message_box=self._show_centered_messagebox, log=self._append_debug_log,
                 call_later=self.root.after, cancel_later=cancel_later,
-                preview_synthesizer=lambda: EdgeTtsCache(self.edge_tts_settings),
+                preview_synthesizer=lambda: self._get_notice_preparation_profile()["factory"](),
                 get_schedule_snapshot=self._get_notice_schedule_snapshot,
                 apply_temporary_maintenance=self._apply_notice_temporary_maintenance,
                 get_preparation_profile=self._get_notice_preparation_profile,
@@ -3372,8 +3398,9 @@ class BossTimerApp:
 
     def _get_notice_preparation_profile(self):
         settings = self.edge_tts_settings
-        return dict(signature=settings.cache_signature(), enabled=settings.enabled,
-                    factory=lambda: EdgeTtsCache(settings))
+        chime, ffmpeg, signature = notice_audio_resources(get_app_root(), get_resource_root())
+        return dict(signature=settings.cache_signature() + "|" + signature, enabled=settings.enabled,
+                    factory=lambda: NoticeChimeSynthesizer(EdgeTtsCache(settings), chime, ffmpeg))
 
     def _get_notice_output_context(self):
         """Capture host identity on Tk; all output I/O runs in the module worker."""
@@ -4732,7 +4759,7 @@ class BossTimerApp:
         self._refresh_schedule_view()
 
     def _resume_stored_season(self, season_no, *, parent=None, administrator_name=None) -> bool:
-        """Switch to stored state; preserve its start time and do not import current rows."""
+        """Resume stored season metadata while continuing the currently displayed schedule."""
         from season_storage import profile_season_directory, season_number
         from schedule_profile_migration import ensure_profile_defaults
         number = season_number(season_no)
@@ -4768,7 +4795,8 @@ class BossTimerApp:
         if not self._confirm_existing_new_season_profile(target, parent=parent, resume=True):
             return False
         # Inspect/prepare the destination before closing the old bot or changing
-        # metadata. No source-season schedule or credentials are copied here.
+        # metadata. The displayed schedule stays in memory through activation;
+        # target credentials are loaded separately as before.
         ensure_profile_defaults(target, Path(get_resource_root()) / 'init')
         if active_server:
             self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False,
@@ -4795,6 +4823,12 @@ class BossTimerApp:
             self._save_schedule_server_profile_selection(raise_on_error=True)
             self._save_season_history(raise_on_error=True)
             self._save_settings()
+            # Persist the kept schedule only after the season metadata is saved.
+            # An atomic write failure leaves the target schedule untouched and
+            # the transition rollback restores the previous active season.
+            self._save_schedule_state(mark_github_dirty=False, sync_shared_export=False,
+                                      reset_voice_queue=False, raise_on_error=True)
+            self._save_schedule_delete_history(prune=False)
         except Exception as exc:
             try:
                 self._restore_season_transition_state(previous)
@@ -4805,7 +4839,7 @@ class BossTimerApp:
         if getattr(self, 'log_history_folder_path_var', None) is not None:
             self.log_history_folder_path_var.set(self._get_logs_dir(create=False))
         self._update_archive_keep_seasons_description()
-        self.schedule_status_var.set(f"{self._get_archive_season_label(number)} 이어하기. 기존 시작일·설정·스케줄을 불러왔습니다.")
+        self.schedule_status_var.set(f"{self._get_archive_season_label(number)} 이어하기. 현재 스케줄을 유지하며 기존 시즌을 이어갑니다.")
         self._last_season_setup_action = 'resume'
         if self._widget_available(getattr(self, 'log_archive_manage_frame', None)):
             self._refresh_archive_management_view()
@@ -4890,8 +4924,10 @@ class BossTimerApp:
         except tk.TclError:
             pass
         self._center_window_over_parent(dialog, host, 460, 476)
-        result = {"confirmed": False}
-        season_var = tk.StringVar(value=self._get_next_season_number_text())
+        result = {"confirmed": False, "open_management": False}
+        self._repair_runtime_season_state()
+        default_season = str(self.current_season_no).strip() if self._has_active_season() else self._get_next_season_number_text()
+        season_var = tk.StringVar(value=default_season)
         status_var = tk.StringVar(value="n차 숫자만 입력하세요.")
         current_season_label = self._get_archive_season_label(self.current_season_no) if self._has_active_season() else "-"
         current_season_entry = dict(self.season_history_map.get(str(self.current_season_no or "").strip()) or {})
@@ -4976,7 +5012,7 @@ class BossTimerApp:
                 "- 서버이전 차수 정보는 오딘카페 -> 공지사항에서 확인할 수 있습니다.\n"
                 "- 서버 정보 또는 길드 이름 중 하나는 꼭 입력하세요.\n"
                 "- 새 번호: 현재 자료를 이어받아 새 시즌을 시작합니다.\n"
-                "- 이전 번호: 저장된 시작일·서버·설정·스케줄로 이어합니다.\n"
+                "- 이전 번호: 현재 스케줄을 유지하며 기존 시즌을 이어갑니다.\n"
                 "- 현재 번호: 확인 후 시즌 시작일을 변경합니다."
             ),
             font=(self.current_font_family, 9, "bold"),
@@ -5184,10 +5220,34 @@ class BossTimerApp:
                 pass
 
         tk.Button(dialog, text="설정롤백", font=self.button_font, bg="#f59e0b", fg="#422006", activebackground="#fbbf24", activeforeground="#422006", relief="raised", bd=1, highlightthickness=0, command=open_settings_rollback, cursor="hand2").place(x=326, y=388, width=82, height=28)
-        def open_season_management():
-            close_with(False)
+        def show_season_management() -> None:
             self.open_log_panel()
             self.switch_record_subview('archive')
+            panel = self.log_panel
+            if not self.log_panel_open or not self._widget_available(panel):
+                return
+            try:
+                # The closing modal can return focus to its owner on Windows.
+                # Bring the requested window forward after that modal unwinds.
+                was_topmost = panel.attributes('-topmost')
+                panel.attributes('-topmost', True)
+                def restore_topmost() -> None:
+                    try:
+                        if self._widget_available(panel):
+                            panel.attributes('-topmost', was_topmost)
+                    except tk.TclError:
+                        pass
+
+                self.root.after(250, restore_topmost)
+                panel.deiconify()
+                panel.lift()
+                panel.focus_force()
+            except tk.TclError:
+                pass
+
+        def open_season_management() -> None:
+            result['open_management'] = True
+            close_with(False)
         tk.Button(dialog, text='시즌관리', font=self.button_font, bg='#dbeafe', fg='#1d4ed8',
                   command=open_season_management, cursor='hand2').place(x=22, y=388, width=90, height=28)
         start_button = tk.Button(dialog, text="시작", font=self.button_font, bg="#2563eb", fg="#ffffff", activebackground="#1d4ed8", activeforeground="#ffffff", relief="raised", bd=1, highlightthickness=0, command=confirm, cursor="hand2")
@@ -5214,6 +5274,8 @@ class BossTimerApp:
         entry.focus_set()
         entry.selection_range(0, tk.END)
         dialog.wait_window()
+        if result['open_management']:
+            self.root.after_idle(show_season_management)
         return bool(result["confirmed"])
 
     def _open_settings_rollback_dialog(self, parent: tk.Widget | None = None) -> None:
@@ -5894,38 +5956,27 @@ class BossTimerApp:
 
     def _get_discord_bot_status_kind(self) -> str:
         payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
-        if payload.get("standby"):
+        if payload.get("ok") and not self._discord_bot_status_matches(payload):
+            return "error"
+        if payload.get("voice_error"):
+            return "error"
+        if payload.get("online"):
+            if not payload.get("send_authorized"):
+                return "joining" if payload.get("authority_joining") else "standby"
+            return "online" if payload.get("voice_connected") else "joining"
+        if payload.get("configuration_error"):
+            return "error"
+        if int(payload.get("reconnect_attempts") or 0) >= MAX_RETRIES:
             return "offline"
-        if bool(payload.get("shutdown_requested")):
-            return "pending"
-        if bool(getattr(self, "discord_bot_voice_bridge_online", False)):
-            return "online"
-        if bool(payload.get("online")) and bool(payload.get("voice_connected")):
-            return "error"
-        if str(payload.get("configuration_error") or payload.get("last_error") or "").strip():
-            return "error"
-        if bool(payload.get("ok")) or self._is_discord_bot_process_alive():
-            return "pending"
-        return "offline"
+        return "pending" if payload.get("ok") or self._is_discord_bot_process_alive() else "offline"
 
     def _get_discord_bot_status_text(self) -> str:
         payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
-        if payload.get("standby"):
-            return "봇상태: 대기"
-        if int(payload.get("reconnect_attempts") or 0) >= MAX_RETRIES and not payload.get("voice_connected"):
-            return "봇상태: 재접속 제한"
-        status_kind = self._get_discord_bot_status_kind()
-        if status_kind == "online":
-            payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
-            if not bool(payload.get("text_commands_enabled", True)):
-                return "봇상태: 온라인(채팅꺼짐)"
-            return "봇상태: 온라인"
-        if status_kind == "error":
-            return "봇상태: 오류"
-        if status_kind == "pending":
-            payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
-            return "봇상태: 종료중" if bool(payload.get("shutdown_requested")) else "봇상태: 준비중"
-        return "봇상태: 오프라인"
+        if payload.get("online") and self._discord_bot_status_matches(payload) and payload.get("voice_error"):
+            return "봇 연결됨 · 음성 연결 오류"
+        return {"standby": "봇 연결됨 · 권한 없음", "joining": "관리자 · 입장 중",
+                "online": "관리자 · 송출 중", "pending": "봇 연결 중",
+                "error": "봇 연결 오류", "offline": "봇 연결 끊김"}[self._get_discord_bot_status_kind()]
 
     def _cancel_discord_bot_status_blink(self) -> None:
         after_id = getattr(self, "discord_bot_status_blink_after_id", None)
@@ -5962,13 +6013,15 @@ class BossTimerApp:
         try:
             frames = getattr(self, "discord_bot_connection_frames", ())
             if frames:
-                label.configure(image=frames[frame], text='', textvariable='')
+                label.configure(image=frames[frame], text=self._get_discord_bot_status_text().replace(' · ', '\n'),
+                                textvariable='', compound='left', fg=color,
+                                font=(self.current_font_family, 9, 'bold'))
             else:
                 label.configure(text=self._get_discord_bot_status_text(), textvariable='', fg=color)
             button = getattr(self, "discord_bot_toggle_button", None)
             if self._widget_available(button):
                 if button_text is None:
-                    button_text = '오류 · 봇 종료' if self._is_discord_bot_process_alive() else '오류 · 다시 실행'
+                    button_text = '연결 오류 · 다시 실행'
                 button.configure(text=button_text,bg=color,activebackground=color,
                                  fg='#ffffff',activeforeground='#ffffff',disabledforeground='#ffffff')
         except tk.TclError:
@@ -6007,7 +6060,7 @@ class BossTimerApp:
     def _query_discord_bot_status_port(self, timeout: float = 0.35) -> dict[str, object]:
         try:
             with urllib.request.urlopen(DISCORD_BOT_STATUS_URL, timeout=timeout) as response:
-                raw_payload = response.read(4096).decode("utf-8", errors="replace")
+                raw_payload = response.read(65536).decode("utf-8", errors="replace")
             payload = json.loads(raw_payload)
         except Exception:
             return {}
@@ -6016,7 +6069,7 @@ class BossTimerApp:
     def _is_discord_bot_runtime_running(self) -> bool:
         payload = self._query_discord_bot_status_port()
         self._set_discord_bot_status_payload(payload)
-        return bool(payload.get("online"))
+        return bool(payload.get("online") and self._discord_bot_status_matches(payload))
 
     def _set_discord_bot_status_payload(self, payload: dict[str, object] | None) -> dict[str, object]:
         safe_payload = payload if isinstance(payload, dict) else {}
@@ -6038,6 +6091,8 @@ class BossTimerApp:
         )
         is_online = (
             bool(safe_payload.get("online"))
+            and self._discord_bot_status_matches(safe_payload)
+            and bool(safe_payload.get("send_authorized"))
             and bool(safe_payload.get("voice_connected"))
             and bool(safe_payload.get("voice_bridge_enabled"))
             and server_matches
@@ -6091,7 +6146,7 @@ class BossTimerApp:
     def _recover_discord_bot_runtime(self, reason: str) -> None:
         policy = ConnectionPolicy(self._get_discord_bot_config_storage_path())
         state = policy.snapshot()
-        if state["standby"] or state["error"] or state["retries"] >= MAX_RETRIES:
+        if state["error"] or state["retries"] >= MAX_RETRIES:
             return
         if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
             return
@@ -6277,6 +6332,7 @@ class BossTimerApp:
         target_time: datetime | None = None,
         offset_sec: int = 0,
         timed_clip_paths: list[tuple[datetime, str]] | None = None,
+        notice_group_id: str = "",
     ) -> bool:
         valid_clip_paths = [
             os.path.abspath(str(path).strip())
@@ -6322,6 +6378,7 @@ class BossTimerApp:
             "clip_paths": valid_clip_paths,
             "timed_clips": valid_timed_clips,
             "fallback_text": str(fallback_text or "").strip(),
+            "notice_group_id": str(notice_group_id or "").strip(),
         }
         try:
             with self.discord_bot_voice_bridge_lock:
@@ -6641,6 +6698,7 @@ class BossTimerApp:
         target_time: datetime,
         lead_clip_paths: list[str],
         gen_clip_path: str,
+        notice_group_id: str = "",
         fallback_text: str = "",
         category: str = "general",
         lane: str = "center",
@@ -6704,6 +6762,7 @@ class BossTimerApp:
             volume=volume,
             target_time=target_time,
             offset_sec=0,
+            notice_group_id=notice_group_id,
         )
 
     def _build_discord_timed_voice_sequence_clip_paths(
@@ -6776,6 +6835,7 @@ class BossTimerApp:
         target_time: datetime | None = None,
         offset_sec: int = 0,
         start_at: datetime | None = None,
+        notice_group_id: str = "",
     ) -> tuple[bool, datetime | None]:
         valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
         if not valid_clip_paths:
@@ -6797,6 +6857,7 @@ class BossTimerApp:
             volume=volume,
             target_time=target_time,
             offset_sec=offset_sec,
+            notice_group_id=notice_group_id,
         )
         if emitted:
             self._write_schedule_alarm_voice_test_log(
@@ -7041,6 +7102,9 @@ class BossTimerApp:
         try:
             status_payload = self._query_discord_bot_status_port(timeout=0.35)
             process = getattr(self, "discord_bot_process", None)
+            if (status_payload.get("ok") and not self._discord_bot_status_matches(status_payload)
+                    and not self._owns_discord_bot_child(status_payload)):
+                return False
             process_alive = False
             if process is not None:
                 try:
@@ -7175,30 +7239,23 @@ class BossTimerApp:
         return bool(result_payload.get("ok"))
 
     def _cleanup_stale_discord_bot_runtime_at_startup(self) -> bool:
-        state = ConnectionPolicy(self._get_discord_bot_config_storage_path()).snapshot()
-        if state["standby"]:
-            self.discord_bot_startup_cleanup_failed = False
-            return True
-        payload = self._query_discord_bot_status_port(timeout=0.25)
-        stopped = True
-        if bool(payload.get("ok")):
-            stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
-        # Never log in remotely merely to disconnect another administrator.
-        disconnected = stopped
-        cleaned = bool(stopped and disconnected)
-        self.discord_bot_startup_cleanup_failed = not cleaned
-        self._append_debug_log(
-            f"discord_startup_stale_cleanup stopped={int(stopped)} "
-            f"disconnect_sent={int(disconnected)} success={int(cleaned)}"
-        )
-        return cleaned
+        self.discord_bot_startup_cleanup_failed = False
+        return True  # Startup never kills an existing listener.
 
     def _shutdown_discord_bot_at_exit(self) -> None:
         self.discord_bot_expected_running = False
+        payload = self._query_discord_bot_status_port(timeout=.2)
+        if (payload.get("ok") and not self._discord_bot_status_matches(payload)
+                and not self._owns_discord_bot_child(payload)):
+            return
+        coordinator = getattr(self, "discord_handover", None)
         try:
             self._stop_discord_bot_runtime_core(graceful_timeout=1.5, force_timeout=0.75)
         except Exception:
             pass
+        if coordinator is not None and coordinator.alive:
+            coordinator._release()
+            coordinator.alive = False
 
     def _get_discord_bot_executable_path(self) -> str:
         candidates = [
@@ -7229,7 +7286,43 @@ class BossTimerApp:
         executable_path = self._get_discord_bot_executable_path()
         return [executable_path] if executable_path else []
 
-    def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False) -> bool:
+    def _owns_discord_bot_child(self, payload) -> bool:
+        process = getattr(self, "discord_bot_process", None)
+        try:
+            return bool(process is not None and process.poll() is None
+                        and process.pid == int(payload.get("pid", 0)))
+        except (OSError, TypeError, ValueError):
+            return False
+
+    def _discord_bot_status_matches(self, payload) -> bool:
+        profile = self._get_discord_bot_config_storage_path()
+        identity = self._get_administrator_identity()
+        return bool(payload.get("ok") and payload.get("control_protocol") == CONTROL_PROTOCOL
+                    and payload.get("client_id") == identity["client_id"]
+                    and os.path.normcase(os.path.realpath(str(payload.get("config_path") or "")))
+                    == os.path.normcase(os.path.realpath(profile))
+                    and str(payload.get("guild_id")) == str(self.discord_bot_server_id)
+                    and str(payload.get("application_id")) == str(self.discord_bot_application_id))
+
+    def _ensure_discord_authority(self):
+        from discord_authority import DiscordAuthority
+        coordinator = getattr(self, "discord_handover", None)
+        profile = self._get_discord_bot_config_storage_path()
+        if (coordinator is None or not coordinator.alive or coordinator.profile != profile
+                or coordinator.scope["guild"] != str(self.discord_bot_server_id)):
+            if coordinator is not None:
+                coordinator.alive = False
+            coordinator = self.discord_handover = DiscordAuthority(self)
+        return coordinator
+
+    def _connect_discord_gateway_at_startup(self) -> None:
+        if self._is_discord_bot_process_alive():
+            return
+        self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
+        if self.discord_bot_token:
+            self._start_discord_bot_runtime(gateway_only=True)
+
+    def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False, gateway_only: bool = False) -> bool:
         if automatic and getattr(self, "discord_handover_busy", False):
             return False  # A delayed recovery cannot race the approved handover.
         # Validate persisted settings BEFORE creating any remote owner record.
@@ -7247,32 +7340,36 @@ class BossTimerApp:
             return False
         self.discord_bot_settings_validation_message = ""
         self._stop_discord_settings_warning()
-        if not automatic and not handover_approved:
+        if not gateway_only and not automatic and not handover_approved:
             if not self._ensure_administrator_name(parent=self.schedule_window or self.root):
                 return False
-            from discord_handover import DiscordHandover
-            try:
-                coordinator = getattr(self, "discord_handover", None)
-                if (coordinator is None or not coordinator.alive
-                        or coordinator.profile != self._get_discord_bot_config_storage_path()
-                        or coordinator.scope["guild"] != str(self.discord_bot_server_id)
-                        or coordinator.scope["server"] != str(self._get_current_github_upload_server_entry()["id"])
-                        or coordinator.scope["season"] != str(self.current_season_no)):
-                    if coordinator is not None:
-                        coordinator.alive = False
-                    coordinator = self.discord_handover = DiscordHandover(self)
-                coordinator.start()
-                return True
-            except Exception as exc:
-                self._show_centered_messagebox("showerror", "관리자 인계", str(exc), parent=self.schedule_window or self.root)
+            if not self._start_discord_bot_runtime(gateway_only=True):
                 return False
+            self._ensure_discord_authority().start()
+            return True
+        payload = self._query_discord_bot_status_port(timeout=.3)
+        if payload.get("ok"):
+            if not self._discord_bot_status_matches(payload):
+                if (self._owns_discord_bot_child(payload) and payload.get("control_protocol") == CONTROL_PROTOCOL
+                        and not automatic):
+                    if self._stop_discord_bot_runtime_core():
+                        return self._start_discord_bot_runtime(gateway_only=True)
+                self.schedule_status_var.set("다른 설정 또는 구버전 봇이 실행 중입니다. 기존 봇을 종료한 뒤 다시 연결하세요.")
+                return False
+            if not automatic:
+                ConnectionPolicy(self._get_discord_bot_config_storage_path()).resume()
+            self.discord_bot_running = self.discord_bot_expected_running = True
+            self.discord_bot_process_profile = self._get_discord_bot_config_storage_path()
+            try:
+                self.notice_output_secret = Path(self.discord_bot_process_profile + ".notice.secret").read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+            self._set_discord_bot_status_payload(payload)
+            self._ensure_discord_authority()
+            self._schedule_discord_bot_status_poll()
+            return True
         if self._is_discord_bot_process_alive():
-            # Tk callbacks are serialized. Preserve the process handle rather
-            # than overwriting it with a duplicate spawned by another callback.
-            if getattr(self, "discord_bot_process_profile", None) == self._get_discord_bot_config_storage_path():
-                return True
-            self.schedule_status_var.set("기존 봇이 실행 중입니다. 종료를 확인한 뒤 다시 연결해주세요.")
-            return False
+            return getattr(self, "discord_bot_process_profile", None) == self._get_discord_bot_config_storage_path()
         command = self._get_discord_bot_launch_command()
         if not command:
             self.discord_bot_running = False
@@ -7282,13 +7379,15 @@ class BossTimerApp:
         try:
             policy = ConnectionPolicy(self._get_discord_bot_config_storage_path())
             state = policy.snapshot()
-            if automatic:
-                if state["standby"] or state["error"]:
-                    return False
-            else:
+            if automatic and state["error"]:
+                return False
+            if not automatic:
                 policy.resume()
+            policy.update(protocol=CONTROL_PROTOCOL, client_id=self._get_administrator_identity()["client_id"],
+                          standby=True, authority_until=0, authority_active=False, voice_requested=False)
             env = os.environ.copy()
             env["BOSS_TIMER_DISCORD_CONFIG"] = self._get_discord_bot_config_storage_path()
+            env["BOSS_TIMER_PARENT_PID"] = str(os.getpid())
             env["BOSS_TIMER_DISCORD_VOICE_COMMANDS"] = self._get_discord_voice_commands_storage_path()
             env["BOSS_TIMER_SCHEDULE_STATE"] = self._get_schedule_state_storage_path()
             env["BOSS_TIMER_SCHEDULE_ALARM_SETTINGS"] = self._get_schedule_alarm_settings_storage_path()
@@ -7302,6 +7401,7 @@ class BossTimerApp:
             env["BOSS_TIMER_DISCORD_RETRY_RESERVED"] = "1" if automatic else "0"
             self.notice_output_secret = uuid.uuid4().hex
             env['BOSS_TIMER_NOTICE_SECRET'] = self.notice_output_secret
+            Path(self._get_discord_bot_config_storage_path() + '.notice.secret').write_text(self.notice_output_secret, encoding='utf-8')
             self.discord_bot_process = subprocess.Popen(
                 command,
                 cwd=get_app_root(),
@@ -7324,43 +7424,22 @@ class BossTimerApp:
         self._apply_discord_bot_status_label_style('pending')
         self._refresh_discord_bot_status_ui_async()
         self._schedule_discord_bot_status_poll()
+        self._ensure_discord_authority()
         self.schedule_status_var.set("디스코드 봇을 실행했습니다. 연결 상태는 봇상태 표시로 확인하세요.")
         return True
 
     def _toggle_discord_bot_runtime(self) -> None:
-        if self._is_discord_bot_toggle_locked():
+        if self._is_discord_bot_toggle_locked() or getattr(self, "discord_handover_busy", False):
             return
         self._refresh_discord_bot_status_ui()
-        has_existing_runtime = (
-            bool(getattr(self, "discord_bot_last_status_payload", {}).get("ok"))
-            or self._is_discord_bot_process_alive()
-        )
-        if has_existing_runtime:
-            restart_after_cleanup = bool(getattr(self, "discord_bot_startup_cleanup_failed", False)
-                                         or getattr(self, "discord_bot_last_status_payload", {}).get("standby"))
-            self.discord_bot_expected_running = bool(restart_after_cleanup)
-            self._set_discord_bot_toggle_locked(True, seconds=10.0 if restart_after_cleanup else 7.0)
-            stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.5, force_timeout=1.0)
-            self._refresh_discord_bot_status_ui()
-            if not stopped:
-                self.discord_bot_expected_running = True
-                self.schedule_status_var.set("디스코드 봇 종료를 확인하지 못했습니다. 잠시 후 다시 시도하세요.")
-                return
-            self.discord_bot_startup_cleanup_failed = False
-            self._refresh_discord_bot_status_ui()
-            if restart_after_cleanup:
-                self.schedule_status_var.set("기존 디스코드 봇을 종료했습니다. 3초 후 다시 연결합니다.")
-                try:
-                    self.root.after(3000, self._start_discord_bot_runtime)
-                except tk.TclError:
-                    pass
-            else:
-                self.schedule_status_var.set("디스코드 봇을 종료했습니다.")
-                coordinator = getattr(self, "discord_handover", None)
-                if coordinator is not None:
-                    coordinator.release_after_stop()
+        payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
+        if payload.get("ok") and not self._discord_bot_status_matches(payload):
+            self._start_discord_bot_runtime()
             return
-        self._start_discord_bot_runtime()
+        if payload.get("send_authorized") or payload.get("authority_joining"):
+            self._ensure_discord_authority().release()
+        else:
+            self._start_discord_bot_runtime()
 
     def _reconnect_discord_bot_runtime_from_request(
         self,
@@ -7389,6 +7468,9 @@ class BossTimerApp:
 
         automatic_recovery = bool(payload.get("automatic_recovery"))
         reconnect_reason = str(payload.get("reconnect_reason") or "연결 응답 없음").strip()
+        previous_authority = ConnectionPolicy(self._get_discord_bot_config_storage_path()).snapshot()
+        restore_owner = ((previous_authority["runtime_id"], previous_authority["authority_generation"])
+                         if automatic_recovery and previous_authority["authority_active"] else None)
 
         self.discord_bot_expected_running = True
         self.discord_bot_voice_channel_id = voice_channel_id
@@ -7424,7 +7506,11 @@ class BossTimerApp:
                 if (self._get_discord_bot_config_storage_path() != reconnect_profile
                         or getattr(self, "discord_handover_busy", False)):
                     return
-                started = self._start_discord_bot_runtime(automatic=automatic_recovery)
+                started = self._start_discord_bot_runtime(automatic=automatic_recovery, gateway_only=True)
+                if started and restore_owner is not None:
+                    self._ensure_discord_authority().start(remote=True, channel=voice_channel_id,
+                        expected_owner=restore_owner,
+                        done=lambda ok, text: self._append_debug_log(f"authority_runtime_recovery ok={int(ok)} result={text}"))
                 if started:
                     self.schedule_status_var.set("초대 요청 채널로 디스코드 봇을 다시 연결하고 있습니다.")
                 else:
@@ -8116,6 +8202,7 @@ class BossTimerApp:
         *,
         payload: dict[str, object] | None = None,
         query: dict[str, str] | None = None,
+        timeout: float = 20,
     ) -> tuple[bool, dict[str, object] | None, str]:
         settings = self._get_github_data_settings()
         if not settings["owner"] or not settings["repo"] or not settings["branch"]:
@@ -8138,7 +8225,7 @@ class BossTimerApp:
                 },
                 method=method.upper(),
             )
-            with urlopen_verified(request, timeout=20) as response:
+            with urlopen_verified(request, timeout=timeout) as response:
                 return response.read().decode("utf-8")
 
         request_token = settings["token"] if settings["token"] else ""
@@ -8208,9 +8295,9 @@ class BossTimerApp:
         except json.JSONDecodeError:
             return False, None, "GitHub 응답 JSON을 해석하지 못했습니다."
 
-    def _github_get_json_file(self, path: str) -> tuple[dict[str, object] | None, str | None, str]:
+    def _github_get_json_file(self, path: str, *, timeout: float = 20) -> tuple[dict[str, object] | None, str | None, str]:
         settings = self._get_github_data_settings()
-        success, response, error = self._github_data_request("GET", path, query={"ref": settings["branch"]})
+        success, response, error = self._github_data_request("GET", path, query={"ref": settings["branch"]}, timeout=timeout)
         if not success:
             if "GitHub API 오류 404" in error:
                 return None, None, ""
@@ -8244,7 +8331,7 @@ class BossTimerApp:
                         },
                         method="GET",
                     )
-                    with urlopen_verified(request, timeout=20) as raw_response:
+                    with urlopen_verified(request, timeout=timeout) as raw_response:
                         decoded = raw_response.read().decode("utf-8-sig")
                     parsed = json.loads(decoded)
                     return parsed if isinstance(parsed, dict) else {}, sha, ""
@@ -8257,7 +8344,7 @@ class BossTimerApp:
                         headers=self._get_github_json_headers(""),
                         method="GET",
                     )
-                    with urlopen_verified(request, timeout=20) as blob_response:
+                    with urlopen_verified(request, timeout=timeout) as blob_response:
                         blob_payload = json.loads(blob_response.read().decode("utf-8"))
                     blob_content = str(blob_payload.get("content") or "")
                     decoded = base64.b64decode(blob_content).decode("utf-8-sig")
@@ -8280,6 +8367,7 @@ class BossTimerApp:
         *,
         message: str,
         sha: str | None = None,
+        timeout: float = 20,
     ) -> tuple[bool, str, dict[str, object] | None]:
         settings = self._get_github_data_settings()
         content_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -8290,7 +8378,7 @@ class BossTimerApp:
         }
         if sha:
             request_payload["sha"] = sha
-        success, _response, error = self._github_data_request("PUT", path, payload=request_payload)
+        success, _response, error = self._github_data_request("PUT", path, payload=request_payload, timeout=timeout)
         return success, error
 
     def _github_delete_file(self, path: str, *, message: str) -> tuple[bool, str]:
@@ -9810,6 +9898,8 @@ class BossTimerApp:
         target_server: dict[str, object] | None = None,
         *,
         progress_callback=None,
+        handover_schedule_payload: dict[str, object] | None = None,
+        handover_guard=None,
     ) -> tuple[bool, str, dict[str, object] | None]:
         def progress(message: str) -> None:
             if progress_callback is None:
@@ -9868,6 +9958,36 @@ class BossTimerApp:
             or meta_boss_config_version
             or ""
         ).strip()
+        schedule_sha = None
+        handover_hash = ""
+        handover_remote_hash = ""
+        if handover_schedule_payload is not None:
+            # A handover must publish the reviewed snapshot, even when a local
+            # metadata edit did not advance the cached version. Never infer
+            # identical content from identical version numbers.
+            handover_schedule_payload = self._serialize_schedule_state_value(handover_schedule_payload)
+            snapshot = handover_schedule_payload.get("payload")
+            if (handover_schedule_payload.get("kind") != "schedule"
+                    or not isinstance(snapshot, dict)
+                    or str(snapshot.get("share_prefix")) != server_id
+                    or str(snapshot.get("season_no")) != str(self.current_season_no)):
+                return False, "인계할 스케줄의 서버·시즌이 현재 설정과 다릅니다.", None
+            handover_hash = self._get_github_schedule_content_hash(handover_schedule_payload)
+            if not handover_hash:
+                return False, "인계할 스케줄의 내용을 확인하지 못했습니다.", None
+            progress("인계할 스케줄과 서버의 실제 내용을 비교하는 중입니다.")
+            remote_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
+            if schedule_error:
+                return False, schedule_error, None
+            if remote_schedule is not None:
+                actual_version = str(remote_schedule.get("dataVersion") or "").strip()
+                if (existing_schedule_version and actual_version
+                        and actual_version != existing_schedule_version):
+                    return False, "서버 스케줄 파일과 서버 목록의 버전이 다릅니다. 서버 자료를 확인한 뒤 다시 인계하세요.", None
+                existing_schedule_version = actual_version or existing_schedule_version
+                handover_remote_hash = self._get_github_schedule_content_hash(remote_schedule)
+                if handover_remote_hash != handover_hash and not local_schedule_version:
+                    return False, "이 PC의 스케줄 버전을 확인할 수 없습니다. 먼저 동기화한 뒤 내용을 확인하고 다시 인계하세요.", None
         schedule_version_compare = self._compare_github_data_versions(local_schedule_version, existing_schedule_version)
         boss_config_version_compare = self._compare_github_data_versions(local_boss_config_version, existing_boss_config_version)
         remote_schedule_newer = bool(existing_schedule_version and local_schedule_version and schedule_version_compare < 0)
@@ -9885,10 +10005,22 @@ class BossTimerApp:
             if remote_boss_config_newer:
                 newer_parts.append(f"보스설정 서버={existing_boss_config_version}, PC={local_boss_config_version}")
             return (
-                True,
+                handover_schedule_payload is None,
                 f"{server_name}: 서버에 더 최신 버전이 있어 업로드하지 않았습니다. 먼저 동기화하세요. ({', '.join(newer_parts)})",
                 existing_entry,
             )
+        if handover_schedule_payload is not None:
+            schedule_changed = handover_hash != handover_remote_hash
+            if schedule_changed and schedule_version_compare <= 0:
+                next_version = self._get_next_github_data_version(existing_schedule_version)
+                if existing_schedule_version and self._compare_github_data_versions(next_version, existing_schedule_version) <= 0:
+                    # Preserve monotonic versions even if the remote date is
+                    # ahead of this PC's date.
+                    match = re.fullmatch(r"(\d{4}\.\d{2}\.\d{2})\.(\d{3})", existing_schedule_version)
+                    if not match or int(match.group(2)) >= 999:
+                        return False, "서버 버전보다 새로운 인계 버전을 만들 수 없습니다. PC 날짜와 서버 버전을 확인하세요.", None
+                    next_version = f"{match.group(1)}.{int(match.group(2)) + 1:03d}"
+                local_schedule_version = next_version
         if not schedule_changed and not boss_config_changed:
             if schedule_dirty or boss_config_dirty:
                 self._set_github_cached_versions(
@@ -9906,11 +10038,11 @@ class BossTimerApp:
             schedule_version = self._get_next_github_data_version(existing_schedule_version)
         if boss_config_changed and not boss_config_version:
             boss_config_version = self._get_next_github_data_version(existing_boss_config_version)
-        schedule_sha = None
         boss_config_sha = None
         try:
             progress("업로드 데이터를 만드는 중입니다.")
-            schedule_payload = self._build_github_schedule_payload(schedule_version or existing_schedule_version or "0.0.0")
+            schedule_payload = (handover_schedule_payload if handover_schedule_payload is not None
+                                else self._build_github_schedule_payload(schedule_version or existing_schedule_version or "0.0.0"))
             boss_config_payload = self._build_github_boss_config_payload(boss_config_version or existing_boss_config_version or "0.0.0")
             if isinstance(schedule_payload.get("payload"), dict):
                 schedule_payload["payload"]["share_prefix"] = server_id
@@ -9937,12 +10069,14 @@ class BossTimerApp:
             boss_config_hash=boss_config_hash_for_index,
         )
         if schedule_changed:
-            if schedule_sha is None:
+            if schedule_sha is None and handover_schedule_payload is None:
                 progress("기존 스케쥴 파일 정보를 확인하는 중입니다.")
                 _existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
                 if schedule_error:
                     return False, schedule_error, None
             progress("스케쥴 JSON을 업로드하는 중입니다.")
+            if handover_guard is not None and not handover_guard():
+                return False, "인계 시간이 끝나 늦은 스케줄 업로드를 중단했습니다.", None
             ok, error = self._github_put_json_file(
                 schedule_path,
                 schedule_payload,
@@ -9958,6 +10092,8 @@ class BossTimerApp:
                 if boss_config_error:
                     return False, boss_config_error, None
             progress("보스설정 JSON을 업로드하는 중입니다.")
+            if handover_guard is not None and not handover_guard():
+                return False, "인계 시간이 끝나 늦은 보스설정 업로드를 중단했습니다.", None
             ok, error = self._github_put_json_file(
                 boss_config_path,
                 boss_config_payload,
@@ -9967,6 +10103,8 @@ class BossTimerApp:
             if not ok:
                 return False, error, None
         progress("서버 목록 인덱스를 갱신하는 중입니다.")
+        if handover_guard is not None and not handover_guard():
+            return False, "인계 시간이 끝나 늦은 인덱스 갱신을 중단했습니다.", None
         ok, error = self._github_put_json_file(
             "data/server_index.json",
             index_payload,
@@ -9976,6 +10114,8 @@ class BossTimerApp:
         if not ok:
             return False, error, None
         progress("업로드 버전을 기록하는 중입니다.")
+        if handover_guard is not None and not handover_guard():
+            return False, "인계 시간이 끝나 로컬 업로드 상태는 변경하지 않았습니다.", None
         self._update_github_import_meta(
             server_id=server_id,
             server_name=server_name,
@@ -11432,12 +11572,12 @@ class BossTimerApp:
     def _get_centered_messagebox_parent(self, parent: tk.Widget | None = None) -> tk.Widget:
         candidates = [
             parent,
-            self.log_stats_window if self.log_stats_window_open else None,
-            self.analysis_window if self.analysis_window_open else None,
-            self.log_panel if self.log_panel_open else None,
-            self.schedule_window if self.schedule_window_open else None,
-            self.record_book_window if self.record_book_window_open else None,
-            self.fixed_boss_window if self.fixed_boss_window_open else None,
+            getattr(self, "log_stats_window", None) if getattr(self, "log_stats_window_open", False) else None,
+            getattr(self, "analysis_window", None) if getattr(self, "analysis_window_open", False) else None,
+            getattr(self, "log_panel", None) if getattr(self, "log_panel_open", False) else None,
+            getattr(self, "schedule_window", None) if getattr(self, "schedule_window_open", False) else None,
+            getattr(self, "record_book_window", None) if getattr(self, "record_book_window_open", False) else None,
+            getattr(self, "fixed_boss_window", None) if getattr(self, "fixed_boss_window_open", False) else None,
             self.root,
         ]
         for candidate in candidates:
@@ -11514,8 +11654,8 @@ class BossTimerApp:
         dialog.protocol("WM_DELETE_WINDOW", lambda: close_with(default_close_value))
         self._center_window_over_parent(dialog, owner, width, height)
         tk.Frame(dialog,bg=accent).place(x=0,y=0,width=width,height=4)
-        tk.Label(dialog, text=str(title or ""), font=(self.current_font_family,12,'bold'), bg="#f8fafc", fg=title_fg, anchor="w").place(x=24, y=18, width=452, height=24)
-        body=tk.Text(dialog,font=self.percent_font,bg='#f8fafc',fg='#334155',wrap='word',relief='flat',bd=0,
+        tk.Label(dialog, text=str(title or ""), font=(getattr(self, "current_font_family", "맑은 고딕"),12,'bold'), bg="#f8fafc", fg=title_fg, anchor="w").place(x=24, y=18, width=452, height=24)
+        body=tk.Text(dialog,font=getattr(self, "percent_font", ("맑은 고딕", 10)),bg='#f8fafc',fg='#334155',wrap='word',relief='flat',bd=0,
                      highlightthickness=0,padx=0,pady=4,spacing3=4)
         body.insert('1.0',str(message or ''))
         body.config(state='disabled')
@@ -11531,7 +11671,7 @@ class BossTimerApp:
             button = tk.Button(
                 dialog,
                 text=button_text,
-                font=self.button_font,
+                font=getattr(self, "button_font", ("맑은 고딕", 10, "bold")),
                 bg=bg_color,
                 fg=fg_color,
                 activebackground=bg_color,
@@ -20390,6 +20530,21 @@ class BossTimerApp:
         )
 
     def _apply_discord_schedule_request(self, payload: dict[str, object]) -> tuple[bool, str]:
+        operation = str(payload.get("operation") or "").strip().lower()
+        if operation.startswith("administrator_") or operation in {"readonly_query_route", "readonly_query_wait"}:
+            from discord_authority import write_command_result
+            request_id = str(payload.get("request_id") or "")
+            def complete(ok, message):
+                write_command_result(self._get_discord_schedule_request_dir(), request_id, ok, message)
+            status = self._query_discord_bot_status_port(timeout=.3)
+            if (str(payload.get("server_id")) != str(self.discord_bot_server_id)
+                    or not self._discord_bot_status_matches(status)
+                    or payload.get("runtime_id") != status.get("runtime_id")
+                    or time.time() - float(payload.get("created_at", 0)) > 10):
+                complete(False, "만료되었거나 다른 봇의 관리자 요청입니다.")
+                return False, "관리자 요청의 연결 정보를 확인하세요."
+            self._ensure_discord_authority().command(payload, complete)
+            return True, "관리자 요청 처리 중"
         if getattr(self, "discord_handover_busy", False):
             return False, "관리자 인계 진행 중입니다. 완료 후 다시 요청하세요."
         request_server_id = str(payload.get("server_id") or "").strip()
@@ -20405,6 +20560,12 @@ class BossTimerApp:
             )
             return False, "다른 서버에서 들어온 요청을 차단했습니다."
         operation = str(payload.get("operation") or "").strip().lower()
+        if operation != "discord_reconnect" or not payload.get("automatic_recovery"):
+            state = ConnectionPolicy(self._get_discord_bot_config_storage_path()).snapshot()
+            if (not ConnectionPolicy.has_authority(state)
+                    or payload.get("runtime_id") != state.get("runtime_id")
+                    or payload.get("authority_generation") != state.get("authority_generation")):
+                return False, "관리자 권한이 변경되어 이전 요청을 적용하지 않았습니다."
         if operation == "delete":
             names = payload.get("boss_names")
             if not isinstance(names, list):
@@ -20424,7 +20585,14 @@ class BossTimerApp:
             self._apply_schedule_alarm_global_options(show_status=False)
             return True, "초읽기를 켰습니다." if enabled else "초읽기를 해제했습니다."
         if operation == "discord_reconnect":
-            return self._reconnect_discord_bot_runtime_from_request(payload)
+            if payload.get("automatic_recovery"):
+                return self._reconnect_discord_bot_runtime_from_request(payload)
+            state = ConnectionPolicy(self._get_discord_bot_config_storage_path()).snapshot()
+            self._ensure_discord_authority().start(remote=True,
+                channel=str(payload.get("voice_channel_id") or ""),
+                expected_owner=(state["runtime_id"], state["authority_generation"]),
+                done=lambda ok, text: self._append_debug_log(f"authority_voice_move ok={int(ok)} result={text}"))
+            return True, "봇 연결을 유지하며 음성채널 입장을 요청했습니다."
         if operation == "connection_log":
             return True, "디스코드 음성채널 자동 재접속 완료"
         if operation == "voice_play":
@@ -20458,13 +20626,15 @@ class BossTimerApp:
                 if not isinstance(loaded, dict):
                     raise ValueError("요청 데이터가 객체가 아닙니다.")
                 payload = loaded
-                self._ensure_discord_schedule_monitor_window()
+                if payload.get("operation") not in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:
+                    self._ensure_discord_schedule_monitor_window()
                 success, result_text = self._apply_discord_schedule_request(payload)
             except Exception as exc:
                 result_text = f"{type(exc).__name__}: {exc}"
                 self._append_debug_log(f"discord_schedule_request_failed {result_text}")
             finally:
-                self._append_discord_schedule_monitor_entry(payload, result_text, success=success)
+                if payload.get("operation") not in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:
+                    self._append_discord_schedule_monitor_entry(payload, result_text, success=success)
                 try:
                     os.remove(processing_path)
                 except OSError:
@@ -35250,6 +35420,7 @@ class BossTimerApp:
             category=str(request.get("category") or "general"),
             lane=lane,
             volume=float(request.get("volume") or 1.0),
+            notice_group_id=str(request.get("boss_id") or ""),
         )
         if bridge_sequence_emitted:
             bridge_lead_emitted = True
@@ -35445,7 +35616,8 @@ class BossTimerApp:
                 clip_paths=[], timed_clip_paths=timed, fallback_text=str(request.get("fallback_text") or ""),
                 phase="SPAWN_CONFIRMED_NEAR_SEQUENCE", category=str(request.get("category") or "general"),
                 lane=lane, volume=float(request.get("volume") or 1.0),
-                target_time=request.get("target_time"), offset_sec=0)
+                target_time=request.get("target_time"), offset_sec=0,
+                notice_group_id=str(request.get("boss_id") or ""))
         muted = self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted)
         def duration_ms(path: str) -> int:
             value = self._get_schedule_alarm_voice_duration_ms(path)
@@ -35715,6 +35887,7 @@ class BossTimerApp:
                         target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
                         offset_sec=int(request.get("offset_sec") or 0),
                         start_at=bridge_start_at,
+                        notice_group_id=str(request.get("boss_id") or ""),
                     )
                     if not bridge_emitted:
                         bridge_scheduled_start_at = None
@@ -35727,6 +35900,7 @@ class BossTimerApp:
                             volume=float(request.get("volume") or 1.0),
                             target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
                             offset_sec=int(request.get("offset_sec") or 0),
+                            notice_group_id=str(request.get("boss_id") or ""),
                         )
                 if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
                     played_audio = True
@@ -37463,7 +37637,7 @@ class BossTimerApp:
         cache = getattr(self, "_handover_audio_gate_cache", None)
         if cache is None or cache[0] != profile or now - cache[1] >= .1:
             state = ConnectionPolicy(profile).snapshot()
-            cache = (profile, now, bool(state["handover_hold"]))
+            cache = (profile, now, bool(state["handover_hold"]) and state.get("protocol") != CONTROL_PROTOCOL)
             self._handover_audio_gate_cache = cache
         return cache[2]
 
@@ -40661,7 +40835,7 @@ class BossTimerApp:
                 + (f" 시작일 이전 기록 {moved_count}건을 별도 보관했습니다." if moved_count else ""))
         elif current_season in self._get_existing_archive_season_numbers() and str(
                 getattr(self, '_last_season_setup_action', '')) == 'resume':
-            self.schedule_status_var.set(f"{current_label} 이어하기. 기존 시작일·설정·스케줄을 불러왔습니다.")
+            self.schedule_status_var.set(f"{current_label} 이어하기. 현재 스케줄을 유지하며 기존 시즌을 이어갑니다.")
         else:
             self.schedule_status_var.set(
                 f"{current_label} 시작. 현재 스케쥴을 유지하며 이후 변경은 이 시즌에 저장됩니다.")
@@ -41693,7 +41867,7 @@ class BossTimerApp:
             self.discord_bot_expected_running = True
             self.schedule_status_var.set(f"{server_name}: 이전 채널에서 나왔습니다. 새 서버 설정으로 3초 후 디스코드 봇을 연결합니다.")
             try:
-                self.root.after(3000, self._start_discord_bot_runtime)
+                self.root.after(3000, lambda: self._start_discord_bot_runtime(gateway_only=True))
             except tk.TclError:
                 self.discord_bot_expected_running = False
 
@@ -47011,7 +47185,9 @@ class BossTimerApp:
             if os.path.isdir(runtime_wave_dir) and os.path.exists(marker_path):
                 with open(marker_path, "r", encoding="utf-8") as marker_file:
                     seeded_version = marker_file.read().strip()
-                if seeded_version == str(APP_VERSION or "").strip():
+                if (seeded_version == str(APP_VERSION or "").strip()
+                        and (not os.path.isfile(os.path.join(resource_wave_dir, NOTICE_CHIME_FILENAME))
+                             or os.path.isfile(os.path.join(runtime_wave_dir, NOTICE_CHIME_FILENAME)))):
                     return
         except OSError:
             pass
@@ -60982,14 +61158,18 @@ class BossTimerApp:
         except tk.TclError:
             self.record_book_window_open = False
 
-    def open_record_book_file_window(self) -> None:
+    def open_record_book_file_window(self, *, parent: tk.Widget | None = None) -> None:
         if self.record_book_file_window_busy:
             return
         self.record_book_file_window_busy = True
         try:
+            if not self._widget_available(parent):
+                parent = self.record_book_window if self.record_book_window_open and self._widget_available(self.record_book_window) else self.root
             self._ensure_record_book_file_window()
             if self.record_book_file_window is not None and self.record_book_file_window.winfo_exists():
                 self.record_book_file_window_open = True
+                self.record_book_file_window.transient(parent)
+                self._center_window_over_parent(self.record_book_file_window, parent, 430, 438)
                 self.record_book_file_window.deiconify()
                 self.record_book_file_window.lift()
                 self.record_book_file_search_result_var.set("기간을 선택한 뒤 검색하면 아군/적군 횟수를 보여줍니다.")
@@ -61012,8 +61192,8 @@ class BossTimerApp:
     def _ensure_record_book_file_window(self) -> None:
         if self.record_book_file_window is not None and self.record_book_file_window.winfo_exists():
             return
-        parent = self.record_book_window if self.record_book_window is not None and self.record_book_window.winfo_exists() else self.root
-        self.record_book_file_window = tk.Toplevel(parent)
+        # 기간 관리는 기록표를 열지 않은 기록로그 화면에서도 사용할 수 있습니다.
+        self.record_book_file_window = tk.Toplevel(self.root)
         self.record_book_file_window.title("파일관리")
         self.record_book_file_window.resizable(False, False)
         self.record_book_file_window.protocol("WM_DELETE_WINDOW", self.close_record_book_file_window)
@@ -61022,9 +61202,7 @@ class BossTimerApp:
 
         width = 430
         height = 438
-        self.record_book_file_window.geometry(
-            f"{width}x{height}+{self.record_book_window.winfo_x() + 24}+{self.record_book_window.winfo_y() + 86}"
-        )
+        self.record_book_file_window.geometry(f"{width}x{height}")
         today = datetime.now()
         self.record_book_file_start_year_var.set(str(today.year))
         self.record_book_file_start_month_var.set(today.strftime("%m"))
@@ -64838,7 +65016,7 @@ class BossTimerApp:
         self.log_archive_resume_button.place(x=156, y=208, width=176, height=24)
         for title, command, y in (
             ("선택 시즌 기록로그 관리", self._open_selected_archive_record_logs, 236),
-            ("기록표 기간 관리", self.open_record_book_file_window, 264),
+            ("기록표 기간 관리", lambda: self.open_record_book_file_window(parent=self.log_panel), 264),
         ):
             tk.Button(self.log_archive_manage_frame, text=title, command=command,
                       font=(self.current_font_family, 9, "bold"), bg="#dbeafe", fg="#1d4ed8",
@@ -67597,7 +67775,23 @@ def main() -> None:
         except tk.TclError:
             pass
     configure_tk_scaling(root)
-    app = BossTimerApp(root, scheduler_worker=scheduler_worker)
+    try:
+        app = BossTimerApp(root, scheduler_worker=scheduler_worker)
+    except PermissionError as exc:
+        # Initialization stopped before any inaccessible settings were loaded.
+        # Reuse the normal centered popup with startup-safe default fonts.
+        error_view = BossTimerApp.__new__(BossTimerApp)
+        error_view.root = root
+        root.title("보스전 타이머 · 설정 접근 오류")
+        root.geometry("560x180")
+        root.deiconify()
+        error_view._show_centered_messagebox(
+            "showerror", "시즌 설정 접근 권한",
+            "시즌 설정에 접근할 수 없어 실행을 중단했습니다.\n"
+            "프로그램을 관리자 권한으로 한 번 실행한 뒤 다시 시도해주세요.\n"
+            "기존 설정과 스케줄은 삭제하지 마세요.\n\n" + str(exc), parent=root)
+        root.destroy()
+        return
     if not scheduler_worker:
         app._set_elapsed_color("#cbd5e1")
     root.mainloop()

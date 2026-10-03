@@ -1,4 +1,8 @@
-"""GitHub-backed handover protocol. Remote writes use the existing Contents CAS.
+"""Legacy v1 handover implementation, retained for migration/reference only.
+
+The GUI uses discord_authority.DiscordAuthority (protocol 2). Do not instantiate
+this legacy coordinator for live connections; it requires automatic data sync.
+Remote writes use the existing Contents CAS.
 
 No credentials, computer names or user names are published. A random local ID
 identifies the administrator installation. UI and audio stay gated until BOTH
@@ -417,13 +421,16 @@ class DiscordHandover:
             expected["payload"].update(share_prefix=self.scope["server"], server_name=self.entry["name"])
             expected_hash = self.app._get_github_schedule_content_hash(expected)
             ok, message, entry = self.app._upload_current_schedule_to_github_data(self.entry,
-                progress_callback=lambda text: self._ui(lambda: self._display(dict(self.current, message=text)), wait=False))
+                progress_callback=lambda text: self._ui(lambda: self._display(dict(self.current, message=text)), wait=False),
+                handover_schedule_payload=deepcopy(expected))
             if not ok:
                 raise HandoverError(message)
             path = str((entry or {}).get("schedule") or self.entry["schedule"])
             payload, sha, error = self.app._github_get_json_file(path)
             if error or not sha or self.app._get_github_schedule_content_hash(payload) != expected_hash:
-                raise HandoverError(error or "업로드가 생략되었거나 현재 스케줄과 서버 자료가 다릅니다. 기존 운영을 유지합니다.")
+                raise HandoverError(error or
+                    "인계할 스케줄과 서버 자료가 일치하지 않습니다. 기존 운영을 유지합니다.\n"
+                    f"업로드 결과: {message}")
             current = self._ui(lambda: self.app._build_github_schedule_payload("0.0.0"))
             current["payload"].update(share_prefix=self.scope["server"], server_name=self.entry["name"])
             if self.app._get_github_schedule_content_hash(current) != expected_hash:
