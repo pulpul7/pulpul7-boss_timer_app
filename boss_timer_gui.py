@@ -5862,7 +5862,7 @@ class BossTimerApp:
         self.discord_bot_voice_channel_id = str(payload.get("voice_channel_id", "") or "").strip()
         self.discord_bot_default_voice_channel_id = str(payload.get("default_voice_channel_id") or self.discord_bot_voice_channel_id)
         self.discord_bot_text_channel_id = str(payload.get("text_channel_id", "") or "").strip()
-        self.discord_bot_authority_control_channel_id = str(payload.get("authority_control_channel_id", "") or "").strip()
+        self.discord_bot_authority_control_channel_id = self.discord_bot_text_channel_id
         self.discord_bot_voice_panel_channel_id = str(payload.get("voice_panel_channel_id", "") or "").strip()
         invite_links = payload.get("invite_links", {})
         self.discord_bot_invite_links = dict(invite_links) if isinstance(invite_links, dict) else {}
@@ -5903,7 +5903,7 @@ class BossTimerApp:
             "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
             "default_voice_channel_id": str(section.get("default_voice_channel_id", section.get("voice_channel_id", "")) or "").strip(),
             "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
-            "authority_control_channel_id": str(section.get("authority_control_channel_id", "") or "").strip(),
+            "authority_control_channel_id": str(section.get("text_channel_id", "") or "").strip(),
             "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
             "invite_url": invite_url,
             "invite_links": invite_links,
@@ -5957,7 +5957,7 @@ class BossTimerApp:
             "voice_channel_id": str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip(),
             "default_voice_channel_id": str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "")),
             "text_channel_id": str(getattr(self, "discord_bot_text_channel_id", "") or "").strip(),
-            "authority_control_channel_id": str(getattr(self, "discord_bot_authority_control_channel_id", "") or "").strip(),
+            "authority_control_channel_id": str(getattr(self, "discord_bot_text_channel_id", "") or "").strip(),
             "voice_panel_channel_id": voice_panel_channel_id,
             "voice_panel_message_id": persisted_voice_panel_message_id,
             "text_channel_keep_count": persisted_text_channel_keep_count,
@@ -7674,14 +7674,13 @@ class BossTimerApp:
         dialog.resizable(False, False)
         dialog.configure(bg="#eef2ff")
         dialog.transient(parent)
-        self._center_window_over_parent(dialog, parent, 520, 560)
+        self._center_window_over_parent(dialog, parent, 520, 526)
 
         token_var = tk.StringVar(value=self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")))
         application_id_var = tk.StringVar(value=self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", "")))
         server_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_server_id", "") or ""))
         voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "") or ""))
         text_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_text_channel_id", "") or ""))
-        control_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_authority_control_channel_id", "") or ""))
         mute_pc_audio_var = tk.BooleanVar(value=bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)))
         status_var = tk.StringVar(value=getattr(self, "discord_bot_settings_validation_message", "") or f"저장 위치: {self._get_discord_bot_config_storage_path()}")
 
@@ -7699,10 +7698,6 @@ class BossTimerApp:
             server_id_text = str(server_id_var.get() or "").strip()
             voice_channel_id_text = str(voice_channel_id_var.get() or "").strip()
             text_channel_id_text = str(text_channel_id_var.get() or "").strip()
-            control_channel_id_text = str(control_channel_id_var.get() or "").strip()
-            if control_channel_id_text and not control_channel_id_text.isdigit():
-                status_var.set("승계 제어 채널 ID는 숫자로 입력하세요.")
-                return
             validation_error = self._get_discord_bot_settings_validation_error(
                 token=token_text,
                 application_id=application_id_text,
@@ -7721,7 +7716,7 @@ class BossTimerApp:
             self.discord_bot_voice_channel_id = voice_channel_id_text
             self.discord_bot_default_voice_channel_id = voice_channel_id_text
             self.discord_bot_text_channel_id = text_channel_id_text
-            self.discord_bot_authority_control_channel_id = control_channel_id_text
+            self.discord_bot_authority_control_channel_id = text_channel_id_text
             self.discord_bot_mute_pc_audio_when_online = bool(mute_pc_audio_var.get())
             if self.discord_bot_application_id:
                 matched_invite_url = self._get_discord_bot_invite_url_for_application_id(self.discord_bot_application_id)
@@ -7755,9 +7750,7 @@ class BossTimerApp:
         tk.Label(dialog, text="안내채팅 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=210, width=100, height=22)
         tk.Entry(dialog, textvariable=text_channel_id_var, font=self.button_font).place(x=134, y=208, width=230, height=26)
         tk.Label(dialog, text="비워두면 ‘보탐매니저’ 텍스트 채널을 자동으로 찾습니다. /보탐채널로도 지정할 수 있습니다.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=240, width=468, height=20)
-        tk.Label(dialog, text="승계 제어 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=268, width=110, height=22)
-        tk.Entry(dialog, textvariable=control_channel_id_var, font=self.button_font).place(x=134, y=266, width=230, height=26)
-        tk.Label(dialog, text="모든 관리자 봇이 읽고 쓰는 동일한 비공개 텍스트 채널 ID를 입력하세요.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=294, width=468, height=20)
+        tk.Label(dialog, text="관리자 연결·승계에도 안내채팅을 사용합니다. 모든 관리자에 같은 채널을 지정하세요.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=264, width=468, height=20)
         tk.Label(
             dialog,
             text="서버 ID·음성채널 ID는 각 PC가 담당할 서버의 값을 입력하세요.\n새 봇으로 바꿀 때는 토큰과 Application ID를 함께 변경하세요.",
@@ -7767,7 +7760,7 @@ class BossTimerApp:
             anchor="w",
             justify="left",
             padx=7,
-        ).place(x=24, y=324, width=468, height=42)
+        ).place(x=24, y=290, width=468, height=42)
         tk.Label(
             dialog,
             text="승계 알림·일반 채팅 수신: 모든 봇의 Message Content Intent를 켜세요.",
@@ -7776,7 +7769,7 @@ class BossTimerApp:
             fg="#92400e",
             anchor="w",
             padx=7,
-        ).place(x=24, y=372, width=468, height=24)
+        ).place(x=24, y=338, width=468, height=24)
         tk.Checkbutton(
             dialog,
             text="디스코드 봇 음성출력시 PC음성 음소거",
@@ -7791,7 +7784,7 @@ class BossTimerApp:
             bd=0,
             anchor="w",
             cursor="hand2",
-        ).place(x=134, y=402, width=330, height=26)
+        ).place(x=134, y=368, width=330, height=26)
         tk.Label(
             dialog,
             textvariable=status_var,
@@ -7801,7 +7794,7 @@ class BossTimerApp:
             anchor="w",
             justify="left",
             wraplength=470,
-        ).place(x=24, y=436, width=470, height=54)
+        ).place(x=24, y=402, width=470, height=54)
         tk.Button(
             dialog,
             text="저장",
@@ -7815,7 +7808,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=save_settings,
             cursor="hand2",
-        ).place(x=300, y=512, width=88, height=30)
+        ).place(x=300, y=478, width=88, height=30)
         tk.Button(
             dialog,
             text="닫기",
@@ -7829,7 +7822,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=close_dialog,
             cursor="hand2",
-        ).place(x=400, y=512, width=88, height=30)
+        ).place(x=400, y=478, width=88, height=30)
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
 
     def open_discord_bot_invite_window(self) -> None:

@@ -186,8 +186,9 @@ class EventTransportTests(unittest.IsolatedAsyncioTestCase):
         self.guild = NS(id=100, me=NS(), get_member=Mock(return_value=NS(voice=None)))
         self.channel = NS(id=555, guild=self.guild, send=AsyncMock(),
             permissions_for=Mock(return_value=NS(view_channel=True, send_messages=True, embed_links=True)))
-        self.bot = NS(config=dict(authority_control_channel_id="555"), message_content_enabled=True,
+        self.bot = NS(config=dict(text_channel_id="555", authority_control_channel_id="555"), message_content_enabled=True,
             client=NS(get_channel=Mock(return_value=self.channel)), connection_policy=MemoryPolicy(),
+            _resolve_text_channel=AsyncMock(return_value=self.channel),
             discord=NS(Embed=Embed, AllowedMentions=NS(none=lambda: None)),
             _is_configured_guild=lambda guild: guild is self.guild,
             _get_configured_server_id=lambda: "100", _queue_local_schedule_request=AsyncMock())
@@ -238,9 +239,11 @@ class EventTransportTests(unittest.IsolatedAsyncioTestCase):
             member=dict(client_id="peer", runtime="peer-runtime", application_id="22", online=True)))
         self.assertIn("peer", self.transport.probes["query"])
     async def test_missing_channel_and_permissions_fail_before_send(self):
-        self.bot.config["authority_control_channel_id"] = ""
+        self.bot.config["text_channel_id"] = "999"
+        self.bot._resolve_text_channel.return_value = None
         with self.assertRaises(RuntimeError): await self.transport.command(self.command("check"))
-        self.bot.config["authority_control_channel_id"] = "555"
+        self.bot.config["text_channel_id"] = "555"
+        self.bot._resolve_text_channel.return_value = self.channel
         self.channel.permissions_for.return_value.send_messages = False
         with self.assertRaises(RuntimeError): await self.transport.command(self.command("publish"))
         self.channel.send.assert_not_called()
@@ -336,7 +339,7 @@ class HandoverIntegrationTests(unittest.TestCase):
         node._warm_query_preference = Mock()
         node._ui = lambda callback, **_values: callback()
         node.app = NS(root=NS(after=Mock()), schedule_window=None, discord_handover_busy=False,
-            discord_bot_voice_channel_id="777", discord_bot_authority_control_channel_id="555",
+            discord_bot_voice_channel_id="777", discord_bot_text_channel_id="555",
             _append_debug_log=Mock(), schedule_status_var=NS(set=Mock()), _show_centered_messagebox=Mock(return_value=False),
             _get_github_data_settings=lambda: dict(token="test"),
             _get_current_github_upload_server_entry=lambda: dict(id="9", name="9"),

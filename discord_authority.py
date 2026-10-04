@@ -230,6 +230,7 @@ class DiscordAuthority:
         self.alive = True
         self.releasing = False
         self.runtime = ""
+        self.control_channel_id = ""
         self.current = None
         self.outgoing_requests = set()
         self.calls = set()
@@ -385,8 +386,14 @@ class DiscordAuthority:
         status = self._status()
         if not status.get("online"):
             raise AuthorityError("봇 연결이 끊겼습니다. 연결 상태를 확인한 뒤 다시 요청하세요.")
-        return request_control(DISCORD_BOT_STATUS_PORT, self.app.notice_output_secret,
-                               status, action, **values)
+        read_settings = getattr(self.app, "_load_discord_bot_settings", None)
+        settings = read_settings() if callable(read_settings) else {}
+        channel = settings.get("text_channel_id", getattr(self.app, "discord_bot_text_channel_id", ""))
+        values["text_channel_id"] = str(channel or "").strip()
+        result = request_control(DISCORD_BOT_STATUS_PORT, self.app.notice_output_secret,
+                                 status, action, **values)
+        self.control_channel_id = str(result.get("channel_id") or "")
+        return result
 
     def _metadata(self, status):
         identity = self.app._get_administrator_identity()
@@ -406,15 +413,17 @@ class DiscordAuthority:
                       connected_at=float(status.get("connected_at") or 0), protocol=CONTROL_PROTOCOL,
                       presence_mode="event")
         member = data["members"].get(self.client, {})
-        channel = str(getattr(self.app, "discord_bot_authority_control_channel_id", "") or "")
-        if data.get("control_channel") and data["control_channel"] != channel:
-            raise AuthorityError("다른 관리자와 승계 제어 채널이 다릅니다. 모든 PC에 같은 채널 ID를 설정하세요.")
+        channel = str(getattr(self, "control_channel_id", "") or getattr(self.app, "discord_bot_text_channel_id", "") or "")
+        if (data.get("control_channel") and data["control_channel"] != channel
+                and (data.get("owner") or data.get("phase", "idle") != "idle")):
+            raise AuthorityError("다른 관리자와 안내채팅 채널이 다릅니다. 모든 PC에 같은 안내채팅 ID를 설정하세요.")
         if all(member.get(key) == value for key, value in values.items()) and data.get("control_channel") == channel:
             return data
         def update(record):
             self._assert_profile()
-            if record.get("control_channel") and record["control_channel"] != channel:
-                raise AuthorityError("승계 제어 채널 설정이 변경되었습니다.")
+            if (record.get("control_channel") and record["control_channel"] != channel
+                    and (record.get("owner") or record.get("phase", "idle") != "idle")):
+                raise AuthorityError("안내채팅 채널 설정이 변경되었습니다.")
             previous = record["members"].get(self.client, {})
             record["members"][self.client] = dict(previous, **values, seen=time.time())
             record["control_channel"] = channel
@@ -452,8 +461,9 @@ class DiscordAuthority:
         self._control("publish", request=data.get("request", ""), generation=data.get("generation", 0))
 
     def _process_record(self, data, status):
-        if data.get("control_channel") != str(getattr(self.app, "discord_bot_authority_control_channel_id", "") or ""):
-            raise AuthorityError("승계 제어 채널이 현재 담당자와 다릅니다. 채널 설정을 확인하세요.")
+        channel = str(getattr(self, "control_channel_id", "") or getattr(self.app, "discord_bot_text_channel_id", "") or "")
+        if data.get("control_channel") != channel:
+            raise AuthorityError("안내채팅 채널이 현재 담당자와 다릅니다. 모든 PC의 안내채팅 ID를 확인하세요.")
         self._observe(data, status)
         failed_request = data.get("failure_request")
         notice = (failed_request, data.get("generation"))

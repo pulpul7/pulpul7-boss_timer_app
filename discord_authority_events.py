@@ -16,6 +16,11 @@ MARKER = "BossTimer-Control-v3:"
 KINDS = frozenset({"changed", "probe", "reply"})
 
 
+def is_control_message(message):
+    return any(str(getattr(getattr(embed, "footer", None), "text", "") or "").startswith(MARKER)
+               for embed in getattr(message, "embeds", []))
+
+
 def request_control(port, secret, status, action, **values):
     identity = uuid.uuid4().hex
     payload = dict(values, id=identity, pid=status["pid"], runtime_id=status["runtime_id"],
@@ -41,20 +46,20 @@ class AuthorityEvents:
         self.bot, self.status = bot, status
         self.probes = {}
         self.seen = {}
+        self.resolved_channel_id = ""
 
-    def channel(self):
+    async def channel(self):
         if not self.bot.message_content_enabled:
             raise RuntimeError("승계 알림 수신을 위해 모든 관리자 봇의 Message Content Intent를 켜야 합니다.")
-        channel_id = str(self.bot.config.get("authority_control_channel_id") or "")
-        if not channel_id.isdigit():
-            raise RuntimeError("디스코드 설정에 모든 관리자 봇이 사용하는 승계 제어 채널 ID를 입력하세요.")
-        channel = self.bot.client.get_channel(int(channel_id))
+        channel = await self.bot._resolve_text_channel()
         if (channel is None or not self.bot._is_configured_guild(getattr(channel, "guild", None))
                 or getattr(channel.guild, "unavailable", False)):
-            raise RuntimeError("승계 제어 채널을 찾지 못했습니다. 서버 ID·채널 ID·채널 보기 권한을 확인하세요.")
+            raise RuntimeError("안내채팅 채널을 찾지 못했습니다. 안내채팅 ID·서버 ID·채널 보기 권한을 확인하세요. ID를 비우면 ‘보탐매니저’ 텍스트 채널을 찾습니다.")
         permissions = channel.permissions_for(channel.guild.me)
         if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
-            raise RuntimeError("승계 제어 채널의 채널 보기·메시지 보내기·링크 첨부 권한이 필요합니다.")
+            raise RuntimeError("관리자 연결·승계를 위해 안내채팅 채널의 채널 보기·메시지 보내기·링크 첨부 권한이 필요합니다.")
+        self.resolved_channel_id = str(channel.id)
+        self.bot.config["authority_control_channel_id"] = self.resolved_channel_id
         return channel
 
     def member(self):
@@ -77,15 +82,25 @@ class AuthorityEvents:
                        runtime=self.status.runtime_id, protocol=CONTROL_PROTOCOL)
         embed = self.bot.discord.Embed(description="관리자 연결·승계 알림")
         embed.set_footer(text=MARKER + json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-        await self.channel().send(embed=embed, allowed_mentions=self.bot.discord.AllowedMentions.none(),
-                                  delete_after=60)
+        channel = await self.channel()
+        await channel.send(embed=embed, allowed_mentions=self.bot.discord.AllowedMentions.none(), delete_after=60)
         return payload
 
     async def command(self, command):
         if (command.get("pid") != self.status.pid or command.get("runtime_id") != self.status.runtime_id
                 or abs(time.time() - float(command.get("sent_at", 0))) > 5):
             raise ValueError("만료되었거나 다른 봇의 승계 요청입니다.")
-        self.channel()
+        # An authenticated GUI request carries the current saved channel even
+        # when the already logged-in bot still has its startup configuration.
+        if "text_channel_id" in command:
+            channel_id = str(command["text_channel_id"] or "").strip()
+            if channel_id and not channel_id.isdigit():
+                raise ValueError("안내채팅 ID는 숫자로 입력하세요.")
+            if channel_id != str(self.bot.config.get("text_channel_id") or ""):
+                self.resolved_channel_id = ""
+            self.bot.config["text_channel_id"] = channel_id
+            self.bot.config["authority_control_channel_id"] = channel_id
+        channel = await self.channel()
         action = command.get("action")
         result = {}
         if action == "publish":
@@ -104,7 +119,7 @@ class AuthorityEvents:
             bot_user_id = str(command.get("bot_user_id") or "")
             if not bot_user_id.isdigit():
                 raise ValueError("이전 담당자의 봇 ID를 확인할 수 없습니다.")
-            guild = self.channel().guild
+            guild = channel.guild
             try:
                 member = guild.get_member(int(bot_user_id)) or await guild.fetch_member(int(bot_user_id))
                 result["absent"] = getattr(getattr(member, "voice", None), "channel", None) is None
@@ -114,12 +129,12 @@ class AuthorityEvents:
             raise ValueError("지원하지 않는 승계 알림 요청입니다.")
         return dict(result, ok=True, id=command["id"], pid=self.status.pid,
                     runtime_id=self.status.runtime_id,
-                    channel_id=str(self.channel().id))
+                    channel_id=str(channel.id))
 
     async def receive(self, message):
         # Shared bot embeds require Message Content Intent on every peer.
         if (str(getattr(getattr(message, "channel", None), "id", ""))
-                != str(self.bot.config.get("authority_control_channel_id") or "")
+                != str(self.bot.config.get("text_channel_id") or self.resolved_channel_id)
                 or not self.bot._is_configured_guild(getattr(message, "guild", None))
                 or not getattr(getattr(message, "author", None), "bot", False)):
             return False

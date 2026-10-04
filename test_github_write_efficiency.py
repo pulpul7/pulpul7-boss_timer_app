@@ -87,7 +87,7 @@ class PresenceWriteTests(unittest.TestCase):
         self.coordinator.record = self.repo.record
         self.coordinator.client = "local"
         self.coordinator.lock = threading.RLock()
-        self.coordinator.app = NS(discord_bot_authority_control_channel_id="555")
+        self.coordinator.app = NS(discord_bot_text_channel_id="555")
         self.coordinator._assert_profile = Mock()
         self.status = dict(online=True, runtime_id="runtime", connected_at=100)
         self.metadata = dict(name="local", server="9", season="18")

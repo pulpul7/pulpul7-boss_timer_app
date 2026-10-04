@@ -383,7 +383,7 @@ def load_config() -> dict[str, str]:
         "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
         "default_voice_channel_id": str(section.get("default_voice_channel_id", section.get("voice_channel_id", "")) or "").strip(),
         "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
-        "authority_control_channel_id": str(section.get("authority_control_channel_id", "") or "").strip(),
+        "authority_control_channel_id": str(section.get("text_channel_id", "") or "").strip(),
         "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
         "voice_panel_message_id": str(section.get("voice_panel_message_id", "") or "").strip(),
         "text_channel_keep_count": str(section.get("text_channel_keep_count", "2")).strip(),
@@ -2204,11 +2204,14 @@ class DiscordScheduleBot:
         }
         try:
             candidates = []
+            from discord_authority_events import is_control_message
             async for message in channel.history(limit=None):
                 author_id = str(getattr(getattr(message, "author", None), "id", "") or "")
                 message_id = str(getattr(message, "id", "") or "")
                 if author_id != bot_user_id or bool(getattr(message, "pinned", False)) or message_id == protected_panel_id:
                     continue
+                if is_control_message(message):
+                    continue  # Control traffic has its own lifetime, not notice retention.
                 group = groups_by_message.get(message_id)
                 if group and not group.get('completed') and float(group.get('target_at') or 0) + 15 > now:
                     continue  # Keep an active boss's earlier box for its next stage.
@@ -3194,6 +3197,8 @@ class DiscordScheduleBot:
                     f"text_channel_guild_mismatch configured_channel_id={configured_id} "
                     f"channel_guild_id={configured_channel_guild_id} configured_guild_id={configured_server_id}"
                 )
+            # An explicit ID must never silently select another channel.
+            return None
         desired_name = "보탐매니저"
         for channel in list(getattr(target_guild, "text_channels", []) or []):
             if str(getattr(channel, "name", "") or "").strip().casefold() == desired_name.casefold():
