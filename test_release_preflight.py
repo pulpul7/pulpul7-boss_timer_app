@@ -21,17 +21,19 @@ def function(name, function_name, namespace):
 
 
 class ReleasePreflightTests(unittest.TestCase):
-    def test_version_matches_metadata_specs_fallback_and_seed_markers(self):
+    def test_version_fallback_matches_specs_and_seed_markers(self):
         version = 'v5.5.1'
         from build_release import build_version
-        self.assertEqual(build_version(), version)
+        with patch('build_release.resolve_release_version', side_effect=lambda fallback, root: fallback):
+            self.assertEqual(build_version(), version)
         for filename, constant in [('boss_timer_gui.py', 'DEFAULT_APP_VERSION'), ('boss_timer_gui.spec', 'BUILD_VERSION')]:
             assignment = next(n for n in tree(filename).body if isinstance(n, ast.Assign)
                               and any(isinstance(t, ast.Name) and t.id == constant for t in n.targets))
             self.assertEqual(ast.literal_eval(assignment.value), version)
         metadata = json.loads((ROOT / 'build_metadata.json').read_text(encoding='utf-8'))
-        self.assertEqual(metadata['version'], version)
-        self.assertEqual(metadata['build_detail_version'], version)
+        from release_version import PROGRAM_VERSION
+        self.assertRegex(metadata['version'], PROGRAM_VERSION)
+        self.assertEqual(metadata['build_detail_version'], metadata['version'])
         for folder in ('init', 'assets'):
             self.assertEqual((ROOT / folder / '.seed_version').read_text().strip(), version)
 

@@ -37,7 +37,10 @@ class QueryLedger:
     def mutate(self, change):
         for attempt in range(3):
             data, sha = self.read()
+            previous = deepcopy(data)
             result = change(data["requests"], data)
+            if data == previous:
+                return deepcopy(result)
             ok, error = self.put(self.path, data, sha=sha, message="BossTimer read-only query routing")
             if ok:
                 return deepcopy(result)

@@ -12,10 +12,9 @@ from pathlib import Path
 from discord_connection_policy import ConnectionPolicy, CONTROL_PROTOCOL, AUTHORITY_SECONDS
 from discord_query_routing import QueryLedger, QueryRoutingError, REQUEST_TTL
 
-POLL_SECONDS = 5
-HANDOVER_SECONDS = 10
+POLL_SECONDS = 1  # Local controller health; never a GitHub polling interval.
+HANDOVER_SECONDS = 30
 JOIN_SECONDS = 30
-PRESENCE_SECONDS = 20
 PRESENCE_TTL = 60
 
 
@@ -39,10 +38,10 @@ class AuthorityRecord:
         data, sha, error = self.get(self.path)
         if error:
             raise AuthorityError(error)
-        if data is None or (isinstance(data, dict) and data.get("schema") == 1 and not data.get("owner")):
+        if data is None:
             data = dict(schema=CONTROL_PROTOCOL, scope=self.scope, owner="", owner_runtime="",
                         generation=0, phase="idle", members={}, request="", receiver="")
-        elif isinstance(data, dict) and data.get("schema") == 1:
+        elif isinstance(data, dict) and data.get("schema") in {1, 2}:
             raise LegacyAuthorityError(sha)
         elif not isinstance(data, dict) or data.get("schema") != CONTROL_PROTOCOL:
             raise AuthorityError("관리자 기록 형식을 확인할 수 없습니다.")
@@ -54,7 +53,7 @@ class AuthorityRecord:
 
     def migrate_legacy(self, expected_sha):
         data, sha, error = self.get(self.path)
-        if error or sha != expected_sha or not isinstance(data, dict) or data.get("schema") != 1:
+        if error or sha != expected_sha or not isinstance(data, dict) or data.get("schema") not in {1, 2}:
             raise AuthorityError(error or "구버전 기록이 변경되었습니다. 다시 확인하세요.")
         replacement = dict(schema=CONTROL_PROTOCOL, scope=self.scope, owner="", owner_runtime="",
                            generation=0, phase="idle", members={}, request="", receiver="")
@@ -66,7 +65,10 @@ class AuthorityRecord:
         # Re-read and merge on CAS conflicts. Never retry a superseded blob.
         for attempt in range(3):
             data, sha = self.read()
+            previous = deepcopy(data)
             callback(data)
+            if data == previous:
+                return data  # A repeated release/reply/preference is not a commit.
             data["updated"] = time.time()
             ok, error = self.put(self.path, data, sha=sha, message="BossTimer administrator authority")
             if ok:
@@ -77,9 +79,14 @@ class AuthorityRecord:
     @staticmethod
     def online_members(data, now=None):
         now = time.time() if now is None else now
+        def fresh(member):
+            try:
+                return member.get("presence_mode") == "event" or -5 <= now - float(member.get("seen", 0)) < PRESENCE_TTL
+            except (ValueError, TypeError, OverflowError):
+                return False
         return {key: value for key, value in data.get("members", {}).items()
                 if isinstance(value, dict) and value.get("online") and value.get("protocol") == CONTROL_PROTOCOL
-                and -5 <= now - float(value.get("seen", 0)) < PRESENCE_TTL}
+                and fresh(value)}
 
     @staticmethod
     def query_members(data, now=None):
@@ -98,6 +105,7 @@ class AuthorityRecord:
                 length += 1
             member = members[client]
             result.append(dict(client_id=client, display_id=client[:length], runtime=member.get("runtime", ""),
+                application_id=member.get("application_id", ""), bot_user_id=member.get("bot_user_id", ""),
                 name=member.get("name", "담당자"), server=member.get("server", ""), season=member.get("season", ""),
                 connected_at=member.get("connected_at", 0),
                 sending=(client == owner and data.get("phase") == "active"
@@ -125,7 +133,8 @@ class AuthorityRecord:
             raise AuthorityError("같은 이름의 관리자가 여러 명입니다. /보탐 관리자에서 ID를 확인한 뒤 /보탐 ID로 호출하세요.")
         raise AuthorityError("접속한 관리자를 찾지 못했습니다. /보탐 관리자로 이름을 확인한 뒤 /보탐 나츠처럼 입력하세요.")
 
-    def request(self, client, runtime, channel, *, call_id="", expected_owner=None):
+    def request(self, client, runtime, channel, *, call_id="", expected_owner=None, verified_previous=None,
+                verified_kind="operator_confirmed", minimum_generation=0):
         def change(data):
             now = time.time()
             if expected_owner is not None and not (
@@ -134,6 +143,8 @@ class AuthorityRecord:
                 raise AuthorityError("관리자 권한이 변경되어 이전 연결 복구를 취소했습니다.")
             if data.get("phase") in {"requested", "joining"} and now < data.get("deadline", 0):
                 raise AuthorityError("다른 관리자 승계가 진행 중입니다. 완료 후 다시 요청하세요.")
+            if verified_previous is not None and self.owner_stamp(data) != verified_previous:
+                raise AuthorityError("확인 중 담당자가 바뀌었습니다. 현재 담당자를 다시 확인하세요.")
             member = data["members"].get(client, {})
             if member.get("runtime") != runtime or client not in self.online_members(data):
                 raise AuthorityError("대상 봇의 연결 상태가 변경되었습니다.")
@@ -142,14 +153,48 @@ class AuthorityRecord:
                 if call.get("id") != call_id or now >= call.get("expires", 0):
                     raise AuthorityError("원격 호출의 응답시간이 초과되었습니다.")
                 call.update(state="accepted")
-            solo = not data.get("owner") or data.get("owner") == client
+            solo = (not data.get("owner") or (data.get("owner") == client and data.get("owner_runtime") == runtime)
+                    or verified_previous is not None)
+            previous_owner = self.owner_stamp(data)
             data.update(scope=self.scope, receiver=client, receiver_runtime=runtime,
-                        generation=int(data.get("generation", 0)) + 1,
+                        generation=max(int(data.get("generation", 0)), int(minimum_generation)) + 1,
                         request=uuid.uuid4().hex, phase="joining" if solo else "requested",
                         deadline=now + (JOIN_SECONDS if solo else HANDOVER_SECONDS),
-                        released=solo, channel=channel, upload="대기")
+                        released=solo, channel=channel, upload="대기", previous_owner=previous_owner,
+                        failure="", failure_request="",
+                        release_proof={"kind": verified_kind} if verified_previous is not None else {})
             if solo:
-                data.update(owner=client, owner_runtime=runtime)
+                data.update(owner=client, owner_runtime=runtime, owner_application_id=member.get("application_id", ""),
+                            owner_bot_user_id=member.get("bot_user_id") or member.get("application_id", ""))
+        return self.mutate(change)
+
+    @staticmethod
+    def owner_stamp(data):
+        return (data.get("owner"), data.get("owner_runtime"), int(data.get("generation", 0)), data.get("request"))
+
+    def acknowledge_stop(self, request_id, client, runtime):
+        def change(data):
+            if (data.get("request") != request_id or data.get("phase") != "requested"
+                    or data.get("owner") != client or data.get("owner_runtime") != runtime):
+                raise AuthorityError("송출 종료 확인 전에 승계 요청이 변경됐습니다.")
+            data.update(released=True, release_proof=dict(kind="voice_stopped", client=client,
+                                                        runtime=runtime, request=request_id))
+        return self.mutate(change)
+
+    def accept_stopped(self, request_id, client, runtime):
+        def change(data):
+            proof = data.get("release_proof") or {}
+            if (data.get("request") != request_id or data.get("phase") != "requested"
+                    or data.get("receiver") != client or data.get("receiver_runtime") != runtime
+                    or not data.get("released") or proof.get("kind") != "voice_stopped"
+                    or proof.get("client") != data.get("owner") or proof.get("runtime") != data.get("owner_runtime")
+                    or proof.get("request") != request_id or time.time() >= data.get("deadline", 0)):
+                raise AuthorityError("기존 송출 종료 확인이 없거나 승계 시간이 만료됐습니다. 재검증 후 다시 요청하세요.")
+            data.update(owner=client, owner_runtime=runtime, generation=int(data["generation"]) + 1,
+                        owner_application_id=data["members"].get(client, {}).get("application_id", ""),
+                        owner_bot_user_id=data["members"].get(client, {}).get("bot_user_id")
+                            or data["members"].get(client, {}).get("application_id", ""),
+                        phase="joining", deadline=time.time() + JOIN_SECONDS)
         return self.mutate(change)
 
     def change(self, request_id, actor, *, phases, **changes):
@@ -181,14 +226,14 @@ class DiscordAuthority:
             app._append_debug_log(f"query_protocol_setup_failed error={exc!r}")
         self.events = queue.Queue()
         self.busy = False
+        app.discord_handover_busy = False
         self.alive = True
         self.releasing = False
-        self.poll_inflight = False
-        self.last_presence = 0
         self.runtime = ""
         self.current = None
         self.outgoing_requests = set()
         self.calls = set()
+        self.failure_notices = set()
         self.incoming_progress_token = ""
         self.outgoing_progress_token = ""
         self.outgoing_progress_done = False
@@ -196,15 +241,17 @@ class DiscordAuthority:
         self.outgoing_progress_runtime = ""
         self.last_progress = {}
         self.lock = threading.RLock()
+        self.event_lock = threading.Lock()
+        self.session_lock = threading.Lock()
         app.root.after(100, self._drain)
-        app.root.after(500, self._poll)
+        threading.Thread(target=self._controller_watch, daemon=True, name="discord-local-controller").start()
 
     def _assert_profile(self):
         if (not self.alive or self.app._get_discord_bot_config_storage_path() != self.profile
                 or str(self.app.discord_bot_server_id) != self.scope["guild"]):
             raise AuthorityError("Discord 설정이 변경되어 요청을 중단했습니다.")
 
-    def _ui(self, callback, wait=True):
+    def _ui(self, callback, wait=True, timeout=HANDOVER_SECONDS):
         done, cancelled, result = threading.Event(), threading.Event(), []
         def run():
             if cancelled.is_set():
@@ -219,7 +266,7 @@ class DiscordAuthority:
         self.events.put(run)
         if not wait:
             return
-        if not done.wait(HANDOVER_SECONDS):
+        if not done.wait(timeout):
             cancelled.set()
             raise AuthorityError("프로그램의 요청 응답시간을 초과했습니다.")
         ok, value = result[0]
@@ -286,27 +333,34 @@ class DiscordAuthority:
 
     def _observe(self, data, status, checked_at=None):
         self._assert_profile()
-        if not status.get("runtime_id"):
+        if not status.get("runtime_id") or not status.get("online"):
             # A single status-port timeout must not revoke a valid lease.
-            # Stop renewing it; the bot still stops within its original 10s.
+            # The independent local controller loop decides local liveness.
             return
         self.runtime = str(status["runtime_id"])
         local = self.policy.snapshot()
         owns = (data.get("owner") == self.client and data.get("owner_runtime") == self.runtime
                 and data.get("phase") in {"joining", "active"}
                 and not (local.get("blocked_request") and local["blocked_request"] == data.get("request")))
-        # Lease begins before the read: delayed old responses cannot extend it.
+        # Ownership is verified on events; the lease tracks local controller health.
         values = dict(protocol=CONTROL_PROTOCOL, client_id=self.client, runtime_id=self.runtime,
                       standby=not owns, handover_hold=False, handover_role="",
                       authority_generation=int(data.get("generation", 0)),
                       authority_request=str(data.get("request") or ""),
                       authority_active=owns and data.get("phase") == "active",
-                      authority_until=(checked_at or time.monotonic()) + AUTHORITY_SECONDS if owns else 0,
+                      authority_until=time.monotonic() + AUTHORITY_SECONDS if owns else 0,
+                      authority_needs_sync=False,
+                      release_voice_generation=(local.get("release_voice_generation", -1)
+                          if local.get("standby") else local.get("authority_generation", -1))
+                          if data.get("phase") == "requested" and data.get("owner") == self.client
+                          and data.get("owner_runtime") == self.runtime else -1,
                       voice_requested=owns and not self.releasing)
         if owns:
             values["voice_channel_id"] = str(data.get("channel") or "")
         online = self.record.online_members(data)
-        responder = data.get("owner") if data.get("owner") in online else min(online, default="")
+        application_members = {client: member for client, member in online.items()
+                               if str(member.get("application_id") or "") == str(status.get("application_id") or "")}
+        responder = data.get("owner") if data.get("owner") in application_members else min(application_members, default=self.client)
         values["command_sync_allowed"] = responder == self.client
         query_generation = int(data.get("query_routing_generation", -1))
         preferred = data.get("query_responder") or {}
@@ -316,7 +370,7 @@ class DiscordAuthority:
         values["query_members"] = QueryLedger.order_candidates(self.record.query_members(data), preferred)
         values["query_responder"] = preferred
         values["query_routing_generation"] = query_generation
-        values["query_until"] = (checked_at or time.monotonic()) + AUTHORITY_SECONDS
+        values["query_until"] = time.monotonic() + AUTHORITY_SECONDS
         values["query_protocol"] = 1
         with self.lock:
             local = self.policy.snapshot()
@@ -325,92 +379,174 @@ class DiscordAuthority:
                 return
             self.policy.update(**values)
 
-    def _presence(self, data, status, metadata):
-        now = time.monotonic()
-        member = data["members"].get(self.client, {})
-        online = bool(status.get("online"))
-        runtime = str(status.get("runtime_id") or "")
-        connected_at = float(status.get("connected_at") or 0)
-        if (now - self.last_presence < PRESENCE_SECONDS and member.get("online") == online
-                and member.get("runtime") == runtime and member.get("connected_at", 0) == connected_at):
-            return data
-        def update(record):
-            previous = record["members"].get(self.client, {})
-            record["members"][self.client] = dict(previous, **metadata, online=online,
-                runtime=runtime, connected_at=connected_at, seen=time.time(), protocol=CONTROL_PROTOCOL)
-        with self.lock:
-            data = self.record.mutate(update)
-        self.last_presence = now
-        return data
+    def _control(self, action, **values):
+        from discord_authority_events import request_control
+        from boss_timer_gui import DISCORD_BOT_STATUS_PORT
+        status = self._status()
+        if not status.get("online"):
+            raise AuthorityError("봇 연결이 끊겼습니다. 연결 상태를 확인한 뒤 다시 요청하세요.")
+        return request_control(DISCORD_BOT_STATUS_PORT, self.app.notice_output_secret,
+                               status, action, **values)
 
-    def _poll(self):
-        if not self.alive:
-            return
-        try:
-            self._assert_profile()
-        except AuthorityError:
-            self._finish_progress("incoming", self.incoming_progress_token, "", close=True)
-            self._finish_progress("outgoing", self.outgoing_progress_token, "", close=True)
-            self.alive = False
-            return
-        if self.poll_inflight:
-            # A slow presence update must not postpone the next authority
-            # check by a whole additional five-second interval.
-            self.app.root.after(500, self._poll)
-            return
+    def _metadata(self, status):
         identity = self.app._get_administrator_identity()
         entry = dict(self.app._get_current_github_upload_server_entry())
         metadata = dict(name=identity.get("name") or "담당자 미등록",
-                        server=str(entry.get("name") or entry["id"]), season=str(self.app.current_season_no))
-        self.scope.update(server=str(entry["id"]), season=metadata["season"])
-        self.record.scope = dict(self.scope)
-        if not self.poll_inflight:
-            self.poll_inflight = True
-            def worker():
-                try:
-                    with self.lock:
-                        checked_at = time.monotonic()
-                        data, _ = self.record.read()
-                        status = self._status()
-                        local = self.policy.snapshot()
-                        if (status.get("runtime_id") and local.get("voice_error")
-                                and data.get("phase") == "active" and data.get("owner") == self.client
-                                and data.get("owner_runtime") == status["runtime_id"]
-                                and data.get("request") == local.get("authority_request")):
-                            self._release(request_id=data["request"], runtime=status["runtime_id"])
-                            checked_at = time.monotonic()
-                            data, _ = self.record.read()
-                        self._observe(data, status, checked_at)
-                        previous = data
-                        data = self._presence(data, status, metadata)
-                        if data is not previous:
-                            self._observe(data, status, checked_at)
-                    if "query_responder" not in data:
-                        self._warm_query_preference()
-                    else:
-                        preferred = data.get("query_responder") or {}
-                        member = self.record.online_members(data).get(preferred.get("client_id"), {})
-                        if preferred and member.get("runtime") != preferred.get("runtime"):
-                            self._warm_query_preference(clear=preferred, generation=int(data.get("query_routing_generation", -1)))
-                    if (data.get("owner") == self.client and data.get("owner_runtime") == self.runtime
-                            and data.get("phase") == "requested" and data["request"] not in self.outgoing_requests):
-                        self.outgoing_requests.add(data["request"])
-                        threading.Thread(target=self._outgoing, args=(deepcopy(data), entry), daemon=True).start()
-                    self._observe_outgoing_progress(status)
-                    call = data["members"].get(self.client, {}).get("call", {})
-                    if (status.get("online") and call.get("state") == "pending"
-                            and call.get("runtime") == self.runtime and time.time() < call.get("expires", 0)
-                            and call.get("id") not in self.calls):
-                        self.calls.add(call["id"])
-                        self._ui(lambda: self.start(remote=True, call=call), wait=False)
-                except Exception as exc:
-                    self.app._append_debug_log(f"authority_poll_failed type={type(exc).__name__} error={exc!r}")
-                finally:
-                    self.poll_inflight = False
-            threading.Thread(target=worker, daemon=True, name="discord-authority-poll").start()
-        self.app.root.after(POLL_SECONDS * 1000, self._poll)
+                    server=str(entry.get("name") or entry["id"]), season=str(self.app.current_season_no),
+                    application_id=str(status.get("application_id") or ""))
+        metadata["bot_user_id"] = str(status.get("bot_user_id") or status.get("application_id") or "")
+        return metadata
 
-    def start(self, *, remote=False, call=None, channel="", done=None, expected_owner=None):
+    def _presence(self, data, status, metadata):
+        # Event registration only; no periodic seen/timestamp refresh.
+        if not status.get("runtime_id"):
+            return data
+        self._assert_profile()
+        values = dict(metadata, online=bool(status.get("online")), runtime=str(status["runtime_id"]),
+                      connected_at=float(status.get("connected_at") or 0), protocol=CONTROL_PROTOCOL,
+                      presence_mode="event")
+        member = data["members"].get(self.client, {})
+        channel = str(getattr(self.app, "discord_bot_authority_control_channel_id", "") or "")
+        if data.get("control_channel") and data["control_channel"] != channel:
+            raise AuthorityError("다른 관리자와 승계 제어 채널이 다릅니다. 모든 PC에 같은 채널 ID를 설정하세요.")
+        if all(member.get(key) == value for key, value in values.items()) and data.get("control_channel") == channel:
+            return data
+        def update(record):
+            self._assert_profile()
+            if record.get("control_channel") and record["control_channel"] != channel:
+                raise AuthorityError("승계 제어 채널 설정이 변경되었습니다.")
+            previous = record["members"].get(self.client, {})
+            record["members"][self.client] = dict(previous, **values, seen=time.time())
+            record["control_channel"] = channel
+        with self.lock:
+            return self.record.mutate(update)
+
+    def _controller_watch(self):
+        while self.alive:
+            try:
+                self._poll()
+            except AuthorityError:
+                self.alive = False
+            except Exception as exc:
+                self.app._append_debug_log(f"local_controller_failed type={type(exc).__name__} error={exc!r}")
+            time.sleep(POLL_SECONDS)
+
+    def _poll(self):
+        # This loop must never acquire self.lock: GitHub operations can hold it.
+        self._assert_profile()
+        status = self._status()
+        local = self.policy.snapshot()
+        if (status.get("online") and status.get("runtime_id") == local.get("runtime_id")
+                and not local.get("authority_needs_sync")):
+            self.policy.renew_controller(status["runtime_id"])
+            self.policy.update(query_until=time.monotonic() + AUTHORITY_SECONDS)
+            self._observe_outgoing_progress(status)
+        if self.policy.expire_controller():
+            self.app._append_debug_log("authority_controller_expired source=localhost")
+            self._ui(lambda: self.app._show_centered_messagebox("showerror", "송출 연결 확인",
+                "이 PC의 GUI·봇 연결 확인이 끊겨 송출을 중단했습니다.\n"
+                "GitHub 확인 실패와는 별개입니다. 디코 실행 버튼으로 현재 담당자를 검증하고 다시 연결하세요.",
+                parent=self.app.schedule_window or self.app.root), wait=False)
+
+    def _notify(self, data):
+        self._control("publish", request=data.get("request", ""), generation=data.get("generation", 0))
+
+    def _process_record(self, data, status):
+        if data.get("control_channel") != str(getattr(self.app, "discord_bot_authority_control_channel_id", "") or ""):
+            raise AuthorityError("승계 제어 채널이 현재 담당자와 다릅니다. 채널 설정을 확인하세요.")
+        self._observe(data, status)
+        failed_request = data.get("failure_request")
+        notice = (failed_request, data.get("generation"))
+        if (data.get("failure") and failed_request == getattr(self, "outgoing_progress_token", "")
+                and notice not in self.failure_notices):
+            self.failure_notices.add(notice)
+            token = self.outgoing_progress_token
+            self.outgoing_progress_token = ""
+            def show_failure():
+                detail = str(data["failure"])
+                if data.get("owner") == self.client:
+                    self.app._show_centered_messagebox("showinfo", "승계 취소",
+                        detail + "\n현재 담당자를 다시 확인하고 기존 송출을 재개합니다.",
+                        parent=self.app.schedule_window or self.app.root)
+                else:
+                    from operation_retry import offer_verified_retry
+                    offer_verified_retry(self.app, "승계 연결 실패", detail + "\n현재 송출 담당자가 없습니다.",
+                                         lambda: self.start())
+                self._finish_progress("outgoing", token, detail, success=False)
+            self._ui(show_failure, wait=False)
+        if "query_responder" not in data:
+            self._warm_query_preference()
+        if (data.get("owner") == self.client and data.get("owner_runtime") == status.get("runtime_id")
+                and data.get("phase") == "requested" and data["request"] not in self.outgoing_requests):
+            self.outgoing_requests.add(data["request"])
+            entry = dict(self.app._get_current_github_upload_server_entry())
+            threading.Thread(target=self._outgoing, args=(deepcopy(data), entry), daemon=True).start()
+        call = data["members"].get(self.client, {}).get("call", {})
+        if (call.get("state") == "pending" and call.get("runtime") == status.get("runtime_id")
+                and time.time() < call.get("expires", 0) and call.get("id") not in self.calls):
+            self.calls.add(call["id"])
+            self._ui(lambda: self.start(remote=True, call=call), wait=False)
+
+    def session_connected(self):
+        def worker():
+            with self.session_lock:
+                try:
+                    self._assert_profile()
+                    status = self._status()
+                    if not status.get("online"):
+                        return
+                    self._control("check")
+                    with self.lock:
+                        data, _ = self.record.read()
+                        previous = data
+                        data = self._presence(data, status, self._metadata(status))
+                    self._process_record(data, status)
+                    if data is not previous:
+                        self._notify(data)
+                except Exception as exc:
+                    self.app._append_debug_log(f"authority_session_verify_failed error={exc!r}")
+                    self._ui(lambda message=str(exc): self.app.schedule_status_var.set(
+                        "봇 연결됨 · 담당자 확인 필요: " + message), wait=False)
+        threading.Thread(target=worker, daemon=True, name="discord-session-verify").start()
+
+    def changed(self, event, attempt=0):
+        def worker():
+            with self.event_lock:
+                try:
+                    self._assert_profile()
+                    # Discord carries only a hint; durable ownership is verified.
+                    with self.lock:
+                        data, _ = self.record.read()
+                    status = self._status()
+                    if status.get("online"):
+                        self._process_record(data, status)
+                except Exception as exc:
+                    # Failure must never revoke or stop a healthy existing owner.
+                    self.app._append_debug_log(f"authority_event_verify_failed error={exc!r}")
+                    self._ui(lambda message=str(exc): self.app.schedule_status_var.set(
+                        "승계 변경 확인 실패 · 기존 송출 유지: " + message), wait=False)
+                    from operation_retry import offer_verified_retry
+                    self._ui(lambda message=str(exc): offer_verified_retry(self.app,
+                        "승계 변경 확인 실패", message,
+                        lambda: self.changed(event, attempt + 1), attempt=attempt), wait=False)
+        threading.Thread(target=worker, daemon=True, name="discord-authority-event").start()
+
+    def _live_data(self, data):
+        result = self._control("probe")
+        live = {member.get("client_id"): member for member in result["members"] if member.get("online")}
+        for client, member in live.items():
+            if ((member.get("sending") or member.get("joining"))
+                    and (client != data.get("owner") or member.get("runtime") != data.get("owner_runtime"))):
+                raise AuthorityError("실제 송출 관리자와 공유 담당 기록이 다릅니다. 기존 송출·제어 채널·GitHub 저장소 설정을 확인하고 다시 요청하세요.")
+        checked = deepcopy(data)
+        checked["members"] = {key: value for key, value in data["members"].items()
+            if key in live and live[key].get("runtime") == value.get("runtime")
+            and live[key].get("application_id") == value.get("application_id")
+            and (live[key].get("bot_user_id") or live[key].get("application_id"))
+                == (value.get("bot_user_id") or value.get("application_id"))}
+        return checked
+
+    def start(self, *, remote=False, call=None, channel="", done=None, expected_owner=None, attempt=0):
         self._assert_profile()
         if self.busy or self.releasing:
             if call:
@@ -425,7 +561,7 @@ class DiscordAuthority:
         self.incoming_progress_token = uuid.uuid4().hex
         self._progress("incoming", self.incoming_progress_token, "bot", "봇 연결 상태를 확인하고 있습니다.",
                        peer="Discord에서 요청한 관리자 접속" if remote else "디코 실행 · 관리자 접속", create=True)
-        threading.Thread(target=self._incoming, args=(remote, call, channel, done, expected_owner), daemon=True).start()
+        threading.Thread(target=self._incoming, args=(remote, call, channel, done, expected_owner, attempt), daemon=True).start()
 
     def _answer_remote_call(self, call, result, message):
         try:
@@ -438,7 +574,7 @@ class DiscordAuthority:
         except Exception as exc:
             self.app._append_debug_log(f"administrator_call_reply_failed type={type(exc).__name__} error={exc!r}")
 
-    def _incoming(self, remote, call, channel, done, expected_owner):
+    def _incoming(self, remote, call, channel, done, expected_owner, attempt=0):
         request_id = ""
         result, message = False, ""
         try:
@@ -453,6 +589,7 @@ class DiscordAuthority:
             else:
                 raise AuthorityError("봇 연결이 완료되지 않았습니다. 봇 연결은 유지하며 다시 시도할 수 있습니다.")
             runtime = str(status["runtime_id"])
+            self._control("check")
             self._progress("incoming", self.incoming_progress_token, "owner",
                            "봇 연결 확인 완료 · 현재 담당 관리자를 확인하고 있습니다.")
             try:
@@ -464,13 +601,47 @@ class DiscordAuthority:
                 if not self._ui(lambda: self.app._show_centered_messagebox("askyesno", "구버전 연결 종료 확인",
                     "구버전의 담당 기록이 남아 있습니다.\n모든 PC의 구버전 프로그램과 봇을 종료했나요?\n"
                     "확인하면 권한 기록만 새 구조로 전환합니다. 설정과 스케줄은 보존합니다.",
-                    parent=self.app.schedule_window or self.app.root)):
+                    parent=self.app.schedule_window or self.app.root), timeout=None):
                     message = "봇 연결됨 · 권한 없음 (승계 취소)"
                     return
                 with self.lock:
                     self.record.migrate_legacy(exc.sha)
                     existing, _ = self.record.read()
-            owner = self.record.online_members(existing).get(existing.get("owner"), {})
+            with self.lock:
+                existing = self._presence(existing, status, self._metadata(status))
+            local = self.policy.snapshot()
+            requested_channel = str((call or {}).get("channel") or channel or self.app.discord_bot_voice_channel_id)
+            if (existing.get("owner") == self.client and existing.get("owner_runtime") == runtime
+                    and existing.get("phase") == "active" and ConnectionPolicy.has_authority(local, runtime)
+                    and status.get("voice_connected") and str(status.get("voice_channel_id")) == requested_channel):
+                result, message = True, "관리자 · 송출 중 (현재 연결 확인 완료)"
+                return
+            live = self._live_data(existing)
+            owner = live["members"].get(existing.get("owner"), {})
+            if owner.get("runtime") != existing.get("owner_runtime"):
+                owner = {}
+            verified_previous = None
+            verified_kind = "operator_confirmed"
+            if (existing.get("owner") and (existing.get("owner") != self.client
+                    or existing.get("owner_runtime") != runtime) and not owner):
+                bot_user_id = existing.get("owner_bot_user_id") or existing.get("owner_application_id")
+                local_stopped = (existing.get("owner") == self.client
+                    and expected_owner == (existing.get("owner_runtime"), existing.get("generation"))
+                    and getattr(self.app, "discord_bot_verified_stopped_runtime", "") == existing.get("owner_runtime"))
+                if local_stopped:
+                    verified_kind = "local_process_stopped"
+                else:
+                    absent = self._control("verify_absent", bot_user_id=bot_user_id).get("absent")
+                    if remote or not absent:
+                        raise AuthorityError("이전 담당자의 종료를 확인하지 못해 승계하지 않았습니다. GUI에서 종료 확인 후 다시 요청하세요.")
+                    if not self._ui(lambda: self.app._show_centered_messagebox("askyesno", "이전 담당자 종료 확인",
+                            "이전 담당자의 응답이 없고 해당 봇의 음성 입장이 확인되지 않습니다.\n"
+                            "이전 PC의 프로그램과 봇을 완전히 종료했는지 직접 확인했나요?\n"
+                            "확인하면 현재 담당자 기록을 다시 검증한 새 요청으로 연결합니다.",
+                            parent=self.app.schedule_window or self.app.root), timeout=None):
+                        message = "봇 연결됨 · 권한 없음 (승계 취소 · 이전 담당자 종료 확인 필요)"
+                        return
+                verified_previous = self.record.owner_stamp(existing)
             if owner:
                 self._progress("incoming", self.incoming_progress_token, "owner",
                                "현재 담당자 정보를 확인했습니다. 승계 여부를 확인하고 있습니다.",
@@ -481,46 +652,44 @@ class DiscordAuthority:
                 if not self._ui(lambda: self.app._show_centered_messagebox("askyesno", "관리자 승계",
                     "다른 관리자가 운영 중입니다. 권한을 승계하고 음성채널에 입장할까요?\n"
                     "아니오를 선택하면 봇 연결만 유지합니다. 스케줄은 자동 동기화하지 않습니다.",
-                    parent=self.app.schedule_window or self.app.root)):
+                    parent=self.app.schedule_window or self.app.root), timeout=None):
                     message = "봇 연결됨 · 권한 없음 (승계 취소)"
                     return
             channel = str((call or {}).get("channel") or channel or self.app.discord_bot_voice_channel_id)
             if not channel.isdigit():
                 raise AuthorityError("입장할 음성채널을 설정하세요.")
             with self.lock:
-                member = existing["members"].get(self.client, {})
-                if member.get("runtime") != runtime or self.client not in self.record.online_members(existing):
-                    identity = self._ui(self.app._get_administrator_identity)
-                    self.last_presence = 0
-                    existing = self._presence(existing, status, dict(name=identity.get("name") or "담당자 미등록",
-                        server=self.scope["server"], season=self.scope["season"]))
                 grant_checked_at = time.monotonic()
                 self.current = self.record.request(self.client, runtime, channel,
-                    call_id=(call or {}).get("id", ""), expected_owner=expected_owner)
+                    call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
+                    verified_previous=verified_previous, verified_kind=verified_kind,
+                    minimum_generation=self.policy.snapshot().get("authority_generation", 0))
             request_id = self.current["request"]
+            self._notify(self.current)
             if self.current["phase"] == "requested":
                 self._progress("incoming", self.incoming_progress_token, "handover",
-                               "기존 관리자의 송출 중단과 스케줄 비교·업로드를 기다립니다.\n"
-                               "업로드 성공·실패와 관계없이 기존 제한시간 안에서 승계합니다.")
+                               "기존 관리자의 실제 음성 종료 확인을 기다립니다.\n"
+                               "응답 시간이 끝나도 확인 없이 권한을 가져오지 않습니다.")
             else:
                 self._progress("incoming", self.incoming_progress_token, "authority",
                                "기존 담당자가 없어 승계 대기를 생략하고 관리자 권한을 확인합니다.")
             wait_until = time.monotonic() + HANDOVER_SECONDS
             while self.current["phase"] == "requested":
-                if self.current.get("released") or time.monotonic() >= wait_until:
+                if self.current.get("released"):
                     self._progress("incoming", self.incoming_progress_token, "authority",
                                    ("기존 관리자 처리: " + str(self.current.get("upload") or "완료")
-                                    if self.current.get("released") else "기존 관리자 대기 시간이 끝났습니다.")
+                                    if self.current.get("released") else "기존 관리자 종료 확인을 기다립니다.")
                                    + "\n새 관리자 권한을 획득하고 있습니다.")
                     with self.lock:
                         grant_checked_at = time.monotonic()
                         latest, _ = self.record.read()
                         if latest.get("request") != request_id:
                             raise AuthorityError("다른 승계 요청으로 변경되었습니다.")
-                        self.current = self.record.change(request_id, self.client, phases={"requested"},
-                            owner=self.client, owner_runtime=runtime, generation=int(latest["generation"]) + 1,
-                            phase="joining", released=True, deadline=time.time() + JOIN_SECONDS)
+                        self.current = self.record.accept_stopped(request_id, self.client, runtime)
+                    self._notify(self.current)
                     break
+                if time.monotonic() >= wait_until:
+                    raise AuthorityError("승계 응답 시간이 끝났습니다. 기존 송출 종료 확인이 없어 새 음성 입장을 중단했습니다.")
                 time.sleep(.5)
                 with self.lock:
                     self.current, _ = self.record.read()
@@ -545,119 +714,200 @@ class DiscordAuthority:
                         grant_checked_at = time.monotonic()
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
                         self._observe(self.current, status, grant_checked_at)
+                    self._notify(self.current)
                     result, message = True, "관리자 · 송출 중 (로컬 스케줄 유지 · 동기화는 수동)"
                     return
-                with self.lock:
-                    checked_at = time.monotonic()
-                    data, _ = self.record.read()
-                    if data.get("request") != request_id or data.get("owner_runtime") != runtime:
-                        raise AuthorityError("권한이 다른 실행 세션으로 변경되었습니다.")
-                    self._observe(data, status, checked_at)
+                if (state.get("runtime_id") != runtime or state.get("authority_request") != request_id
+                        or state.get("authority_needs_sync") or state.get("standby")):
+                    raise AuthorityError("로컬 연결 또는 담당자 상태가 변경되었습니다. 재검증 후 다시 요청하세요.")
                 time.sleep(1)
             raise AuthorityError("음성채널 입장에 실패했습니다. 봇 연결은 유지하고 권한을 반납합니다.")
         except Exception as exc:
             message = str(exc)
             if request_id:
-                self._release(request_id=request_id, runtime=runtime)
+                self._cancel_incoming(request_id, runtime, reason=message)
         finally:
             if call:
                 self._answer_remote_call(call, result, message)
-            self._ui(lambda: self._finish(message, done, result), wait=False)
+            self._ui(lambda: self._finish(message, done, result,
+                retry=(lambda: self.start(remote=remote, channel=channel, done=done,
+                    expected_owner=expected_owner, attempt=attempt + 1))
+                if not remote and not result and "승계 취소" not in message else None,
+                attempt=attempt), wait=False)
+
+    def _wait_local_stop(self, runtime, request_id):
+        local = self.policy.snapshot()
+        if local.get("runtime_id") != runtime:
+            raise AuthorityError("종료할 봇의 실행 세션이 변경됐습니다.")
+        self.policy.request_stop(runtime, request_id)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            status = self._status()
+            if (status.get("runtime_id") == runtime and status.get("online")
+                    and not status.get("voice_connected") and status.get("voice_disconnect_confirmed")):
+                return
+            time.sleep(.1)
+        raise AuthorityError("음성 연결의 실제 종료를 확인하지 못했습니다. 기존 봇·음성채널 상태를 확인한 뒤 재시도하세요.")
 
     def _outgoing(self, data, entry):
-        # _observe already revoked this lease; never pause a later local owner.
         token = self.outgoing_progress_token = data["request"]
-        self.outgoing_progress_runtime = data.get("owner_runtime") or ""
+        runtime = self.outgoing_progress_runtime = data["owner_runtime"]
         self.outgoing_progress_done = False
-        receiver = data.get("members", {}).get(data.get("receiver"), {})
-        self._progress("outgoing", token, "stop", "새 관리자의 승계 요청으로 송출 권한을 반납했습니다.",
-                       peer=f"새 담당자: {receiver.get('name') or '담당자'} · "
-                            f"{receiver.get('server') or ''} · {receiver.get('season') or ''}차", create=True)
-        completed = threading.Event()
-        outcome = ["업로드 제한시간 초과"]
-        deadline = time.monotonic() + max(0, min(HANDOVER_SECONDS, data.get("deadline", time.time()) - time.time()))
-        def may_upload():
-            if time.monotonic() >= deadline:
-                return False
+        self._progress("outgoing", token, "stop", "기존 음성 송출을 종료하고 Discord 종료 응답을 확인합니다.", create=True)
+        try:
+            self._wait_local_stop(runtime, token)
+            with self.lock:
+                stopped = self.record.acknowledge_stop(token, self.client, runtime)
+            self._notify(stopped)
+        except Exception as exc:
+            self.app._append_debug_log(f"handover_stop_verify_failed request={token} error={exc!r}")
+            self._ui(lambda message=str(exc): self.app._show_centered_messagebox(
+                "showerror", "승계 종료 확인 실패", message + "\n현재 담당자·음성채널 상태를 확인하고 새 요청으로 재시도하세요.",
+                parent=self.app.schedule_window or self.app.root), wait=False)
+            return
+        # Upload is a separate, bounded operation; it cannot delay or revoke the
+        # acknowledged ownership transfer and never renews voice authority.
+        self.outgoing_progress_done = True
+        self.outgoing_progress_result = "음성 종료 확인 완료 · 새 담당자에게 승계"
+        snapshot = None
+        try:
+            snapshot = self._ui(lambda: deepcopy(self.app._build_github_schedule_payload("0.0.0")))
+            snapshot["payload"].update(share_prefix=str(entry["id"]), server_name=entry["name"])
+            deadline = time.monotonic() + 45
+            def may_upload():
+                self._assert_profile()
+                if time.monotonic() >= deadline:
+                    return False
+                with self.lock:
+                    current, _ = self.record.read()
+                return (current.get("request") == token and current.get("phase") in {"requested", "joining", "active"}
+                        and current.get("owner") in {data["owner"], data["receiver"]}
+                        and int(current.get("generation", 0)) in {data["generation"], data["generation"] + 1}
+                        and time.monotonic() < deadline)
+            ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
+                handover_schedule_payload=snapshot, handover_guard=may_upload,
+                progress_callback=lambda message: self._progress("outgoing", token, "upload", message))
+        except Exception as exc:
+            ok, message = False, str(exc)
+        self.app._append_debug_log(f"authority_handover_upload_result request={token} success={int(ok)} detail={message}")
+        self._progress("outgoing", token, "voice", "음성 종료 확인 완료 · 업로드 결과: " + str(message))
+        self._ui(lambda: self.app.schedule_status_var.set("승계 종료 확인 완료 · 업로드: " + str(message))
+                 if self.outgoing_progress_token == token else None, wait=False)
+        if not ok and snapshot is not None:
+            self._ui(lambda: self._offer_upload_retry(entry, snapshot, str(message)), wait=False)
+
+    def _offer_upload_retry(self, entry, snapshot, error, attempt=0):
+        from operation_retry import offer_verified_retry
+        offer_verified_retry(self.app, "인계 자료 업로드 실패", error,
+            lambda: threading.Thread(target=self._retry_upload,
+                args=(deepcopy(entry), deepcopy(snapshot), attempt + 1), daemon=True).start(), attempt=attempt)
+
+    def _retry_upload(self, entry, snapshot, attempt):
+        try:
+            self._assert_profile()
             with self.lock:
                 current, _ = self.record.read()
-            return (current.get("request") == data["request"] and current.get("phase") == "requested"
-                    and current.get("owner_runtime") == data.get("owner_runtime")
-                    and time.monotonic() < deadline)
-        def upload():
-            try:
-                self._progress("outgoing", token, "upload", "현재 스케줄과 서버 자료를 비교하고 있습니다.")
-                expected = self._ui(lambda: deepcopy(self.app._build_github_schedule_payload("0.0.0")))
-                expected["payload"].update(share_prefix=str(entry["id"]), server_name=entry["name"])
-                ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
-                    handover_schedule_payload=expected, handover_guard=may_upload,
-                    progress_callback=lambda message: self._progress("outgoing", token, "upload", message)
-                    if not completed.is_set() and time.monotonic() < deadline else None)
-                # A successful comparison may skip the upload. Preserve that
-                # result instead of reporting every successful return as a PUT.
-                detail = str(message or ("성공" if ok else "업로드 실패"))
-                outcome[0] = detail if ok else "실패: " + detail
-                self.app._append_debug_log(
-                    f"authority_handover_upload_result request={data['request']} "
-                    f"server={entry['id']} success={int(ok)} detail={outcome[0]}"
-                )
-            except Exception as exc:
-                outcome[0] = "실패: " + str(exc)
-            finally:
-                completed.set()
-        threading.Thread(target=upload, daemon=True, name="discord-handover-upload").start()
-        completed.wait(max(0, min(HANDOVER_SECONDS, data.get("deadline", time.time()) - time.time())))
-        try:
-            with self.lock:
-                self.record.change(data["request"], self.client, phases={"requested"}, released=True, upload=outcome[0])
-        except AuthorityError:
-            pass  # A late upload cannot update a new authority generation.
-        result = outcome[0]
-        self.outgoing_progress_result = result
-        self.outgoing_progress_done = True
-        self._progress("outgoing", token, "voice", result + "\n음성 연결 종료와 봇 대기 상태를 확인하고 있습니다.")
-        self._ui(lambda: self.app.schedule_status_var.set("봇 연결됨 · 권한 없음 · 인계 업로드 " + result), wait=False)
+            stamp = self.record.owner_stamp(current)
+            deadline = time.monotonic() + 45
+            def still_current():
+                self._assert_profile()
+                if time.monotonic() >= deadline:
+                    return False
+                with self.lock:
+                    latest, _ = self.record.read()
+                return self.record.owner_stamp(latest) == stamp and time.monotonic() < deadline
+            ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
+                handover_schedule_payload=deepcopy(snapshot), handover_guard=still_current)
+        except Exception as exc:
+            ok, message = False, str(exc)
+        self._ui(lambda: self.app.schedule_status_var.set(str(message)), wait=False)
+        if not ok:
+            self._ui(lambda: self._offer_upload_retry(entry, snapshot, str(message), attempt), wait=False)
 
-    def _release(self, *, request_id="", runtime=None):
+    def _cancel_incoming(self, request_id, runtime, reason="승계 연결 실패"):
+        try:
+            # A failed join must close its local voice session even when GitHub
+            # is down. Do not touch a newer request or another bot runtime.
+            local = self.policy.snapshot()
+            if (local.get("runtime_id") == runtime and local.get("authority_request") == request_id
+                    and local.get("voice_requested")):
+                try:
+                    self._wait_local_stop(runtime, request_id)
+                finally:
+                    self.policy.block_request(request_id, runtime)
+            with self.lock:
+                current, _ = self.record.read()
+            if (current.get("request") == request_id and current.get("owner") == self.client
+                    and current.get("owner_runtime") == runtime):
+                self._release(request_id=request_id, runtime=runtime, failure=reason)
+                return
+            def cancel(data):
+                if (data.get("request") == request_id and data.get("phase") == "requested"
+                        and data.get("receiver") == self.client and data.get("receiver_runtime") == runtime):
+                    data.update(phase="active", receiver="", receiver_runtime="", released=False, release_proof={},
+                                generation=int(data["generation"]) + 1, request=uuid.uuid4().hex,
+                                failure=reason, failure_request=request_id)
+            with self.lock:
+                restored = self.record.mutate(cancel)
+            self._notify(restored)
+        except Exception as exc:
+            self.app._append_debug_log(f"handover_cancel_verify_failed request={request_id} error={exc!r}")
+
+    def _release(self, *, request_id="", runtime=None, stopped=False, failure=""):
         runtime = self.runtime if runtime is None else runtime
+        if not stopped:
+            self._wait_local_stop(runtime, request_id or self.policy.snapshot()["authority_request"])
+        self.policy.block_request(request_id, runtime)
+        def update(data):
+            member = data["members"].get(self.client, {})
+            if stopped and member.get("runtime") == runtime:
+                member["online"] = False
+            if (data.get("owner") == self.client and data.get("owner_runtime") == runtime
+                    and (not request_id or data.get("request") == request_id)):
+                if data.get("phase") == "requested":
+                    data.update(released=True, release_proof=dict(kind="voice_stopped", client=self.client,
+                                runtime=runtime, request=data["request"]))
+                else:
+                    data.update(owner="", owner_runtime="", owner_application_id="", owner_bot_user_id="", phase="idle", receiver="",
+                                generation=int(data["generation"]) + 1,
+                                failure=failure, failure_request=request_id if failure else "")
         with self.lock:
-            self.policy.block_request(request_id, runtime)
-            def update(data):
-                if (data.get("owner") == self.client and data.get("owner_runtime") == runtime
-                        and (not request_id or data.get("request") == request_id)):
-                    if self.policy.snapshot().get("runtime_id") == runtime:
-                        self.policy.pause()
-                    if data.get("phase") == "requested":
-                        data["released"] = True
-                    else:
-                        data.update(owner="", owner_runtime="", phase="idle", receiver="", generation=int(data["generation"]) + 1)
-            try:
-                self.record.mutate(update)
-            except Exception as exc:
-                self.app._append_debug_log(f"authority_release_failed type={type(exc).__name__} error={exc!r}")
+            released = self.record.mutate(update)
+        if not stopped:
+            self._notify(released)
 
     def release_after_stop(self):
-        self.release()
+        if getattr(self.app, "discord_bot_running", True):
+            raise AuthorityError("봇 프로세스 종료를 확인하지 못했습니다.")
+        try:
+            self._release(stopped=True)
+        except Exception as exc:
+            self.app._append_debug_log(f"stopped_authority_release_failed error={exc!r}")
+            self._ui(lambda message=str(exc): self.app._show_centered_messagebox("showerror", "종료 기록 확인",
+                "봇은 종료했지만 담당자 기록 반납에 실패했습니다.\n" + message
+                + "\n다음 연결 시 이전 봇의 종료를 확인하고 현재 기록을 재검증하세요.",
+                parent=self.app.schedule_window or self.app.root), wait=False)
 
     def release(self):
         if self.releasing:
             return
         local = self.policy.snapshot()
-        release_request, release_runtime = local["authority_request"], local["runtime_id"]
         self.releasing = True
-        self.policy.update(voice_requested=False)
         def worker():
+            message = "봇 연결됨 · 권한 없음"
             try:
-                deadline = time.monotonic() + 4
-                while time.monotonic() < deadline and self._status().get("voice_connected"):
-                    time.sleep(.1)
-                self._release(request_id=release_request, runtime=release_runtime)
+                self._release(request_id=local["authority_request"], runtime=local["runtime_id"])
+            except Exception as exc:
+                message = "권한 반납 확인 실패: " + str(exc)
+                self._ui(lambda text=message: self.app._show_centered_messagebox("showerror", "권한 반납",
+                    text + "\n연결·서버 상태를 확인하고 다시 반납하세요.",
+                    parent=self.app.schedule_window or self.app.root), wait=False)
             finally:
                 self.releasing = False
-                self._ui(lambda: self.app.schedule_status_var.set("봇 연결됨 · 권한 없음"), wait=False)
+                self._ui(lambda: self.app.schedule_status_var.set(message), wait=False)
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish(self, message, done, result):
+    def _finish(self, message, done, result, retry=None, attempt=0):
         self._finish_progress("incoming", self.incoming_progress_token, message, success=result, close=not result)
         self.busy = False
         self.app.discord_handover_busy = False
@@ -665,7 +915,8 @@ class DiscordAuthority:
         if done:
             done(result, message)
         elif message and not result and "승계 취소" not in message:
-            self.app._show_centered_messagebox("showerror", "관리자 접속", message, parent=self.app.schedule_window or self.app.root)
+            from operation_retry import offer_verified_retry
+            offer_verified_retry(self.app, "관리자 접속 실패", message, retry, attempt=attempt)
 
     @staticmethod
     def format_members(data):
@@ -696,6 +947,7 @@ class DiscordAuthority:
             checked_at = time.monotonic()
             data = self.record.mutate(change)
             self._observe(data, self._status(), checked_at)
+        self._notify(data)
 
     def _warm_query_preference(self, *, clear=None, generation=-1):
         if self.query_preference_warming:
@@ -723,7 +975,10 @@ class DiscordAuthority:
                 if coordinator:
                     with self.lock:
                         data, _ = self.record.read()
-                    entry = self.query_ledger.open(query_id, payload.get("query"), self.record.query_members(data))
+                    candidates = self.record.query_members(data)
+                    application_id = str(payload.get("application_id") or self._status().get("application_id") or "")
+                    candidates = [member for member in candidates if str(member.get("application_id") or "") == application_id]
+                    entry = self.query_ledger.open(query_id, payload.get("query"), candidates)
                 else:
                     status = self._status()
                     if not status.get("online") or status.get("runtime_id") != payload.get("runtime_id"):
@@ -791,13 +1046,13 @@ class DiscordAuthority:
                 with self.lock:
                     data, _ = self.record.read()
                 if payload["operation"] == "administrator_list":
-                    done(True, self.format_members(data))
+                    done(True, self.format_members(self._live_data(data)))
                     return
                 if payload["operation"] == "administrator_release":
                     self.release()
                     done(True, "권한을 반납합니다. 봇 연결은 유지합니다.")
                     return
-                target = self.record.resolve_member(data,
+                target = self.record.resolve_member(self._live_data(data),
                     payload.get("target_administrator") or payload.get("target_client_id") or self.client)
                 call_id = str(payload["request_id"])
                 def publish(record):
@@ -820,6 +1075,7 @@ class DiscordAuthority:
                         call = deepcopy(published["members"][target]["call"])
                         self.calls.add(call_id)
                         self._ui(lambda call=call: self.start(remote=True, call=call), wait=False)
+                self._notify(published)
                 acknowledgement = time.monotonic() + HANDOVER_SECONDS
                 finish = time.monotonic() + HANDOVER_SECONDS + JOIN_SECONDS + 10
                 while time.monotonic() < finish:

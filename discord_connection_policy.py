@@ -8,7 +8,7 @@ import tempfile
 import time
 
 MAX_RETRIES = 10
-CONTROL_PROTOCOL = 2
+CONTROL_PROTOCOL = 3
 AUTHORITY_SECONDS = 10
 
 
@@ -69,6 +69,8 @@ class ConnectionPolicy:
                         blocked_request=str(data.get("blocked_request", "")),
                         authority_active=bool(data.get("authority_active", False)),
                         authority_until=float(data.get("authority_until", 0)),
+                        authority_needs_sync=bool(data.get("authority_needs_sync", True)),
+                        release_voice_generation=int(data.get("release_voice_generation", -1)),
                         voice_requested=bool(data.get("voice_requested", False)),
                         voice_channel_id=str(data.get("voice_channel_id", "")),
                         voice_error=str(data.get("voice_error", "")),
@@ -94,6 +96,7 @@ class ConnectionPolicy:
                     handover_hold=False, handover_role="", client_id="", protocol=0,
                     runtime_id="", authority_generation=0, authority_until=0, authority_active=False,
                     authority_request="", blocked_request="",
+                    authority_needs_sync=True, release_voice_generation=-1,
                     voice_requested=False, voice_channel_id="", voice_error="",
                     voice_retries=0, voice_next_retry=0, command_sync_allowed=False,
                     query_members=[], query_until=0, query_responder={}, query_routing_generation=-1, query_protocol=0)
@@ -106,6 +109,7 @@ class ConnectionPolicy:
                     and state.get("runtime_id")
                     and (runtime_id is None or state["runtime_id"] == runtime_id)
                     and not state.get("standby") and not state.get("handover_hold")
+                    and not state.get("authority_needs_sync", True)
                     and (allow_joining or state.get("authority_active"))
                     and state.get("authority_until", 0) > time.monotonic())
 
@@ -178,6 +182,40 @@ class ConnectionPolicy:
         # Manual Gateway retry never grants administrator authority.
         return self.update(retries=0, error="", next_retry=0,
                            voice_error="", voice_retries=0, voice_next_retry=0)
+
+    def renew_controller(self, runtime_id, *, now=None):
+        """Local GUI/bot health only. Never consult or wait on GitHub locks."""
+        now = time.monotonic() if now is None else now
+        with self._locked():
+            data = self.snapshot(strict=True)
+            if (data["runtime_id"] != runtime_id or data["authority_needs_sync"]
+                    or data["standby"] or not data["voice_requested"]
+                    or data["blocked_request"] == data["authority_request"]
+                    or data["authority_until"] <= now):
+                return False
+            data["authority_until"] = now + AUTHORITY_SECONDS
+            self._save(data)
+            return True
+
+    def expire_controller(self):
+        with self._locked():
+            data = self.snapshot(strict=True)
+            if (data["authority_needs_sync"] or data["standby"] or not data["voice_requested"]
+                    or data["authority_until"] > time.monotonic()):
+                return False
+            data.update(authority_needs_sync=True, authority_until=0)
+            self._save(data)
+            return True
+
+    def request_stop(self, runtime_id, request_id):
+        with self._locked():
+            data = self.snapshot(strict=True)
+            if data["runtime_id"] != runtime_id or data["authority_request"] != request_id:
+                raise RuntimeError("종료 요청 뒤 담당자 또는 실행 세션이 변경됐습니다.")
+            if data["release_voice_generation"] < 0:
+                data["release_voice_generation"] = data["authority_generation"]
+            data["voice_requested"] = False
+            self._save(data)
 
     def pause(self):
         return self.update(standby=True, authority_until=0, voice_requested=False,

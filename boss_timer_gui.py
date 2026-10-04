@@ -53,6 +53,8 @@ from notice_runtime import NoticeHost, NoticeRuntime
 from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_audio_resources
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL
 from https_transport import urlopen_verified
+from github_request_policy import GITHUB_REQUEST_GATE, is_rate_limit_response
+from release_version import resolve_release_version
 
 from audio_pipeline import AudioPipeline, OutputConditionEvaluator, OutputDecision, OutputTarget, PlaybackRequest
 from voice_test_scenarios import VOICE_TEST_SCENARIOS, build_voice_test_plan
@@ -1145,9 +1147,9 @@ def _read_build_metadata_file() -> dict[str, str]:
         if not os.path.exists(metadata_path):
             continue
         try:
-            with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+            with open(metadata_path, "r", encoding="utf-8-sig") as metadata_file:
                 loaded = json.load(metadata_file)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeError, json.JSONDecodeError):
             continue
         if isinstance(loaded, dict):
             return {str(key): str(value) for key, value in loaded.items() if value}
@@ -1181,19 +1183,29 @@ def load_build_metadata() -> dict[str, str]:
         "build_detail_version": DEFAULT_BUILD_DETAIL_VERSION,
         "build_timestamp": DEFAULT_BUILD_TIMESTAMP,
     }
-    metadata.update(_read_build_metadata_file())
-    latest_tag = _run_git_text_command(["tag", "--sort=-creatordate"])
-    if latest_tag:
-        metadata["version"] = latest_tag.splitlines()[0].strip() or metadata["version"]
-    detailed_version = _run_git_text_command(["describe", "--tags", "--always", "--dirty"])
-    if detailed_version:
-        metadata["build_detail_version"] = detailed_version
-    latest_commit_date = _run_git_text_command(["log", "-1", "--format=%cs"])
-    if latest_commit_date:
-        metadata["last_updated"] = latest_commit_date
-    latest_commit_datetime = _run_git_text_command(["log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S"])
-    if latest_commit_datetime:
-        metadata["build_timestamp"] = latest_commit_datetime
+    packaged = _read_build_metadata_file()
+    metadata.update(packaged)
+    # The executable's identity is fixed at build time. A neighbouring checkout
+    # (including unrelated module release tags) must never relabel a deployment.
+    if getattr(sys, "frozen", False):
+        return metadata
+    source_version = resolve_release_version(metadata["version"], Path(get_app_root()))
+    if source_version != metadata["version"]:
+        metadata["build_detail_version"] = source_version
+        packaged = dict(packaged)
+        packaged.pop("build_detail_version", None)
+    metadata["version"] = source_version
+    # Supplementary Git commands fill missing development diagnostics only;
+    # they do not replace an explicitly recorded build timestamp.
+    for key, command in (
+        ("build_detail_version", ["describe", "--tags", "--always", "--dirty"]),
+        ("last_updated", ["log", "-1", "--format=%cs"]),
+        ("build_timestamp", ["log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S"]),
+    ):
+        if not packaged.get(key):
+            value = _run_git_text_command(command)
+            if value:
+                metadata[key] = value
     return metadata
 
 
@@ -4863,8 +4875,12 @@ class BossTimerApp:
 
     def _save_administrator_identity(self, name: str, guild_name: str) -> dict:
         from administrator_identity import AdministratorIdentity
-        return AdministratorIdentity(get_user_config_dir()).save_name(
+        identity = AdministratorIdentity(get_user_config_dir()).save_name(
             name, guild_name, self._get_discord_bot_config_storage_path())
+        coordinator = getattr(self, "discord_handover", None)
+        if coordinator is not None and getattr(coordinator, "alive", False):
+            coordinator.session_connected()
+        return identity
 
     def _ensure_administrator_name(self, parent=None) -> bool:
         """Upgrade onboarding without restarting a season or touching schedules."""
@@ -5846,6 +5862,7 @@ class BossTimerApp:
         self.discord_bot_voice_channel_id = str(payload.get("voice_channel_id", "") or "").strip()
         self.discord_bot_default_voice_channel_id = str(payload.get("default_voice_channel_id") or self.discord_bot_voice_channel_id)
         self.discord_bot_text_channel_id = str(payload.get("text_channel_id", "") or "").strip()
+        self.discord_bot_authority_control_channel_id = str(payload.get("authority_control_channel_id", "") or "").strip()
         self.discord_bot_voice_panel_channel_id = str(payload.get("voice_panel_channel_id", "") or "").strip()
         invite_links = payload.get("invite_links", {})
         self.discord_bot_invite_links = dict(invite_links) if isinstance(invite_links, dict) else {}
@@ -5886,6 +5903,7 @@ class BossTimerApp:
             "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
             "default_voice_channel_id": str(section.get("default_voice_channel_id", section.get("voice_channel_id", "")) or "").strip(),
             "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
+            "authority_control_channel_id": str(section.get("authority_control_channel_id", "") or "").strip(),
             "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
             "invite_url": invite_url,
             "invite_links": invite_links,
@@ -5939,6 +5957,7 @@ class BossTimerApp:
             "voice_channel_id": str(getattr(self, "discord_bot_voice_channel_id", "") or "").strip(),
             "default_voice_channel_id": str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "")),
             "text_channel_id": str(getattr(self, "discord_bot_text_channel_id", "") or "").strip(),
+            "authority_control_channel_id": str(getattr(self, "discord_bot_authority_control_channel_id", "") or "").strip(),
             "voice_panel_channel_id": voice_panel_channel_id,
             "voice_panel_message_id": persisted_voice_panel_message_id,
             "text_channel_keep_count": persisted_text_channel_keep_count,
@@ -7257,8 +7276,12 @@ class BossTimerApp:
         except Exception:
             pass
         if coordinator is not None and coordinator.alive:
-            coordinator._release()
-            coordinator.alive = False
+            try:
+                coordinator.release_after_stop()
+            except Exception as exc:
+                self._append_debug_log(f"authority_exit_release_failed error={exc!r}")
+            finally:
+                coordinator.alive = False
 
     def _get_discord_bot_executable_path(self) -> str:
         candidates = [
@@ -7497,6 +7520,7 @@ class BossTimerApp:
 
         self.discord_bot_startup_cleanup_failed = False
         if automatic_recovery:
+            self.discord_bot_verified_stopped_runtime = restore_owner[0] if restore_owner is not None else ""
             self.discord_bot_pending_auto_reconnect_notice = {
                 "reason": reconnect_reason,
                 "requested_at": datetime.now().isoformat(timespec="seconds"),
@@ -7650,13 +7674,14 @@ class BossTimerApp:
         dialog.resizable(False, False)
         dialog.configure(bg="#eef2ff")
         dialog.transient(parent)
-        self._center_window_over_parent(dialog, parent, 520, 500)
+        self._center_window_over_parent(dialog, parent, 520, 560)
 
         token_var = tk.StringVar(value=self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")))
         application_id_var = tk.StringVar(value=self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", "")))
         server_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_server_id", "") or ""))
         voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "") or ""))
         text_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_text_channel_id", "") or ""))
+        control_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_authority_control_channel_id", "") or ""))
         mute_pc_audio_var = tk.BooleanVar(value=bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)))
         status_var = tk.StringVar(value=getattr(self, "discord_bot_settings_validation_message", "") or f"저장 위치: {self._get_discord_bot_config_storage_path()}")
 
@@ -7674,6 +7699,10 @@ class BossTimerApp:
             server_id_text = str(server_id_var.get() or "").strip()
             voice_channel_id_text = str(voice_channel_id_var.get() or "").strip()
             text_channel_id_text = str(text_channel_id_var.get() or "").strip()
+            control_channel_id_text = str(control_channel_id_var.get() or "").strip()
+            if control_channel_id_text and not control_channel_id_text.isdigit():
+                status_var.set("승계 제어 채널 ID는 숫자로 입력하세요.")
+                return
             validation_error = self._get_discord_bot_settings_validation_error(
                 token=token_text,
                 application_id=application_id_text,
@@ -7692,6 +7721,7 @@ class BossTimerApp:
             self.discord_bot_voice_channel_id = voice_channel_id_text
             self.discord_bot_default_voice_channel_id = voice_channel_id_text
             self.discord_bot_text_channel_id = text_channel_id_text
+            self.discord_bot_authority_control_channel_id = control_channel_id_text
             self.discord_bot_mute_pc_audio_when_online = bool(mute_pc_audio_var.get())
             if self.discord_bot_application_id:
                 matched_invite_url = self._get_discord_bot_invite_url_for_application_id(self.discord_bot_application_id)
@@ -7725,6 +7755,9 @@ class BossTimerApp:
         tk.Label(dialog, text="안내채팅 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=210, width=100, height=22)
         tk.Entry(dialog, textvariable=text_channel_id_var, font=self.button_font).place(x=134, y=208, width=230, height=26)
         tk.Label(dialog, text="비워두면 ‘보탐매니저’ 텍스트 채널을 자동으로 찾습니다. /보탐채널로도 지정할 수 있습니다.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=240, width=468, height=20)
+        tk.Label(dialog, text="승계 제어 ID", font=self.label_font, bg="#eef2ff", fg="#0f172a", anchor="w").place(x=24, y=268, width=110, height=22)
+        tk.Entry(dialog, textvariable=control_channel_id_var, font=self.button_font).place(x=134, y=266, width=230, height=26)
+        tk.Label(dialog, text="모든 관리자 봇이 읽고 쓰는 동일한 비공개 텍스트 채널 ID를 입력하세요.", font=self.percent_font, bg="#eef2ff", fg="#64748b", anchor="w").place(x=24, y=294, width=468, height=20)
         tk.Label(
             dialog,
             text="서버 ID·음성채널 ID는 각 PC가 담당할 서버의 값을 입력하세요.\n새 봇으로 바꿀 때는 토큰과 Application ID를 함께 변경하세요.",
@@ -7734,16 +7767,16 @@ class BossTimerApp:
             anchor="w",
             justify="left",
             padx=7,
-        ).place(x=24, y=264, width=468, height=42)
+        ).place(x=24, y=324, width=468, height=42)
         tk.Label(
             dialog,
-            text="일반 채팅 명령을 받으려면 Discord Developer Portal에서 Message Content Intent를 켜야 합니다.",
+            text="승계 알림·일반 채팅 수신: 모든 봇의 Message Content Intent를 켜세요.",
             font=self.percent_font,
             bg="#fef3c7",
             fg="#92400e",
             anchor="w",
             padx=7,
-        ).place(x=24, y=312, width=468, height=24)
+        ).place(x=24, y=372, width=468, height=24)
         tk.Checkbutton(
             dialog,
             text="디스코드 봇 음성출력시 PC음성 음소거",
@@ -7758,7 +7791,7 @@ class BossTimerApp:
             bd=0,
             anchor="w",
             cursor="hand2",
-        ).place(x=134, y=342, width=330, height=26)
+        ).place(x=134, y=402, width=330, height=26)
         tk.Label(
             dialog,
             textvariable=status_var,
@@ -7768,7 +7801,7 @@ class BossTimerApp:
             anchor="w",
             justify="left",
             wraplength=470,
-        ).place(x=24, y=376, width=470, height=54)
+        ).place(x=24, y=436, width=470, height=54)
         tk.Button(
             dialog,
             text="저장",
@@ -7782,7 +7815,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=save_settings,
             cursor="hand2",
-        ).place(x=300, y=452, width=88, height=30)
+        ).place(x=300, y=512, width=88, height=30)
         tk.Button(
             dialog,
             text="닫기",
@@ -7796,7 +7829,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=close_dialog,
             cursor="hand2",
-        ).place(x=400, y=452, width=88, height=30)
+        ).place(x=400, y=512, width=88, height=30)
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
 
     def open_discord_bot_invite_window(self) -> None:
@@ -8219,6 +8252,9 @@ class BossTimerApp:
         if payload is not None:
             data_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         def request_json(token: str, auth_scheme: str = "Bearer") -> str:
+            remaining = GITHUB_REQUEST_GATE.remaining(settings, token, method)
+            if remaining:
+                raise RuntimeError(f"GitHub 요청 제한 대기 중입니다. {remaining}초 후 다시 시도하세요.")
             request = urllib.request.Request(
                 url,
                 data=data_bytes,
@@ -8249,7 +8285,14 @@ class BossTimerApp:
                         return True, json.loads(raw_text), ""
                     except json.JSONDecodeError:
                         return False, None, "GitHub 응답 JSON을 해석하지 못했습니다."
-            if method.upper() == "GET" and request_token and exc.code in (401, 403):
+            try:
+                error_text = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                error_text = str(exc)
+            limited = is_rate_limit_response(exc.code, exc.headers, error_text)
+            if limited:
+                GITHUB_REQUEST_GATE.limited(settings, request_token, method, exc.headers)
+            if method.upper() == "GET" and request_token and exc.code in (401, 403) and not limited:
                 try:
                     raw_text = request_json("")
                     if not raw_text.strip():
@@ -8258,14 +8301,15 @@ class BossTimerApp:
                         return True, json.loads(raw_text), ""
                     except json.JSONDecodeError:
                         return False, None, "GitHub 응답 JSON을 해석하지 못했습니다."
-                except urllib.error.HTTPError:
-                    pass
+                except urllib.error.HTTPError as anonymous_exc:
+                    try:
+                        anonymous_error = anonymous_exc.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        anonymous_error = str(anonymous_exc)
+                    if is_rate_limit_response(anonymous_exc.code, anonymous_exc.headers, anonymous_error):
+                        GITHUB_REQUEST_GATE.limited(settings, "", method, anonymous_exc.headers)
                 except Exception as retry_exc:
                     return False, None, f"GitHub API 연결 실패: {retry_exc}"
-            try:
-                error_text = exc.read().decode("utf-8", errors="replace")
-            except Exception:
-                error_text = str(exc)
             try:
                 error_payload = json.loads(error_text)
             except json.JSONDecodeError:
@@ -8285,7 +8329,10 @@ class BossTimerApp:
                     if error_details:
                         message = f"{message} ({'; '.join(error_details)})" if message else "; ".join(error_details)
                 if message:
-                    if exc.code in (401, 403):
+                    if limited:
+                        remaining = GITHUB_REQUEST_GATE.remaining(settings, request_token, method)
+                        message = f"{message} - GitHub 요청 제한으로 {remaining}초 동안 재요청을 보류합니다."
+                    elif exc.code in (401, 403):
                         message = f"{message} - 토큰 문자열, 대상 저장소 접근 권한, Contents 읽기/쓰기 권한을 확인하세요."
                     return False, None, f"GitHub API 오류 {exc.code}: {message}"
             return False, None, f"GitHub API 오류 {exc.code}: {error_text}"
@@ -10055,6 +10102,56 @@ class BossTimerApp:
         schedule_payload["dataVersion"] = schedule_version
         computed_schedule_hash = self._get_github_schedule_content_hash(schedule_payload)
         computed_boss_config_hash = self._get_github_boss_config_content_hash(boss_config_payload)
+        schedule_write_required = schedule_changed
+        boss_config_write_required = boss_config_changed
+        # A local version can advance when an edit is later reverted. Reuse the
+        # SHA lookup needed for PUT to compare actual content before committing.
+        # Handover already compared its reviewed snapshot above.
+        if schedule_changed and handover_schedule_payload is None:
+            progress("기존 스케쥴의 실제 내용을 비교하는 중입니다.")
+            remote_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
+            if schedule_error:
+                return False, schedule_error, None
+            actual_schedule_version = str((remote_schedule or {}).get("dataVersion") or "").strip()
+            same_schedule_content = bool(computed_schedule_hash and isinstance(remote_schedule, dict)
+                                         and computed_schedule_hash == self._get_github_schedule_content_hash(remote_schedule))
+            if existing_schedule_version and actual_schedule_version and actual_schedule_version != existing_schedule_version:
+                if actual_schedule_version == schedule_version and same_schedule_content:
+                    # A prior upload may have saved this file but failed at the
+                    # index. Finish the index without committing the file again.
+                    schedule_write_required = False
+                else:
+                    return False, "서버 스케줄 파일과 서버 목록의 버전이 다릅니다. 자료를 확인한 뒤 다시 업로드하세요.", None
+            if (not is_new_server_entry and existing_schedule_version and isinstance(remote_schedule, dict)
+                    and actual_schedule_version == existing_schedule_version
+                    and same_schedule_content):
+                schedule_changed = False
+                schedule_write_required = False
+                schedule_version = existing_schedule_version
+        if boss_config_changed:
+            progress("기존 보스설정의 실제 내용을 비교하는 중입니다.")
+            remote_boss_config, boss_config_sha, boss_config_error = self._github_get_json_file(boss_config_path)
+            if boss_config_error:
+                return False, boss_config_error, None
+            actual_boss_config_version = str((remote_boss_config or {}).get("dataVersion") or "").strip()
+            same_boss_content = bool(computed_boss_config_hash and isinstance(remote_boss_config, dict)
+                                    and computed_boss_config_hash == self._get_github_boss_config_content_hash(remote_boss_config))
+            if existing_boss_config_version and actual_boss_config_version and actual_boss_config_version != existing_boss_config_version:
+                if actual_boss_config_version == boss_config_version and same_boss_content:
+                    boss_config_write_required = False
+                else:
+                    return False, "서버 보스설정 파일과 서버 목록의 버전이 다릅니다. 자료를 확인한 뒤 다시 업로드하세요.", None
+            if (not is_new_server_entry and existing_boss_config_version and isinstance(remote_boss_config, dict)
+                    and actual_boss_config_version == existing_boss_config_version
+                    and same_boss_content):
+                boss_config_changed = False
+                boss_config_write_required = False
+                boss_config_version = existing_boss_config_version
+        if not schedule_changed and not boss_config_changed:
+            self._set_github_cached_versions(
+                server_id, existing_schedule_version, existing_boss_config_version,
+                server_name=server_name, schedule_path=schedule_path)
+            return True, f"{server_name}: 실제 내용이 같아 업로드하지 않았습니다.", existing_entry
         schedule_hash_for_index = computed_schedule_hash if schedule_changed else (existing_schedule_hash or computed_schedule_hash)
         boss_config_hash_for_index = computed_boss_config_hash if boss_config_changed else (existing_boss_config_hash or computed_boss_config_hash)
         schedule_payload["contentHash"] = computed_schedule_hash
@@ -10071,12 +10168,7 @@ class BossTimerApp:
             boss_config_version=boss_config_version,
             boss_config_hash=boss_config_hash_for_index,
         )
-        if schedule_changed:
-            if schedule_sha is None and handover_schedule_payload is None:
-                progress("기존 스케쥴 파일 정보를 확인하는 중입니다.")
-                _existing_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
-                if schedule_error:
-                    return False, schedule_error, None
+        if schedule_write_required:
             progress("스케쥴 JSON을 업로드하는 중입니다.")
             if handover_guard is not None and not handover_guard():
                 return False, "인계 시간이 끝나 늦은 스케줄 업로드를 중단했습니다.", None
@@ -10088,12 +10180,7 @@ class BossTimerApp:
             )
             if not ok:
                 return False, error, None
-        if boss_config_changed:
-            if boss_config_sha is None:
-                progress("기존 보스설정 파일 정보를 확인하는 중입니다.")
-                _existing_boss_config, boss_config_sha, boss_config_error = self._github_get_json_file(boss_config_path)
-                if boss_config_error:
-                    return False, boss_config_error, None
+        if boss_config_write_required:
             progress("보스설정 JSON을 업로드하는 중입니다.")
             if handover_guard is not None and not handover_guard():
                 return False, "인계 시간이 끝나 늦은 보스설정 업로드를 중단했습니다.", None
@@ -10231,7 +10318,7 @@ class BossTimerApp:
                     ok, error = self._github_delete_file(path, message=f"Delete server file {server_id}")
                     if ok:
                         break
-                    if not any(code in str(error or "") for code in ("GitHub API 오류 403", "GitHub API 오류 409")):
+                    if not any(code in str(error or "") for code in ("GitHub API 오류 409", "GitHub API 오류 422")):
                         break
                     time.sleep(0.75 * (delete_attempt + 1))
                 if not ok:
@@ -10247,6 +10334,10 @@ class BossTimerApp:
                     except OSError:
                         pass
         next_entries.sort(key=lambda item: str(item.get("name") or item.get("id") or ""))
+        if (not add_ids and not delete_ids
+                and next_entries == sorted(existing_entries, key=lambda item: str(item.get("name") or item.get("id") or ""))):
+            self._cache_github_server_entries_from_index(next_entries)
+            return True, "서버 목록에 변경 내용이 없어 업로드하지 않았습니다.", next_entries
         updated_index = dict(index_payload or {})
         updated_index["appMinVersion"] = str(updated_index.get("appMinVersion") or self._get_app_version_for_data())
         updated_index["schemaVersion"] = str(updated_index.get("schemaVersion") or "1.0.0")
@@ -10259,7 +10350,7 @@ class BossTimerApp:
             sha=index_sha,
         )
         if not ok:
-            if any(code in str(error or "") for code in ("GitHub API 오류 403", "GitHub API 오류 409")) and _retry_depth < 3:
+            if any(code in str(error or "") for code in ("GitHub API 오류 409", "GitHub API 오류 422")) and _retry_depth < 3:
                 time.sleep(0.8 * (_retry_depth + 1))
                 return self._apply_github_server_management_changes(
                     remaining_by_id,
@@ -20550,7 +20641,14 @@ class BossTimerApp:
                     or time.time() - float(payload.get("created_at", 0)) > 10):
                 complete(False, "만료되었거나 다른 봇의 관리자 요청입니다.")
                 return False, "관리자 요청의 연결 정보를 확인하세요."
-            self._ensure_discord_authority().command(payload, complete)
+            authority = self._ensure_discord_authority()
+            if operation == "administrator_session":
+                authority.session_connected()
+                return True, "봇 연결 상태 확인 중"
+            if operation == "administrator_event":
+                authority.changed(payload.get("event") or {})
+                return True, "승계 변경 확인 중"
+            authority.command(payload, complete)
             return True, "관리자 요청 처리 중"
         if getattr(self, "discord_handover_busy", False):
             return False, "관리자 인계 진행 중입니다. 완료 후 다시 요청하세요."
@@ -40880,7 +40978,16 @@ class BossTimerApp:
             self._save_settings()
             return True
 
-        def upload() -> None:
+        upload_retry_attempt = 0
+
+        def upload(*, retrying=False) -> None:
+            nonlocal upload_retry_attempt
+            upload_retry_attempt = upload_retry_attempt + 1 if retrying else 0
+            request_settings = self._get_github_data_settings()
+            rate_wait = GITHUB_REQUEST_GATE.remaining(request_settings, request_settings.get("token", ""), "PUT")
+            if rate_wait:
+                status_var.set(f"GitHub 요청 제한 대기 중입니다. {rate_wait}초 후 다시 업로드하세요.")
+                return
             remaining_seconds = upload_cooldown_remaining_seconds()
             if remaining_seconds > 0:
                 status_var.set(f"서버 업로드는 {remaining_seconds}초 후 다시 할 수 있습니다.")
@@ -40954,6 +41061,10 @@ class BossTimerApp:
                         refresh_upload_button_state()
                     finally:
                         close_progress_dialog()
+                    if not success and dialog.winfo_exists():
+                        from operation_retry import offer_verified_retry
+                        offer_verified_retry(self, "GitHub 업로드 실패", message,
+                            lambda: upload(retrying=True), attempt=upload_retry_attempt)
 
                 try:
                     self.root.after(0, finish)

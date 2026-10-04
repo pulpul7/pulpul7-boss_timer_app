@@ -383,6 +383,7 @@ def load_config() -> dict[str, str]:
         "voice_channel_id": str(section.get("voice_channel_id", "") or "").strip(),
         "default_voice_channel_id": str(section.get("default_voice_channel_id", section.get("voice_channel_id", "")) or "").strip(),
         "text_channel_id": str(section.get("text_channel_id", "") or "").strip(),
+        "authority_control_channel_id": str(section.get("authority_control_channel_id", "") or "").strip(),
         "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
         "voice_panel_message_id": str(section.get("voice_panel_message_id", "") or "").strip(),
         "text_channel_keep_count": str(section.get("text_channel_keep_count", "2")).strip(),
@@ -682,6 +683,7 @@ class BotStatus:
         self.guild_id = ""
         self.voice_channel_id = ""
         self.voice_connected = False
+        self.voice_disconnect_confirmed = False
         self.voice_authority_generation = 0
         self.last_error = ""
         self.configuration_error = ""
@@ -691,6 +693,7 @@ class BotStatus:
         self.runtime_id = uuid.uuid4().hex
         self.client_id = ""
         self.application_id = ""
+        self.bot_user_id = ""
         self.send_authorized = False
         self.authority_joining = False
         self.handover_hold = False
@@ -720,6 +723,7 @@ class BotStatus:
                 "runtime_id": self.runtime_id,
                 "client_id": self.client_id,
                 "application_id": self.application_id,
+                "bot_user_id": self.bot_user_id,
                 "config_path": str(CONFIG_PATH.resolve()),
                 "send_authorized": self.send_authorized,
                 "authority_joining": self.authority_joining,
@@ -728,6 +732,7 @@ class BotStatus:
                 "guild_id": self.guild_id,
                 "voice_channel_id": self.voice_channel_id,
                 "voice_connected": self.voice_connected,
+                "voice_disconnect_confirmed": self.voice_disconnect_confirmed,
                 "voice_authority_generation": self.voice_authority_generation,
                 "last_error": self.last_error,
                 "configuration_error": self.configuration_error,
@@ -804,7 +809,7 @@ class StatusHandler(BaseHTTPRequestHandler):
         from notice_output_bridge import handle_notice_command
         bot = self.notice_bot
         secret = os.environ.get('BOSS_TIMER_NOTICE_SECRET', '')
-        if (self.path != '/notice' or not secret or bot is None
+        if (self.path not in {'/notice', '/authority'} or not secret or bot is None
                 or not hmac.compare_digest(self.headers.get('X-Notice-Secret', ''), secret)):
             self.send_error(403)
             return
@@ -815,12 +820,17 @@ class StatusHandler(BaseHTTPRequestHandler):
                 raise ValueError('invalid request size')
             self.connection.settimeout(2)
             command = json.loads(self.rfile.read(length))
-            future = asyncio.run_coroutine_threadsafe(handle_notice_command(bot, command, STATUS), bot.client.loop)
-            self._send_json(future.result(timeout=3))
-        except Exception:
+            handler = bot.authority_events.command(command) if self.path == '/authority' else handle_notice_command(bot, command, STATUS)
+            future = asyncio.run_coroutine_threadsafe(handler, bot.client.loop)
+            self._send_json(future.result(timeout=6 if self.path == '/authority' else 3))
+        except Exception as exc:
             if future is not None:
                 future.cancel()
-            self.send_error(409, 'Notice command rejected')
+            if self.path == '/authority':
+                self._send_json(dict(ok=False, pid=STATUS.pid, runtime_id=STATUS.runtime_id,
+                                     id=locals().get('command', {}).get('id'), error=str(exc)))
+            else:
+                self.send_error(409, 'Notice command rejected')
 
     def log_message(self, _format: str, *_args: Any) -> None:
         return
@@ -1207,6 +1217,9 @@ class DiscordScheduleBot:
                 owner._validate_authenticated_application(client_self.application_id)
 
         self.client = ValidatedClient(intents=intents)
+        from discord_authority_events import AuthorityEvents
+        self.authority_events = AuthorityEvents(self, STATUS)
+        self.authority_disconnect_generation = -1
         self.tree = discord_module.app_commands.CommandTree(self.client)
         self.schedule_reader = ScheduleReader()
         self.voice_bridge_reader = VoiceBridgeReader(VOICE_BRIDGE_PATH)
@@ -1331,7 +1344,7 @@ class DiscordScheduleBot:
                 async def guarded_disconnect():
                     # A superseded PC must not send a guild-wide leave and kick
                     # the new owner's voice session. Local resources still close.
-                    if authorized():
+                    if authorized() or bot.authority_disconnect_generation == generation:
                         await disconnect()
                 state._voice_connect, state._voice_disconnect = guarded_connect, guarded_disconnect
                 return state
@@ -1380,8 +1393,23 @@ class DiscordScheduleBot:
             await self.notice_output.stop()
         async with self.voice_connect_lock:
             voice = self.voice_client
-            await self._close_voice_client(voice, reason="authority_lost")
-        STATUS.update(voice_connected=False)
+            local = self.connection_policy.snapshot()
+            release_generation = local.get("release_voice_generation", -1)
+            self.authority_disconnect_generation = (release_generation if voice is not None
+                and getattr(voice, "authority_generation", None) == release_generation else -1)
+            try:
+                await self._close_voice_client(voice, reason="authority_lost")
+            finally:
+                self.authority_disconnect_generation = -1
+        guild = self.client.get_guild(int(self._get_configured_server_id()))
+        deadline = time.monotonic() + 3
+        while (guild is not None and getattr(guild, "me", None) is not None
+               and getattr(getattr(guild.me, "voice", None), "channel", None) is not None
+               and time.monotonic() < deadline):
+            await asyncio.sleep(.1)
+        confirmed = (STATUS.online and guild is not None and getattr(guild, "me", None) is not None
+                     and getattr(getattr(guild.me, "voice", None), "channel", None) is None)
+        STATUS.update(voice_connected=False, voice_disconnect_confirmed=confirmed)
 
     async def _authority_watch_loop(self):
         while not STATUS.shutdown_requested.is_set():
@@ -1391,7 +1419,7 @@ class DiscordScheduleBot:
                 requested = owns and state["voice_requested"]
                 if self.voice_authority_was_owned and not requested:
                     reason = ("state_read_error" if state["error"] else "voice_released" if not state["voice_requested"]
-                              else "lease_expired" if state["authority_until"] <= time.monotonic() else "authority_revoked")
+                              else "controller_unavailable" if state["authority_until"] <= time.monotonic() else "authority_revoked")
                     log(f"voice_authority_stopped reason={reason} generation={state['authority_generation']} "
                         f"lease_remaining_sec={state['authority_until'] - time.monotonic():.3f}")
                 self.voice_authority_was_owned = requested
@@ -1401,7 +1429,10 @@ class DiscordScheduleBot:
                         await asyncio.gather(self.authority_connect_task, return_exceptions=True)
                     if self.voice_client is not None:
                         await self._disconnect_authority_voice()
-                    STATUS.update(voice_connected=False)
+                    guild = self.client.get_guild(int(self._get_configured_server_id()))
+                    confirmed = (STATUS.online and guild is not None and getattr(guild, "me", None) is not None
+                        and getattr(getattr(guild.me, "voice", None), "channel", None) is None)
+                    STATUS.update(voice_connected=False, voice_disconnect_confirmed=confirmed)
                 elif STATUS.online and not state["voice_error"]:
                     generation = state["authority_generation"]
                     if (self.authority_connect_task is not None and not self.authority_connect_task.done()
@@ -1426,6 +1457,7 @@ class DiscordScheduleBot:
 
     async def _join_authority_voice(self, generation):
         try:
+            STATUS.update(voice_disconnect_confirmed=False)
             if self.voice_client is not None:
                 await self._disconnect_authority_voice()
             if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
@@ -1500,7 +1532,10 @@ class DiscordScheduleBot:
         if not self._is_configured_server_id(getattr(interaction, "guild_id", None)):
             return True
         state = self._connection_state()
-        members = state.get("query_members", [])
+        # An interaction belongs to one application; another bot token cannot
+        # acknowledge it. Select among PCs running this application only.
+        members = [member for member in state.get("query_members", [])
+                   if str(member.get("application_id") or STATUS.application_id) == STATUS.application_id]
         own_member = next((member for member in members if member.get("client_id") == STATUS.client_id
                            and member.get("runtime") == STATUS.runtime_id), {})
         owns = self._send_allowed()
@@ -1581,6 +1616,7 @@ class DiscordScheduleBot:
         result_path = DISCORD_SCHEDULE_REQUEST_DIR / "results" / (request_id + ".json")
         await self._queue_local_schedule_request(dict(
             operation=operation, request_id=request_id, query_id=str(interaction.id), query=query,
+            application_id=STATUS.application_id,
             server_id=self._get_configured_server_id(), runtime_id=STATUS.runtime_id,
             created_at=time.time(), raw_text="스케줄 조회 담당자 선택",
         ))
@@ -1734,18 +1770,6 @@ class DiscordScheduleBot:
         if not (getattr(permissions, "administrator", False) or getattr(permissions, "manage_guild", False)):
             await interaction.followup.send("Discord 서버 관리자 또는 서버 관리 권한이 필요합니다.", ephemeral=True)
             return
-        if operation == "administrator_list":
-            state = self._connection_state()
-            members = state.get("query_members", [])
-            if members and state.get("query_until", 0) > time.monotonic():
-                rows = ["접속한 관리자 (관리자 ID는 프로그램 설치별 ID입니다.)",
-                        "접속 요청: /보탐 담당자이름 (예: /보탐 나츠) · 이름 중복 시 /보탐 ID"]
-                for member in members:
-                    role = "송출 중" if member.get("sending") else "입장 중" if member.get("joining") else "권한 없음"
-                    rows.append(f"{member.get('name', '담당자')} · {member.get('display_id') or member.get('client_id', '')[:8]} · "
-                                f"{member.get('server', '')} · {member.get('season', '')}차 · {role}")
-                await self._reply_private_text(interaction, "\n".join(rows))
-                return
         request_id = str(interaction.id)
         if not channel and operation == "administrator_connect":
             voice = getattr(getattr(interaction, "user", None), "voice", None)
@@ -1761,7 +1785,7 @@ class DiscordScheduleBot:
             await interaction.followup.send("관리자 요청을 프로그램에 전달하지 못했습니다. 프로그램의 연결 상태를 확인하세요.", ephemeral=True)
             return
         result_path = DISCORD_SCHEDULE_REQUEST_DIR / "results" / (request_id + ".json")
-        deadline = time.monotonic() + 65
+        deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             try:
                 result = json.loads(result_path.read_text(encoding="utf-8"))
@@ -2435,7 +2459,8 @@ class DiscordScheduleBot:
         @self.client.event
         async def on_ready() -> None:
             self.gateway_disconnected_at = None
-            STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="")
+            STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="",
+                          bot_user_id=str(getattr(self.client.user, "id", "")))
             self.connection_policy.success()
             log(f"discord_gateway_ready user={self.client.user}")
             if self.disconnect_only:
@@ -2464,6 +2489,7 @@ class DiscordScheduleBot:
             if self.gateway_recovery_task is None or self.gateway_recovery_task.done():
                 self.gateway_recovery_task = self.client.loop.create_task(self._gateway_recovery_loop())
             log(f"discord_ready user={self.client.user} edge_tts_gain={EDGE_TTS_PLAYBACK_GAIN:.2f}")
+            await self._queue_authority_session_event()
 
 
         @self.client.event
@@ -2472,12 +2498,13 @@ class DiscordScheduleBot:
                 self.gateway_disconnected_at = time.monotonic()
             STATUS.update(online=False, voice_connected=False)
             log("discord_disconnected")
+            self.connection_policy.update(authority_needs_sync=True, authority_until=0)
 
         @self.client.event
         async def on_resumed() -> None:
             self.gateway_disconnected_at = None
             STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="")
-            await self._ensure_voice_connection()
+            await self._queue_authority_session_event()
             log("discord_gateway_resumed")
 
         @self.client.event
@@ -2540,6 +2567,8 @@ class DiscordScheduleBot:
 
         @self.client.event
         async def on_message(message: Any) -> None:
+            if await self.authority_events.receive(message):
+                return
             if not self._send_allowed():
                 return
             self._tag_authority_task()
@@ -2547,6 +2576,12 @@ class DiscordScheduleBot:
                 self._cleanup_voice_panel_after_activity(getattr(message, "channel", None))
             )
             await self._handle_schedule_text_message(message)
+
+    async def _queue_authority_session_event(self):
+        await self._queue_local_schedule_request(dict(
+            operation="administrator_session", request_id="session_" + uuid.uuid4().hex,
+            server_id=self._get_configured_server_id(), runtime_id=STATUS.runtime_id,
+            created_at=time.time(), raw_text="봇 접속·연결 복구 확인"))
 
     def _write_disconnect_only_result(self, disconnected: bool) -> None:
         result_path_text = str(getattr(self, "disconnect_only_result_path", "") or "").strip()

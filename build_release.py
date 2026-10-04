@@ -10,11 +10,13 @@ Both executables are required at runtime and are also bundled into a ZIP in
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from release_version import resolve_release_version
 
 
 ROOT = Path(__file__).resolve().parent
@@ -31,7 +33,8 @@ def build_version() -> str:
     except OSError:
         return "v5.5.1"
     match = re.search(r'^BUILD_VERSION\s*=\s*["\']([^"\']+)["\']', spec_text, re.MULTILINE)
-    return match.group(1).strip() if match else "v5.5.1"
+    fallback = match.group(1).strip() if match else "v5.5.1"
+    return resolve_release_version(fallback, ROOT)
 
 
 def run_pyinstaller(spec_path: Path, work_name: str) -> None:
@@ -67,7 +70,10 @@ def main() -> int:
     missing = [path.name for path in (GUI_EXE, BOT_EXE) if not path.is_file()]
     if missing:
         raise RuntimeError(f"빌드 결과가 없습니다: {', '.join(missing)}")
-    archive_path = create_release_zip(build_version())
+    # Name the archive from the exact metadata included by the completed GUI
+    # build, even if repository tags changed while the executables were built.
+    metadata = json.loads((ROOT / "build_metadata.json").read_text(encoding="utf-8-sig"))
+    archive_path = create_release_zip(metadata["version"])
     print(f"Release ready: {archive_path}")
     return 0
 

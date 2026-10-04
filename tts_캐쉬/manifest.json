@@ -192,6 +192,14 @@
       "updated_at": 1790563193,
       "volume_steps": 0
     },
+    "0e8dbdc3f47b768fca56f1079bdbed463a00b681d2ea2a1b10de7b5931edbbce": {
+      "path": "message/0e8dbdc3f47b768fca56f1079bdbed463a00b681d2ea2a1b10de7b5931edbbce.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 4층 니드호그 타임입니다.",
+      "updated_at": 1791126187,
+      "volume_steps": 0
+    },
     "0f2aaa10e70a850fe5186521207879bd0e2c461e2c6c73fdd303ba7aab64107c": {
       "path": "message/53ec3dc358c09e5b26c23aae.mp3",
       "rate_steps": 1,
@@ -1696,6 +1704,14 @@
       "updated_at": 1790688791,
       "volume_steps": 0
     },
+    "7f8e779979eb6dcbbbe88cedc4367cd6bbc8bfc7c421dc8fad7edc6a7f961a18": {
+      "path": "message/7f8e779979eb6dcbbbe88cedc4367cd6bbc8bfc7c421dc8fad7edc6a7f961a18.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 이미르 외 3개 타임입니다.",
+      "updated_at": 1791126188,
+      "volume_steps": 0
+    },
     "7fc65b1996b84c39b8e122c1a769aeab583396fcd64202b8e02a49b14e3048b4": {
       "path": "sec/32.mp3",
       "rate_steps": 3,
@@ -2086,6 +2102,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "외 5개",
       "updated_at": 1790563191,
+      "volume_steps": 0
+    },
+    "a5125fcaebffdf42d6a108c414452b99d5bb6a1a0756741f438f495fa23d19b7": {
+      "path": "message/a5125fcaebffdf42d6a108c414452b99d5bb6a1a0756741f438f495fa23d19b7.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "이미르 외 3개",
+      "updated_at": 1791126188,
       "volume_steps": 0
     },
     "a51486493321ad39d1486c4e6cade19a08bb898261c54867eec03e93e71e0630": {
@@ -2830,6 +2854,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스바르트",
       "updated_at": 1790823701,
+      "volume_steps": 0
+    },
+    "dd47942bcb849c4374207c8d011d79eb8f627a0cd10f42318b23ceec2efa68b0": {
+      "path": "message/dd47942bcb849c4374207c8d011d79eb8f627a0cd10f42318b23ceec2efa68b0.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "4층 니드호그",
+      "updated_at": 1791126187,
       "volume_steps": 0
     },
     "de055e0eb32bcaa840720a8aa9af1211e1ffc3e24f5da55e3550e23f34ab6de5": {
