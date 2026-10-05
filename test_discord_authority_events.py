@@ -176,20 +176,30 @@ class ControllerTests(unittest.TestCase):
 
 
 class Embed:
-    def __init__(self, **_values): self.footer = NS(text="")
+    def __init__(self, **values):
+        self.footer = NS(text="")
+        self.values = values
+        self.fields = []
     def set_footer(self, *, text): self.footer.text = text
+    def add_field(self, **values): self.fields.append(values)
 
 
 class EventTransportTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.status = NS(pid=123, runtime_id="runtime", client_id="local", application_id="11", online=True, connected_at=1)
         self.guild = NS(id=100, me=NS(), get_member=Mock(return_value=NS(voice=None)))
+        self.thread = NS(id=556, parent_id=555, name=events.CONTROL_THREAD_NAME, type="public", guild=self.guild,
+            locked=False, send=AsyncMock(),
+            permissions_for=Mock(return_value=NS(view_channel=True, send_messages_in_threads=True, embed_links=True)))
+        self.guild.get_thread = Mock(return_value=self.thread)
         self.channel = NS(id=555, guild=self.guild, send=AsyncMock(),
+            threads=[self.thread],
             permissions_for=Mock(return_value=NS(view_channel=True, send_messages=True, embed_links=True)))
         self.bot = NS(config=dict(text_channel_id="555", authority_control_channel_id="555"), message_content_enabled=True,
             client=NS(get_channel=Mock(return_value=self.channel)), connection_policy=MemoryPolicy(),
             _resolve_text_channel=AsyncMock(return_value=self.channel),
-            discord=NS(Embed=Embed, AllowedMentions=NS(none=lambda: None)),
+            discord=NS(Embed=Embed, AllowedMentions=NS(none=lambda: None), ChannelType=NS(public_thread="public"),
+                       NotFound=KeyError, utils=NS(escape_markdown=lambda value: value)),
             _is_configured_guild=lambda guild: guild is self.guild,
             _get_configured_server_id=lambda: "100", _queue_local_schedule_request=AsyncMock())
         self.transport = AuthorityEvents(self.bot, self.status)
@@ -199,7 +209,7 @@ class EventTransportTests(unittest.IsolatedAsyncioTestCase):
         payload = dict(kind=kind, id="message", at=time.time(), guild="100", client="peer", runtime="peer-runtime", protocol=CONTROL_PROTOCOL)
         payload.update(values)
         embed = Embed(); embed.set_footer(text=MARKER + json.dumps(payload))
-        return NS(channel=self.channel, guild=self.guild, author=NS(bot=True, id=22), embeds=[embed])
+        return NS(channel=self.thread, guild=self.guild, author=NS(bot=True, id=22), embeds=[embed])
     async def test_verified_change_hint_reaches_standby_gui(self):
         self.assertTrue(await self.transport.receive(self.message()))
         queued = self.bot._queue_local_schedule_request.call_args.args[0]
@@ -223,8 +233,9 @@ class EventTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_probe_replies_even_without_voice_authority(self):
         self.bot.connection_policy.update(standby=True)
         await self.transport.receive(self.message("probe", probe="peer-probe"))
-        self.channel.send.assert_awaited_once()
-        footer = self.channel.send.call_args.kwargs["embed"].footer.text
+        self.channel.send.assert_not_called()
+        self.thread.send.assert_awaited_once()
+        footer = self.thread.send.call_args.kwargs["embed"].footer.text
         payload = json.loads(footer[len(MARKER):])
         self.assertEqual(payload["kind"], "reply")
         self.assertEqual(payload["probe"], "peer-probe")
@@ -256,8 +267,50 @@ class EventTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_publish_is_one_message_and_never_a_heartbeat(self):
         result = await self.transport.command(dict(self.command("publish"), request="owned", generation=1))
         self.assertTrue(result["ok"])
+        self.channel.send.assert_not_called()
+        self.thread.send.assert_awaited_once()
+        self.assertEqual(self.thread.send.call_args.kwargs["delete_after"], 60)
+        self.assertTrue(self.thread.send.call_args.kwargs["silent"])
+
+    async def test_legacy_main_channel_probe_does_not_generate_another_notice(self):
+        message = self.message("probe", probe="legacy")
+        message.channel = self.channel
+        self.assertTrue(await self.transport.receive(message))
+        self.channel.send.assert_not_called()
+        self.thread.send.assert_not_called()
+
+    async def test_connection_start_is_announced_once_per_request(self):
+        command = dict(self.command("publish"), request="owned", generation=1, notice="started",
+                       notice_member=dict(name="나츠", server="오9", season="22"), notice_voice_channel="777")
+        await self.transport.command(command)
+        await self.transport.command(command)
+        await self.transport.notice_worker
         self.channel.send.assert_awaited_once()
+        self.assertEqual(self.channel.send.call_args.kwargs["embed"].values["title"], "관리자 접속 시작")
         self.assertEqual(self.channel.send.call_args.kwargs["delete_after"], 60)
+
+    async def test_verified_completion_remains_and_has_no_internal_payload(self):
+        self.status.voice_connected = True
+        self.status.voice_channel_id = "777"
+        self.status.voice_authority_generation = 1
+        self.bot.connection_policy.update(authority_until=time.monotonic()+10)
+        command = dict(self.command("publish"), request="owned", generation=1, notice="completed",
+                       notice_member=dict(name="나츠", server="오9", season="22"), notice_voice_channel="777")
+        await self.transport.command(command)
+        await self.transport.notice_worker
+        self.channel.send.assert_awaited_once()
+        options = self.channel.send.call_args.kwargs
+        self.assertNotIn("delete_after", options)
+        self.assertEqual(options["embed"].values["title"], "관리자 접속 완료")
+        self.assertEqual(options["embed"].footer.text, events.COMPLETED_NOTICE_FOOTER)
+        self.assertTrue(events.is_completed_authority_notice(NS(embeds=[options["embed"]])))
+
+    async def test_thread_send_permission_failure_never_falls_back_to_main_chat(self):
+        self.thread.permissions_for.return_value.send_messages_in_threads = False
+        with self.assertRaises(RuntimeError):
+            await self.transport.command(self.command("check"))
+        self.channel.send.assert_not_called()
+        self.thread.send.assert_not_called()
     async def test_absence_verification_checks_actual_discord_voice_state(self):
         command = dict(self.command("verify_absent"), bot_user_id="22")
         self.assertTrue((await self.transport.command(command))["absent"])
@@ -457,6 +510,92 @@ class HandoverIntegrationTests(unittest.TestCase):
         self.assertEqual(local["blocked_request"], local["authority_request"])
         self.assertGreaterEqual(local["release_voice_generation"], 0)
         self.assertFalse(ConnectionPolicy.has_authority(local, "new-runtime"))
+
+
+class GatewayContinuityTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import boss_timer_discord_bot as bot_module
+        self.now = 1000
+        clock = NS(monotonic=lambda: self.now, time=lambda: 2000, sleep=lambda _: None)
+        self.status = NS(online=True, voice_connected=True, connected_at=1234, runtime_id="runtime",
+                         shutdown_requested=threading.Event(),
+                         update=lambda **values: vars(self.status).update(values))
+        self.events = {}
+        self.bot = object.__new__(bot_module.DiscordScheduleBot)
+        self.bot.client = NS(event=lambda handler: self.events.setdefault(handler.__name__, handler),
+            ws=NS(_close_code=None, socket=NS(close_code=1001)), latency=.05)
+        self.bot.voice_client = NS(is_connected=lambda: True)
+        self.bot.gateway_disconnected_at = None
+        self.bot.gateway_reconnect_signal = ""
+        self.bot.gateway_last_heartbeat_sent_at = None
+        self.bot.gateway_last_heartbeat_ack_at = None
+        self.bot.gateway_last_heartbeat_latency = None
+        self.bot.connection_policy = MemoryPolicy()
+        self.bot._queue_authority_session_event = AsyncMock()
+        for mocked in (patch.object(bot_module, "STATUS", self.status),
+                       patch.object(bot_module, "time", clock), patch.object(policy_module, "time", clock),
+                       patch.object(bot_module, "log")):
+            mocked.start(); self.addCleanup(mocked.stop)
+        self.bot._bind_events()
+
+    async def test_discord_reconnect_signal_is_recorded_before_socket_cleanup(self):
+        import boss_timer_discord_bot as bot_module
+        with patch.object(bot_module, "log") as write_log:
+            self.bot._observe_gateway_packet('{"op":7,"d":null}')
+            await self.events["on_disconnect"]()
+        self.assertEqual(self.bot.gateway_reconnect_signal, "discord_reconnect_request")
+        self.assertIn("reason=discord_reconnect_request", write_log.call_args.args[0])
+
+    async def test_last_ack_latency_remains_valid_after_sdk_latency_becomes_infinite(self):
+        import boss_timer_discord_bot as bot_module
+        self.bot._observe_gateway_packet('{"op":1,"d":42}', sent=True)
+        self.now = 1000.05
+        self.bot._observe_gateway_packet('{"op":11,"d":null}')
+        self.now = 1001
+        self.bot.client.latency = float('inf')
+        with patch.object(bot_module, "log") as write_log:
+            await self.events["on_disconnect"]()
+        self.assertIn("last_heartbeat_latency_sec=0.050", write_log.call_args.args[0])
+        self.assertIn("last_ack_age_sec=0.950", write_log.call_args.args[0])
+
+    async def test_packet_diagnostics_never_log_chat_or_authentication_payloads(self):
+        import boss_timer_discord_bot as bot_module
+        with patch.object(bot_module, "log") as write_log:
+            self.bot._observe_gateway_packet('{"op":0,"d":{"content":"private-chat"}}')
+            self.bot._observe_gateway_packet('{"op":2,"d":{"token":"test-only"}}', sent=True)
+            self.bot._observe_gateway_packet('{"op":0,"d":"' + 'x'*1000 + '"}')
+        write_log.assert_not_called()
+
+    async def test_one_second_resume_keeps_voice_and_last_verified_lease(self):
+        await self.events["on_disconnect"]()
+        self.assertFalse(self.status.online)
+        self.assertTrue(self.status.voice_connected)
+        self.assertEqual(self.bot.connection_policy.snapshot()["authority_until"], 1010)
+        self.now = 1001
+        await self.events["on_resumed"]()
+        self.assertTrue(self.status.online)
+        self.assertTrue(self.status.voice_connected)
+        self.assertEqual(self.status.connected_at, 1234)
+        self.assertTrue(self.bot.connection_policy.renew_controller("runtime"))
+        self.bot._queue_authority_session_event.assert_awaited_once()
+
+    async def test_ten_second_expiry_is_not_revived_by_resume(self):
+        await self.events["on_disconnect"]()
+        self.now = 1011
+        self.assertTrue(self.bot.connection_policy.expire_controller())
+        await self.events["on_resumed"]()
+        self.assertFalse(self.status.voice_connected)
+        self.assertFalse(self.bot.connection_policy.renew_controller("runtime"))
+        self.assertTrue(self.bot.connection_policy.snapshot()["authority_needs_sync"])
+
+    async def test_explicit_release_is_not_undone_by_short_resume(self):
+        await self.events["on_disconnect"]()
+        self.bot.connection_policy.pause()
+        self.now = 1001
+        await self.events["on_resumed"]()
+        self.assertFalse(self.status.voice_connected)
+        self.assertFalse(self.bot.connection_policy.renew_controller("runtime"))
+        self.assertFalse(self.bot.connection_policy.snapshot()["voice_requested"])
 
 
 class VoiceReleaseTests(unittest.IsolatedAsyncioTestCase):

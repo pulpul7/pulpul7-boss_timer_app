@@ -52,6 +52,7 @@ from ai_update_center import AiUpdateCenter
 from notice_runtime import NoticeHost, NoticeRuntime
 from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_audio_resources
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL
+from discord_authority_events import CONTROL_TRANSPORT
 from https_transport import urlopen_verified
 from github_request_policy import GITHUB_REQUEST_GATE, is_rate_limit_response
 from release_version import resolve_release_version
@@ -5916,7 +5917,7 @@ class BossTimerApp:
         config = configparser.ConfigParser(interpolation=None)
         persisted_voice_panel_channel_id = ""
         persisted_voice_panel_message_id = ""
-        persisted_text_channel_keep_count = "2"
+        persisted_text_channel_keep_count = "12"
         try:
             config.read(config_path, encoding="utf-8")
             if config.has_section("discord_bot"):
@@ -5926,7 +5927,7 @@ class BossTimerApp:
                 persisted_voice_panel_message_id = str(
                     config["discord_bot"].get("voice_panel_message_id", "") or ""
                 ).strip()
-                persisted_text_channel_keep_count = str(config["discord_bot"].get("text_channel_keep_count", "2"))
+                persisted_text_channel_keep_count = str(config["discord_bot"].get("text_channel_keep_count", "12"))
         except (OSError, configparser.Error):
             pass
         application_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
@@ -6192,6 +6193,13 @@ class BossTimerApp:
         self._append_debug_log(
             f"discord_bot_auto_reconnect_result success={int(success)} reason={reason} result={result_text}"
         )
+        if not success:
+            self._append_discord_schedule_monitor_entry(
+                {"received_at": datetime.now().isoformat(timespec="seconds"),
+                 "author_name": "보탐매니저", "operation": "auto_reconnect",
+                 "raw_text": f"자동 복구 실패 · {reason}"},
+                result_text, success=False,
+            )
 
     def _monitor_discord_bot_voice_bridge_health(self, payload: dict[str, object]) -> None:
         if (payload.get("configuration_error") or payload.get("standby") or payload.get("handover_hold")
@@ -6208,7 +6216,9 @@ class BossTimerApp:
         # A responsive new bot owns its bounded Gateway/voice retry sequence.
         # The GUI only recovers a missing/hung process; it must not restart a
         # healthy status server to bypass the bot's stop gate or retry limit.
-        if payload.get("ok") and payload.get("connection_control") and not payload.get("voice_connected"):
+        if (payload.get("ok") and payload.get("connection_control")
+                and (not payload.get("online") or not payload.get("voice_connected"))):
+            self._reset_discord_voice_bridge_health_tracking()
             return
         self._maybe_emit_discord_auto_reconnect_notice(payload)
         now_monotonic = time.monotonic()
@@ -7324,6 +7334,7 @@ class BossTimerApp:
         profile = self._get_discord_bot_config_storage_path()
         identity = self._get_administrator_identity()
         return bool(payload.get("ok") and payload.get("control_protocol") == CONTROL_PROTOCOL
+                    and payload.get("control_transport") == CONTROL_TRANSPORT
                     and payload.get("client_id") == identity["client_id"]
                     and os.path.normcase(os.path.realpath(str(payload.get("config_path") or "")))
                     == os.path.normcase(os.path.realpath(profile))
@@ -7400,7 +7411,15 @@ class BossTimerApp:
         if not command:
             self.discord_bot_running = False
             self._refresh_discord_bot_status_ui()
-            self.schedule_status_var.set("디스코드 봇 실행 파일이나 스크립트를 찾지 못했습니다.")
+            if getattr(sys, "frozen", False):
+                message = (
+                    "봇 실행 파일이 없습니다. boss_timer_discord_bot.exe를 "
+                    "보탐매니저 EXE와 같은 폴더에 넣어주세요."
+                )
+            else:
+                message = "디스코드 봇 실행 파일이나 스크립트를 찾지 못했습니다."
+            self.schedule_status_var.set(message)
+            self._append_debug_log(f"discord_bot_launch_file_missing app_root={get_app_root()!r}")
             return False
         try:
             policy = ConnectionPolicy(self._get_discord_bot_config_storage_path())
@@ -20305,6 +20324,21 @@ class BossTimerApp:
         except tk.TclError:
             pass
 
+    def _should_show_discord_schedule_monitor_entry(self, payload: dict[str, object]) -> bool:
+        operation = str(payload.get("operation") or "").strip().lower()
+        if operation.startswith("administrator_") or operation in {"readonly_query_route", "readonly_query_wait"}:
+            return False  # Session/presence checks and query coordination are internal.
+        if operation == "discord_reconnect":
+            return bool(payload.get("automatic_recovery"))  # A manual voice move is not a fault.
+        if operation == "connection_log":
+            # Older bots emitted only confirmed voice recovery under this name.
+            # Future Gateway diagnostics must not become visible incident rows.
+            event = str(payload.get("connection_event", "voice_reconnected")).strip().lower()
+            return event in {
+                "voice_reconnected", "runtime_restarted", "recovery_failed",
+            }
+        return True
+
     def _append_discord_schedule_monitor_entry(
         self,
         payload: dict[str, object],
@@ -20312,6 +20346,12 @@ class BossTimerApp:
         *,
         success: bool,
     ) -> None:
+        if not self._should_show_discord_schedule_monitor_entry(payload):
+            self._append_debug_log(
+                f"discord_monitor_internal operation={payload.get('operation')} "
+                f"success={int(success)} result={result_text}"
+            )
+            return
         self._ensure_discord_schedule_monitor_window()
         monitor = getattr(self, "discord_schedule_monitor_text", None)
         if not self._widget_available(monitor):
@@ -20333,13 +20373,18 @@ class BossTimerApp:
             "voice_prepare": "음성 준비",
             "countdown_control": "초읽기 설정",
         }.get(operation_key, "추가/수정")
+        connection_entry = operation_key in {"discord_reconnect", "auto_reconnect", "connection_log"}
+        result_label = ("복구 완료" if success else "복구 실패") if connection_entry else (
+            "적용 완료" if success else "적용 실패")
+        if operation_key == "discord_reconnect" and success:
+            result_label = "복구 시작"  # Restart was scheduled; connection is not confirmed yet.
         try:
             monitor.config(state="normal")
             if monitor.index("end-1c") != "1.0":
                 monitor.insert("end", "\n" + ("─" * 34) + "\n")
             monitor.insert("end", f"[{clock_text}] {author_name} · {operation}\n", "header")
             monitor.insert("end", f"{raw_text}\n", "request")
-            monitor.insert("end", f"{'적용 완료' if success else '적용 실패'}: {result_text}\n", "success" if success else "error")
+            monitor.insert("end", f"{result_label}: {result_text}\n", "success" if success else "error")
             monitor.see("end")
             monitor.config(state="disabled")
         except tk.TclError:
@@ -20724,15 +20769,14 @@ class BossTimerApp:
                 if not isinstance(loaded, dict):
                     raise ValueError("요청 데이터가 객체가 아닙니다.")
                 payload = loaded
-                if payload.get("operation") not in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:
+                if self._should_show_discord_schedule_monitor_entry(payload):
                     self._ensure_discord_schedule_monitor_window()
                 success, result_text = self._apply_discord_schedule_request(payload)
             except Exception as exc:
                 result_text = f"{type(exc).__name__}: {exc}"
                 self._append_debug_log(f"discord_schedule_request_failed {result_text}")
             finally:
-                if payload.get("operation") not in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:
-                    self._append_discord_schedule_monitor_entry(payload, result_text, success=success)
+                self._append_discord_schedule_monitor_entry(payload, result_text, success=success)
                 try:
                     os.remove(processing_path)
                 except OSError:

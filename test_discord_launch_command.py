@@ -40,6 +40,17 @@ class DiscordLaunchCommandTests(unittest.TestCase):
         with patch.object(module.sys, "frozen", False, create=True):
             self.assertEqual(self.app._get_discord_bot_launch_command(), [])
 
+    def test_main_channel_control_bot_is_not_reused(self):
+        self.app._get_discord_bot_config_storage_path = Mock(return_value="C:/BossTimer/discord_bot.ini")
+        self.app._get_administrator_identity = Mock(return_value=dict(client_id="local"))
+        self.app.discord_bot_server_id = "100"
+        self.app.discord_bot_application_id = "11"
+        payload = dict(ok=True, control_protocol=module.CONTROL_PROTOCOL, client_id="local",
+                       config_path="C:/BossTimer/discord_bot.ini", guild_id="100", application_id="11")
+        self.assertFalse(self.app._discord_bot_status_matches(payload))
+        payload["control_transport"] = module.CONTROL_TRANSPORT
+        self.assertTrue(self.app._discord_bot_status_matches(payload))
+
     def test_start_and_disconnect_share_launch_selection(self):
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8-sig"))
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "BossTimerApp")

@@ -11,6 +11,7 @@ import asyncio
 import configparser
 import hashlib
 import json
+import logging
 import os
 import queue
 import re
@@ -33,6 +34,7 @@ from voice_bridge_receipts import observe_audio_source
 from discord_notice_output import DiscordNoticeOutput
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL, is_access_error, ACCESS_ERROR_TEXT, _read_state_text
 from discord_query_routing import QueryLedger
+from discord_authority_events import CONTROL_TRANSPORT
 
 try:
     with warnings.catch_warnings():
@@ -45,6 +47,11 @@ except ImportError:
 DEFAULT_STATUS_PORT = 18765
 VOICE_BRIDGE_POLL_INTERVAL_SEC = 0.05
 VOICE_CLIP_GAP_SEC = 0.02
+DEFAULT_TEXT_CHANNEL_KEEP_COUNT = 12
+TEXT_CLEANUP_HISTORY_LIMIT = 100
+TEXT_CLEANUP_INTERVAL_SEC = 30.0
+TEXT_CLEANUP_DELETE_LIMIT = 20
+GATEWAY_RECOVERY_TIMEOUT_SEC = 90.0
 DISCORD_PCM_FRAME_BYTES = 3840
 DISCORD_PCM_BYTES_PER_SECOND = 48000 * 2 * 2
 DISCORD_COUNTDOWN_COMPOSITE_OUTPUT_LEAD_MS = 250
@@ -341,6 +348,49 @@ def log(message: str) -> None:
         pass
 
 
+class GatewayDiagnosticHandler(logging.Handler):
+    """Keep heartbeat failures even with SDK console logging disabled."""
+    def emit(self, record):
+        template = str(record.msg)
+        if "has stopped responding to the gateway" in template:
+            event = "heartbeat_timeout"
+        elif "heartbeat blocked for more than" in template:
+            event = "event_loop_blocked"
+        elif "websocket is %.1fs behind" in template:
+            event = "heartbeat_delayed"
+        else:
+            return
+        # Never copy SDK payloads, session IDs or loop tracebacks into the log.
+        duration = ""
+        if isinstance(record.args, tuple) and len(record.args) > 1 and isinstance(record.args[1], (int, float)):
+            duration = f" duration_sec={record.args[1]:.3f}"
+        log(f"discord_gateway_diagnostic event={event}{duration}")
+
+
+class HttpRateLimitDiagnosticHandler(logging.Handler):
+    """Record SDK backoff without URLs, interaction tokens or message bodies."""
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.last_events = {}
+
+    def emit(self, record):
+        template = str(record.msg).lower()
+        if "global rate limit has been hit" in template:
+            event = "global_rate_limit"
+        elif "being rate limited" in template and "429" in template:
+            event = "route_rate_limit"
+        else:
+            return
+        now = time.monotonic()
+        if now - self.last_events.get(event, -float("inf")) < 30:
+            return
+        self.last_events[event] = now
+        args = record.args if isinstance(record.args, tuple) else ()
+        retry_after = args[-1] if args and isinstance(args[-1], (int, float)) else None
+        delay = f" retry_after_sec={retry_after:.3f}" if retry_after is not None else ""
+        log(f"discord_http_diagnostic event={event}{delay}")
+
+
 def deserialize(value: Any) -> Any:
     if isinstance(value, list):
         return [deserialize(item) for item in value]
@@ -386,7 +436,7 @@ def load_config() -> dict[str, str]:
         "authority_control_channel_id": str(section.get("text_channel_id", "") or "").strip(),
         "voice_panel_channel_id": str(section.get("voice_panel_channel_id", "") or "").strip(),
         "voice_panel_message_id": str(section.get("voice_panel_message_id", "") or "").strip(),
-        "text_channel_keep_count": str(section.get("text_channel_keep_count", "2")).strip(),
+        "text_channel_keep_count": str(section.get("text_channel_keep_count", str(DEFAULT_TEXT_CHANNEL_KEEP_COUNT))).strip(),
         "invite_url": invite_url,
         "voice_bridge_enabled": str(section.get("voice_bridge_enabled", "1") or "1").strip(),
     }
@@ -720,6 +770,7 @@ class BotStatus:
                 "ok": True,
                 "pid": self.pid,
                 "control_protocol": CONTROL_PROTOCOL,
+                "control_transport": CONTROL_TRANSPORT,
                 "runtime_id": self.runtime_id,
                 "client_id": self.client_id,
                 "application_id": self.application_id,
@@ -1212,13 +1263,22 @@ class DiscordScheduleBot:
         owner = self
 
         class ValidatedClient(discord_module.Client):
+            def dispatch(client_self, event, /, *args, **kwargs):
+                if event in {"socket_raw_receive", "socket_raw_send"}:
+                    if args:
+                        owner._observe_gateway_packet(args[0], sent=event == "socket_raw_send")
+                    return  # Do not expose raw packets or schedule per-packet tasks.
+                return super().dispatch(event, *args, **kwargs)
+
             async def setup_hook(client_self) -> None:
                 await super().setup_hook()
                 owner._validate_authenticated_application(client_self.application_id)
+                if owner.gateway_recovery_task is None or owner.gateway_recovery_task.done():
+                    owner.gateway_recovery_task = asyncio.create_task(owner._gateway_recovery_loop())
 
-        self.client = ValidatedClient(intents=intents)
+        self.client = ValidatedClient(intents=intents, enable_debug_events=True)
         from discord_authority_events import AuthorityEvents
-        self.authority_events = AuthorityEvents(self, STATUS)
+        self.authority_events = AuthorityEvents(self, STATUS, logger=log)
         self.authority_disconnect_generation = -1
         self.tree = discord_module.app_commands.CommandTree(self.client)
         self.schedule_reader = ScheduleReader()
@@ -1236,6 +1296,9 @@ class DiscordScheduleBot:
         self.text_notice_keys: set[str] = set()
         self.boss_notice_groups: dict[tuple[str, ...], dict[str, Any]] = {}
         self.boss_notice_lock = asyncio.Lock()
+        self.text_cleanup_at: dict[str, float] = {}
+        self.text_cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
+        self.voice_panel_cleanup_at: dict[str, float] = {}
         self.current_voice_scope_id = ""
         self.current_voice_playback_token: object | None = None
         self.current_voice_player_thread: Any = None
@@ -1250,6 +1313,10 @@ class DiscordScheduleBot:
         self.gateway_recovery_task: asyncio.Task[Any] | None = None
         self.voice_panel_startup_task: asyncio.Task[Any] | None = None
         self.gateway_disconnected_at: float | None = None
+        self.gateway_reconnect_signal = ""
+        self.gateway_last_heartbeat_sent_at: float | None = None
+        self.gateway_last_heartbeat_ack_at: float | None = None
+        self.gateway_last_heartbeat_latency: float | None = None
         self.last_voice_reconnect_attempt_at = 0.0
         self.schedule_request_lock = asyncio.Lock()
         self.config = load_config()
@@ -1288,6 +1355,38 @@ class DiscordScheduleBot:
                       send_authorized=owns and state["authority_active"] and state["voice_requested"] and not state["voice_error"],
                       authority_joining=owns and not state["authority_active"])
         return state
+
+    def _observe_gateway_packet(self, raw, *, sent=False):
+        # Opcode 7/9 and heartbeat packets are tiny. Ignore larger guild/chat
+        # payloads to avoid decoding them a second time during startup.
+        if not isinstance(raw, (str, bytes)) or len(raw) > 512:
+            return
+        try:
+            payload = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        opcode = payload.get("op")
+        now = time.monotonic()
+        if sent:
+            if opcode == 1:
+                self.gateway_last_heartbeat_sent_at = now
+            return
+        if opcode == 10:
+            self.gateway_last_heartbeat_sent_at = None
+        elif opcode == 11:
+            self.gateway_last_heartbeat_ack_at = now
+            sent_at = self.gateway_last_heartbeat_sent_at
+            if sent_at is not None:
+                self.gateway_last_heartbeat_latency = max(0.0, now - sent_at)
+        elif opcode == 7:
+            self.gateway_reconnect_signal = "discord_reconnect_request"
+            log("discord_gateway_reconnect_requested opcode=7 source=discord")
+        elif opcode == 9:
+            resumable = payload.get("d") is True
+            self.gateway_reconnect_signal = "discord_session_invalidated"
+            log(f"discord_gateway_session_invalidated opcode=9 resumable={int(resumable)}")
 
     def _connection_is_blocked(self):
         state = self._connection_state()
@@ -1419,9 +1518,11 @@ class DiscordScheduleBot:
                 requested = owns and state["voice_requested"]
                 if self.voice_authority_was_owned and not requested:
                     reason = ("state_read_error" if state["error"] else "voice_released" if not state["voice_requested"]
+                              else "controller_verification_required" if state["authority_needs_sync"]
                               else "controller_unavailable" if state["authority_until"] <= time.monotonic() else "authority_revoked")
                     log(f"voice_authority_stopped reason={reason} generation={state['authority_generation']} "
-                        f"lease_remaining_sec={state['authority_until'] - time.monotonic():.3f}")
+                        f"lease_remaining_sec={max(0.0, state['authority_until'] - time.monotonic()):.3f} "
+                        f"gateway_online={int(STATUS.online)} needs_sync={int(state['authority_needs_sync'])}")
                 self.voice_authority_was_owned = requested
                 if not owns or not state["voice_requested"]:
                     if self.authority_connect_task is not None and not self.authority_connect_task.done():
@@ -1444,7 +1545,7 @@ class DiscordScheduleBot:
                             self.authority_connect_task = asyncio.create_task(self._join_authority_voice(generation))
                             self.authority_connect_task.voice_generation = generation
                 if (state["command_sync_allowed"] and self.client.is_ready()
-                        and (not self.commands_registered or self.command_generation != state["authority_generation"])
+                        and not self.commands_registered
                         and time.monotonic() >= self.next_command_sync_at):
                     if self.command_sync_task is None or self.command_sync_task.done():
                         self.next_command_sync_at = time.monotonic() + 30
@@ -2160,10 +2261,10 @@ class DiscordScheduleBot:
 
     def _text_channel_keep_count(self) -> int:
         try:
-            count = int(self.config.get("text_channel_keep_count", "2"))
-            return count if 0 <= count <= 50 else 2
+            count = int(self.config.get("text_channel_keep_count", DEFAULT_TEXT_CHANNEL_KEEP_COUNT))
+            return count if 0 <= count <= 50 else DEFAULT_TEXT_CHANNEL_KEEP_COUNT
         except (ValueError, TypeError):
-            return 2
+            return DEFAULT_TEXT_CHANNEL_KEEP_COUNT
 
     async def _set_text_channel_keep_count(self, count: int, guild: Any) -> str:
         if not 0 <= count <= 50:
@@ -2173,17 +2274,46 @@ class DiscordScheduleBot:
         self.config["text_channel_keep_count"] = str(count)
         channel = await self._resolve_text_channel(guild)
         if channel is not None:
-            await self._cleanup_bot_text_channel_messages(channel)
+            await self._cleanup_bot_text_channel_messages(channel, force=True)
         label = "제한 없음" if count == 0 else f"최근 {count}개"
         return f"보탐매니저 메시지 보관을 {label}으로 설정했습니다. 사용자 글과 고정 메시지는 유지합니다."
 
-    async def _cleanup_bot_text_channel_messages(self, channel: Any, *, keep_count: int | None = None) -> None:
+    async def _cleanup_bot_text_channel_messages(self, channel: Any, *, keep_count: int | None = None,
+                                               force: bool = False) -> None:
         # Commands and announcements can clean up the same channel concurrently.
         # Serialize cleanup with box updates so a newly updated box stays safe.
         async with self.boss_notice_lock:
-            await self._cleanup_bot_text_channel_messages_locked(channel, keep_count=keep_count)
+            await self._cleanup_bot_text_channel_messages_locked(channel, keep_count=keep_count, force=force)
 
-    async def _cleanup_bot_text_channel_messages_locked(self, channel: Any, *, keep_count: int | None = None) -> None:
+    def _defer_text_channel_cleanup(self, channel, delay, *, soundboard=False):
+        tasks = getattr(self, "text_cleanup_tasks", None)
+        if tasks is None:
+            tasks = self.text_cleanup_tasks = {}
+        key = ("soundboard:" if soundboard else "notice:") + str(channel.id)
+        generation = self._connection_state()["authority_generation"]
+        previous = tasks.get(key)
+        if previous is not None and not previous.done():
+            if getattr(previous, "boss_authority_generation", None) == generation:
+                return
+            previous.cancel()
+        async def cleanup():
+            try:
+                await asyncio.sleep(max(0.0, delay) + 0.05)
+                if not STATUS.shutdown_requested.is_set() and self._send_allowed():
+                    if soundboard:
+                        await self._cleanup_voice_panel_channel_messages(channel)
+                    else:
+                        await self._cleanup_bot_text_channel_messages(channel)
+            finally:
+                if tasks.get(key) is asyncio.current_task():
+                    tasks.pop(key, None)
+        task = asyncio.create_task(cleanup())
+        # The delayed task may not inherit authority from a later handover.
+        task.boss_authority_generation = generation
+        tasks[key] = task
+
+    async def _cleanup_bot_text_channel_messages_locked(self, channel: Any, *, keep_count: int | None = None,
+                                                      force: bool = False) -> None:
         """Keep the channel compact without ever deleting user or pinned messages."""
         if keep_count is None:
             keep_count = self._text_channel_keep_count()
@@ -2194,6 +2324,20 @@ class DiscordScheduleBot:
         bot_user_id = str(getattr(getattr(self.client, "user", None), "id", "") or "")
         if not bot_user_id:
             return
+        if not self._send_allowed():
+            return
+        cleanup_at = getattr(self, "text_cleanup_at", None)
+        if cleanup_at is None:
+            cleanup_at = self.text_cleanup_at = {}
+        channel_key = str(channel.id)
+        checked_at = time.monotonic()
+        elapsed = checked_at - cleanup_at.get(channel_key, -float("inf"))
+        if not force and elapsed < TEXT_CLEANUP_INTERVAL_SEC:
+            self._defer_text_channel_cleanup(channel, TEXT_CLEANUP_INTERVAL_SEC - elapsed)
+            return
+        # At most one history page per pass. Reserve before requesting so even
+        # failures and concurrent announcements cannot hammer the same route.
+        cleanup_at[channel_key] = checked_at
         retained = 0
         protected_panel_id = str(getattr(self, "voice_channel_panel_message_id", "") or "")
         now = time.time()
@@ -2204,14 +2348,14 @@ class DiscordScheduleBot:
         }
         try:
             candidates = []
-            from discord_authority_events import is_control_message
-            async for message in channel.history(limit=None):
+            from discord_authority_events import is_control_message, is_completed_authority_notice
+            async for message in channel.history(limit=TEXT_CLEANUP_HISTORY_LIMIT):
                 author_id = str(getattr(getattr(message, "author", None), "id", "") or "")
                 message_id = str(getattr(message, "id", "") or "")
                 if author_id != bot_user_id or bool(getattr(message, "pinned", False)) or message_id == protected_panel_id:
                     continue
-                if is_control_message(message):
-                    continue  # Control traffic has its own lifetime, not notice retention.
+                if is_control_message(message) or is_completed_authority_notice(message):
+                    continue  # Completed administrator connections remain as history.
                 group = groups_by_message.get(message_id)
                 if group and not group.get('completed') and float(group.get('target_at') or 0) + 15 > now:
                     continue  # Keep an active boss's earlier box for its next stage.
@@ -2221,14 +2365,18 @@ class DiscordScheduleBot:
             # Editing a boss box does not change its Discord creation ID. Count
             # its latest announcement as recent activity when applying retention.
             candidates.sort(key=lambda item: (item[0], int(getattr(item[1], 'id', 0))), reverse=True)
+            deleted = 0
             for _activity_at, message in candidates:
                 if retained < max(0, int(keep_count)):
                     retained += 1
                     continue
                 try:
+                    if deleted >= TEXT_CLEANUP_DELETE_LIMIT:
+                        break
                     if not self._send_allowed():
                         return
                     await message.delete()
+                    deleted += 1
                     log(f"text_channel_cleanup_deleted channel_id={getattr(channel, 'id', '')} "
                         f"message_id={message.id} at={time.time():.3f}")
                     for key, group in list(self.boss_notice_groups.items()):
@@ -2249,16 +2397,30 @@ class DiscordScheduleBot:
         protected_panel_id = str(getattr(self, "voice_channel_panel_message_id", "") or "")
         if not bot_user_id or not protected_panel_id:
             return
+        cleanup_at = getattr(self, "voice_panel_cleanup_at", None)
+        if cleanup_at is None:
+            cleanup_at = self.voice_panel_cleanup_at = {}
+        key, now = str(channel.id), time.monotonic()
+        elapsed = now - cleanup_at.get(key, -float("inf"))
+        if elapsed < TEXT_CLEANUP_INTERVAL_SEC:
+            self._defer_text_channel_cleanup(channel, TEXT_CLEANUP_INTERVAL_SEC - elapsed, soundboard=True)
+            return
+        cleanup_at[key] = now
         retained_messages = 0
         try:
+            from discord_authority_events import is_control_message, is_completed_authority_notice
             async for message in channel.history(limit=80):
                 message_id = str(getattr(message, "id", "") or "")
                 if message_id == protected_panel_id or bool(getattr(message, "pinned", False)):
+                    continue
+                if is_control_message(message) or is_completed_authority_notice(message):
                     continue
                 if retained_messages < 1:
                     retained_messages += 1
                     continue
                 try:
+                    if not self._send_allowed():
+                        return
                     await message.delete()
                 except Exception:
                     # The panel still works without Manage Messages; Discord simply
@@ -2461,7 +2623,13 @@ class DiscordScheduleBot:
     def _bind_events(self) -> None:
         @self.client.event
         async def on_ready() -> None:
+            if self.gateway_disconnected_at is not None and STATUS.connected_at:
+                # A new login rebuilt the session instead of resuming it.
+                # Its ownership must be verified before sending again.
+                self.connection_policy.update(authority_needs_sync=True, authority_until=0)
+                log("discord_gateway_new_session authority_reverification_required=1")
             self.gateway_disconnected_at = None
+            self.gateway_reconnect_signal = ""
             STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="",
                           bot_user_id=str(getattr(self.client.user, "id", "")))
             self.connection_policy.success()
@@ -2497,18 +2665,47 @@ class DiscordScheduleBot:
 
         @self.client.event
         async def on_disconnect() -> None:
+            now = time.monotonic()
             if self.gateway_disconnected_at is None:
-                self.gateway_disconnected_at = time.monotonic()
-            STATUS.update(online=False, voice_connected=False)
-            log("discord_disconnected")
-            self.connection_policy.update(authority_needs_sync=True, authority_until=0)
+                self.gateway_disconnected_at = now
+            voice_connected = bool(self.voice_client is not None and self.voice_client.is_connected())
+            STATUS.update(online=False, voice_connected=voice_connected)
+            state = self.connection_policy.snapshot()
+            websocket = getattr(self.client, "ws", None)
+            socket = getattr(websocket, "socket", None)
+            close_code = getattr(websocket, "_close_code", None) or getattr(socket, "close_code", None)
+            latency = self.gateway_last_heartbeat_latency
+            latency_text = f"{latency:.3f}" if isinstance(latency, (int, float)) else "unknown"
+            ack_at = self.gateway_last_heartbeat_ack_at
+            ack_age = f"{max(0.0, now - ack_at):.3f}" if ack_at is not None else "unknown"
+            reason = self.gateway_reconnect_signal or "transport_or_receive_timeout"
+            if STATUS.shutdown_requested.is_set():
+                reason = "shutdown_requested"
+            log(f"discord_disconnected close_code={close_code if close_code is not None else 'unknown'} "
+                f"reason={reason} last_heartbeat_latency_sec={latency_text} last_ack_age_sec={ack_age} "
+                f"voice_connected={int(voice_connected)} "
+                f"generation={state['authority_generation']} "
+                f"lease_remaining_sec={max(0.0, state['authority_until'] - now):.3f}")
+            # The Gateway can resume within a second while voice stays alive.
+            # Keep the last verified lease; offline packets are already fenced.
+            # No renewal occurs offline, and the existing 10s timeout still
+            # stops voice and requires owner verification after a long outage.
 
         @self.client.event
         async def on_resumed() -> None:
+            disconnected_at = self.gateway_disconnected_at
+            disconnected_sec = max(0.0, time.monotonic() - disconnected_at) if disconnected_at is not None else 0.0
             self.gateway_disconnected_at = None
-            STATUS.update(online=True, connected_at=STATUS.connected_at if STATUS.online else time.time(), last_error="")
+            state = self.connection_policy.snapshot()
+            voice_connected = bool(self.voice_client is not None and self.voice_client.is_connected()
+                and ConnectionPolicy.has_authority(state, STATUS.runtime_id, allow_joining=True))
+            STATUS.update(online=True, voice_connected=voice_connected,
+                          connected_at=STATUS.connected_at or time.time(), last_error="")
+            log(f"discord_gateway_resumed disconnected_sec={disconnected_sec:.3f} "
+                f"reason={self.gateway_reconnect_signal or 'transport_or_receive_timeout'} "
+                f"voice_connected={int(voice_connected)} generation={state['authority_generation']}")
+            self.gateway_reconnect_signal = ""
             await self._queue_authority_session_event()
-            log("discord_gateway_resumed")
 
         @self.client.event
         async def on_voice_state_update(member: Any, before: Any, after: Any) -> None:
@@ -2690,11 +2887,11 @@ class DiscordScheduleBot:
         """Recover a stuck gateway or voice connection without waiting for a new alert."""
         while not STATUS.shutdown_requested.is_set():
             await asyncio.sleep(2.0)
-            if self.client.is_ready():
+            # Client.is_ready() may remain true during a RESUME attempt. The
+            # disconnect event's online flag must also be restored first.
+            if self.client.is_ready() and STATUS.online:
                 if self._connection_is_blocked() or not self._connection_state()["authority_active"]:
                     continue
-                self.gateway_disconnected_at = None
-                STATUS.update(online=True)
                 voice_is_connected = bool(
                     self.voice_client is not None
                     and getattr(self.voice_client, "is_connected", lambda: False)()
@@ -2716,12 +2913,12 @@ class DiscordScheduleBot:
                 self.gateway_disconnected_at = time.monotonic()
                 continue
             disconnected_seconds = time.monotonic() - disconnected_at
-            if disconnected_seconds < 20.0:
+            if disconnected_seconds < GATEWAY_RECOVERY_TIMEOUT_SEC:
                 continue
             STATUS.update(
                 online=False,
                 voice_connected=False,
-                last_error="디스코드 연결이 20초 이상 복구되지 않아 봇을 자동 재시작합니다.",
+                last_error=f"디스코드 연결이 {GATEWAY_RECOVERY_TIMEOUT_SEC:g}초 이상 복구되지 않아 봇을 자동 재시작합니다.",
             )
             log(f"discord_gateway_recovery_restart disconnected_sec={disconnected_seconds:.1f}")
             await self.client.close()
@@ -2801,6 +2998,7 @@ class DiscordScheduleBot:
         bot_user = getattr(self.client, "user", None)
         request_payload = {
             "operation": "connection_log",
+            "connection_event": "voice_reconnected",
             "request_id": uuid.uuid4().hex,
             "received_at": datetime.now().isoformat(timespec="seconds"),
             "channel_id": str(getattr(channel, "id", "") or self.config.get("text_channel_id") or ""),
@@ -3071,6 +3269,8 @@ class DiscordScheduleBot:
 
     async def _sync_commands(self) -> None:
         try:
+            if self.commands_registered:
+                return  # Definitions do not change with the owner generation.
             generation = self._connection_state()["authority_generation"]
             server_id = self._get_configured_server_id()
             if not server_id:
@@ -4027,11 +4227,14 @@ class DiscordScheduleBot:
                 try:
                     if job.phase in TIMED_REPLACE_CURRENT_AUDIO_PHASES:
                         try:
-                            prepared_source = self._create_playback_source(
+                            prepared_source = await self._prepare_playback_source(
                                 clip_path,
                                 volume=job.volume,
                                 trim_silence=True,
+                                scope_id=job.scope_id,
                             )
+                            if prepared_source is None:
+                                return
                         except Exception as exc:
                             log(f"timed_clip_prepare_failed id={job.id} phase={job.phase} path={clip_path} error={exc}")
                             continue
@@ -4280,6 +4483,50 @@ class DiscordScheduleBot:
             STATUS.update(voice_connected=True)
             return
         await self._connect_configured_voice_channel()
+
+    async def _prepare_playback_source(self, clip_path, *, volume=1.0,
+                                       trim_silence=False, scope_id=""):
+        """Keep disk reads, silence trimming and FFmpeg startup off the Gateway loop."""
+        if not self._send_allowed() or self._is_voice_bridge_scope_cancelled(scope_id):
+            return None
+        generation = self._connection_state()["authority_generation"]
+        prepared = {"source": None, "discard": False}
+        prepared_lock = threading.Lock()
+        def prepare():
+            source = self._create_playback_source(clip_path, volume=volume, trim_silence=trim_silence)
+            with prepared_lock:
+                discarded = prepared["discard"]
+                if not discarded:
+                    prepared["source"] = source
+            if discarded:
+                self._cleanup_audio_source(source)
+                return None
+            return source
+        pending = asyncio.create_task(asyncio.to_thread(prepare))
+        try:
+            source = await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            # Cancelling the awaiting coroutine cannot stop a worker thread.
+            # Dispose its eventual result; never let late preparation play.
+            with prepared_lock:
+                prepared["discard"] = True
+                abandoned = prepared["source"]
+                prepared["source"] = None
+            if abandoned is not None:
+                threading.Thread(target=self._cleanup_audio_source, args=(abandoned,),
+                                 daemon=True, name="discard-prepared-discord-audio").start()
+            def consume(completed):
+                try:
+                    completed.result()
+                except (Exception, asyncio.CancelledError):
+                    pass
+            pending.add_done_callback(consume)
+            raise
+        if (not self._send_allowed() or self._is_voice_bridge_scope_cancelled(scope_id)
+                or self._connection_state()["authority_generation"] != generation):
+            await asyncio.to_thread(self._cleanup_audio_source, source)
+            return None
+        return source
 
     def _create_playback_source(
         self,
@@ -4835,7 +5082,10 @@ class DiscordScheduleBot:
             self._cleanup_audio_source(source)
             return
         if source is None:
-            source = self._create_playback_source(clip_path, volume=volume, trim_silence=trim_silence)
+            source = await self._prepare_playback_source(clip_path, volume=volume,
+                                                       trim_silence=trim_silence, scope_id=scope_id)
+            if source is None:
+                return
 
         def after_play(error: Exception | None) -> None:
             if error:
@@ -4852,13 +5102,23 @@ class DiscordScheduleBot:
                     self._cleanup_audio_source(source)
                     log(f"timed_clip_skipped_busy path={clip_path}")
                     return
-                if self._is_voice_bridge_scope_cancelled(scope_id):
+                if (not self._send_allowed() or self.voice_client is None
+                        or not self.voice_client.is_connected()
+                        or self._is_voice_bridge_scope_cancelled(scope_id)):
                     self._cleanup_audio_source(source)
                     return
                 self.current_voice_scope_id = str(scope_id or "").strip()
                 self.current_voice_playback_token = playback_token
                 self.voice_client.play(source, after=after_play)
                 self.current_voice_player_thread = getattr(self.voice_client, "_player", None)
+        except asyncio.CancelledError:
+            if self.current_voice_playback_token is playback_token:
+                async with self.voice_transition_lock:
+                    await asyncio.shield(self._stop_current_voice_playback_and_wait(
+                        expected_scope_id=scope_id, reason="timed_clip_task_cancelled"))
+            else:
+                await asyncio.to_thread(self._cleanup_audio_source, source)
+            raise
         except Exception as exc:
             self._clear_current_voice_playback(playback_token)
             self._cleanup_audio_source(source)
@@ -4968,11 +5228,14 @@ class DiscordScheduleBot:
                 await asyncio.sleep(0.05)
             if self._is_voice_bridge_scope_cancelled(scope_id):
                 return
-            source = self._create_playback_source(
+            source = await self._prepare_playback_source(
                 clip_path,
                 volume=volume,
                 trim_silence=trim_silence,
+                scope_id=scope_id,
             )
+            if source is None:
+                return
             if confirm_eof:
                 source = observe_audio_source(self.discord.AudioSource, source)
             done = asyncio.Event()
@@ -4988,10 +5251,15 @@ class DiscordScheduleBot:
 
             try:
                 while True:
-                    if self._is_voice_bridge_scope_cancelled(scope_id):
+                    if (not self._send_allowed() or self.voice_client is None
+                            or not self.voice_client.is_connected()
+                            or self._is_voice_bridge_scope_cancelled(scope_id)):
                         self._cleanup_audio_source(source)
                         return
                     async with self.voice_transition_lock:
+                        if not self._send_allowed() or self.voice_client is None:
+                            self._cleanup_audio_source(source)
+                            return
                         if not self.voice_client.is_playing() and not self.voice_client.is_paused():
                             self.current_voice_scope_id = str(scope_id or "").strip()
                             self.current_voice_playback_token = playback_token
@@ -5012,6 +5280,8 @@ class DiscordScheduleBot:
                             )
                     except Exception:
                         pass
+                else:
+                    await asyncio.to_thread(self._cleanup_audio_source, source)
                 raise
             except Exception:
                 self._clear_current_voice_playback(playback_token)
@@ -5176,8 +5446,17 @@ class DiscordScheduleBot:
             while not STATUS.shutdown_requested.is_set():
                 time.sleep(0.25)
             return self.message_content_enabled
+        gateway_logger = logging.getLogger("discord.gateway")
+        gateway_diagnostics = GatewayDiagnosticHandler(level=logging.WARNING)
+        gateway_logger.addHandler(gateway_diagnostics)
+        http_logger = logging.getLogger("discord.http")
+        http_diagnostics = HttpRateLimitDiagnosticHandler()
+        http_logger.addHandler(http_diagnostics)
         try:
-            self.client.run(token, log_handler=None, reconnect=False)
+            # Resume transport failures on the same Client/session first. The
+            # watchdog bounds this window; full runtime rebuilds still use the
+            # shared retry budget and ownership verification.
+            self.client.run(token, log_handler=None, reconnect=True)
         except DiscordConfigurationError:
             # Keep the status endpoint available, without reconnecting with
             # the wrong identity. The GUI can stop/restart after correction.
@@ -5204,6 +5483,9 @@ class DiscordScheduleBot:
                 return False
             STATUS.update(online=False, voice_connected=False, last_error=f"디스코드 실행 실패: {exc}")
             log(f"discord_run_failed error={exc}")
+        finally:
+            gateway_logger.removeHandler(gateway_diagnostics)
+            http_logger.removeHandler(http_diagnostics)
         return self.message_content_enabled
 
 

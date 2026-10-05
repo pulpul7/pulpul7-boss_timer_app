@@ -457,8 +457,12 @@ class DiscordAuthority:
                 "GitHub 확인 실패와는 별개입니다. 디코 실행 버튼으로 현재 담당자를 검증하고 다시 연결하세요.",
                 parent=self.app.schedule_window or self.app.root), wait=False)
 
-    def _notify(self, data):
-        self._control("publish", request=data.get("request", ""), generation=data.get("generation", 0))
+    def _notify(self, data, *, notice=""):
+        values = dict(request=data.get("request", ""), generation=data.get("generation", 0))
+        if notice:
+            values.update(notice=notice, notice_member=data.get("members", {}).get(self.client, {}),
+                          notice_voice_channel=str(data.get("channel") or ""))
+        self._control("publish", **values)
 
     def _process_record(self, data, status):
         channel = str(getattr(self, "control_channel_id", "") or getattr(self.app, "discord_bot_text_channel_id", "") or "")
@@ -675,7 +679,7 @@ class DiscordAuthority:
                     verified_previous=verified_previous, verified_kind=verified_kind,
                     minimum_generation=self.policy.snapshot().get("authority_generation", 0))
             request_id = self.current["request"]
-            self._notify(self.current)
+            self._notify(self.current, notice="started")
             if self.current["phase"] == "requested":
                 self._progress("incoming", self.incoming_progress_token, "handover",
                                "기존 관리자의 실제 음성 종료 확인을 기다립니다.\n"
@@ -724,7 +728,7 @@ class DiscordAuthority:
                         grant_checked_at = time.monotonic()
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
                         self._observe(self.current, status, grant_checked_at)
-                    self._notify(self.current)
+                    self._notify(self.current, notice="completed")
                     result, message = True, "관리자 · 송출 중 (로컬 스케줄 유지 · 동기화는 수동)"
                     return
                 if (state.get("runtime_id") != runtime or state.get("authority_request") != request_id
@@ -1038,7 +1042,7 @@ class DiscordAuthority:
                                 done(True, dict(state="finished"))
                                 return
                     time.sleep(.25)
-                    entry = self.query_ledger.entry(query_id)
+                    entry = self.query_ledger.entry(query_id, cached=True)
                 done(False, "조회 응답을 받지 못했습니다. 관리자를 변경하고 다시 시도하세요.")
             except Exception as exc:
                 done(False, str(exc))

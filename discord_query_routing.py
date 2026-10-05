@@ -4,11 +4,13 @@ The interaction token and schedule/audio data stay on the originating PCs.
 This ledger is independent of administrator authority and voice ownership.
 """
 from copy import deepcopy
+import threading
 import time
 
 RESPONSE_SECONDS = 3
 REQUEST_TTL = 120
 MAX_REQUESTS = 32
+QUERY_READ_CACHE_SECONDS = 0.5
 QUERY_TYPES = frozenset({"help", "schedule", "plain", "voices", "image"})
 
 
@@ -22,8 +24,23 @@ class QueryLedger:
         self.put = authority_record.put
         self.guild = str(authority_record.scope["guild"])
         self.path = authority_record.path.removesuffix(".json") + "_queries.json"
+        self.read_lock = threading.Lock()
+        self.read_cache = None
+        self.read_cache_at = 0.0
 
-    def read(self):
+    def read(self, *, cache_for=0.0):
+        # Only waiting query loops use a short shared read cache. CAS updates
+        # always call the default uncached path for a fresh SHA.
+        with self.read_lock:
+            if (cache_for > 0 and self.read_cache is not None
+                    and time.monotonic() - self.read_cache_at < cache_for):
+                return deepcopy(self.read_cache)
+            data, sha = self._read_latest()
+            self.read_cache = deepcopy((data, sha))
+            self.read_cache_at = time.monotonic()
+            return data, sha
+
+    def _read_latest(self):
         data, sha, error = self.get(self.path)
         if error:
             raise QueryRoutingError(error)
@@ -41,7 +58,11 @@ class QueryLedger:
             result = change(data["requests"], data)
             if data == previous:
                 return deepcopy(result)
-            ok, error = self.put(self.path, data, sha=sha, message="BossTimer read-only query routing")
+            try:
+                ok, error = self.put(self.path, data, sha=sha, message="BossTimer read-only query routing")
+            finally:
+                with self.read_lock:
+                    self.read_cache = None
             if ok:
                 return deepcopy(result)
             if attempt == 2 or not any(code in str(error) for code in ("409", "422")):
@@ -113,8 +134,8 @@ class QueryLedger:
             return entry
         return self.mutate(change)
 
-    def entry(self, request_id):
-        data, _ = self.read()
+    def entry(self, request_id, *, cached=False):
+        data, _ = self.read(cache_for=QUERY_READ_CACHE_SECONDS if cached else 0.0)
         return deepcopy(data["requests"].get(request_id))
 
     def clear_responder(self, preferred, generation):
