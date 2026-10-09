@@ -169,6 +169,16 @@ class NoticeRuntime:
         callback = getattr(self.session.plugin, 'get_server_open_override', None) if self.session else None
         return callback(server_id, now, reference) if callable(callback) else None
 
+    def get_server_open_alarm(self, server_id, now):
+        plugin = self.session.plugin if self.session else None
+        callback = getattr(plugin, 'get_server_open_alarm', None)
+        if callable(callback):
+            return callback(server_id, now)
+        # Old independently installed modules can still supply the opening at
+        # its due time. Advance warning requires their optional newer API.
+        callback = getattr(plugin, 'get_server_open_override', None)
+        return callback(server_id, now, now) if callable(callback) else None
+
     def notify_schedule_changed(self):
         callback = getattr(self.session.plugin, 'notify_schedule_changed', None) if self.session else None
         if callable(callback):

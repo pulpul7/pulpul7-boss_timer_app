@@ -31,6 +31,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from voice_bridge_receipts import observe_audio_source
+from discord_connection_diagnostics import VoiceConnectionDiagnostics, voice_connection_snapshot, gateway_heartbeat_latency
+from discord_voice_connection_order import VoiceLeaveBarrier
+from desktop_banner import DiscordBannerRelay
 from discord_notice_output import DiscordNoticeOutput
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL, is_access_error, ACCESS_ERROR_TEXT, _read_state_text
 from discord_query_routing import QueryLedger
@@ -588,10 +591,24 @@ class VoiceBridgeJob:
     target_time: str = ""
     offset_sec: int = 0
     notice_group_id: str = ""
+    expires_at: str = ""
 
     @property
     def key(self) -> str:
         return f"VOICE_BRIDGE:{self.id}"
+
+    @property
+    def playback_deadline(self) -> datetime | None:
+        # Countdown/spawn clips deliberately straddle the spawn timestamp.
+        # Only advance warnings are bounded by it.
+        if self.phase not in {"PRE_ALERT", "PRE_ALERT_SEQUENCE", "FIXED_PRE_ALERT", "FIXED_PRE_ALERT_SEQUENCE"}:
+            return None
+        deadlines = [parse_datetime(self.expires_at), parse_datetime(self.target_time)]
+        return min((value for value in deadlines if value is not None), default=None)
+
+    def is_expired(self, now_value: datetime) -> bool:
+        deadline = self.playback_deadline
+        return deadline is not None and now_value >= deadline
 
 
 @dataclass(frozen=True)
@@ -721,6 +738,7 @@ class VoiceBridgeReader:
             target_time=str(payload.get('target_time') or ''),
             offset_sec=offset_sec,
             notice_group_id=str(payload.get('notice_group_id') or '').strip(),
+            expires_at=str(payload.get('expires_at') or '').strip(),
         )
 
 
@@ -1314,9 +1332,9 @@ class DiscordScheduleBot:
         self.voice_panel_startup_task: asyncio.Task[Any] | None = None
         self.gateway_disconnected_at: float | None = None
         self.gateway_reconnect_signal = ""
-        self.gateway_last_heartbeat_sent_at: float | None = None
         self.gateway_last_heartbeat_ack_at: float | None = None
         self.gateway_last_heartbeat_latency: float | None = None
+        self.voice_disconnect_detected_at: float | None = None
         self.last_voice_reconnect_attempt_at = 0.0
         self.schedule_request_lock = asyncio.Lock()
         self.config = load_config()
@@ -1370,16 +1388,12 @@ class DiscordScheduleBot:
         opcode = payload.get("op")
         now = time.monotonic()
         if sent:
-            if opcode == 1:
-                self.gateway_last_heartbeat_sent_at = now
             return
         if opcode == 10:
-            self.gateway_last_heartbeat_sent_at = None
+            self.gateway_last_heartbeat_ack_at = None
+            self.gateway_last_heartbeat_latency = None
         elif opcode == 11:
             self.gateway_last_heartbeat_ack_at = now
-            sent_at = self.gateway_last_heartbeat_sent_at
-            if sent_at is not None:
-                self.gateway_last_heartbeat_latency = max(0.0, now - sent_at)
         elif opcode == 7:
             self.gateway_reconnect_signal = "discord_reconnect_request"
             log("discord_gateway_reconnect_requested opcode=7 source=discord")
@@ -1387,6 +1401,11 @@ class DiscordScheduleBot:
             resumable = payload.get("d") is True
             self.gateway_reconnect_signal = "discord_session_invalidated"
             log(f"discord_gateway_session_invalidated opcode=9 resumable={int(resumable)}")
+        # The SDK can discard its keepalive object when the socket closes.
+        # Retain only a genuine SDK RTT; never derive it from raw-send events.
+        latency = gateway_heartbeat_latency(getattr(self, "client", None))
+        if opcode != 10 and latency is not None:
+            self.gateway_last_heartbeat_latency = latency
 
     def _connection_is_blocked(self):
         state = self._connection_state()
@@ -1406,6 +1425,30 @@ class DiscordScheduleBot:
         if task is not None and not hasattr(task, "boss_authority_generation"):
             task.boss_authority_generation = self._connection_state()["authority_generation"]
 
+    def _voice_leave_barrier(self, guild_id):
+        barriers = getattr(self, "voice_leave_barriers", None)
+        if barriers is None:
+            self.voice_leave_barriers = barriers = {}
+        key = str(guild_id)
+        if key not in barriers:
+            barriers[key] = VoiceLeaveBarrier()
+        return barriers[key]
+
+    def _confirm_voice_leave(self, guild_id):
+        if self._voice_leave_barrier(guild_id).confirm():
+            log(f"voice_leave_confirmed guild_id={guild_id}")
+
+    async def _wait_for_voice_leave(self, guild_id):
+        barrier = self._voice_leave_barrier(guild_id)
+        if not barrier.pending:
+            return True
+        started_at = time.monotonic()
+        log(f"voice_join_waiting_for_leave guild_id={guild_id}")
+        ready = await barrier.wait()
+        log(f"voice_join_leave_wait_finished guild_id={guild_id} confirmed={int(ready)} "
+            f"wait_sec={time.monotonic() - started_at:.3f}")
+        return ready
+
     def _authority_voice_client_type(self, expected_generation):
         bot = self
         class AuthorityVoiceClient(bot.discord.VoiceClient):
@@ -1421,6 +1464,9 @@ class DiscordScheduleBot:
                     super().cleanup()
 
             async def disconnect(voice_self, *, force=False):
+                diagnostic = getattr(voice_self, "boss_connection_diagnostics", None)
+                if diagnostic is not None:
+                    diagnostic.record("voice_client_disconnect_requested", force=bool(force))
                 voice_self.stop()
                 try:
                     # Revoked instances never send a guild leave, so no leave
@@ -1433,20 +1479,60 @@ class DiscordScheduleBot:
                 state = super().create_connection_state()
                 generation = expected_generation
                 voice_self.authority_generation = generation
+                voice_self.boss_leave_requested = False
+                barrier = bot._voice_leave_barrier(voice_self.guild.id)
                 connect, disconnect = state._voice_connect, state._voice_disconnect
                 def authorized():
                     return voice_self.owns_authority()
                 async def guarded_connect(**kw):
+                    if not await bot._wait_for_voice_leave(voice_self.guild.id):
+                        raise RuntimeError("이전 음성 연결의 퇴장 확인을 기다리고 있습니다.")
                     if not authorized():
                         raise RuntimeError("관리자 권한이 변경되어 음성 접속을 중단했습니다.")
+                    voice_self.boss_leave_requested = False
                     await connect(**kw)
                 async def guarded_disconnect():
                     # A superseded PC must not send a guild-wide leave and kick
                     # the new owner's voice session. Local resources still close.
-                    if authorized() or bot.authority_disconnect_generation == generation:
+                    registered = getattr(voice_self.guild, "voice_client", None)
+                    replacement = registered is not None and registered is not voice_self
+                    if replacement or not (authorized() or bot.authority_disconnect_generation == generation):
+                        diagnostic.record("voice_guild_leave_suppressed")
+                        return
+                    if voice_self.boss_leave_requested or not barrier.begin():
+                        diagnostic.record("voice_guild_leave_duplicate_suppressed")
+                        return
+                    # Retain this gate even after SDK cleanup unregisters the
+                    # old protocol. Register before the first network await.
+                    voice_self.boss_leave_requested = True
+                    diagnostic.record("voice_guild_leave_requested")
+                    try:
                         await disconnect()
+                    finally:
+                        barrier.finish_send()
                 state._voice_connect, state._voice_disconnect = guarded_connect, guarded_disconnect
+                diagnostic = VoiceConnectionDiagnostics(voice_self, state, log)
+                voice_self.boss_connection_diagnostics = diagnostic
+                diagnostic.install()
                 return state
+
+            async def on_voice_state_update(voice_self, data):
+                diagnostic = getattr(voice_self, "boss_connection_diagnostics", None)
+                if diagnostic is not None:
+                    before = getattr(getattr(voice_self, "channel", None), "id", None)
+                    after = data.get("channel_id")
+                    if str(before or "") != str(after or ""):
+                        diagnostic.record("voice_sdk_channel_changed", left_channel=after is None)
+                result = await super().on_voice_state_update(data)
+                if data.get("channel_id") is None:
+                    bot._confirm_voice_leave(voice_self.guild.id)
+                return result
+
+            async def on_voice_server_update(voice_self, data):
+                diagnostic = getattr(voice_self, "boss_connection_diagnostics", None)
+                if diagnostic is not None:
+                    diagnostic.record("voice_sdk_server_update")
+                return await super().on_voice_server_update(data)
 
             def send_audio_packet(voice_self, data, *, encode=True):
                 # AudioPlayer runs on its own thread; fence every packet even
@@ -1462,6 +1548,10 @@ class DiscordScheduleBot:
     async def _close_voice_client(self, voice, *, reason):
         if voice is None:
             return
+        voice.boss_disconnect_reason = reason
+        diagnostic = getattr(voice, "boss_connection_diagnostics", None)
+        if diagnostic is not None:
+            diagnostic.record("voice_program_disconnect_requested")
         try:
             await asyncio.wait_for(voice.disconnect(force=True), timeout=3)
         except asyncio.CancelledError:
@@ -1469,6 +1559,8 @@ class DiscordScheduleBot:
         except Exception as exc:
             log(f"voice_cleanup_failed reason={reason} type={type(exc).__name__} error={exc!r}")
         finally:
+            if diagnostic is not None:
+                diagnostic.record("voice_program_disconnect_finished")
             for close in (voice.stop, voice.cleanup):
                 try:
                     close()
@@ -1479,6 +1571,8 @@ class DiscordScheduleBot:
                 STATUS.update(voice_connected=False)
 
     async def _disconnect_authority_voice(self):
+        # An intentional handover/standby ends this outage's observation.
+        self.voice_disconnect_detected_at = None
         for _, task in list(self.timed_bridge_tasks.values()):
             task.cancel()
         while True:
@@ -2674,7 +2768,9 @@ class DiscordScheduleBot:
             websocket = getattr(self.client, "ws", None)
             socket = getattr(websocket, "socket", None)
             close_code = getattr(websocket, "_close_code", None) or getattr(socket, "close_code", None)
-            latency = self.gateway_last_heartbeat_latency
+            latency = gateway_heartbeat_latency(self.client)
+            if latency is None:
+                latency = self.gateway_last_heartbeat_latency
             latency_text = f"{latency:.3f}" if isinstance(latency, (int, float)) else "unknown"
             ack_at = self.gateway_last_heartbeat_ack_at
             ack_age = f"{max(0.0, now - ack_at):.3f}" if ack_at is not None else "unknown"
@@ -2682,7 +2778,7 @@ class DiscordScheduleBot:
             if STATUS.shutdown_requested.is_set():
                 reason = "shutdown_requested"
             log(f"discord_disconnected close_code={close_code if close_code is not None else 'unknown'} "
-                f"reason={reason} last_heartbeat_latency_sec={latency_text} last_ack_age_sec={ack_age} "
+                f"reason={reason} last_heartbeat_latency_sec={latency_text} latency_source=sdk last_ack_age_sec={ack_age} "
                 f"voice_connected={int(voice_connected)} "
                 f"generation={state['authority_generation']} "
                 f"lease_remaining_sec={max(0.0, state['authority_until'] - now):.3f}")
@@ -2717,6 +2813,9 @@ class DiscordScheduleBot:
             # health status or voice panel (including channel=None on leave).
             if not self._is_configured_guild(getattr(member, "guild", None)):
                 return
+            # The old protocol may already be unregistered by SDK cleanup.
+            if getattr(after, "channel", None) is None:
+                self._confirm_voice_leave(member.guild.id)
             if (self._connection_is_blocked() or self.voice_client is None
                     or not self.voice_client.is_connected()
                     or getattr(self.voice_client, "authority_generation", None)
@@ -2751,6 +2850,8 @@ class DiscordScheduleBot:
 
         @self.client.event
         async def on_raw_message_edit(payload: Any) -> None:
+            await self._relay_desktop_banner(dict(payload.data, id=str(payload.message_id),
+                                           channel_id=str(payload.channel_id)), edited=True)
             # Observe only our tracked notices. Never rewrite a message here:
             # compare these server events with the outbound signature to tell
             # content changes from a Discord client-only redraw.
@@ -2767,6 +2868,15 @@ class DiscordScheduleBot:
 
         @self.client.event
         async def on_message(message: Any) -> None:
+            # Every connected administrator can receive local banners, even
+            # while another administrator owns the sending authority.
+            await self._relay_desktop_banner({
+                "id": str(message.id), "channel_id": str(message.channel.id),
+                "author": {"id": str(message.author.id), "bot": bool(getattr(message.author, "bot", False))},
+                "content": message.content,
+                "embeds": [embed.to_dict() for embed in message.embeds],
+                "flags": getattr(getattr(message, "flags", None), "value", 0),
+            })
             if await self.authority_events.receive(message):
                 return
             if not self._send_allowed():
@@ -2776,6 +2886,31 @@ class DiscordScheduleBot:
                 self._cleanup_voice_panel_after_activity(getattr(message, "channel", None))
             )
             await self._handle_schedule_text_message(message)
+
+    async def _relay_desktop_banner(self, data: dict, *, edited=False):
+        channel_id = str(self.config.get("text_channel_id") or "").strip()
+        bot_id = str(getattr(self.client.user, "id", "") or "")
+        if (not channel_id or not bot_id or str(data.get("channel_id")) != channel_id
+                or int(data.get("flags") or 0) & 64):
+            return
+        try:
+            relay = getattr(self, "desktop_banner_relay", None)
+            if relay is None:
+                relay = self.desktop_banner_relay = DiscordBannerRelay(get_user_config_dir())
+            bot_ids = []
+            author = data.get("author") or (relay.messages.get(str(data.get("id"))) or {}).get("author") or {}
+            if str(author.get("id") or "") != bot_id:
+                if not author.get("bot"):
+                    return
+                members = self.connection_policy.snapshot().get("query_members") or []
+                bot_ids = [str(member.get("bot_user_id") or member.get("application_id") or "")
+                           for member in members if member.get("online")]
+            notice = relay.observe(data, channel_id=channel_id, bot_id=bot_id,
+                                   bot_ids=bot_ids, edited=edited)
+            if notice is not None:
+                await asyncio.to_thread(relay.inbox.publish, *notice)
+        except Exception as exc:
+            log(f"desktop_banner_relay_failed type={type(exc).__name__}")
 
     async def _queue_authority_session_event(self):
         await self._queue_local_schedule_request(dict(
@@ -2897,9 +3032,15 @@ class DiscordScheduleBot:
                     and getattr(self.voice_client, "is_connected", lambda: False)()
                 )
                 if voice_is_connected:
+                    self._record_voice_connection_recovered()
                     STATUS.update(voice_connected=True)
                     continue
                 now_value = time.monotonic()
+                if getattr(self, "voice_disconnect_detected_at", None) is None:
+                    self.voice_disconnect_detected_at = now_value
+                    snapshot = voice_connection_snapshot(self.voice_client)
+                    log("voice_disconnect_detected source=watchdog " +
+                        " ".join(f"{key}={value}" for key, value in snapshot.items()))
                 if now_value - self.last_voice_reconnect_attempt_at < 5.0:
                     continue
                 self.last_voice_reconnect_attempt_at = now_value
@@ -2923,6 +3064,13 @@ class DiscordScheduleBot:
             log(f"discord_gateway_recovery_restart disconnected_sec={disconnected_seconds:.1f}")
             await self.client.close()
             return
+
+    def _record_voice_connection_recovered(self):
+        detected_at = getattr(self, "voice_disconnect_detected_at", None)
+        if detected_at is None:
+            return
+        self.voice_disconnect_detected_at = None
+        log(f"voice_connection_recovered since_detection_sec={max(0.0, time.monotonic() - detected_at):.3f}")
 
     async def _queue_countdown_control(self, enabled: bool, author: Any, channel: Any, *, raw_text: str) -> str:
         payload = {
@@ -3647,7 +3795,7 @@ class DiscordScheduleBot:
         return embed
 
     async def _send_voice_bridge_text_notice(self, job: VoiceBridgeJob) -> None:
-        if not self._send_allowed():
+        if not self._send_allowed() or job.is_expired(datetime.now()):
             return False
         self._tag_authority_task()
         phase = str(job.phase or "").strip().upper()
@@ -3666,7 +3814,7 @@ class DiscordScheduleBot:
             return
         try:
             async with self.boss_notice_lock:
-                if not self._send_allowed() or dedupe_key in self.text_notice_keys:
+                if not self._send_allowed() or job.is_expired(datetime.now()) or dedupe_key in self.text_notice_keys:
                     return
                 now = datetime.now()
                 now_timestamp = time.time()
@@ -3980,6 +4128,10 @@ class DiscordScheduleBot:
         async with lock:
             if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
                 return False
+            if not await self._wait_for_voice_leave(self._get_configured_server_id()):
+                return False
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                return False
             if self.voice_client is not None and self.voice_client.is_connected():
                 return True
             if automatic:
@@ -4032,6 +4184,10 @@ class DiscordScheduleBot:
                     await self._close_voice_client(cached_voice, reason="before_reconnect")
                     if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
                         return False, "관리자 권한이 변경되었습니다."
+            if not await self._wait_for_voice_leave(configured_guild_id):
+                return False, "이전 음성 연결의 퇴장 확인을 기다리고 있습니다."
+            if self._connection_is_blocked() or self._connection_state()["authority_generation"] != generation:
+                return False, "관리자 권한이 변경되었습니다."
             if self.voice_client is not None and getattr(self.voice_client, "is_connected", lambda: False)():
                 if getattr(self.voice_client, "channel", None) and self.voice_client.channel.id == int(channel_id):
                     STATUS.update(voice_channel_id=channel_id, voice_connected=True)
@@ -4056,6 +4212,7 @@ class DiscordScheduleBot:
             STATUS.update(guild_id=guild_id, voice_channel_id=channel_id, voice_connected=True,
                           voice_authority_generation=generation, last_error="")
             log(f"voice_connected guild_id={guild_id} channel_id={channel_id}")
+            self._record_voice_connection_recovered()
             return True, "음성채널에 연결했습니다."
         except asyncio.CancelledError:
             await self._close_voice_client(pending_voice, reason="voice_join_cancelled")
@@ -4071,6 +4228,15 @@ class DiscordScheduleBot:
             STATUS.update(voice_channel_id=channel_id, voice_connected=False, last_error=message)
             log(f"voice_connect_failed channel_id={channel_id} generation={generation} type={type(exc).__name__} error={exc!r}")
             return False, message
+
+    def _skip_expired_voice_bridge_job(self, job: VoiceBridgeJob, *, stage: str) -> bool:
+        if not job.is_expired(datetime.now()):
+            return False
+        # Use the existing terminal receipt so no completion/opportunity is
+        # reported for a warning that was never spoken.
+        STATUS.record_bridge_result(job.id, "cancelled", job.scope_id)
+        log(f"bridge_play_skipped_expired id={job.id} phase={job.phase} stage={stage} target_time={job.target_time} expires_at={job.expires_at}")
+        return True
 
     async def _schedule_loop(self) -> None:
         schedule_task = asyncio.current_task()
@@ -4101,6 +4267,8 @@ class DiscordScheduleBot:
                         if isinstance(job, VoiceBridgeControl):
                             await self._handle_voice_bridge_control(job)
                         else:
+                            if self._skip_expired_voice_bridge_job(job, stage="receive"):
+                                continue
                             self.play_queue.put((generation, job))
                             # 채팅 전송 지연이 음성 시작 시각에 영향을 주지 않도록
                             # 별도 작업으로 보낸다. 초읽기 숫자/분리 젠 조각은 메서드에서
@@ -4141,6 +4309,8 @@ class DiscordScheduleBot:
                 playback_task.boss_authority_generation = generation
                 if not self._send_allowed():
                     continue
+                if isinstance(job, VoiceBridgeJob) and self._skip_expired_voice_bridge_job(job, stage="queue"):
+                    continue
                 self.regular_voice_job_active = True
                 await self._ensure_voice_connection()
                 if self.voice_client is None or not self.voice_client.is_connected():
@@ -4149,6 +4319,8 @@ class DiscordScheduleBot:
                         STATUS.record_bridge_result(job.id, "failed", job.scope_id)
                     continue
                 if isinstance(job, VoiceBridgeJob):
+                    if self._skip_expired_voice_bridge_job(job, stage="voice_connected"):
+                        continue
                     if self._is_voice_bridge_scope_cancelled(job.scope_id):
                         STATUS.record_bridge_result(job.id, "cancelled", job.scope_id)
                         log(f"bridge_play_skipped_cancelled id={job.id} scope={job.scope_id} phase={job.phase}")
@@ -4172,12 +4344,16 @@ class DiscordScheduleBot:
                         continue
                     completed = True
                     for clip_path in clips:
+                        if self._skip_expired_voice_bridge_job(job, stage="clip"):
+                            completed = False
+                            break
                         if self._is_voice_bridge_scope_cancelled(job.scope_id):
                             completed = False
                             break
-                        if not await self._play_clip(clip_path, volume=job.volume, scope_id=job.scope_id, confirm_eof=True):
+                        if not await self._play_clip(clip_path, volume=job.volume, scope_id=job.scope_id,
+                                                     confirm_eof=True, expires_at=job.playback_deadline):
                             completed = False
-                    cancelled = self._is_voice_bridge_scope_cancelled(job.scope_id) or STATUS.shutdown_requested.is_set()
+                    cancelled = job.is_expired(datetime.now()) or self._is_voice_bridge_scope_cancelled(job.scope_id) or STATUS.shutdown_requested.is_set()
                     STATUS.record_bridge_result(job.id, "cancelled" if cancelled else "completed" if completed else "failed", job.scope_id)
                     if completed and not cancelled:
                         STATUS.record_notice_opportunity(job)
@@ -4201,6 +4377,8 @@ class DiscordScheduleBot:
                     del playback_task.boss_authority_generation
 
     async def _play_timed_bridge_clips(self, job: VoiceBridgeJob) -> None:
+        if self._skip_expired_voice_bridge_job(job, stage="timed_start"):
+            return
         confirm_notice = job.offset_sec == 60 and job.phase in {'PRE_ALERT_SEQUENCE', 'FIXED_PRE_ALERT_SEQUENCE'}
         all_completed = bool(job.timed_clips)
         try:
@@ -4239,6 +4417,8 @@ class DiscordScheduleBot:
                             log(f"timed_clip_prepare_failed id={job.id} phase={job.phase} path={clip_path} error={exc}")
                             continue
                     while not STATUS.shutdown_requested.is_set():
+                        if self._skip_expired_voice_bridge_job(job, stage="timed_wait"):
+                            return
                         if self._is_voice_bridge_scope_cancelled(job.scope_id):
                             return
                         delay_seconds = (play_at - datetime.now()).total_seconds()
@@ -4247,6 +4427,8 @@ class DiscordScheduleBot:
                         max_sleep = 0.02 if job.phase in TIMED_REPLACE_CURRENT_AUDIO_PHASES else 0.2
                         await asyncio.sleep(min(max_sleep, max(0.0, delay_seconds)))
                     if STATUS.shutdown_requested.is_set() or self._is_voice_bridge_scope_cancelled(job.scope_id):
+                        return
+                    if self._skip_expired_voice_bridge_job(job, stage="timed_clip"):
                         return
                     late_ms = int(round((datetime.now() - play_at).total_seconds() * 1000.0))
                     log(f"bridge_timed_clip_play id={job.id} phase={job.phase} late_ms={late_ms} path={clip_path}")
@@ -4268,7 +4450,10 @@ class DiscordScheduleBot:
                             trim_silence=True,
                             scope_id=job.scope_id,
                             confirm_eof=confirm_notice,
+                            expires_at=job.playback_deadline,
                         )
+                        if self._skip_expired_voice_bridge_job(job, stage="timed_clip_done"):
+                            return
                         if confirm_notice and completed is not True:
                             all_completed = False
                 finally:
@@ -5196,14 +5381,19 @@ class DiscordScheduleBot:
         trim_silence: bool = False,
         scope_id: str = "",
         confirm_eof: bool = False,
+        expires_at: datetime | None = None,
     ) -> bool | None:
         if self.voice_client is None:
             return
         if self._is_voice_bridge_scope_cancelled(scope_id):
             return
+        if expires_at is not None and datetime.now() >= expires_at:
+            return False
         async with self.voice_play_lock:
             if self._is_voice_bridge_scope_cancelled(scope_id):
                 return
+            if expires_at is not None and datetime.now() >= expires_at:
+                return False
             notice_output = getattr(self, "notice_output", None)
             if notice_output is not None and notice_output.owns(self.current_voice_playback_token):
                 async with self.voice_transition_lock:
@@ -5212,6 +5402,8 @@ class DiscordScheduleBot:
                         if not joined:
                             return  # Never mix boss output with an unconfirmed old reader.
             while self.voice_client.is_playing() or self.voice_client.is_paused():
+                if expires_at is not None and datetime.now() >= expires_at:
+                    return False
                 if self._is_voice_bridge_scope_cancelled(scope_id):
                     return
                 composite_source = self.current_timed_composite_source
@@ -5260,6 +5452,9 @@ class DiscordScheduleBot:
                         if not self._send_allowed() or self.voice_client is None:
                             self._cleanup_audio_source(source)
                             return
+                        if expires_at is not None and datetime.now() >= expires_at:
+                            self._cleanup_audio_source(source)
+                            return False
                         if not self.voice_client.is_playing() and not self.voice_client.is_paused():
                             self.current_voice_scope_id = str(scope_id or "").strip()
                             self.current_voice_playback_token = playback_token
@@ -5438,7 +5633,7 @@ class DiscordScheduleBot:
     def run(self) -> bool:
         runtime_mode = "exe" if getattr(sys, "frozen", False) else "source"
         runtime_path = sys.executable if runtime_mode == "exe" else str(Path(__file__).resolve())
-        log(f"discord_runtime_loaded mode={runtime_mode} path={runtime_path} channel_policy=2")
+        log(f"discord_runtime_loaded mode={runtime_mode} path={runtime_path} channel_policy=2 voice_diagnostics=1")
         token = str(self.config.get("bot_token") or "").strip()
         if not token:
             STATUS.update(last_error="봇 토큰이 비어 있습니다.")

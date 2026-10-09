@@ -4,12 +4,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace, MethodType
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import tempfile
 import unittest
 
 from notice_module.payload.notice_management import KST, NoticeStore
-from notice_module.payload.notice_server_open import server_open_override
+from notice_module.payload.notice_server_open import server_open_override, server_open_alarm
 from notice_module.payload.notice_analysis import analyze_notice
 from notice_module.payload.main import NoticePlugin
 from notice_runtime import NoticeRuntime
@@ -76,6 +76,30 @@ class ServerOpenRulesTests(unittest.TestCase):
         before = deepcopy(self.state)
         self.assertIsNotNone(self.value())
         self.assertEqual(self.state, before)
+
+    def test_alarm_reads_planned_time_during_maintenance_without_changing_input_rule(self):
+        before = deepcopy(self.state)
+        now = self.now - timedelta(minutes=1)
+        self.assertIsNone(self.value(now))
+        self.assertEqual(server_open_alarm(self.state, now)['server_open'], self.now.isoformat())
+        self.assertEqual(self.state, before)
+        self.assertIsNone(server_open_alarm(self.state, self.now.replace(day=22)))
+
+    def test_alarm_extension_completion_conflict_and_cancel_are_conservative(self):
+        now = self.now - timedelta(minutes=1)
+        self.state['articles']['extension'] = article(end='12:00', title='정기점검 연장', key='extension')
+        self.assertEqual(server_open_alarm(self.state, now)['server_open'], self.now.replace(hour=12).isoformat())
+        self.state['articles']['completion'] = article(end='11:30', title='정기점검 완료', key='completion')
+        self.assertEqual(server_open_alarm(self.state, now)['server_open'], self.now.replace(minute=30).isoformat())
+        self.state['articles']['conflict'] = article(end='11:40', title='정기점검 완료', key='conflict')
+        self.assertIsNone(server_open_alarm(self.state, now))
+        self.state['articles'] = {'cancel': article(title='정기점검 취소')}
+        self.assertIsNone(server_open_alarm(self.state, now))
+
+    def test_alarm_honors_collection_and_maintenance_category_switches(self):
+        for settings in ({'collection_enabled': False}, {'categories': {'maintenance': False}}):
+            self.state['settings'] = settings
+            self.assertIsNone(server_open_alarm(self.state, self.now))
 
 
 class ServerOpenIntegrationTests(unittest.TestCase):
@@ -190,6 +214,116 @@ class ServerOpenIntegrationTests(unittest.TestCase):
         self.assertIsNone(runtime.get_server_open_override('odin9', self.now))
         runtime.session = None
         self.assertIsNone(runtime.get_server_open_override('odin9', self.now))
+
+    def test_alarm_plugin_cache_refreshes_on_notice_change_without_writing(self):
+        with tempfile.TemporaryDirectory(prefix='notice-server-open-alarm-unit-') as directory:
+            host = SimpleNamespace(data_root=Path(directory), get_server=lambda: ('odin9', '오9'))
+            plugin = NoticePlugin(host)
+            plugin.stopped = False
+            store = NoticeStore(host.data_root, 'odin9', clock=lambda: self.now)
+            with store._transaction() as state:
+                state['articles'] = {'regular': article()}
+            before = store.path.read_bytes()
+            original = NoticeStore._load
+            calls = []
+            def load(instance):
+                calls.append(instance.server_id)
+                return original(instance)
+            with patch.object(NoticeStore, '_load', load):
+                self.assertEqual(plugin.get_server_open_alarm('odin9', self.now)['server_open'], '2026-09-23T11:00:00+09:00')
+                plugin.get_server_open_alarm('odin9', self.now + timedelta(seconds=1))
+                self.assertEqual(calls, ['odin9'])
+            self.assertEqual(store.path.read_bytes(), before)
+            with store._transaction() as state:
+                state['articles']['extend'] = article(end='12:00', title='정기점검 연장', key='extend')
+            self.assertEqual(plugin.get_server_open_alarm('odin9', self.now)['server_open'], '2026-09-23T12:00:00+09:00')
+            self.assertIsNone(plugin.get_server_open_alarm('odin8', self.now))
+            plugin.stopped = True
+            self.assertIsNone(plugin.get_server_open_alarm('odin9', self.now))
+
+    def test_alarm_runtime_compatibility_without_optional_api(self):
+        runtime = NoticeRuntime.__new__(NoticeRuntime)
+        runtime.session = None
+        self.assertIsNone(runtime.get_server_open_alarm('odin9', self.now))
+        runtime.session = SimpleNamespace(plugin=SimpleNamespace())
+        self.assertIsNone(runtime.get_server_open_alarm('odin9', self.now))
+        old = Mock(return_value=self.auto)
+        runtime.session.plugin.get_server_open_override = old
+        self.assertEqual(runtime.get_server_open_alarm('odin9', self.now), self.auto)
+        old.assert_called_once_with('odin9', self.now, self.now)
+
+
+class ServerOpenAlarmHostTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tree = ast.parse(Path('boss_timer_gui.py').read_text(encoding='utf-8-sig'))
+        names = {'_get_schedule_server_open_alarm_datetime', '_get_schedule_maintenance_alarm_candidates',
+                 '_process_schedule_maintenance_alarm_tick'}
+        methods = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name in names]
+        cls.namespace = {'datetime': datetime, 'timedelta': timedelta}
+        exec(compile(ast.Module(body=methods, type_ignores=[]), 'server-open-alarm-adapter', 'exec'), cls.namespace)
+
+    def setUp(self):
+        self.opened = datetime(2026, 9, 23, 11)
+        self.fired = set()
+        def fire(key, now):
+            if key in self.fired:
+                return False
+            self.fired.add(key)
+            return True
+        self.app = SimpleNamespace(notice_runtime=Mock(), schedule_server_profile_id='odin9',
+            schedule_control_events=[], schedule_events=[{'boss_name':'existing', 'scheduled_at': self.opened}],
+            _get_schedule_maintenance_cutoff_datetime=lambda now: None,
+            _get_schedule_previous_maintenance_datetime=lambda now: None,
+            _normalize_schedule_boss_lookup_key=lambda text: text,
+            _append_debug_log=Mock(), _build_schedule_alarm_due_key=lambda *args: args,
+            _should_fire_schedule_alarm_key=fire,
+            _build_schedule_maintenance_alarm_audio_paths=Mock(return_value=['server-open.wav']),
+            _submit_schedule_voice_request=Mock())
+        self.fact = dict(server_open='2026-09-23T11:00:00+09:00', maintenance_start='2026-09-23T07:00:00+09:00',
+                         valid_until='2026-09-30T07:00:00+09:00')
+        self.app.notice_runtime.get_server_open_alarm.return_value = self.fact
+        for name, value in self.namespace.items():
+            if name.startswith(('_get_', '_process_')):
+                setattr(self.app, name, MethodType(value, self.app))
+
+    def test_auto_alarm_warns_and_fires_once_without_schedule_mutation(self):
+        before = deepcopy(self.app.schedule_events)
+        for delta in (-60, -59, 0, 1):
+            self.app._process_schedule_maintenance_alarm_tick(self.opened + timedelta(seconds=delta))
+        calls = self.app._submit_schedule_voice_request.call_args_list
+        self.assertEqual([call.kwargs['offset_sec'] for call in calls], [60, 0])
+        self.assertTrue(all(call.kwargs['category'] == 'maintenance' for call in calls))
+        self.assertEqual(self.app.schedule_events, before)
+        self.assertEqual(self.app.schedule_control_events, [])
+
+    def test_manual_open_wins_and_duplicate_sources_do_not_double_announce(self):
+        for selected in (self.opened, self.opened + timedelta(minutes=15)):
+            self.app.schedule_control_events = [dict(control_type='server_open', scheduled_at=selected)]
+            rows = self.app._get_schedule_maintenance_alarm_candidates(self.opened - timedelta(minutes=1))
+            self.assertEqual(rows, [(self.opened, '서버오픈', 'server_open')] if selected == self.opened else [])
+
+    def test_late_tick_grace_is_short_and_never_replays_old_opening(self):
+        self.app._process_schedule_maintenance_alarm_tick(self.opened + timedelta(seconds=2))
+        self.app._submit_schedule_voice_request.assert_called_once()
+        self.app._submit_schedule_voice_request.reset_mock()
+        self.app._process_schedule_maintenance_alarm_tick(self.opened + timedelta(seconds=6))
+        self.app._submit_schedule_voice_request.assert_not_called()
+
+    def test_timezone_conversion_and_failed_module_do_not_break_other_alarms(self):
+        self.app.notice_runtime.get_server_open_alarm.return_value = dict(self.fact, server_open='2026-09-23T02:00:00+00:00')
+        self.assertEqual(self.app._get_schedule_server_open_alarm_datetime(self.opened), self.opened)
+        self.app.notice_runtime.get_server_open_alarm.side_effect = ValueError('bad optional data')
+        self.assertEqual(self.app._get_schedule_maintenance_alarm_candidates(self.opened), [])
+        self.assertIsNone(self.app._get_schedule_server_open_alarm_datetime(self.opened + timedelta(seconds=1)))
+        self.app._append_debug_log.assert_called_once()
+
+    def test_handover_and_expired_notice_do_not_announce(self):
+        self.app.discord_handover_busy = True
+        self.assertEqual(self.app._get_schedule_maintenance_alarm_candidates(self.opened), [])
+        self.app.discord_handover_busy = False
+        self.app.notice_runtime.get_server_open_alarm.return_value = dict(self.fact, valid_until=self.fact['server_open'])
+        self.assertEqual(self.app._get_schedule_maintenance_alarm_candidates(self.opened), [])
 
 
 if __name__ == '__main__':

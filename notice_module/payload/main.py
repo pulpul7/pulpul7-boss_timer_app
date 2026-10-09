@@ -184,6 +184,22 @@ class NoticePlugin:
         state = NoticeStore(self.host.data_root, server_id)._load()
         return server_open_override(state, now, reference)
 
+    def get_server_open_alarm(self, server_id, now):
+        if self.stopped or not server_id or server_id != self.host.get_server()[0]:
+            return None
+        from .notice_server_open import server_open_alarm
+        store = NoticeStore(self.host.data_root, server_id)
+        stamp = self._file_stamp(store.path)
+        cache = getattr(self, '_server_open_alarm_cache', None)
+        if cache is None or cache[:2] != (server_id, stamp):
+            # The alarm asks once per second. Read JSON only after atomic file
+            # replacement; notice edits/extensions invalidate this immediately.
+            self._server_open_alarm_cache = None
+            state = store._load()
+            cache = (server_id, stamp, state)
+            self._server_open_alarm_cache = cache
+        return server_open_alarm(cache[2], now)
+
     def _schedule_tick(self):
         if self.stopped:
             return

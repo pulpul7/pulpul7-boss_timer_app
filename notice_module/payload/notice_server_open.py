@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from .notice_management import parse_time
 
 
-def server_open_override(state, now, reference=None):
+def server_open_override(state, now, reference=None, *, include_upcoming=False):
     now = parse_time(now)
     reference = parse_time(reference) if reference is not None else now
     records = []
@@ -58,8 +58,18 @@ def server_open_override(state, now, reference=None):
         return None
     end = next(iter(ends))
     expires = min(row['start'] for row in cycle) + timedelta(days=7)
-    if not (end <= now < expires and end <= reference < expires):
+    earliest = min(row['start'] for row in cycle) if include_upcoming else end
+    if not (earliest <= now < expires and earliest <= reference < expires):
         return None
     source = selected[0]['article']
     return dict(server_open=end.isoformat(), maintenance_start=min(row['start'] for row in cycle).isoformat(),
                 valid_until=expires.isoformat(), source_id=source.get('id', ''), source_url=source.get('url', ''))
+
+
+def server_open_alarm(state, now):
+    """Read a current maintenance's planned opening without changing schedules."""
+    settings = state.get('settings', {})
+    if (not settings.get('collection_enabled', True)
+            or not settings.get('categories', {}).get('maintenance', True)):
+        return None
+    return server_open_override(state, now, include_upcoming=True)

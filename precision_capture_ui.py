@@ -136,7 +136,8 @@ def start(app, slots, *, retry_context=None):
     progress = dialog = None
     terminal = False
     user_cancelled = False
-    auto_apply = getattr(app, 'precision_auto_apply', False) is True
+    tutorial_capture = bool(getattr(app, '_schedule_tutorial_is_running', lambda: False)())
+    auto_apply = not tutorial_capture and getattr(app, 'precision_auto_apply', False) is True
 
     def cancel_by_user():
         nonlocal user_cancelled
@@ -145,6 +146,9 @@ def start(app, slots, *, retry_context=None):
 
     def change_auto_apply(enabled):
         nonlocal auto_apply
+        if tutorial_capture:
+            auto_apply = False
+            return
         auto_apply = bool(enabled)
         app.precision_auto_apply = auto_apply
         try:

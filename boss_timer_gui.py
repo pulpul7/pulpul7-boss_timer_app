@@ -53,6 +53,7 @@ from notice_runtime import NoticeHost, NoticeRuntime
 from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_audio_resources
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL
 from discord_authority_events import CONTROL_TRANSPORT
+from desktop_banner_service import DesktopBannerService
 from https_transport import urlopen_verified
 from github_request_policy import GITHUB_REQUEST_GATE, is_rate_limit_response
 from release_version import resolve_release_version
@@ -2284,6 +2285,7 @@ class BossTimerApp:
         self.schedule_share_elapsed_strike_default = False
         self.schedule_share_exclude_elapsed_default = True
         self.schedule_break_rows_enabled_default = True
+        self.schedule_banner_enabled_default = False
         self.schedule_break_apply_all_text_default = True
         self.schedule_break_apply_all_display_mode_default = False
         self.schedule_break_apply_all_row_scale_default = False
@@ -2966,6 +2968,7 @@ class BossTimerApp:
         self.schedule_color_data_enabled_var = tk.BooleanVar(value=self.schedule_color_data_enabled_default)
         self.fixed_boss_color_data_enabled_var = tk.BooleanVar(value=self.fixed_boss_color_data_enabled_default)
         self.schedule_break_rows_enabled_var = tk.BooleanVar(value=self.schedule_break_rows_enabled_default)
+        self.schedule_banner_enabled_var = tk.BooleanVar(value=self.schedule_banner_enabled_default)
         self.schedule_break_apply_all_text_var = tk.BooleanVar(value=self.schedule_break_apply_all_text_default)
         self.schedule_break_apply_all_display_mode_var = tk.BooleanVar(value=self.schedule_break_apply_all_display_mode_default)
         self.schedule_break_apply_all_row_scale_var = tk.BooleanVar(value=self.schedule_break_apply_all_row_scale_default)
@@ -3387,6 +3390,7 @@ class BossTimerApp:
         atexit.register(self._shutdown_edge_tts)
         if not self.scheduler_worker_mode:
             atexit.register(self._shutdown_discord_bot_at_exit)
+            self._initialize_desktop_banner()
 
     def _ensure_ai_update_center(self):
         if not hasattr(self, "ai_update_center"):
@@ -3845,6 +3849,7 @@ class BossTimerApp:
             fallback=not settings.getboolean("schedule_share_show_elapsed", fallback=not self.schedule_share_exclude_elapsed_default),
         )
         saved_schedule_break_rows_enabled = settings.getboolean("schedule_break_rows_enabled", fallback=self.schedule_break_rows_enabled_default)
+        saved_schedule_banner_enabled = settings.getboolean("schedule_banner_enabled", fallback=False)
         saved_schedule_break_apply_all_text = settings.getboolean("schedule_break_apply_all_text", fallback=self.schedule_break_apply_all_text_default)
         saved_schedule_break_apply_all_display_mode = settings.getboolean("schedule_break_apply_all_display_mode", fallback=self.schedule_break_apply_all_display_mode_default)
         saved_schedule_break_apply_all_row_scale = settings.getboolean("schedule_break_apply_all_row_scale", fallback=self.schedule_break_apply_all_row_scale_default)
@@ -3954,6 +3959,9 @@ class BossTimerApp:
         self.schedule_share_elapsed_strike_default = saved_schedule_share_elapsed_strike
         self.schedule_share_exclude_elapsed_default = saved_schedule_share_exclude_elapsed
         self.schedule_break_rows_enabled_default = saved_schedule_break_rows_enabled
+        self.schedule_banner_enabled_default = saved_schedule_banner_enabled
+        if hasattr(self, "schedule_banner_enabled_var"):
+            self.schedule_banner_enabled_var.set(saved_schedule_banner_enabled)
         self.schedule_break_apply_all_text_default = saved_schedule_break_apply_all_text
         self.schedule_break_apply_all_display_mode_default = saved_schedule_break_apply_all_display_mode
         self.schedule_break_apply_all_row_scale_default = saved_schedule_break_apply_all_row_scale
@@ -6365,6 +6373,7 @@ class BossTimerApp:
         offset_sec: int = 0,
         timed_clip_paths: list[tuple[datetime, str]] | None = None,
         notice_group_id: str = "",
+        expires_at: datetime | None = None,
     ) -> bool:
         valid_clip_paths = [
             os.path.abspath(str(path).strip())
@@ -6406,6 +6415,7 @@ class BossTimerApp:
             "lane": self._normalize_schedule_voice_lane(lane),
             "volume": playback_volume,
             "target_time": target_time.isoformat() if isinstance(target_time, datetime) else "",
+            "expires_at": expires_at.isoformat() if isinstance(expires_at, datetime) else "",
             "offset_sec": int(offset_sec),
             "clip_paths": valid_clip_paths,
             "timed_clips": valid_timed_clips,
@@ -6414,6 +6424,8 @@ class BossTimerApp:
         }
         try:
             with self.discord_bot_voice_bridge_lock:
+                if isinstance(expires_at, datetime) and datetime.now() >= expires_at:
+                    return False
                 self.discord_bot_voice_bridge_seq = int(getattr(self, "discord_bot_voice_bridge_seq", 0) or 0) + 1
                 payload["id"] = f"{int(time.time() * 1000)}-{self.discord_bot_voice_bridge_seq}"
                 os.makedirs(os.path.dirname(DISCORD_VOICE_BRIDGE_PATH), exist_ok=True)
@@ -6868,6 +6880,7 @@ class BossTimerApp:
         offset_sec: int = 0,
         start_at: datetime | None = None,
         notice_group_id: str = "",
+        expires_at: datetime | None = None,
     ) -> tuple[bool, datetime | None]:
         valid_clip_paths = [str(path).strip() for path in clip_paths if str(path).strip()]
         if not valid_clip_paths:
@@ -6890,6 +6903,7 @@ class BossTimerApp:
             target_time=target_time,
             offset_sec=offset_sec,
             notice_group_id=notice_group_id,
+            expires_at=expires_at,
         )
         if emitted:
             self._write_schedule_alarm_voice_test_log(
@@ -22323,6 +22337,7 @@ class BossTimerApp:
             "chime_key": request.get("chime_key"),
             "no_auto_merge": bool(request.get("no_auto_merge")),
             "earliest_play_at": self._normalize_schedule_alarm_voice_log_value(request.get("earliest_play_at")),
+            "expires_at": self._normalize_schedule_alarm_voice_log_value(request.get("expires_at")),
             "lane": request.get("lane"),
             "volume": request.get("volume"),
             "is_invasion": bool(request.get("is_invasion")),
@@ -23110,6 +23125,8 @@ class BossTimerApp:
             finish_error(f"스샷 캡처 시작 실패: {exc}")
 
     def _request_schedule_input_ocr_capture_from_odin(self, *, announce: bool = True) -> None:
+        if self._schedule_tutorial_is_running() and not getattr(self.schedule_tutorial_controller, "capture_allowed", False):
+            return
         if self.schedule_input_ocr_addon_busy:
             return
         now_monotonic = time.monotonic()
@@ -23477,6 +23494,14 @@ class BossTimerApp:
         if not self.schedule_input_ocr_addon_open:
             self.schedule_input_ocr_addon_poll_after_id = None
             return
+        if self._schedule_tutorial_is_running():
+            # The tutorial opens/hides this real tool itself. Do not resurrect
+            # it or dispatch global hotkeys outside the highlighted step.
+            self.schedule_input_ocr_addon_poll_after_id = self.root.after(
+                SCHEDULE_INPUT_OCR_ADDON_POLL_INTERVAL_MS,
+                self._schedule_input_ocr_addon_tick,
+            )
+            return
         window = self.schedule_input_ocr_addon_window
         if window is None or not window.winfo_exists():
             self._close_schedule_input_ocr_addon_window()
@@ -23801,6 +23826,8 @@ class BossTimerApp:
         return chapter_slots(RECORD_BOOK_BOSS_ORDER)
 
     def _start_schedule_precision_capture(self) -> None:
+        if self._schedule_tutorial_is_running() and not getattr(self.schedule_tutorial_controller, "capture_allowed", False):
+            return
         from precision_capture_ui import start
         start(self, self._get_precision_capture_slots())
 
@@ -33199,7 +33226,9 @@ class BossTimerApp:
         valid_clip_paths = [str(clip_path).strip() for clip_path in clip_paths if str(clip_path).strip()]
         if not valid_clip_paths:
             return False
-        _ = request_id, expires_at
+        if isinstance(expires_at, datetime) and datetime.now() >= expires_at:
+            return False
+        _ = request_id
         self._write_schedule_alarm_voice_test_log(
             "audio_playseq",
             clip_paths=valid_clip_paths,
@@ -33228,6 +33257,8 @@ class BossTimerApp:
             payload = base64.b64encode(payload_text.encode("utf-8")).decode("ascii")
             try:
                 with self.schedule_alarm_boss_audio_host_io_lock:
+                    if isinstance(expires_at, datetime) and datetime.now() >= expires_at:
+                        return False
                     process.stdin.write(f"__PLAYSEQ__|{payload}\n")
                     process.stdin.flush()
                     if wait_until_done and sequence_id:
@@ -33248,6 +33279,8 @@ class BossTimerApp:
                 return True
             except OSError:
                 self.schedule_alarm_boss_audio_process = None
+        if isinstance(expires_at, datetime) and datetime.now() >= expires_at:
+            return False
         self._stop_schedule_alarm_boss_audio(close_host=True)
         process = self._start_schedule_alarm_audio_sequence_process(valid_clip_paths)
         if process is None:
@@ -33672,6 +33705,33 @@ class BossTimerApp:
         candidates.sort(key=lambda row: (row[0], row[1]))
         return candidates[0]
 
+    def _get_schedule_server_open_alarm_datetime(self, reference_now: datetime) -> datetime | None:
+        runtime = getattr(self, 'notice_runtime', None)
+        if runtime is None or getattr(self, 'discord_handover_busy', False):
+            return None
+        try:
+            result = runtime.get_server_open_alarm(
+                str(getattr(self, 'schedule_server_profile_id', '') or ''), reference_now)
+            if not result:
+                return None
+            from datetime import timezone
+            kst = timezone(timedelta(hours=9))
+            def local(value):
+                parsed = datetime.fromisoformat(value)
+                return parsed.astimezone(kst).replace(tzinfo=None) if parsed.tzinfo else parsed
+            opened = local(result['server_open']).replace(microsecond=0)
+            start, expires = local(result['maintenance_start']), local(result['valid_until'])
+            if (start <= reference_now < expires and opened.date() == reference_now.date()
+                    and reference_now - timedelta(seconds=5) <= opened <= reference_now + timedelta(seconds=60)):
+                return opened
+        except Exception as exc:
+            # A broken optional module must not interrupt all boss alarms.
+            second = reference_now.replace(second=0, microsecond=0)
+            if getattr(self, '_server_open_alarm_error_minute', None) != second:
+                self._server_open_alarm_error_minute = second
+                self._append_debug_log(f'notice_server_open_alarm_failed {type(exc).__name__}: {exc}')
+        return None
+
     def _get_schedule_maintenance_alarm_candidates(self, reference_now: datetime) -> list[tuple[datetime, str, str]]:
         current_second = reference_now.replace(microsecond=0)
         scan_end = current_second + timedelta(seconds=60)
@@ -33682,6 +33742,8 @@ class BossTimerApp:
         previous_maintenance = self._get_schedule_previous_maintenance_datetime(current_second)
         if isinstance(previous_maintenance, datetime) and previous_maintenance.replace(microsecond=0) == current_second:
             candidates.append((previous_maintenance.replace(microsecond=0), "정기점검", "regular_maintenance"))
+        automatic_open = self._get_schedule_server_open_alarm_datetime(current_second)
+        manual_open_today = False
         for item in self.schedule_control_events:
             if not isinstance(item, dict) or bool(item.get("historical_only")):
                 continue
@@ -33692,7 +33754,10 @@ class BossTimerApp:
             if not isinstance(scheduled_at, datetime):
                 continue
             scheduled_value = scheduled_at.replace(microsecond=0)
-            if not current_second <= scheduled_value <= scan_end:
+            if control_type == 'server_open' and scheduled_value.date() == current_second.date():
+                manual_open_today = True
+            scan_start = current_second - timedelta(seconds=5) if control_type == 'server_open' else current_second
+            if not scan_start <= scheduled_value <= scan_end:
                 continue
             display_name = str(item.get("display_name") or "").strip()
             if control_type == "server_open":
@@ -33702,6 +33767,8 @@ class BossTimerApp:
             else:
                 display_name = "임시점검"
             candidates.append((scheduled_value, display_name, control_type))
+        if automatic_open is not None and not manual_open_today:
+            candidates.append((automatic_open, '서버오픈', 'server_open'))
         unique: dict[tuple[datetime, str], tuple[datetime, str, str]] = {}
         for scheduled_at, display_name, control_type in candidates:
             unique[(scheduled_at, display_name)] = (scheduled_at, display_name, control_type)
@@ -33754,7 +33821,7 @@ class BossTimerApp:
     def _process_schedule_maintenance_alarm_tick(self, current_second: datetime) -> None:
         for scheduled_at, display_name, control_type in self._get_schedule_maintenance_alarm_candidates(current_second):
             remaining_seconds = int((scheduled_at - current_second).total_seconds())
-            if remaining_seconds == 60:
+            if remaining_seconds == 60 or (control_type == 'server_open' and 55 <= remaining_seconds < 60):
                 alert_key = self._build_schedule_alarm_due_key(
                     "maintenance_before",
                     f"{control_type}:{display_name}",
@@ -33779,7 +33846,7 @@ class BossTimerApp:
                     rate=1,
                     force_audio=True,
                 )
-            elif remaining_seconds == 0:
+            elif remaining_seconds == 0 or (control_type == 'server_open' and -5 <= remaining_seconds < 0):
                 alert_key = self._build_schedule_alarm_due_key(
                     "maintenance_due",
                     f"{control_type}:{display_name}",
@@ -33799,7 +33866,8 @@ class BossTimerApp:
                     target_time=scheduled_at,
                     offset_sec=0,
                     clip_paths=clip_paths,
-                    fallback_text=f"{display_name} 타임입니다.",
+                    fallback_text=("서버 오픈 예정 시간입니다." if control_type == 'server_open'
+                                   else f"{display_name} 타임입니다."),
                     category="maintenance",
                     rate=1,
                     force_audio=True,
@@ -34862,6 +34930,10 @@ class BossTimerApp:
             "created_at": datetime.now(),
             "generation": int(getattr(self, "schedule_voice_broker_generation", 0)),
         }
+        if normalized_phase in {"PRE_ALERT", "FIXED_PRE_ALERT"}:
+            # Freeze expiry before the countdown barrier can move again. A
+            # deferred warning must never outlive the boss it announces.
+            request["expires_at"] = self._get_schedule_voice_request_deadline(request)
         if request["fallback_text"]:
             if normalized_phase == "SPAWN_CONFIRMED_NEAR_SEQUENCE":
                 for member in request["spawn_members"]:
@@ -35103,22 +35175,20 @@ class BossTimerApp:
             offset_seconds = SCHEDULE_FIXED_BOSS_SPECIAL_ALERT_SECONDS
         return max(self._get_schedule_voice_request_expire_seconds(phase), offset_seconds + 5)
 
-    def _schedule_voice_broker_request_is_stale(self, request: dict[str, object], now_value: datetime) -> bool:
-        try:
-            request_generation = int(request.get("generation", -1))
-        except (TypeError, ValueError):
-            request_generation = -1
-        if request_generation != int(getattr(self, "schedule_voice_broker_generation", 0)):
-            return True
+    def _get_schedule_voice_request_deadline(self, request: dict[str, object]) -> datetime | None:
         phase = str(request.get("phase") or "")
         target_time = request.get("target_time")
+        expires_at = request.get("expires_at")
+        if isinstance(expires_at, datetime):
+            if phase in {"PRE_ALERT", "FIXED_PRE_ALERT"} and isinstance(target_time, datetime):
+                return min(expires_at, target_time)
+            return expires_at
         offset_sec = int(request.get("offset_sec") or 0)
         speak_time = target_time - timedelta(seconds=max(0, offset_sec)) if isinstance(target_time, datetime) else request.get("created_at")
         earliest_play_at = request.get("earliest_play_at")
-        # 젠/초읽기 보호 구간 때문에 의도적으로 미룬 요청은 새 재생 가능
-        # 시각을 기준으로 만료한다. 원래 알림 시각을 계속 사용하면 보호
-        # 구간을 정상적으로 기다린 1분전·5분전 안내가 재생 직전에 stale로
-        # 폐기된다. 충돌 방지는 중앙 barrier가 담당한다.
+        # Allow the initially planned countdown delay, but store this deadline
+        # at submission. Later barrier extensions only delay playback; they
+        # cannot renew the warning's lifetime.
         if (
             isinstance(earliest_play_at, datetime)
             and isinstance(speak_time, datetime)
@@ -35126,10 +35196,22 @@ class BossTimerApp:
         ):
             speak_time = earliest_play_at
         if not isinstance(speak_time, datetime):
-            return False
+            return None
         expire_seconds = self._get_schedule_voice_request_expire_seconds_for_request(request, phase)
-        stale = now_value > speak_time + timedelta(seconds=expire_seconds)
-        return stale
+        deadline = speak_time + timedelta(seconds=expire_seconds)
+        if phase in {"PRE_ALERT", "FIXED_PRE_ALERT"} and isinstance(target_time, datetime):
+            deadline = min(deadline, target_time)
+        return deadline
+
+    def _schedule_voice_broker_request_is_stale(self, request: dict[str, object], now_value: datetime) -> bool:
+        try:
+            request_generation = int(request.get("generation", -1))
+        except (TypeError, ValueError):
+            request_generation = -1
+        if request_generation != int(getattr(self, "schedule_voice_broker_generation", 0)):
+            return True
+        deadline = self._get_schedule_voice_request_deadline(request)
+        return isinstance(deadline, datetime) and now_value >= deadline
 
     def _build_schedule_voice_broker_merged_pre_alert(self, requests: list[dict[str, object]]) -> dict[str, object]:
         base_request = dict(requests[0])
@@ -35173,6 +35255,8 @@ class BossTimerApp:
         ]
         if earliest_candidates:
             base_request["earliest_play_at"] = max(earliest_candidates)
+        deadlines = [self._get_schedule_voice_request_deadline(request) for request in requests]
+        base_request["expires_at"] = min((value for value in deadlines if isinstance(value, datetime)), default=None)
         return base_request
 
     def _build_schedule_voice_broker_pre_alert_sequence(self, requests: list[dict[str, object]]) -> dict[str, object]:
@@ -35214,6 +35298,8 @@ class BossTimerApp:
         ]
         if earliest_candidates:
             base_request["earliest_play_at"] = max(earliest_candidates)
+        deadlines = [self._get_schedule_voice_request_deadline(request) for request in requests]
+        base_request["expires_at"] = min((value for value in deadlines if isinstance(value, datetime)), default=None)
         return base_request
 
     def _schedule_voice_broker_prepare_requests(self, requests: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -35873,6 +35959,14 @@ class BossTimerApp:
             ):
                 # 녹음 조합이 누락되어 차임벨만 남은 경우에도 음성 메시지는 TTS로 전달한다.
                 clip_paths = []
+            # Preparing TTS/audio can take time too. Recheck before sending
+            # either a bridge request or a local playback request.
+            if self._schedule_voice_broker_request_is_stale(request, datetime.now()):
+                self._write_schedule_alarm_voice_test_log(
+                    "voice_request_stale_after_audio_prepare",
+                    request=self._summarize_schedule_alarm_voice_request_for_log(request),
+                )
+                return
             self._write_schedule_alarm_voice_test_log(
                 "voice_request_play_start",
                 request=self._summarize_schedule_alarm_voice_request_for_log(request),
@@ -35915,6 +36009,7 @@ class BossTimerApp:
                         offset_sec=int(request.get("offset_sec") or 0),
                         start_at=bridge_start_at,
                         notice_group_id=str(request.get("boss_id") or ""),
+                        expires_at=request.get("expires_at"),
                     )
                     if not bridge_emitted:
                         bridge_scheduled_start_at = None
@@ -35928,6 +36023,7 @@ class BossTimerApp:
                             target_time=request.get("target_time") if isinstance(request.get("target_time"), datetime) else None,
                             offset_sec=int(request.get("offset_sec") or 0),
                             notice_group_id=str(request.get("boss_id") or ""),
+                            expires_at=request.get("expires_at"),
                         )
                 if self._should_mute_local_schedule_audio_for_discord_bot(bridge_emitted):
                     played_audio = True
@@ -35950,10 +36046,16 @@ class BossTimerApp:
                         phase=str(request.get("phase") or "AUDIO"),
                         clip_paths=clip_paths,
                     )
+                    if self._schedule_voice_broker_request_is_stale(request, datetime.now()):
+                        self._release_schedule_voice_lane_busy_until(
+                            lane, time.monotonic(), reserved_until=reserved_busy_until,
+                            protect_central=True, generation=request.get("generation"),
+                        )
+                        return
                     played_audio = self._play_schedule_alarm_boss_audio_paths(
                         clip_paths,
                         request_id=self.schedule_alarm_boss_audio_request_id,
-                        expires_at=None,
+                        expires_at=request.get("expires_at"),
                         interrupt_existing=False,
                         wait_until_done=True,
                     )
@@ -36007,6 +36109,7 @@ class BossTimerApp:
                 beep=not bool(request.get("suppress_chime")),
                 category=str(request.get("category") or "general"),
                 rate=int(request.get("rate") or 1),
+                expires_at=request.get("expires_at"),
             )
             duration_ms = self._estimate_schedule_voice_broker_request_duration_ms(request, [])
             sleep_seconds = min(15.0, max(0.8, duration_ms / 1000.0 + 0.25))
@@ -46619,6 +46722,9 @@ class BossTimerApp:
         return True
 
     def _apply_schedule_input_batch(self, *, auto_confirm_update: bool = False) -> None:
+        if self._schedule_tutorial_is_running():
+            self.schedule_input_status_var.set("튜토리얼에서는 실제 스케줄에 적용하지 않습니다. 종료 후 결과를 확인하고 적용하세요.")
+            return
         reference_datetime = self._get_schedule_reference_datetime()
         if self.schedule_input_edit_mode and isinstance(self.schedule_input_edit_anchor_datetime, datetime):
             reference_datetime = self.schedule_input_edit_anchor_datetime
@@ -50584,6 +50690,9 @@ class BossTimerApp:
             }
         config["settings"] = {
             "background_path": self._normalize_background_source(self.background_path),
+            "schedule_banner_enabled": str(bool(self.schedule_banner_enabled_var.get())
+                if hasattr(self, "schedule_banner_enabled_var") else
+                bool(getattr(self, "schedule_banner_enabled_default", False))),
             "font_family": self.current_font_family,
             "background_alignment": self.background_alignment,
             "show_alert_overlay": str(self.show_alert_overlay),
@@ -52682,9 +52791,33 @@ class BossTimerApp:
         finally:
             self.schedule_window_busy = False
 
+    def _schedule_tutorial_is_running(self) -> bool:
+        controller = getattr(self, "schedule_tutorial_controller", None)
+        return bool(controller is not None and controller.running)
+
+    def _open_schedule_tutorial(self) -> None:
+        controller = getattr(self, "schedule_tutorial_controller", None)
+        try:
+            if controller is None or controller.closed:
+                # Lazy import: no tutorial startup cost or runtime preparation.
+                from interactive_tutorial import TutorialController
+                controller = TutorialController(self)
+                self.schedule_tutorial_controller = controller
+            controller.show_list()
+        except Exception as exc:
+            if controller is not None:
+                controller.finish()
+            self._show_centered_messagebox(
+                "showerror", "튜토리얼", f"튜토리얼을 열지 못했습니다. 기존 자료는 변경하지 않았습니다.\n{exc}",
+                parent=self.schedule_window,
+            )
+
     def close_schedule_window(self) -> None:
         if getattr(self, "discord_handover_busy", False):
             return
+        controller = getattr(self, "schedule_tutorial_controller", None)
+        if controller is not None:
+            controller.finish()
         try:
             self._stop_discord_settings_warning()
             self.close_schedule_input_window()
@@ -58626,6 +58759,7 @@ class BossTimerApp:
             cursor="hand2",
         ).place(x=1034, y=10, width=128, height=26)
 
+        self.schedule_tutorial_targets = {}
         buttons = [
             ("스케쥴 입력", "#2563eb", "#ffffff", self._open_schedule_input_window_normal, 18, 46, 102),
             ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
@@ -58664,6 +58798,7 @@ class BossTimerApp:
                 cursor="hand2",
             )
             button.place(x=x, y=y, width=width, height=24 if small_maintenance_button else 30)
+            self.schedule_tutorial_targets[text] = button
             if command == self._refresh_github_server_list:
                 self.schedule_github_refresh_button = button
             elif command == self._sync_selected_github_schedule:
@@ -58788,6 +58923,7 @@ class BossTimerApp:
             cursor="hand2",
         )
         delete_note_button.place(x=424, y=0, width=60, height=22)
+        self.schedule_tutorial_targets["미확정 보스 삭제"] = delete_note_button
         self._bind_hover_button(delete_note_button, "#dc2626", "#b91c1c", "#ffffff", "#ffffff")
         add_note_button = tk.Button(
             notice_frame,
@@ -58804,6 +58940,7 @@ class BossTimerApp:
             cursor="hand2",
         )
         add_note_button.place(x=488, y=0, width=60, height=22)
+        self.schedule_tutorial_targets["미확정 보스 추가"] = add_note_button
         self._bind_hover_button(add_note_button, "#16a34a", "#15803d", "#ffffff", "#ffffff")
 
         self.schedule_active_rows_canvas = tk.Canvas(active_frame, bg="#fee2e2", bd=0, highlightthickness=0, relief="flat")
@@ -58948,6 +59085,7 @@ class BossTimerApp:
                 cursor="hand2",
             )
             button.place(x=x, y=0, width=22, height=18)
+            self.schedule_tutorial_targets["음악 음량 -" if label == "-" else "음악 음량 +"] = button
             self._bind_hover_button(button, "#e0f2fe", "#bae6fd", "#075985", "#075985")
         settings_button = tk.Button(
             background_music_frame,
@@ -58964,6 +59102,7 @@ class BossTimerApp:
             cursor="hand2",
         )
         settings_button.place(x=76, y=18, width=22, height=10)
+        self.schedule_tutorial_targets["음악 설정"] = settings_button
         self._bind_hover_button(settings_button, "#e0f2fe", "#bae6fd", "#075985", "#075985")
         tk.Label(
             background_music_frame,
@@ -59401,6 +59540,62 @@ class BossTimerApp:
         self.schedule_tree_footer_label.place(x=14, y=SCHEDULE_WINDOW_HEIGHT - 354, width=760, height=18)
         self._layout_schedule_active_panel(0)
         self._set_schedule_view_datetime_fields(self._get_schedule_reference_datetime())
+
+        self.schedule_tutorial_button = tk.Button(
+            self.schedule_window, text="튜토리얼", font=self.percent_font,
+            bg="#1d4ed8", fg="#ffffff", activebackground="#1e40af", activeforeground="#ffffff",
+            relief="raised", bd=1, highlightthickness=0, command=self._open_schedule_tutorial,
+            cursor="hand2",
+        )
+        # The footer already reserves room on the right; leave table layout intact.
+        self.schedule_tutorial_button.place(x=SCHEDULE_WINDOW_WIDTH - 114, y=SCHEDULE_WINDOW_HEIGHT - 46,
+                                            width=96, height=26)
+        self._bind_hover_button(self.schedule_tutorial_button, "#1d4ed8", "#1e40af", "#ffffff", "#ffffff")
+
+        self.schedule_banner_check = tk.Checkbutton(
+            self.schedule_window, text="배너알림", variable=self.schedule_banner_enabled_var,
+            command=self._on_schedule_banner_changed, font=self.percent_font,
+            bg=self.schedule_window.cget("bg"), activebackground=self.schedule_window.cget("bg"),
+            fg="#0f172a", selectcolor="#ffffff", cursor="hand2", highlightthickness=0,
+        )
+        self.schedule_banner_check.place(x=SCHEDULE_WINDOW_WIDTH - 218,
+                                        y=SCHEDULE_WINDOW_HEIGHT - 46, width=96, height=26)
+
+    def _initialize_desktop_banner(self) -> None:
+        self.desktop_banner_service = DesktopBannerService(
+            self.root, get_user_config_dir(),
+            channel_id=lambda: getattr(self, "discord_bot_text_channel_id", ""),
+            log=self._append_debug_log,
+            on_error=lambda: self._show_centered_messagebox("showwarning", "배너알림",
+                "배너알림을 표시하지 못했습니다.\n"
+                "Windows 알림 설정에서 ‘보스타이머’의 알림을 확인해주세요.\n"
+                "기존 스케줄과 Discord 송출은 계속 동작합니다."),
+        )
+        try:
+            self.desktop_banner_service.set_enabled(bool(self.schedule_banner_enabled_var.get()))
+        except OSError as exc:
+            self._append_debug_log(f"desktop_banner_setup_failed {exc}")
+        atexit.register(self._close_desktop_banner)
+
+    def _close_desktop_banner(self) -> None:
+        service = getattr(self, "desktop_banner_service", None)
+        if service is not None:
+            service.close()
+
+    def _on_schedule_banner_changed(self) -> None:
+        enabled = bool(self.schedule_banner_enabled_var.get())
+        try:
+            self.desktop_banner_service.set_enabled(enabled)
+        except OSError as exc:
+            self._append_debug_log(f"desktop_banner_setup_failed {exc}")
+            self.schedule_banner_enabled_var.set(self.desktop_banner_service.enabled)
+            self._show_centered_messagebox("showerror", "배너알림", "배너알림 설정을 저장하지 못했습니다.")
+            return
+        self.schedule_banner_enabled_default = enabled
+        self._save_settings()
+        if enabled:
+            self.desktop_banner_service.show("배너알림을 켰습니다",
+                "보탐매니저의 모든 안내를 이 PC에서 받습니다. 긴 내용은 짧게 표시합니다.")
 
     def _ensure_schedule_input_window(self) -> None:
         if self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
@@ -67699,6 +67894,7 @@ class BossTimerApp:
     def on_close(self) -> None:
         if getattr(self, "discord_handover_busy", False):
             return
+        self._close_desktop_banner()
         if getattr(self, "notice_runtime", None) is not None:
             self.notice_runtime.close()
         self._reset_master_developer_author_clicks()
