@@ -1,0 +1,110 @@
+"""Bundled read-only schedule page fallback, mirrored from web_assets."""
+from web_schedule_frontend import SCRIPT
+
+PAGE = r"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#151b24"><title>보스 스케줄</title>
+<link rel="stylesheet" href="/style.css"><script src="/schedule.js" defer></script></head><body>
+<main class="schedule-app">
+<header class="app-header"><h1 id="context" class="context">스케줄을 읽고 있습니다.</h1>
+<button id="rest-filter" type="button" aria-pressed="true" aria-controls="events">휴식 ON</button>
+<button id="copy-open" type="button" disabled>복사</button>
+<button id="logout" class="quiet" type="button" aria-label="로그아웃 잠금 해제" aria-pressed="false" title="한 번 누르면 2초 동안 로그아웃 잠금이 풀립니다."><span class="logout-label" aria-hidden="true">로그아웃</span><span id="logout-lock" class="logout-lock" aria-hidden="true">🔒</span></button>
+</header>
+<div class="live-bar"><div class="schedule-tabs" role="tablist" aria-label="스케줄 필터">
+<button id="tab-all" type="button" role="tab" data-filter="all" aria-selected="true" aria-controls="schedule-panel">전체</button>
+<button id="tab-today" type="button" role="tab" data-filter="today" aria-selected="false" aria-controls="schedule-panel" tabindex="-1">오늘 주요</button>
+<button id="tab-tomorrow" type="button" role="tab" data-filter="tomorrow" aria-selected="false" aria-controls="schedule-panel" tabindex="-1">내일 주요</button>
+<button id="tab-after" type="button" role="tab" data-filter="after" aria-selected="false" aria-controls="schedule-panel" tabindex="-1">모레 주요</button>
+</div><span id="connection" role="status">연결 확인 중</span></div>
+<section class="schedule-section schedule-frame" aria-labelledby="schedule-title">
+<div class="frame-heading"><div class="date-clock"><h2 id="schedule-title" class="schedule-heading">—</h2><time id="clock" aria-label="현재시간">—</time>
+<span id="day-navigation" class="day-navigation" aria-label="전체 일정 날짜 이동"><button id="day-today" type="button" disabled>오늘</button><button id="day-next" type="button" disabled>다음날</button></span>
+<span id="tomorrow-date" class="tomorrow-date" hidden></span></div>
+<button id="all-alarm" class="all-alarm" type="button" aria-pressed="true" disabled>전체 알람 ON</button></div>
+<div id="schedule-panel" role="tabpanel" aria-labelledby="tab-all">
+<section class="overview" aria-label="다가오는 보스">
+<div id="recent" class="recent" aria-label="지난 보스 최대 두 개"></div>
+<div class="hero"><div class="hero-top"><div id="next-name" class="hero-name">스케줄 준비 중</div>
+<button id="next-alarm" class="alarm" type="button" hidden></button></div>
+<div id="next-countdown" class="hero-countdown" aria-label="다음 보스까지 남은 시간">--:--:--</div>
+</div>
+<div id="following" class="following"><span class="muted">다음 일정을 확인하고 있습니다.</span></div></section>
+<section id="active-section" class="active-panel" hidden><h2>출현 중 / 시간 미확정</h2><ul id="active"></ul></section>
+<div id="events" class="event-list" aria-label="보스 스케줄"></div><p id="empty" class="empty" hidden>이 기간에 표시할 일정이 없습니다.</p>
+<nav id="schedule-bottom-nav" class="schedule-bottom-nav" aria-label="전체 일정 하단 이동" hidden><button id="schedule-top" type="button">위로</button><button id="day-next-bottom" type="button" disabled>다음날</button></nav>
+<p class="footnote">알람 선택만 저장됩니다 · 실제 알림 미연결 · 시간은 관리자 PC 기준</p></div></section>
+<dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title">전체 스케줄 복사</h2>
+<button id="copy-close" class="quiet" type="button">닫기</button></div><p id="range" class="muted copy-range"></p>
+<div class="toolbar"><label class="period-label">기간 <select id="period" aria-label="조회 및 공유 기간">
+<option value="default">기본 기간</option><option value="24">24시간</option><option value="48">48시간</option><option value="all">전체</option></select></label>
+<button id="text-copy" type="button" disabled>텍스트 복사</button><button id="image-open" type="button" disabled>이미지 복사</button>
+<button id="txt-save" type="button" disabled>TXT 저장</button></div>
+<div class="share-options"><div class="option-items">
+<label><input id="boss-colors" type="checkbox" checked>보스색</label><label><input id="fixed-colors" type="checkbox" checked>고정보스색</label>
+<label><input id="include-fixed" type="checkbox" checked>고정보스</label><label><input id="include-break" type="checkbox" checked>휴식시간</label>
+<label><input id="text-seconds" type="checkbox">초단위 표시 (텍스트·TXT)</label></div></div>
+<div id="copy-events" class="copy-preview" aria-label="복사할 스케줄 미리보기"></div>
+<p class="footnote">선택한 기간과 옵션으로 복사·저장합니다. 본문 스케줄은 그대로 표시됩니다.</p></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<dialog id="logout-dialog" aria-labelledby="logout-title" aria-describedby="logout-question"><h2 id="logout-title">로그아웃</h2><p id="logout-question" class="logout-question">로그아웃하시겠습니까?</p><div class="logout-actions"><button id="logout-cancel" type="button" autofocus>취소</button><button id="logout-confirm" type="button">로그아웃</button></div></dialog>
+<dialog id="image-dialog" aria-labelledby="image-title"><div class="dialog-heading"><h2 id="image-title">스케줄 이미지</h2>
+<button id="image-close" class="quiet" type="button">닫기</button></div><p id="image-caption" class="muted"></p>
+<div class="image-preview"><img id="image-preview" alt="선택한 기간의 스케줄 이미지"></div>
+<div class="image-actions"><button id="image-prev" type="button">이전</button><button id="image-next" type="button">다음</button>
+<button id="image-copy" class="primary" type="button">이미지 복사</button><button id="image-save" type="button">PNG 저장</button>
+<button id="image-share" type="button" hidden>공유</button></div>
+<p class="footnote">복사가 지원되지 않는 브라우저에서는 PNG 저장 또는 공유를 사용하세요.</p></dialog>
+<noscript>스케줄을 보려면 브라우저의 JavaScript를 켜주세요.</noscript></main></body></html>
+""".encode('utf-8')
+
+STYLE = r"""
+:root{color-scheme:dark;--bg:#151b24;--panel:#253346;--row:var(--panel);--invasion:#3c293f;--line:#41516a;--text:#edf1f7;--muted:#b1bdce;--blue:#91c7ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif}
+main{max-width:900px;margin:auto;padding:32px 24px;padding-bottom:max(32px,env(safe-area-inset-bottom))}
+button,input,select{font:inherit}button,select{border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);padding:8px 10px;min-height:38px}
+button{cursor:pointer;touch-action:manipulation}button:hover{filter:brightness(1.15)}button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+button.quiet{background:var(--panel);color:var(--muted)}.primary{background:var(--panel);border-color:#7898c4}
+h1,h2,p{margin:0}h1{font-size:20px;font-weight:700;letter-spacing:-.5px}h2{font-size:17px}.muted,.footnote{color:var(--muted)}.warning{color:#f8c57a}
+.schedule-app{padding:14px 16px;max-width:900px}
+.app-header{display:flex;align-items:center;gap:6px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.app-header>button{flex-shrink:0;font-size:11px;padding:5px 8px;min-height:32px;white-space:nowrap}
+#copy-open{background:#87ceeb;border-color:#a6dff4;color:#102c3a}#logout{background:#a52c3b;border-color:#d75c68;color:#fff}
+#rest-filter{color:var(--muted);background:var(--panel)}#rest-filter[aria-pressed="true"]{color:#d5efdf;border-color:#4d826a;background:#244839}
+.context{flex:1;font-size:clamp(17px,4vw,23px);font-weight:750;color:var(--text);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;letter-spacing:-.5px}
+.live-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 0;font-size:11px;color:var(--muted)}#clock{font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap;color:#159b68;font-weight:800}#connection{text-align:right;overflow-wrap:anywhere;min-width:0;flex:1}.date-clock{display:flex;align-items:center;gap:8px;min-width:0;flex:1;flex-wrap:wrap}.schedule-heading{white-space:nowrap}.tomorrow-date{font-size:12px;color:var(--blue);white-space:nowrap}
+.schedule-tabs{display:flex;align-self:stretch;gap:3px;flex-shrink:0}.schedule-tabs button{font-size:12px;padding:5px 7px;min-height:34px;background:var(--bg);color:var(--muted);border:2px solid transparent;border-radius:7px 7px 0 0}.schedule-tabs button[aria-selected="true"]{background:var(--panel);color:#edf4ff;border-color:var(--blue);border-bottom-color:var(--panel);font-weight:750}.live-bar+.schedule-frame{border-top-left-radius:0}
+.day-navigation{display:inline-flex;gap:4px}.day-navigation[hidden]{display:none}.day-navigation button{font-size:11px;min-height:26px;padding:2px 6px}.day-navigation button:disabled{opacity:.45;cursor:default}.day-navigation button[aria-pressed="true"]{border-color:var(--blue);color:var(--blue)}#day-today{background:#2563eb;color:#fff;border-color:#60a5fa}#day-next,#day-next-bottom{background:#2563eb;color:#fff;border-color:#60a5fa}.schedule-tabs{flex-wrap:wrap;flex-shrink:1}.live-bar #connection{font-size:10px}.hero+.event-row,.following+.event-row{margin-top:3px}.event-row+.hero,.event-row+.following{margin-top:3px}.following[hidden]{display:none}
+.overview{background:transparent;border:0;border-radius:0;overflow:hidden}.recent{padding:0;color:#8e9db1;font-size:12px;display:grid;gap:3px;margin-bottom:4px}.recent:empty{display:none}.recent s{background:var(--row);padding:4px 10px;border-radius:5px;text-decoration-thickness:1px;overflow-wrap:anywhere}
+.hero{padding:10px 12px;background:var(--row);border-radius:7px 7px 0 0}.hero-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.hero-name{color:var(--blue);font-size:clamp(18px,4vw,24px);font-weight:700;line-height:1.3;overflow-wrap:anywhere;min-width:0}.hero-name time{color:#fff;font-weight:750}
+.hero-countdown{font-size:clamp(34px,calc(9vw - 4px),52px);font-weight:750;letter-spacing:-1px;line-height:1.1;font-variant-numeric:tabular-nums;margin:6px 0;white-space:nowrap;color:#fff}.hero-countdown.long{font-size:clamp(22px,calc(6vw - 4px),36px)}
+.following{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:5px 10px;background:var(--row);border-radius:0 0 7px 7px}.following-main{min-width:0;flex:1;display:flex;align-items:center;gap:5px;font-size:14px}.following-name{min-width:0;font-weight:650;font-size:inherit;overflow-wrap:anywhere}.following-name time{font-weight:750;color:#fff;font-variant-numeric:tabular-nums}.following-state{font-size:inherit;color:#fff;font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
+.alarm{display:flex;align-items:center;justify-content:center;gap:5px;min-width:49px;min-height:32px;padding:5px 7px;font-size:11px;background:transparent;border-color:transparent;color:#b4c0d2;flex-shrink:0;white-space:nowrap}.alarm::before{content:'';width:7px;height:7px;border-radius:50%;background:#344457;box-shadow:0 0 0 1px #657486;transition:background .18s,box-shadow .18s}.alarm[aria-pressed="true"]{color:#c9efdb;background:transparent;border-color:transparent}.alarm[aria-pressed="true"]::before{background:#49d78c;box-shadow:0 0 0 1px #23925d,0 0 6px #49d78c80}.alarm:hover{background:transparent;border-color:#8291a366}
+.all-alarm{font-size:11px;min-height:32px;padding:5px 9px;white-space:nowrap;color:#fff;background:#a52c3b;border-color:#d75c68}.all-alarm[aria-pressed="true"]{color:#fff;border-color:#39976b;background:#187348}.all-alarm[aria-pressed="mixed"]{color:#fff;border-color:#d75c68;background:#a52c3b}
+.active-panel{margin-top:4px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:8px 10px}.active-panel h2{font-size:13px}.active-panel ul{margin:4px 0 0;padding-left:18px;color:var(--muted);font-size:12px}
+.schedule-section{margin-top:0}.schedule-frame{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px}.frame-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}.schedule-heading{font-size:17px;padding:2px 3px;color:#d7e2f1}
+.toolbar{display:flex;gap:7px;flex-wrap:wrap;margin:16px 0 8px;align-items:center}.toolbar button{font-size:12px;flex:1;white-space:nowrap}.period-label{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--muted)}select{font-size:12px;min-width:113px}
+.share-options{margin-bottom:10px;font-size:12px;color:var(--muted)}.option-items{display:flex;gap:10px;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-radius:7px;background:var(--bg)}.option-items label{display:flex;align-items:center;gap:5px;min-height:32px}.option-items input{accent-color:var(--blue)}
+.day-heading{font-size:11px;color:#bdcce0;font-weight:600;padding:9px 3px 5px;display:flex;gap:8px;align-items:center}.day-heading::after{content:'';height:1px;background:var(--line);flex:1}
+.event-row{display:flex;gap:8px;align-items:center;padding:5px 10px;margin-top:3px;background:var(--row);border:1px solid transparent;border-radius:7px}.event-details{min-width:0;line-height:1.3}.event-state{font-size:inherit;color:#fff;font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}.event-row.elapsed{color:#8e9db1}.elapsed .boss-name,.elapsed time{text-decoration:line-through;text-decoration-thickness:1px}.event-row.elapsed .boss-name,.event-row.elapsed time,.event-row.elapsed .event-state{color:#8e9db1!important}.type-fixed{color:#debdff}.type-invasion{color:#ffbda7}.type-maintenance,.type-server_open{color:#f8cd8a}.type-break{color:#adccb8}.important .boss-name::before{content:'✦ ';color:#e7c17c}
+#following .following-main,#events .event-row:is(.type-boss,.type-fixed,.type-invasion) .following-main{font-size:18px}#recent{font-size:16px}
+.following .alarm,.event-row .alarm{min-height:28px;padding:3px 6px}.hero-countdown.imminent,.following.imminent .following-state,.event-row.imminent .event-state{color:#ff7373}
+.event-row.type-invasion,.hero.type-invasion,.following.type-invasion{background:var(--invasion);border-color:#775378}.copy-range{font-size:12px;margin:8px 0}.copy-preview{max-height:38dvh;overflow:auto;border:1px solid var(--line);border-radius:7px;padding:6px;background:var(--bg)}.copy-preview .event-row{background:var(--panel)}.copy-preview .event-row.type-invasion{background:var(--invasion)}
+.event-row.type-break{min-height:calc(32px * var(--rest-row-scale,1))}.event-row.rest-highlight{color:#153647}.event-row.rest-highlight .following-name time,.event-row.rest-highlight .event-state{color:#153647}.event-row.type-break.ongoing{border-color:#1a6d8c}
+.empty{text-align:center;padding:28px 10px;color:var(--muted)}.footnote{font-size:11px;margin-top:14px;line-height:1.7}
+.toast{position:fixed;z-index:20;bottom:max(24px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px);padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:#edf4ff;box-shadow:0 8px 40px #0008;font-size:13px;text-align:center}
+dialog{width:min(580px,calc(100% - 24px));max-height:90dvh;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:16px;overflow:auto}dialog::backdrop{background:#000b}.dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}#image-caption{font-size:12px;margin:9px 0}.image-preview{max-height:54dvh;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px}.image-preview img{width:100%;height:auto;display:block}.image-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.image-actions button{font-size:12px;flex:1;white-space:nowrap}
+#login{display:grid;gap:12px;max-width:420px;margin:24px 0}#pin,#nickname{background:var(--panel);color:var(--text);border:1px solid #52627a;border-radius:10px;padding:12px;width:100%}#pin{font-size:25px;letter-spacing:10px}#nickname{font-size:16px}#notice{margin-top:14px}
+.copy-fallback{width:100%;height:180px;resize:vertical;background:var(--panel);color:var(--text);border:1px solid #52627a;border-radius:9px;padding:12px;font:13px/1.7 ui-monospace,monospace}
+[hidden]{display:none!important}
+@media(min-width:760px){.toolbar button{flex:0 1 auto}}
+@media(max-width:460px){.schedule-app{padding:10px}.hero-top{gap:7px}.event-row{gap:6px;padding:4px 8px}.following{padding:4px 8px;gap:6px}.following-main{font-size:13px}.toolbar .period-label{width:100%}.toolbar select{flex:1}.hero-name{font-size:18px}.alarm{font-size:10px}#clock{font-size:15px}.live-bar{font-size:10px}.schedule-frame{padding:6px}.date-clock{gap:5px}.schedule-heading{font-size:16px}.schedule-tabs button{font-size:11px;padding:5px 6px}}
+@media(max-width:460px){#following .following-main,#events .event-row:is(.type-boss,.type-fixed,.type-invasion) .following-main{font-size:17px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+.schedule-bottom-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:3px;background:var(--row);border:1px solid var(--line);border-radius:7px;overflow:hidden}.schedule-bottom-nav button{min-height:40px;padding:7px 10px;border:0;border-radius:0;background:transparent;color:#fff;font-weight:650}.schedule-bottom-nav button+button{border-left:1px solid var(--line)}
+
+#schedule-top{background:#187348;color:#fff;border-color:#39976b}
+#logout{position:relative;font-size:11px;line-height:1.2}#logout[aria-pressed="false"] .logout-label{color:#b8b8bf}.logout-lock{position:absolute;top:0;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;width:20px;height:18px;background:transparent;font-size:11px;line-height:1;pointer-events:none}#logout-dialog{width:min(340px,calc(100% - 24px))}.logout-question{margin:12px 0 18px}.logout-actions{display:flex;gap:8px}.logout-actions button{flex:1}#logout-confirm{background:#a52c3b;border-color:#d75c68;color:#fff}
+""".encode('utf-8')

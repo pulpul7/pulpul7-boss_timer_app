@@ -11,7 +11,8 @@ RESPONSE_SECONDS = 3
 REQUEST_TTL = 120
 MAX_REQUESTS = 32
 QUERY_READ_CACHE_SECONDS = 0.5
-QUERY_TYPES = frozenset({"help", "schedule", "plain", "voices", "image"})
+SCHEDULE_QUERY_TYPES = frozenset({"schedule", "schedule+", "schedule++", "schedule+++"})
+QUERY_TYPES = frozenset({"help", "plain", "voices", "image"}) | SCHEDULE_QUERY_TYPES
 
 
 class QueryRoutingError(RuntimeError):

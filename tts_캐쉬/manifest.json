@@ -64,6 +64,14 @@
       "updated_at": 1790688857,
       "volume_steps": 0
     },
+    "0483cf44aa891c1d836a1b5afaecb0b9e794146913277f77c05be8b116e34397": {
+      "path": "message/0483cf44aa891c1d836a1b5afaecb0b9e794146913277f77c05be8b116e34397.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 56분 후 수르트.",
+      "updated_at": 1791634735,
+      "volume_steps": 0
+    },
     "04c371ced1fd19487807bbafabe3b7e74be6f73a7d12b2039b5e715bd07d7258": {
       "path": "message/04c371ced1fd19487807bbafabe3b7e74be6f73a7d12b2039b5e715bd07d7258.mp3",
       "rate_steps": 1,
@@ -976,6 +984,14 @@
       "updated_at": 1790822516,
       "volume_steps": 0
     },
+    "3ba86f76ea7696466fafcdd0f5ad41c8d26e0ab80a2fef5b1f50cd32bb3d1c5d": {
+      "path": "message/3ba86f76ea7696466fafcdd0f5ad41c8d26e0ab80a2fef5b1f50cd32bb3d1c5d.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "메기르 헤르가름",
+      "updated_at": 1791595138,
+      "volume_steps": 0
+    },
     "3bc9856114483383855f09c90ba08e2d159c9ce04150cc244644848350d039b6": {
       "path": "message/3bc9856114483383855f09c90ba08e2d159c9ce04150cc244644848350d039b6.mp3",
       "rate_steps": 0,
@@ -1494,6 +1510,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 그로아 히로킨 타임입니다.",
       "updated_at": 1790822353,
+      "volume_steps": 0
+    },
+    "5fe442bcc0776cb39552015ec26f577f7ff641c02d5f94d679b75ae94355ceb1": {
+      "path": "message/5fe442bcc0776cb39552015ec26f577f7ff641c02d5f94d679b75ae94355ceb1.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 1시간 5분 후 메기르.",
+      "updated_at": 1791721134,
       "volume_steps": 0
     },
     "60788e17b5f1fd886a2d43b31d4c79a565a232d2cab205cf07ce4311b19cb183": {
@@ -2104,6 +2128,14 @@
       "updated_at": 1791167638,
       "volume_steps": 0
     },
+    "87c2829512ad3acf714849026da7ea7492fc8613e2adbf81f6f9a56161e53d3a": {
+      "path": "message/87c2829512ad3acf714849026da7ea7492fc8613e2adbf81f6f9a56161e53d3a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 1시간 5분 후 메기르.",
+      "updated_at": 1791721135,
+      "volume_steps": 0
+    },
     "87f14cd7d502254919c6d49331b2344badd0a638eaa02086d9adb1bf144c179f": {
       "path": "message/87f14cd7d502254919c6d49331b2344badd0a638eaa02086d9adb1bf144c179f.mp3",
       "rate_steps": 0,
@@ -2142,6 +2174,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+30%|+0%|+15Hz",
       "text": "오십육",
       "updated_at": 1790563231,
+      "volume_steps": 0
+    },
+    "89e024c9110bc6cb45daa5c4e3e46c4c286279a3751b7a0149b00e6f7ec0c94c": {
+      "path": "message/89e024c9110bc6cb45daa5c4e3e46c4c286279a3751b7a0149b00e6f7ec0c94c.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 56분 후 수르트.",
+      "updated_at": 1791634736,
       "volume_steps": 0
     },
     "89fa9a851f5ca376c6729e766db8565a8c3484aa31d2fd802bcd7a17b2ae7bdb": {
@@ -2646,6 +2686,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "라이노르 5분 남았습니다.",
       "updated_at": 1790572558,
+      "volume_steps": 0
+    },
+    "b07a941782ce6c92d442476e6bd363acd4451cba67565075b465c01f13f7467a": {
+      "path": "message/b07a941782ce6c92d442476e6bd363acd4451cba67565075b465c01f13f7467a.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "샤무크 5분 남았습니다.",
+      "updated_at": 1791686234,
       "volume_steps": 0
     },
     "b0e02b62651d35da00fc2f274965873ed0a8a773288c8490ccd9076deb86e73e": {

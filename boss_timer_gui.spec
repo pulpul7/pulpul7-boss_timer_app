@@ -11,9 +11,15 @@ import subprocess
 import sys
 
 # Required before the optional TTS ZIP can be downloaded. Fail before producing
-# build artifacts if the build environment would omit Windows certificate trust.
+# build artifacts if Windows trust or the embedded HTTPS dependencies are absent.
 try:
     import truststore
+    import acme.client
+    import josepy
+    import cryptography.x509
+    import dns.resolver
+    import cheroot.wsgi
+    import cheroot.ssl.builtin
 except ImportError as exc:
     raise RuntimeError("Install GUI dependencies first: python -m pip install -r requirements-gui.txt") from exc
 
@@ -270,6 +276,7 @@ datas = [
     (str(build_metadata_path), "."),
 ]
 datas += collect_tree(project_root / "assets", "assets")
+datas += collect_tree(project_root / "web_assets", "web_assets")
 # Trusted fallback sources, loaded through notice_runtime rather than Analysis
 # imports. Downloads override these without rebuilding the executable.
 datas += collect_tree(project_root / "notice_module", "notice_module")
@@ -314,6 +321,21 @@ a = Analysis(
     # ZIP imports these stdlib modules dynamically, so PyInstaller cannot see
     # them while analysing the main program.
     hiddenimports=[
+        # The isolated web worker uses this EXE's early command-line entry.
+        # Bundle the current HTML/CSS/JS/login modules in PYZ; no separate
+        # editable HTML or developer web settings belong in the release ZIP.
+        "web_service_worker",
+        "web_service_page",
+        "web_schedule_frontend",
+        "web_service_login",
+        "web_authority_gate",
+        "web_handover_bridge",
+        "web_delegated_hosting",
+        "web_shared_state",
+        "web_asset_store",
+        "web_page_updater",
+        "web_request_limits",
+        "cryptography.hazmat.primitives.ciphers.aead",
         # Standard library used by dynamically loaded public notice adapters.
         "html.parser",
         "html.entities",
@@ -330,6 +352,18 @@ a = Analysis(
         "ssl",
         "truststore",
         "truststore._windows",
+        "acme.client",
+        "josepy",
+        "cryptography.x509",
+        "cryptography.hazmat.primitives.serialization",
+        "dns.resolver",
+        "dns.query",
+        "dns.rdtypes.ANY.TXT",
+        "dns.rdtypes.ANY.NS",
+        "dns.rdtypes.IN.A",
+        "dns.rdtypes.IN.AAAA",
+        "cheroot.wsgi",
+        "cheroot.ssl.builtin",
     ],
     hookspath=["pyinstaller_hooks"],
     hooksconfig={},

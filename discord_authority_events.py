@@ -14,7 +14,7 @@ from datetime import datetime
 from discord_connection_policy import CONTROL_PROTOCOL, ConnectionPolicy
 
 MARKER = "BossTimer-Control-v3:"
-KINDS = frozenset({"changed", "probe", "reply"})
+KINDS = frozenset({"changed", "probe", "reply", "web"})
 CONTROL_THREAD_NAME = "보탐매니저 내부 연결"
 CONTROL_TRANSPORT = "thread-v1"
 COMPLETED_NOTICE_FOOTER = "보탐매니저 · 관리자 접속 완료"
@@ -231,6 +231,12 @@ class AuthorityEvents:
             await self.publish("changed", request=str(command.get("request") or ""),
                                generation=int(command.get("generation", 0)))
             self.queue_notice(command)
+        elif action == "web":
+            if command.get("operation") not in {"schedule", "ack", "ready"}:
+                raise ValueError("지원하지 않는 웹 전달 요청입니다.")
+            values = {key: command[key] for key in ("operation", "delegate", "target", "target_runtime",
+                      "transfer", "sequence", "hash", "ok", "applied_at", "ready") if key in command}
+            await self.publish("web", **values)
         elif action == "probe":
             probe = str(command["id"])
             self.probes[probe] = {self.status.client_id: self.member()}
@@ -255,6 +261,7 @@ class AuthorityEvents:
         else:
             raise ValueError("지원하지 않는 승계 알림 요청입니다.")
         return dict(result, ok=True, id=command["id"], pid=self.status.pid,
+                    web_protocol=1,
                     runtime_id=self.status.runtime_id,
                     control_transport=CONTROL_TRANSPORT,
                     channel_id=str(channel.id))
@@ -302,6 +309,7 @@ class AuthorityEvents:
                             and str(member.get("bot_user_id") or member.get("application_id")) == str(message.author.id)):
                         members[str(payload["client"])] = member
                 else:
+                    payload["sender_bot_id"] = str(message.author.id)
                     await self.bot._queue_local_schedule_request(dict(
                         operation="administrator_event", request_id="event_" + identity,
                         server_id=self.bot._get_configured_server_id(), runtime_id=self.status.runtime_id,

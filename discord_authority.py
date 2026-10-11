@@ -134,7 +134,7 @@ class AuthorityRecord:
         raise AuthorityError("접속한 관리자를 찾지 못했습니다. /보탐 관리자로 이름을 확인한 뒤 /보탐 나츠처럼 입력하세요.")
 
     def request(self, client, runtime, channel, *, call_id="", expected_owner=None, verified_previous=None,
-                verified_kind="operator_confirmed", minimum_generation=0):
+                verified_kind="operator_confirmed", minimum_generation=0, preserve_web=False):
         def change(data):
             now = time.time()
             if expected_owner is not None and not (
@@ -156,13 +156,28 @@ class AuthorityRecord:
             solo = (not data.get("owner") or (data.get("owner") == client and data.get("owner_runtime") == runtime)
                     or verified_previous is not None)
             previous_owner = self.owner_stamp(data)
+            from web_delegated_hosting import build_delegation, delegation_info
+            previous_web = delegation_info(data)
+            if previous_web:
+                data["web_delegate_previous"] = previous_web
+            else:
+                data.pop("web_delegate_previous", None)
+            generation = max(int(data.get("generation", 0)), int(minimum_generation)) + 1
+            request = uuid.uuid4().hex
+            delegated = build_delegation(data, client, runtime, self.scope, generation, request) if (
+                preserve_web or delegation_info(data)) else None
+            if delegated:
+                data["web_delegate"] = delegated
+            else:
+                data.pop("web_delegate", None)
             data.update(scope=self.scope, receiver=client, receiver_runtime=runtime,
-                        generation=max(int(data.get("generation", 0)), int(minimum_generation)) + 1,
-                        request=uuid.uuid4().hex, phase="joining" if solo else "requested",
+                        generation=generation, request=request, phase="joining" if solo else "requested",
                         deadline=now + (JOIN_SECONDS if solo else HANDOVER_SECONDS),
                         released=solo, channel=channel, upload="대기", previous_owner=previous_owner,
                         failure="", failure_request="",
+                        web_transfer=dict(request="", state="pending"),
                         release_proof={"kind": verified_kind} if verified_previous is not None else {})
+            data["web_transfer"]["request"] = data["request"]
             if solo:
                 data.update(owner=client, owner_runtime=runtime, owner_application_id=member.get("application_id", ""),
                             owner_bot_user_id=member.get("bot_user_id") or member.get("application_id", ""))
@@ -195,6 +210,9 @@ class AuthorityRecord:
                         owner_bot_user_id=data["members"].get(client, {}).get("bot_user_id")
                             or data["members"].get(client, {}).get("application_id", ""),
                         phase="joining", deadline=time.time() + JOIN_SECONDS)
+            if isinstance(data.get("web_delegate"), dict):
+                data["web_delegate"]["generation"] = data["generation"]
+            data.pop("web_delegate_previous", None)
         return self.mutate(change)
 
     def change(self, request_id, actor, *, phases, **changes):
@@ -235,6 +253,7 @@ class DiscordAuthority:
         self.outgoing_requests = set()
         self.calls = set()
         self.failure_notices = set()
+        self.unattended_requests = set()
         self.incoming_progress_token = ""
         self.outgoing_progress_token = ""
         self.outgoing_progress_done = False
@@ -379,6 +398,14 @@ class DiscordAuthority:
                     and local.get("authority_generation", 0) > values["authority_generation"]):
                 return
             self.policy.update(**values)
+        relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
+        if relay is not None:
+            relay.observe(data, self)
+
+    def _unattended_web_host(self, data=None):
+        relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
+        recorded = bool(data and data.get("failure_request") in getattr(self, "unattended_requests", set()))
+        return recorded or bool(relay is not None and relay.unattended(data))
 
     def _control(self, action, **values):
         from discord_authority_events import request_control
@@ -393,6 +420,7 @@ class DiscordAuthority:
         result = request_control(DISCORD_BOT_STATUS_PORT, self.app.notice_output_secret,
                                  status, action, **values)
         self.control_channel_id = str(result.get("channel_id") or "")
+        self.web_delegate_protocol = 1 if result.get("web_protocol") == 1 else 0
         return result
 
     def _metadata(self, status):
@@ -402,6 +430,7 @@ class DiscordAuthority:
                     server=str(entry.get("name") or entry["id"]), season=str(self.app.current_season_no),
                     application_id=str(status.get("application_id") or ""))
         metadata["bot_user_id"] = str(status.get("bot_user_id") or status.get("application_id") or "")
+        metadata["web_delegate_protocol"] = getattr(self, "web_delegate_protocol", 0)
         return metadata
 
     def _presence(self, data, status, metadata):
@@ -452,7 +481,8 @@ class DiscordAuthority:
             self._observe_outgoing_progress(status)
         if self.policy.expire_controller():
             self.app._append_debug_log("authority_controller_expired source=localhost")
-            self._ui(lambda: self.app._show_centered_messagebox("showerror", "송출 연결 확인",
+            if not self._unattended_web_host():
+                self._ui(lambda: self.app._show_centered_messagebox("showerror", "송출 연결 확인",
                 "이 PC의 GUI·봇 연결 확인이 끊겨 송출을 중단했습니다.\n"
                 "GitHub 확인 실패와는 별개입니다. 디코 실행 버튼으로 현재 담당자를 검증하고 다시 연결하세요.",
                 parent=self.app.schedule_window or self.app.root), wait=False)
@@ -478,6 +508,10 @@ class DiscordAuthority:
             self.outgoing_progress_token = ""
             def show_failure():
                 detail = str(data["failure"])
+                if self._unattended_web_host(data):
+                    self.app._append_debug_log(f"web_host_handover_failure request={failed_request} detail={detail}")
+                    self._finish_progress("outgoing", token, detail, success=False)
+                    return
                 if data.get("owner") == self.client:
                     self.app._show_centered_messagebox("showinfo", "승계 취소",
                         detail + "\n현재 담당자를 다시 확인하고 기존 송출을 재개합니다.",
@@ -534,15 +568,21 @@ class DiscordAuthority:
                     status = self._status()
                     if status.get("online"):
                         self._process_record(data, status)
+                        relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
+                        if relay is not None:
+                            relay.receive(event, data)
                 except Exception as exc:
                     # Failure must never revoke or stop a healthy existing owner.
                     self.app._append_debug_log(f"authority_event_verify_failed error={exc!r}")
                     self._ui(lambda message=str(exc): self.app.schedule_status_var.set(
                         "승계 변경 확인 실패 · 기존 송출 유지: " + message), wait=False)
-                    from operation_retry import offer_verified_retry
-                    self._ui(lambda message=str(exc): offer_verified_retry(self.app,
-                        "승계 변경 확인 실패", message,
-                        lambda: self.changed(event, attempt + 1), attempt=attempt), wait=False)
+                    # Background hints must work while the old administrator is
+                    # absent, including the very first split-hosting event whose
+                    # record cannot yet be read. Retrying never grants authority.
+                    if attempt < 2 and self.alive:
+                        timer = threading.Timer(5 * (attempt + 1), lambda: self.changed(event, attempt + 1))
+                        timer.daemon = True
+                        timer.start()
         threading.Thread(target=worker, daemon=True, name="discord-authority-event").start()
 
     def _live_data(self, data):
@@ -570,6 +610,7 @@ class DiscordAuthority:
                 done(False, "다른 관리자 승계가 진행 중입니다.")
             return
         self.busy = True
+        self.unattended_incoming = remote or self._unattended_web_host()
         self.app.discord_handover_busy = True
         self.current = None
         self.incoming_progress_token = uuid.uuid4().hex
@@ -674,10 +715,14 @@ class DiscordAuthority:
                 raise AuthorityError("입장할 음성채널을 설정하세요.")
             with self.lock:
                 grant_checked_at = time.monotonic()
+                relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
                 self.current = self.record.request(self.client, runtime, channel,
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
                     verified_previous=verified_previous, verified_kind=verified_kind,
-                    minimum_generation=self.policy.snapshot().get("authority_generation", 0))
+                    minimum_generation=self.policy.snapshot().get("authority_generation", 0),
+                    preserve_web=bool(relay and relay.status()["split_for_next"]))
+                if relay:
+                    relay.choose_next(False)
             request_id = self.current["request"]
             self._notify(self.current, notice="started")
             if self.current["phase"] == "requested":
@@ -714,7 +759,7 @@ class DiscordAuthority:
                 self._observe(self.current, self._status(), grant_checked_at)
             self._progress("incoming", self.incoming_progress_token, "voice",
                            "관리자 권한 확인 완료 · 음성채널에 입장하고 있습니다.\n"
-                           "현재 PC의 스케줄을 그대로 사용합니다.")
+                           "웹서비스를 켜둔 경우 웹 승계 준비는 별도로 진행합니다.")
             deadline = time.monotonic() + JOIN_SECONDS
             while time.monotonic() < deadline:
                 status = self._status()
@@ -729,7 +774,10 @@ class DiscordAuthority:
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
                         self._observe(self.current, status, grant_checked_at)
                     self._notify(self.current, notice="completed")
-                    result, message = True, "관리자 · 송출 중 (로컬 스케줄 유지 · 동기화는 수동)"
+                    manager = getattr(self.app, "web_service_manager", None)
+                    result, message = True, ("관리자 · 송출 중 (웹 승계 준비는 별도 진행)"
+                        if manager is not None and manager.status()["enabled"] else
+                        "관리자 · 송출 중 (로컬 스케줄 유지 · 동기화는 수동)")
                     return
                 if (state.get("runtime_id") != runtime or state.get("authority_request") != request_id
                         or state.get("authority_needs_sync") or state.get("standby")):
@@ -765,20 +813,40 @@ class DiscordAuthority:
 
     def _outgoing(self, data, entry):
         token = self.outgoing_progress_token = data["request"]
+        if self._unattended_web_host(data):
+            self.unattended_requests.add(token)
         runtime = self.outgoing_progress_runtime = data["owner_runtime"]
         self.outgoing_progress_done = False
         self._progress("outgoing", token, "stop", "기존 음성 송출을 종료하고 Discord 종료 응답을 확인합니다.", create=True)
         try:
-            self._wait_local_stop(runtime, token)
-            with self.lock:
-                stopped = self.record.acknowledge_stop(token, self.client, runtime)
-            self._notify(stopped)
+            for stop_attempt in range(3 if self._unattended_web_host(data) else 1):
+                try:
+                    self._wait_local_stop(runtime, token)
+                    with self.lock:
+                        stopped = self.record.acknowledge_stop(token, self.client, runtime)
+                    break
+                except Exception:
+                    if stop_attempt >= 2 or not self._unattended_web_host(data) or time.time() >= data.get("deadline", 0):
+                        raise
+                    with self.lock:
+                        latest, _ = self.record.read()
+                    if latest.get("request") != token or latest.get("owner_runtime") != runtime or latest.get("phase") != "requested":
+                        raise
+                    self.app._append_debug_log(f"web_host_voice_stop_retry attempt={stop_attempt + 1} request={token}")
+                    time.sleep(1)
         except Exception as exc:
             self.app._append_debug_log(f"handover_stop_verify_failed request={token} error={exc!r}")
-            self._ui(lambda message=str(exc): self.app._show_centered_messagebox(
+            if not self._unattended_web_host(data):
+                self._ui(lambda message=str(exc): self.app._show_centered_messagebox(
                 "showerror", "승계 종료 확인 실패", message + "\n현재 담당자·음성채널 상태를 확인하고 새 요청으로 재시도하세요.",
                 parent=self.app.schedule_window or self.app.root), wait=False)
             return
+        try:
+            self._notify(stopped)
+        except Exception as exc:
+            # The stop proof is durable. An event delivery failure must not
+            # suppress the independent schedule upload or ask the old PC.
+            self.app._append_debug_log(f"handover_stop_notice_failed request={token} type={type(exc).__name__}")
         # Upload is a separate, bounded operation; it cannot delay or revoke the
         # acknowledged ownership transfer and never renews voice authority.
         self.outgoing_progress_done = True
@@ -804,11 +872,47 @@ class DiscordAuthority:
         except Exception as exc:
             ok, message = False, str(exc)
         self.app._append_debug_log(f"authority_handover_upload_result request={token} success={int(ok)} detail={message}")
+        web_state_path = ""
+        try:
+            manager = getattr(self.app, "web_service_manager", None)
+            if manager is not None and manager.ddns_status()["configured"] and not data.get("web_delegate"):
+                from web_shared_state import export_state
+                previous = data.get("previous_owner") or [self.client, runtime, data["generation"], ""]
+                blob = export_state(manager, (self.scope["guild"], self.client, runtime, int(previous[2])))
+                with self.lock:
+                    latest, _ = self.record.read()
+                if latest.get("request") == token:
+                    path = f"data/web/transfers/{token}.json"
+                    stored, _ = self.app._github_put_json_file(path, blob, sha=None,
+                        message="BossTimer encrypted web transfer", timeout=3)
+                    if stored:
+                        web_state_path = path
+        except Exception as exc:
+            self.app._append_debug_log(f"web_handover_state_transfer_failed type={type(exc).__name__}")
+        # Web synchronization observes this result after Discord has completed.
+        # A late upload must never publish an artifact for a newer request.
+        try:
+            def web_result(current):
+                if current.get("request") != token:
+                    return
+                current["web_transfer"] = dict(request=token, state="ready" if ok and snapshot is not None else "failed",
+                    web_state_path=web_state_path,
+                    entry=dict(entry), content_hash=self.app._get_github_schedule_content_hash(snapshot) if snapshot is not None else "",
+                    source_season=str(self.scope.get("season") or ""))
+            with self.lock:
+                self.record.mutate(web_result)
+        except Exception as exc:
+            self.app._append_debug_log(f"web_handover_result_failed type={type(exc).__name__}")
         self._progress("outgoing", token, "voice", "음성 종료 확인 완료 · 업로드 결과: " + str(message))
         self._ui(lambda: self.app.schedule_status_var.set("승계 종료 확인 완료 · 업로드: " + str(message))
                  if self.outgoing_progress_token == token else None, wait=False)
         if not ok and snapshot is not None:
-            self._ui(lambda: self._offer_upload_retry(entry, snapshot, str(message)), wait=False)
+            if self._unattended_web_host(data):
+                timer = threading.Timer(15, lambda: self._retry_upload(entry, snapshot, 1, expected_request=token))
+                timer.daemon = True
+                timer.start()
+            else:
+                self._ui(lambda: self._offer_upload_retry(entry, snapshot, str(message)), wait=False)
 
     def _offer_upload_retry(self, entry, snapshot, error, attempt=0):
         from operation_retry import offer_verified_retry
@@ -816,11 +920,13 @@ class DiscordAuthority:
             lambda: threading.Thread(target=self._retry_upload,
                 args=(deepcopy(entry), deepcopy(snapshot), attempt + 1), daemon=True).start(), attempt=attempt)
 
-    def _retry_upload(self, entry, snapshot, attempt):
+    def _retry_upload(self, entry, snapshot, attempt, *, expected_request=None):
         try:
             self._assert_profile()
             with self.lock:
                 current, _ = self.record.read()
+            if expected_request is not None and (not self.alive or current.get("request") != expected_request):
+                return
             stamp = self.record.owner_stamp(current)
             deadline = time.monotonic() + 45
             def still_current():
@@ -829,14 +935,32 @@ class DiscordAuthority:
                     return False
                 with self.lock:
                     latest, _ = self.record.read()
-                return self.record.owner_stamp(latest) == stamp and time.monotonic() < deadline
+                return (self.record.owner_stamp(latest) == stamp and time.monotonic() < deadline
+                        and (expected_request is None or latest.get("request") == expected_request))
             ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
                 handover_schedule_payload=deepcopy(snapshot), handover_guard=still_current)
+            if ok:
+                expected_hash = self.app._get_github_schedule_content_hash(snapshot)
+                def web_retry_result(latest):
+                    artifact = latest.get("web_transfer") or {}
+                    if (self.record.owner_stamp(latest) == stamp and artifact.get("content_hash") == expected_hash
+                            and (artifact.get("entry") or {}).get("schedule") == entry.get("schedule")):
+                        artifact["state"] = "ready"
+                with self.lock:
+                    self.record.mutate(web_retry_result)
         except Exception as exc:
             ok, message = False, str(exc)
         self._ui(lambda: self.app.schedule_status_var.set(str(message)), wait=False)
+        self.app._append_debug_log(f"handover_upload_retry_result attempt={attempt} success={int(ok)} automatic={int(expected_request is not None)}")
         if not ok:
-            self._ui(lambda: self._offer_upload_retry(entry, snapshot, str(message), attempt), wait=False)
+            if expected_request is not None:
+                if attempt < 3 and self.alive:
+                    timer = threading.Timer(15 * attempt, lambda: self._retry_upload(
+                        entry, snapshot, attempt + 1, expected_request=expected_request))
+                    timer.daemon = True
+                    timer.start()
+            else:
+                self._ui(lambda: self._offer_upload_retry(entry, snapshot, str(message), attempt), wait=False)
 
     def _cancel_incoming(self, request_id, runtime, reason="승계 연결 실패"):
         try:
@@ -861,6 +985,12 @@ class DiscordAuthority:
                     data.update(phase="active", receiver="", receiver_runtime="", released=False, release_proof={},
                                 generation=int(data["generation"]) + 1, request=uuid.uuid4().hex,
                                 failure=reason, failure_request=request_id)
+                    previous = data.pop("web_delegate_previous", None)
+                    if previous:
+                        previous.update(generation=data["generation"], request=data["request"])
+                        data["web_delegate"] = previous
+                    else:
+                        data.pop("web_delegate", None)
             with self.lock:
                 restored = self.record.mutate(cancel)
             self._notify(restored)
@@ -885,6 +1015,8 @@ class DiscordAuthority:
                     data.update(owner="", owner_runtime="", owner_application_id="", owner_bot_user_id="", phase="idle", receiver="",
                                 generation=int(data["generation"]) + 1,
                                 failure=failure, failure_request=request_id if failure else "")
+                    if isinstance(data.get("web_delegate"), dict):
+                        data["web_delegate"]["generation"] = data["generation"]
         with self.lock:
             released = self.record.mutate(update)
         if not stopped:
@@ -928,7 +1060,7 @@ class DiscordAuthority:
         self.app.schedule_status_var.set(message)
         if done:
             done(result, message)
-        elif message and not result and "승계 취소" not in message:
+        elif message and not result and "승계 취소" not in message and not getattr(self, "unattended_incoming", False):
             from operation_retry import offer_verified_retry
             offer_verified_retry(self.app, "관리자 접속 실패", message, retry, attempt=attempt)
 

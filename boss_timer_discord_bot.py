@@ -36,7 +36,8 @@ from discord_voice_connection_order import VoiceLeaveBarrier
 from desktop_banner import DiscordBannerRelay
 from discord_notice_output import DiscordNoticeOutput
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL, is_access_error, ACCESS_ERROR_TEXT, _read_state_text
-from discord_query_routing import QueryLedger
+from discord_query_routing import QueryLedger, SCHEDULE_QUERY_TYPES
+from schedule_query_period import schedule_query_end
 from discord_authority_events import CONTROL_TRANSPORT
 
 try:
@@ -1211,13 +1212,14 @@ class ScheduleReader:
                 definitions[alias] = dict(definition)
         return definitions
 
-    def upcoming_rows(self, *, limit: int = 80) -> list[dict[str, Any]]:
+    def upcoming_rows(self, *, limit: int | None = 80, extra_days: int = 0,
+                      reference_datetime: datetime | None = None) -> list[dict[str, Any]]:
         """Return the upcoming rows used by Discord text and image commands."""
         payload = deserialize(load_json(SCHEDULE_STATE_PATH))
         raw_events = payload.get("schedule_events") if isinstance(payload, dict) else []
-        now = datetime.now()
-        # Discord 안내/복사용 목록은 다음날 오전 8시까지만 제공한다.
-        end_at = datetime.combine((now + timedelta(days=1)).date(), datetime.min.time()).replace(hour=8)
+        now = reference_datetime if reference_datetime is not None else datetime.now()
+        # At 17:00 the base period gains one day; '+' adds days to that base.
+        end_at = schedule_query_end(now, extra_days)
         boss_definitions = self._load_boss_definition_map()
         rows: list[dict[str, Any]] = []
         if isinstance(raw_events, list):
@@ -1261,7 +1263,7 @@ class ScheduleReader:
                     "bg_color": str(entry.get("bg_color") or "#0891B2"),
                 })
         rows.sort(key=lambda item: (item["scheduled_at"], item["kind"], item["name"]))
-        return rows[:max(1, int(limit))]
+        return rows if limit is None else rows[:max(1, int(limit))]
 
 
 class DiscordConfigurationError(ValueError):
@@ -1883,6 +1885,9 @@ class DiscordScheduleBot:
                 await self._reply_private_text(interaction, "조회 자료를 표시하지 못했습니다. 관리자를 변경하고 다시 시도하세요.")
 
     async def _execute_readonly_query(self, interaction, query, member):
+        extra_days = query.count("+") if query in SCHEDULE_QUERY_TYPES else 0
+        if query in SCHEDULE_QUERY_TYPES:
+            query = "schedule"
         if self._send_allowed():
             self._tag_authority_task()
         if query == "help":
@@ -1898,7 +1903,7 @@ class DiscordScheduleBot:
                 await self._reply_private_text(interaction, "안내 채널을 찾지 못했습니다. /보탐채널을 먼저 실행하세요.")
                 return
             if query == "schedule":
-                await self._send_schedule_text(channel)
+                await self._send_schedule_text(channel, extra_days=extra_days)
             elif query == "plain":
                 await self._send_schedule_plain_text(channel)
             else:
@@ -1914,9 +1919,11 @@ class DiscordScheduleBot:
             await self._reply_private_text(interaction, f"스케쥴을 {getattr(channel, 'mention', '안내 채널')}에 전송했습니다.")
             return
         if query in {"schedule", "plain"}:
-            rows = self.schedule_reader.upcoming_rows(limit=120)
+            now = datetime.now()
+            rows = self.schedule_reader.upcoming_rows(limit=None if query == "schedule" else 120,
+                                                       extra_days=extra_days, reference_datetime=now)
             if query == "schedule":
-                body = self._format_schedule_rows_as_ansi(rows)
+                body = self._format_schedule_rows_as_ansi(rows, end_datetime=schedule_query_end(now, extra_days))
             else:
                 body = "\n".join(
                     f"{scheduled_at.strftime('%H%M')} {str(row.get('name') or '')}"
@@ -2971,6 +2978,10 @@ class DiscordScheduleBot:
             target_channel = await self._resolve_text_channel(guild)
             if target_channel is None or target_channel.id != message_channel.id:
                 return
+            schedule_command = re.fullmatch(r"/보탐\s*(\+{0,3})", content)
+            if schedule_command:
+                await self._send_schedule_text(message_channel, extra_days=len(schedule_command.group(1)))
+                return
             retention_command = re.fullmatch(r"/보탐\s+(.+)", content)
             if retention_command:
                 value = retention_command.group(1).strip()
@@ -3291,9 +3302,12 @@ class DiscordScheduleBot:
             )
 
         @self.tree.command(name="보탐", description="스케쥴 조회 / 담당자 이름으로 접속 / 초읽기 / 메시지 보관 0~50")
-        @self.discord.app_commands.describe(동작="비우면 조회. 관리자(목록), 담당자 이름(예: 나츠), 접속, ?, 초읽기 또는 보관 개수 0~50")
+        @self.discord.app_commands.describe(동작="비우면 조회. +/++/+++는 1/2/3일 추가. 관리자, 담당자 이름, 접속, ?, 초읽기 또는 보관 개수 0~50")
         async def bosstimer_ansi(interaction: Any, 동작: str = "") -> None:
             동작 = 동작.strip()
+            if re.fullmatch(r"\+{1,3}", 동작):
+                await self._handle_readonly_query(interaction, "schedule" + 동작)
+                return
             if 동작.startswith("관리자"):
                 target = 동작[len("관리자"):].strip()
                 await self._administrator_command(interaction, "administrator_connect" if target else "administrator_list", target=target)
@@ -3575,7 +3589,7 @@ class DiscordScheduleBot:
         return "\n".join(lines)
 
     @staticmethod
-    def _format_schedule_rows_as_ansi(rows: list[dict[str, Any]]) -> str:
+    def _format_schedule_rows_as_ansi(rows: list[dict[str, Any]], *, end_datetime: datetime | None = None) -> str:
         if not rows:
             return "예정된 스케쥴이 없습니다."
         tier_codes = {
@@ -3587,7 +3601,8 @@ class DiscordScheduleBot:
         }
         escape = "\x1b["
         reset = f"{escape}0m"
-        lines: list[str] = [f"{escape}1;97m✦ 보탐매니저 | 다음날 08:00까지{reset}"]
+        end_at = end_datetime if end_datetime is not None else schedule_query_end(datetime.now())
+        lines: list[str] = [f"{escape}1;97m✦ 보탐매니저 | {end_at.strftime('%m/%d %H:%M')}까지{reset}"]
         current_date = None
         for row in rows:
             scheduled_at = row.get("scheduled_at")
@@ -3602,11 +3617,12 @@ class DiscordScheduleBot:
         lines.append(f"{escape}1;35m●절대자 {escape}1;34m●고정 {escape}1;36m●니플하임+ {escape}1;31m●침공{reset}")
         return "\n".join(lines)
 
-    async def _send_schedule_text(self, channel: Any) -> None:
+    async def _send_schedule_text(self, channel: Any, *, extra_days: int = 0) -> None:
         if not self._send_allowed():
             return False
-        rows = self.schedule_reader.upcoming_rows(limit=120)
-        body = self._format_schedule_rows_as_ansi(rows)
+        now = datetime.now()
+        rows = self.schedule_reader.upcoming_rows(limit=None, extra_days=extra_days, reference_datetime=now)
+        body = self._format_schedule_rows_as_ansi(rows, end_datetime=schedule_query_end(now, extra_days))
         wrapped = f"```ansi\n{body}\n```"
         if len(wrapped) <= 2000:
             if not self._send_allowed():

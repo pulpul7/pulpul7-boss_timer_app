@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-09 23:02:28",
+  "updated_at": "2026-10-11 21:51:26",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1608,6 +1608,27 @@
     "c:\\mycode\\bosstimer\\voice\\min_after\\41min_after.mp3": {
       "signature": [
         1789149374549605500,
+        41422
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\56min_after.mp3": {
+      "signature": [
+        1789149619470681800,
+        42675
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\hour\\1hour.wav": {
+      "signature": [
+        1778395717420435300,
+        130840
+      ],
+      "duration_ms": 742
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\5min_after.mp3": {
+      "signature": [
+        1789145587176664900,
         41422
       ],
       "duration_ms": null

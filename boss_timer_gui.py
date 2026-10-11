@@ -1,4 +1,10 @@
 ﻿import configparser
+import sys
+if __name__ == "__main__" and "--boss-timer-web-worker" in sys.argv[1:]:
+    # Web children must bypass the GUI guard, splash, and heavy audio imports.
+    from web_service_worker import main as _web_worker_main
+    raise SystemExit(_web_worker_main(sys.argv[sys.argv.index("--boss-timer-web-worker") + 1:]))
+
 _startup_runtime = None
 if __name__ == "__main__":
     # Acquire the GUI guard and show loading before optional/heavy imports.
@@ -54,6 +60,10 @@ from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_a
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL
 from discord_authority_events import CONTROL_TRANSPORT
 from desktop_banner_service import DesktopBannerService
+from web_service_manager import WebServiceManager
+from web_service_ui import WebServiceWindow
+from web_schedule_snapshot import collect_snapshot as collect_web_schedule_snapshot
+from schedule_query_period import evening_extension_days
 from https_transport import urlopen_verified
 from github_request_policy import GITHUB_REQUEST_GATE, is_rate_limit_response
 from release_version import resolve_release_version
@@ -3100,6 +3110,7 @@ class BossTimerApp:
         self.schedule_active_panel_content_height = 24
         self.schedule_option_frame = None
         self.schedule_time_sync_info_label = None
+        self.schedule_web_button = None
         self.schedule_tree_scrollbar = None
         self.schedule_tree_footer_label = None
         self.schedule_tree_add_button = None
@@ -3391,6 +3402,158 @@ class BossTimerApp:
         if not self.scheduler_worker_mode:
             atexit.register(self._shutdown_discord_bot_at_exit)
             self._initialize_desktop_banner()
+            self._initialize_web_service()
+
+    def _initialize_web_service(self) -> None:
+        self.web_service_manager = None
+        self.web_service_window = None
+        self.web_schedule_after_id = None
+        self.web_schedule_snapshot_failed = False
+        try:
+            self.web_service_manager = WebServiceManager(get_user_config_dir())
+            from web_handover_bridge import WebHandoverBridge
+            self.web_handover_bridge = WebHandoverBridge(self, self.web_service_manager)
+            self.web_service_window = WebServiceWindow(self.root, self.web_service_manager, self._show_centered_messagebox)
+            atexit.register(self.web_service_manager.close, wait=True)
+            self.root.after(1500, self.web_service_manager.start_saved)
+            self.web_schedule_after_id = self.root.after(1000, self._publish_web_schedule_snapshot)
+        except Exception as exc:
+            self._append_debug_log(f"web_service_setup_failed type={type(exc).__name__}")
+
+    def _publish_web_schedule_snapshot(self) -> None:
+        self.web_schedule_after_id = None
+        manager = getattr(self, "web_service_manager", None)
+        if manager is None or manager.closed.is_set():
+            return
+        try:
+            relay = getattr(manager, "delegation", None)
+            if relay is not None and relay.status()["role"] == "host":
+                payload = relay.host_snapshot()
+                if payload is not None:
+                    manager.offer_snapshot(payload, origin="delegated")
+            elif manager.status()["enabled"] or (relay is not None and relay.needs_local_snapshot()):
+                started = time.monotonic()
+                payload = collect_web_schedule_snapshot(self)
+                if relay is not None:
+                    relay.offer_local(payload)
+                manager.offer_snapshot(payload)
+                if self.web_schedule_snapshot_failed:
+                    manager._log("schedule_snapshot_collection_recovered")
+                self.web_schedule_snapshot_failed = False
+                duration = time.monotonic() - started
+                if duration > 0.2:
+                    manager._log("schedule_snapshot_collection_slow", duration_ms=round(duration * 1000))
+        except Exception as exc:
+            if not self.web_schedule_snapshot_failed:
+                manager._log("schedule_snapshot_collection_failed", error_type=type(exc).__name__)
+            self.web_schedule_snapshot_failed = True
+        finally:
+            if not manager.closed.is_set():
+                try:
+                    self._refresh_schedule_web_status()
+                    self.web_schedule_after_id = self.root.after(3000, self._publish_web_schedule_snapshot)
+                except tk.TclError:
+                    pass
+
+    def _open_web_service_window(self) -> None:
+        if getattr(self, "web_service_window", None) is None:
+            self._initialize_web_service()
+        if self.web_service_window is None:
+            self._show_centered_messagebox("showerror", "웹서비스", "웹서비스 설정을 열지 못했습니다.")
+            return
+        parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root
+        try:
+            self.web_service_window.open(parent)
+        except Exception as exc:
+            self._append_debug_log(f"web_service_window_failed type={type(exc).__name__}")
+            self._show_centered_messagebox("showerror", "웹서비스", "웹서비스 창을 열지 못했습니다.", parent=parent)
+
+    def _ensure_schedule_web_button(self) -> None:
+        if not self._widget_available(self.schedule_window):
+            return
+        button = getattr(self, "schedule_web_button", None)
+        if not self._widget_available(button):
+            # Keep the web entry above the header's frames and child controls.
+            button = tk.Button(
+                self.schedule_window, text="웹", font=self.percent_font,
+                command=self._open_web_service_window,
+                bg="#1e3a8a", fg="#ffffff", activebackground="#172554", activeforeground="#ffffff",
+                relief="raised", bd=1, highlightthickness=0, cursor="hand2",
+            )
+            self.schedule_web_button = button
+            self._bind_hover_button(button, "#1e3a8a", "#172554", "#ffffff", "#ffffff")
+        button.place(x=608, y=10, width=56, height=26)
+        button.lift()
+        self._refresh_schedule_web_status()
+        self.schedule_window.after_idle(self._log_schedule_web_button_visibility)
+
+    def _refresh_schedule_web_status(self) -> None:
+        """Paint cached web state on Tk; never probe the network from this path."""
+        text, bg, hover = "웹 OFF", "#1e3a8a", "#172554"
+        status_fg = "#64748b"
+        manager = getattr(self, "web_service_manager", None)
+        try:
+            if manager is not None and not manager.closed.is_set():
+                relay = getattr(manager, "delegation", None)
+                if relay is not None and relay.status()["role"] == "source":
+                    text, status_fg = "웹 별도 PC", "#7c3aed"
+                else:
+                    worker, public = manager.status(), manager.public_status()
+                    if worker["enabled"] and public["enabled"]:
+                        if worker["state"] == "error" or public["state"] == "error":
+                            text, bg, hover, status_fg = "웹 오류", "#b91c1c", "#991b1b", "#b91c1c"
+                        elif public["state"] == "prepared" and public["address"] and worker["web_ready"]:
+                            text, bg, hover, status_fg = "웹 공개 중", "#15803d", "#166534", "#15803d"
+                        elif public["state"] == "standby":
+                            text, status_fg = "웹 대기", "#64748b"
+                        else:
+                            text, bg, hover, status_fg = "웹 준비 중", "#b45309", "#92400e", "#b45309"
+        except Exception:
+            text, bg, hover, status_fg = "웹 오류", "#b91c1c", "#991b1b", "#b91c1c"
+        button = getattr(self, "schedule_web_button", None)
+        label = getattr(self, "schedule_web_status_label", None)
+        try:
+            if self._widget_available(button) and getattr(button, "_web_status_colors", None) != (bg, hover):
+                button.configure(bg=bg, fg="#ffffff", activebackground=hover, activeforeground="#ffffff")
+                self._bind_hover_button(button, bg, hover, "#ffffff", "#ffffff")
+                button._web_status_colors = (bg, hover)
+            if self._widget_available(label) and getattr(label, "_web_status_display", None) != (text, status_fg):
+                label.configure(text=text, fg=status_fg)
+                label._web_status_display = (text, status_fg)
+        except tk.TclError:
+            pass
+
+    def _log_schedule_web_button_visibility(self) -> None:
+        button = getattr(self, "schedule_web_button", None)
+        if not self._widget_available(button):
+            return
+        try:
+            self._append_debug_log(
+                f"schedule_web_button_visible ui_revision=2 mapped={int(button.winfo_ismapped())} "
+                f"x={button.winfo_x()} y={button.winfo_y()} "
+                f"width={button.winfo_width()} height={button.winfo_height()}"
+            )
+        except tk.TclError:
+            pass
+
+    def _close_web_service(self) -> None:
+        try:
+            bridge = getattr(self, "web_handover_bridge", None)
+            if bridge is not None:
+                bridge.close()
+            after_id = getattr(self, "web_schedule_after_id", None)
+            if after_id is not None:
+                try:
+                    self.root.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+                self.web_schedule_after_id = None
+            if getattr(self, "web_service_window", None) is not None:
+                self.web_service_window.close()
+            if getattr(self, "web_service_manager", None) is not None:
+                self.web_service_manager.close()
+        except Exception as exc:
+            self._append_debug_log(f"web_service_close_failed type={type(exc).__name__}")
 
     def _ensure_ai_update_center(self):
         if not hasattr(self, "ai_update_center"):
@@ -19005,8 +19168,11 @@ class BossTimerApp:
                 pass
         return default_start
 
-    def _get_schedule_share_default_end_datetime(self, start_datetime: datetime) -> datetime:
-        end_base = (start_datetime.replace(second=0, microsecond=0) + timedelta(days=1)).replace(second=0, microsecond=0)
+    def _get_schedule_share_default_end_datetime(self, start_datetime: datetime,
+                                               *, reference_datetime: datetime | None = None) -> datetime:
+        reference_now = reference_datetime if reference_datetime is not None else self._get_schedule_reference_datetime()
+        days = 1 + evening_extension_days(reference_now)
+        end_base = (start_datetime.replace(second=0, microsecond=0) + timedelta(days=days)).replace(second=0, microsecond=0)
         time_text = str(getattr(self, "schedule_share_end_time_default", "08:00") or "08:00").strip()
         time_match = re.fullmatch(r"(\d{1,2}):(\d{2})", time_text)
         if time_match:
@@ -19016,11 +19182,14 @@ class BossTimerApp:
                 return end_base.replace(hour=hour_value, minute=minute_value)
             except ValueError:
                 pass
-        return self._get_schedule_share_reset_end_datetime(start_datetime)
+        return self._get_schedule_share_reset_end_datetime(start_datetime, reference_datetime=reference_now)
 
-    def _get_schedule_share_reset_end_datetime(self, start_datetime: datetime) -> datetime:
+    def _get_schedule_share_reset_end_datetime(self, start_datetime: datetime,
+                                             *, reference_datetime: datetime | None = None) -> datetime:
+        reference_now = reference_datetime if reference_datetime is not None else self._get_schedule_reference_datetime()
         start_value = start_datetime.replace(second=0, microsecond=0)
-        return (start_value + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+        return (start_value + timedelta(days=1 + evening_extension_days(reference_now))).replace(
+            hour=8, minute=0, second=0, microsecond=0)
 
     def _get_schedule_share_today_start_datetime(self, reference_datetime: datetime) -> datetime:
         base = reference_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -19038,7 +19207,7 @@ class BossTimerApp:
         """Build the same values preselected by the local 스케쥴복사 dialog."""
         reference_now = self._get_schedule_reference_datetime().replace(microsecond=0)
         start_value = self._get_schedule_share_default_start_datetime(reference_now)
-        end_value = self._get_schedule_share_default_end_datetime(start_value)
+        end_value = self._get_schedule_share_default_end_datetime(start_value, reference_datetime=reference_now)
         return {
             "start_datetime": start_value,
             "end_datetime": end_value,
@@ -19066,7 +19235,7 @@ class BossTimerApp:
         result: dict[str, object] = {"payload": None}
         now = self._get_schedule_reference_datetime().replace(microsecond=0)
         default_start = self._get_schedule_share_default_start_datetime(now)
-        default_end = self._get_schedule_share_default_end_datetime(default_start)
+        default_end = self._get_schedule_share_default_end_datetime(default_start, reference_datetime=now)
         today_start = self._get_schedule_share_today_start_datetime(now)
         today_end = self._get_schedule_share_today_end_datetime(now)
 
@@ -19380,7 +19549,7 @@ class BossTimerApp:
 
         def reset_to_defaults() -> None:
             set_fields(default_start, start=True)
-            set_fields(self._get_schedule_share_reset_end_datetime(default_start), start=False)
+            set_fields(self._get_schedule_share_reset_end_datetime(default_start, reference_datetime=now), start=False)
             update_preview()
 
         tk.Button(
@@ -56272,7 +56441,7 @@ class BossTimerApp:
         self._position_schedule_break_window()
 
         tk.Label(self.schedule_break_window, text="휴식시간 설정", font=self.header_font, bg="#dbeafe", fg="#0f172a").place(x=0, y=0, width=SCHEDULE_BREAK_WINDOW_WIDTH, height=40)
-        tk.Label(self.schedule_break_window, text="행수/폰트/굵기는 스케쥴 복사에서만 사용됩니다.", font=self.percent_font, bg="#eef2ff", fg="#475569", anchor="w").place(x=18, y=48, width=420, height=18)
+        tk.Label(self.schedule_break_window, text="행수는 복사·웹 칸 높이에 반영됩니다. 폰트/굵기는 복사 전용입니다.", font=self.percent_font, bg="#eef2ff", fg="#475569", anchor="w").place(x=18, y=48, width=560, height=18)
 
         tk.Label(self.schedule_break_window, text="시작 간격(분)", font=self.button_font, bg="#eef2ff", fg="#0f172a").place(x=18, y=78)
         tk.Entry(self.schedule_break_window, textvariable=self.schedule_break_min_gap_var, font=self.button_font, justify="center").place(x=18, y=102, width=88, height=26)
@@ -58686,6 +58855,7 @@ class BossTimerApp:
         if self.schedule_window is not None and self.schedule_window.winfo_exists():
             self._refresh_schedule_window_title()
             self._sync_github_server_combo_to_loaded_meta()
+            self._ensure_schedule_web_button()
             return
         self.schedule_window = tk.Toplevel(self.root)
         self.schedule_window.title(self._get_schedule_window_title_text())
@@ -58705,7 +58875,7 @@ class BossTimerApp:
             fg="#475569",
             anchor="w",
         )
-        self.schedule_time_sync_info_label.place(x=246, y=15, width=428, height=16)
+        self.schedule_time_sync_info_label.place(x=246, y=15, width=350, height=16)
         notice_management_button = tk.Button(
             top_frame, text="알리미 관리", font=self.percent_font,
             bg="#475569", fg="#ffffff", activebackground="#334155", activeforeground="#ffffff",
@@ -58841,6 +59011,12 @@ class BossTimerApp:
             anchor="w",
         )
         self.discord_bot_status_label.place(x=420, y=80, width=124, height=30)
+        self.schedule_web_status_label = tk.Label(
+            top_frame, text="웹 OFF", font=(self.current_font_family, 9, "bold"),
+            bg="#dbeafe", fg="#64748b", anchor="w",
+        )
+        self.schedule_web_status_label.place(x=550, y=80, width=80, height=30)
+        self._refresh_schedule_web_status()
         from discord_connection_visual import load_frames
         try:
             self.discord_bot_connection_frames = load_frames(self.root, os.path.join(get_resource_root(), 'assets', 'discord_plug_connection.png'))
@@ -59560,6 +59736,7 @@ class BossTimerApp:
         )
         self.schedule_banner_check.place(x=SCHEDULE_WINDOW_WIDTH - 218,
                                         y=SCHEDULE_WINDOW_HEIGHT - 46, width=96, height=26)
+        self._ensure_schedule_web_button()
 
     def _initialize_desktop_banner(self) -> None:
         self.desktop_banner_service = DesktopBannerService(
@@ -67895,6 +68072,7 @@ class BossTimerApp:
         if getattr(self, "discord_handover_busy", False):
             return
         self._close_desktop_banner()
+        self._close_web_service()
         if getattr(self, "notice_runtime", None) is not None:
             self.notice_runtime.close()
         self._reset_master_developer_author_clicks()

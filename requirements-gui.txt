@@ -1,1 +1,7 @@
 truststore>=0.10.4,<1
+acme>=5.7,<6
+josepy>=2,<3
+cryptography>=46,<51
+dnspython>=2.8,<3
+cheroot>=11,<12
+requests>=2.32.2,<3

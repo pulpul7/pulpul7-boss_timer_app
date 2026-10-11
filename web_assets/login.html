@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BossTimer 스케줄 입장</title><link rel="stylesheet" href="/style.css">
+<script src="/login.js" defer></script></head><body><main>
+<h1>BossTimer 스케줄</h1><p>관리자가 알려준 네 자리 비밀번호로 입장하세요.</p>
+<form id="login"><label for="nickname">닉네임</label>
+<input id="nickname" name="nickname" type="text" value="guest" maxlength="40"
+ autocomplete="nickname" required aria-describedby="nickname-help">
+<small id="nickname-help" class="muted">길드원은 사용하는 닉네임을, 손님은 guest 또는 원하는 닉네임을 입력하세요.</small>
+<label for="pin">비밀번호</label>
+<input id="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4"
+ autocomplete="current-password" required aria-label="네 자리 비밀번호">
+<button id="enter" type="submit" disabled>입장</button></form>
+<p id="notice" role="status">연결 확인 중</p>
+<p class="muted">일반·게스트 비밀번호 중 안내받은 비밀번호로 입장하세요. 같은 브라우저에서는 로그인을 기억하며, 해당 비밀번호가 바뀌면 다시 입력합니다.</p>
+<noscript>입장하려면 브라우저의 JavaScript를 켜주세요.</noscript>
+</main></body></html>
