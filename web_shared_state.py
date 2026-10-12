@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import os
+from contextlib import ExitStack
 
 from web_access_settings import export_access, import_access, valid_id
 from web_certificate_store import hostname, load_certificate, publish_certificate, public_certificate
@@ -25,6 +26,7 @@ def encrypt_state(data, token, guild, domain):
 
 
 def decrypt_state(data, token, guild, domain):
+    from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     if (not isinstance(data, dict) or data.get("schema") != 1 or data.get("guild") != str(guild)
             or data.get("domain") != hostname(domain) or not isinstance(data.get("encrypted"), str)
@@ -33,7 +35,10 @@ def decrypt_state(data, token, guild, domain):
     context = f"BossTimer.web.v1:{guild}:{hostname(domain)}".encode()
     raw = base64.b64decode(data["encrypted"], validate=True)
     key = hashlib.sha256(context + b":" + token.encode()).digest()
-    value = json.loads(AESGCM(key).decrypt(raw[:12], raw[12:], context))
+    try:
+        value = json.loads(AESGCM(key).decrypt(raw[:12], raw[12:], context))
+    except InvalidTag as exc:
+        raise ValueError("공동 웹 설정을 확인하지 못했습니다. 두 PC의 DuckDNS 주소와 Token이 같은지 확인해주세요.") from exc
     if not isinstance(value, dict):
         raise ValueError("잘못된 공동 웹 설정입니다.")
     return value
@@ -109,7 +114,15 @@ def import_state(manager, envelope, stamp, guard):
     terms = data.get("terms_agreed_at", "")
     if not isinstance(terms, str) or len(terms) > 64:
         raise ValueError("공동 HTTPS 설정을 확인하지 못했습니다.")
-    with manager.lock:
+    # The UI takes the relay/bridge locks before the manager lock. Taking the
+    # manager first and then calling guard() inverted that order and could
+    # deadlock an incoming settings import against a UI status/lease update.
+    relay = getattr(manager, 'delegation', None)
+    bridge = getattr(relay, 'bridge', None)
+    with ExitStack() as locks:
+        for lock in (getattr(relay, 'lock', None), getattr(bridge, 'lock', None), manager.lock):
+            if lock is not None:
+                locks.enter_context(lock)
         guard()
         # The old listener is gated during preparation. Publish only validated state.
         if reusable:

@@ -454,7 +454,7 @@ class DiscordAuthority:
             return False
         # Configuration only: connecting/preparing/temporary errors do not mean OFF.
         try:
-            return bool(manager.status()["enabled"] and not manager.public_paused
+            return bool(manager.status()["enabled"]
                         and manager.ddns_status()["configured"] and manager.public.status()["enabled"])
         except Exception:
             return False  # A broken optional web module must not block Discord registration.
@@ -866,6 +866,9 @@ class DiscordAuthority:
                     with self.lock:
                         grant_checked_at = time.monotonic()
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
+                        manager = getattr(self.app, "web_service_manager", None)
+                        if manager is not None and self._web_publication_configured():
+                            manager.public_paused = False  # A fresh verified acquisition ends the runtime hold.
                         self._observe(self.current, status, grant_checked_at)
                     self._notify(self.current, notice="completed")
                     manager = getattr(self.app, "web_service_manager", None)
@@ -967,6 +970,13 @@ class DiscordAuthority:
         except Exception as exc:
             ok, message = False, str(exc)
         self.app._append_debug_log(f"authority_handover_upload_result request={token} success={int(ok)} detail={message}")
+        try:
+            manager = getattr(self.app, "web_service_manager", None)
+            if manager is not None:
+                manager._log("web_handover_upload_result", request=token, success=bool(ok),
+                             reason=str(message)[:500])
+        except Exception:
+            pass  # Optional diagnostics cannot interrupt the acknowledged voice transfer.
         web_state_path = ""
         try:
             manager = getattr(self.app, "web_service_manager", None)
@@ -991,6 +1001,7 @@ class DiscordAuthority:
                 if current.get("request") != token:
                     return
                 current["web_transfer"] = dict(request=token, state="ready" if ok and snapshot is not None else "failed",
+                    failure_reason="" if ok else str(message)[:500],
                     web_state_path=web_state_path,
                     entry=dict(uploaded_entry or entry), content_hash=self.app._get_github_schedule_content_hash(snapshot) if snapshot is not None else "",
                     source_season=str(self.scope.get("season") or ""))

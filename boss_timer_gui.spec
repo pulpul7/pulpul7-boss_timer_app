@@ -338,6 +338,7 @@ a = Analysis(
         "web_discord_control",
         "web_return_recovery",
         "web_standalone_hosting",
+        "ui_responsiveness",
         "cryptography.hazmat.primitives.ciphers.aead",
         # Standard library used by dynamically loaded public notice adapters.
         "html.parser",

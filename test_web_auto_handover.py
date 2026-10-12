@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from discord_authority import AuthorityRecord
 from web_delegated_hosting import delegation_info
-from web_handover_bridge import WebHandoverBridge
+from web_handover_bridge import WebHandoverBridge, WebAuthorityTransition
 from web_return_recovery import WebReturnRecovery
 from web_standalone_hosting import StandaloneHosting
 from web_service_manager import WebServiceManager
@@ -182,6 +182,45 @@ class AutoHandoverTests(unittest.TestCase):
         self.repo.get.assert_not_called()
         self.repo.put.assert_not_called()
 
+    def test_new_host_assignment_seen_before_discord_hint_keeps_public_lease(self):
+        data = self.configured_record()
+        self.repo = MemoryRepository(data)
+        relay, manager, coordinator, policy = self.node('host')
+        policy.update(authority_active=True, standby=False, authority_generation=data['generation'])
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.retained_host = None
+        bridge.retry_serial = 0
+        bridge.standalone = StandaloneHosting(bridge)
+        key = (SCOPE['guild'], HOST, HOST_SESSION, data['generation'])
+        bridge.context = (key, coordinator, '18')
+        for name in ('_guard', '_read_owner'):
+            setattr(bridge, name, MethodType(getattr(WebHandoverBridge, name), bridge))
+        requested = coordinator.record.request(SOURCE, SOURCE_SESSION, '777', resume_web=True)
+        self.assertEqual(requested['web_delegate']['host'], HOST)
+        manager.set_authority.reset_mock()
+        with self.assertRaises(WebAuthorityTransition):
+            bridge._read_owner(key, coordinator)
+        self.assertEqual(relay.role, 'host')
+        self.assertTrue(all(call.args[0] for call in manager.set_authority.call_args_list))
+        self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
+
+    def test_failed_upload_displays_senders_exact_reason(self):
+        relay, manager, coordinator, _ = self.node('source')
+        bridge = relay.bridge
+        bridge.retained_host = None
+        bridge.retry_serial = 0
+        bridge.synced_requests = set()
+        bridge._keep_retained_host = lambda *_: False
+        bridge._read_owner = Mock()
+        data = deepcopy(self.repo.data)
+        data['previous_owner'] = [HOST, HOST_SESSION, 1, 'e'*32]
+        data['web_transfer'] = dict(request=data['request'], state='failed', failure_reason='server=.008 PC=.007')
+        with self.assertRaisesRegex(ValueError, r'server=\.008 PC=\.007'):
+            WebHandoverBridge._sync(bridge, bridge.context[0], coordinator, data, '18')
+        bridge._read_owner.assert_not_called()
+
     def test_voice_join_failure_restores_existing_standalone_web(self):
         data = self.configured_record()
         manual = dict(protocol=1, id='e'*32, owner=HOST, runtime=HOST_SESSION,
@@ -229,6 +268,24 @@ class AutoHandoverTests(unittest.TestCase):
                      public=NS(configure=Mock()))
         WebServiceManager.configure_public(manager, False)
         self.assertTrue(manager.public_paused)
+
+    def test_handover_standby_blocks_publication_without_saving_off(self):
+        manager = NS(public_paused=False, authority_ready=True, authority_message='',
+            settings=dict(enabled=True), lock=threading.RLock(), authority_key=('owned',),
+            authority_until=time.monotonic()+30, _flush_authority=Mock(), set_enabled=Mock(), _log=Mock(),
+            ddns=NS(set_active=Mock()), https=NS(set_active=Mock()),
+            public=NS(set_active=Mock(), status=lambda: dict(enabled=True)))
+        WebServiceManager.emergency_stop(manager, standby=True)
+        manager.set_enabled.assert_not_called()
+        self.assertTrue(manager.settings['enabled'])
+        self.assertFalse(WebServiceManager.has_web_authority(manager))
+        manager.ddns.set_active.assert_called_once_with(False)
+        manager.public.set_active.assert_called_once_with(False)
+        node = object.__new__(DiscordAuthority)
+        manager.status = lambda: dict(enabled=True)
+        manager.ddns_status = lambda: dict(configured=True)
+        node.app = NS(web_service_manager=manager)
+        self.assertTrue(node._web_publication_configured())
 
     def test_service_on_resumes_stopped_mode_without_rejoining_voice(self):
         from test_web_standalone_hosting import StandaloneTests
@@ -313,6 +370,7 @@ class AutoHandoverTests(unittest.TestCase):
         host_manager.ddns_status = lambda: dict(configured=False)
         host_manager.ddns = NS(status=lambda: dict(busy=False))
         host_manager.emergency_stop = Mock()
+        host_manager.public.status.return_value.update(state='off', busy=False)
         host_manager._flush_authority = Mock()
         from pathlib import Path
         host_manager.root = Path('unused-offline-web-root')

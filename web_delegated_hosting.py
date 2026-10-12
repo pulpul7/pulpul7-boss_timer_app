@@ -330,6 +330,11 @@ class DelegatedHosting:
             elif self.role == "source" and event.get("operation") == "ready":
                 self.peer_ready = event.get("ready") is True
                 self.message = "기존 웹 연결 확인 · 스케줄 변경 후 1분 30초 뒤 전달" if self.peer_ready else "기존 웹 연결 준비/재시도 중 · 분리 운영 유지"
+            elif self.role == "host" and event.get("operation") == "preflight_failed" and info["state"] == "active":
+                reason = str(event.get("reason") or "진단 로그를 확인해주세요.")[:300]
+                phase = str(event.get("phase_name") or "prepare")[:40]
+                self.message = "새 PC의 웹 승계 준비 실패 · 이 PC의 웹 유지 · " + reason
+                self.manager._log("web_peer_preflight_failed", phase_name=phase, reason=reason)
         self.wake.set()
 
     def _guard(self, info, role):
@@ -552,7 +557,7 @@ class DelegatedHosting:
                 if not ok:
                     raise ValueError(error or "최신 웹 설정 이전에 실패했습니다.")
         self._guard(info, "host")
-        self.manager.emergency_stop()  # Flush the deny lease before acknowledging stop.
+        self.manager.emergency_stop(standby=True)  # Deny publication, retain the saved ON preference.
         self.manager.set_authority((), message="웹 담당 변경 · 기존 웹 공개 중지 확인")
         self.manager._flush_authority(force=True)
         if read_json(self.manager.root / "authority_lease.json").get("enabled") is not False:
@@ -560,7 +565,8 @@ class DelegatedHosting:
         # Deactivation prevents another DDNS request. Drain a request already
         # sent so its delayed response cannot overwrite the next PC's address.
         deadline = time.monotonic() + 20
-        while self.manager.ddns.status().get("busy"):
+        while (self.manager.ddns.status().get("busy") or self.manager.public.status().get("busy")
+               or self.manager.public.status()["state"] != "off"):
             self._guard(info, "host")
             if self.closed.wait(0.2) or time.monotonic() >= deadline:
                 raise ValueError("기존 무료 주소 갱신 종료 대기 중입니다. 자동으로 다시 확인합니다.")

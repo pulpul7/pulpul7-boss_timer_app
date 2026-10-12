@@ -89,6 +89,8 @@ class WebReturnRecovery:
             self.bridge.operation_local.delegated_info = info
             self.bridge.operation_local.serial = self.bridge.retry_serial
             data = self.bridge._read_owner(key, coordinator)
+            phase = 'prepare'
+            self.bridge.operation_local.prepare_phase = phase
             self.bridge._prepare(key, coordinator, data, season)
             phase = 'local-https'
             if not self.manager.status()['enabled']:
@@ -111,6 +113,8 @@ class WebReturnRecovery:
                     raise ValueError('웹서비스가 종료되었습니다.')
             raise ValueError('새 PC의 HTTPS 준비가 아직 완료되지 않았습니다.')
         except Exception as exc:
+            if phase == 'prepare':
+                phase = getattr(self.bridge.operation_local, 'prepare_phase', phase)
             self.stage = 'preflight_failed'
             reason = str(exc)[:300] if isinstance(exc, ValueError) else '진단 로그를 확인해주세요.'
             self.message = '새 웹 준비 실패 · 기존 PC의 웹 유지 · ' + reason
@@ -122,6 +126,10 @@ class WebReturnRecovery:
             except Exception:
                 pass
             self.manager._log('web_return_preflight_failed', phase_name=phase, error_type=type(exc).__name__, reason=reason)
+            try:
+                self.bridge.delegation._send(info, 'preflight_failed', reason=reason, phase_name=phase)
+            except Exception as notify_error:
+                self.manager._log('web_return_failure_notice_failed', error_type=type(notify_error).__name__)
             return False
         finally:
             self.bridge.operation_local.delegated_info = None
@@ -191,13 +199,14 @@ class WebReturnRecovery:
                 self.failed = None
                 return
             self.stage, self.message = 'restoring', '새 웹 실패 · 기존 웹 담당 자동 복구 요청'
-            self.manager.emergency_stop()
+            self.manager.emergency_stop(standby=True)
             self.manager.set_authority((), message=self.message)
             self.manager._flush_authority(force=True)
             if read_json(self.manager.root/'authority_lease.json').get('enabled') is not False:
                 raise ValueError('실패한 새 웹의 공개 차단을 확인하지 못했습니다.')
             deadline = time.monotonic()+20
-            while self.manager.ddns.status().get('busy'):
+            while (self.manager.ddns.status().get('busy') or self.manager.public.status().get('busy')
+                   or self.manager.public.status()['state'] != 'off'):
                 self._guard(key, coordinator)
                 if self.manager.closed.wait(.2) or time.monotonic() >= deadline:
                     raise ValueError('새 PC의 주소 갱신 종료를 기다립니다.')

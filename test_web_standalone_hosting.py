@@ -75,6 +75,13 @@ class StandaloneTests(unittest.TestCase):
         coordinator.web_control.request.assert_not_called()
         manual.bridge._sync.assert_not_called()
 
+    def test_prepared_local_worker_is_reused_during_force_start(self):
+        manual, manager, _, _ = self.node(owner=SOURCE)
+        manager.status.return_value.update(enabled=True)
+        self.run_start(manual)
+        manager.set_enabled.assert_not_called()
+        self.assertEqual(manual.stage, 'starting')
+
     def test_failed_peer_stop_never_activates_new_web(self):
         manual, manager, coordinator, _ = self.node()
         coordinator.web_control.request.side_effect = lambda _, done: done(False, 'peer did not stop')
@@ -142,6 +149,15 @@ class StandaloneTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 manual.stop_sync()
         self.assertIsNone(standalone_info(self.repo.data))
+
+    def test_handover_stop_keeps_local_worker_running_after_public_deny(self):
+        manual, manager, _, public = self.node(owner=SOURCE)
+        public.update(state='off')
+        with patch('web_standalone_hosting.read_json', return_value=dict(enabled=False)):
+            manual.stop_sync(for_handover=True)
+        manager.emergency_stop.assert_called_once_with(standby=True)
+        self.assertEqual(manager.status()['state'], 'running')
+        self.assertEqual(standalone_info(self.repo.data)['state'], 'stopped')
 
     def test_shared_settings_are_encrypted_and_uploaded_only_when_changed(self):
         manual, manager, _, public = self.node(owner=SOURCE)

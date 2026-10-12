@@ -9,6 +9,10 @@ from web_shared_state import export_state, import_state
 from web_delegated_hosting import DelegatedHosting
 
 
+class WebAuthorityTransition(ValueError):
+    """A verified new assignment keeps this PC's existing public website."""
+
+
 class WebHandoverBridge:
     def __init__(self, app, manager):
         self.app, self.manager = app, manager
@@ -200,6 +204,19 @@ class WebHandoverBridge:
         self._guard(key, coordinator)
         if (data.get("phase") != "active" or data.get("owner") != key[1]
                 or data.get("owner_runtime") != key[2] or data.get("generation") != key[3]):
+            from web_delegated_hosting import delegation_info
+            info = delegation_info(data)
+            if (info and info['state'] == 'active' and info['host'] == coordinator.client
+                    and info['host_runtime'] == coordinator.runtime
+                    and info['guild'] == coordinator.scope['guild']
+                    and info['server'] == coordinator.scope['server']
+                    and info['season'] == str(self.app.current_season_no)):
+                # GitHub may show the new assignment before the Discord hint
+                # arrives. Adopt that verified host role before cancelling the
+                # old voice owner's web task, so its public lease stays alive.
+                coordinator._process_record(data, coordinator._status())
+                self.delegation.tick()
+                raise WebAuthorityTransition('웹 담당 유지가 확인되어 이전 송출권한의 웹 작업을 종료했습니다.')
             raise ValueError("현재 Discord 권한 기록이 달라 웹 공개를 중단했습니다.")
         return data
 
@@ -218,7 +235,9 @@ class WebHandoverBridge:
             if artifact.get("request") == request and artifact.get("state") == "ready":
                 break
             if artifact.get("state") == "failed" and artifact.get("request") == request:
-                raise ValueError("인계 스케줄 업로드에 실패했습니다. 기존 담당자의 업로드 재시도 후 웹 강제 승계/재시도를 눌러주세요.")
+                detail = str(artifact.get("failure_reason") or "").strip()[:500]
+                raise ValueError("인계 스케줄 업로드에 실패했습니다. " + (detail or
+                    "기존 담당자의 업로드 재시도 후 웹 강제 승계/재시도를 눌러주세요."))
             if time.monotonic() >= deadline:
                 raise ValueError("인계 스케줄 업로드 응답이 없습니다. 업로드 확인 후 웹 강제 승계/재시도를 눌러주세요.")
             if self.closed.wait(2):
@@ -272,7 +291,9 @@ class WebHandoverBridge:
     def _prepare(self, key, coordinator, data, season):
         operation_serial = getattr(self.operation_local, "serial", self.retry_serial)
         delegated_info = getattr(self.operation_local, "delegated_info", None)
+        self.operation_local.prepare_phase = "schedule-sync"
         data = self._sync(key, coordinator, data, season)
+        self.operation_local.prepare_phase = "shared-settings"
         if self.manager.ddns_status()["configured"]:
             path = (data.get("web_transfer") or {}).get("web_state_path")
             expected_path = f"data/web/transfers/{data.get('request', '')}.json"
@@ -285,6 +306,7 @@ class WebHandoverBridge:
                 import_state(self.manager, envelope, key, lambda: self._guard(key, coordinator))
                 self.manager._log("web_shared_state_imported", generation=key[3])
         self._read_owner(key, coordinator)
+        self.operation_local.prepare_phase = "schedule-snapshot"
         # A fresh post-sync snapshot is collected on Tk before public activation.
         def snapshot():
             from web_schedule_snapshot import collect_snapshot
@@ -382,6 +404,10 @@ class WebHandoverBridge:
                         except Exception as exc:
                             self.manager._log("web_shared_state_publish_failed", error_type=type(exc).__name__)
                 except Exception as exc:
+                    if isinstance(exc, WebAuthorityTransition):
+                        self.manager._log("web_voice_task_cancelled_host_retained", generation=key[3])
+                        self.wake.set()
+                        continue
                     try:
                         if not self.delegation.status()["role"] and not self._keep_retained_host(key, coordinator):
                             self.manager.set_authority((), message=str(exc) if isinstance(exc, ValueError) else

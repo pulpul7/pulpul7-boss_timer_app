@@ -3406,6 +3406,11 @@ class BossTimerApp:
             atexit.register(self._shutdown_discord_bot_at_exit)
             self._initialize_desktop_banner()
             self._initialize_web_service()
+            try:
+                from ui_responsiveness import UIResponsivenessMonitor
+                self.ui_responsiveness = UIResponsivenessMonitor(self.root, get_user_config_dir())
+            except Exception as exc:
+                self._append_debug_log(f"ui_responsiveness_setup_failed type={type(exc).__name__}")
 
     def _initialize_web_service(self) -> None:
         self.web_service_manager = None
@@ -3502,7 +3507,12 @@ class BossTimerApp:
             if manager is not None and not manager.closed.is_set():
                 relay = getattr(manager, "delegation", None)
                 relay_state = relay.status() if relay is not None else {}
-                if relay_state.get("role") == "source":
+                manual = getattr(manager, "standalone", None)
+                manual_state = manual.status() if manual is not None else {}
+                if manual_state.get("busy"):
+                    text = "웹 중지 중" if manual_state.get("stage") == "stopping" else "웹 승계 중"
+                    bg, hover, status_fg = "#b45309", "#92400e", "#b45309"
+                elif relay_state.get("role") == "source":
                     text, status_fg = "웹 별도 PC", "#7c3aed"
                     if relay_state.get("return_stage") == "preflight_failed":
                         text, bg, hover, status_fg = "웹 승계 실패", "#b91c1c", "#991b1b", "#b91c1c"
@@ -11994,7 +12004,11 @@ class BossTimerApp:
         ]
         for candidate in candidates:
             if candidate is not None and self._widget_available(candidate):
-                return candidate
+                try:
+                    if candidate.winfo_viewable():
+                        return candidate
+                except tk.TclError:
+                    pass
         return self.root
 
     def _create_centered_messagebox_anchor(self, parent: tk.Widget | None = None) -> tk.Toplevel:
@@ -12015,16 +12029,20 @@ class BossTimerApp:
 
     def _show_centered_messagebox(self, method_name: str, title: str, message: str, *, parent: tk.Widget | None = None, default=None):
         owner = self._get_centered_messagebox_parent(parent)
+        try:
+            if owner.state() == "iconic":
+                owner.deiconify()
+            owner.update_idletasks()
+            owner_visible = bool(owner.winfo_viewable())
+        except tk.TclError:
+            owner_visible = False
         dialog = tk.Toplevel(owner)
         dialog.title(title)
         dialog.resizable(False, False)
         dialog.configure(bg="#f8fafc")
-        dialog.transient(owner)
+        if owner_visible:
+            dialog.transient(owner)
         previous_grab = owner.grab_current()
-        try:
-            dialog.grab_set()
-        except tk.TclError:
-            pass
         normalized_method = str(method_name or "showinfo").strip()
         result = {"value": None}
         width = 500
@@ -12046,7 +12064,7 @@ class BossTimerApp:
                 dialog.destroy()
             except tk.TclError:
                 pass
-            if self._widget_available(previous_grab):
+            if self._widget_available(previous_grab) and previous_grab.winfo_viewable():
                 try:
                     previous_grab.grab_set()
                 except tk.TclError:
@@ -12103,9 +12121,21 @@ class BossTimerApp:
         # widgets are first laid out. Center once the final layout exists.
         dialog.update_idletasks()
         self._center_window_over_parent(dialog, owner, width, height)
+        dialog.deiconify()
+        dialog.update_idletasks()
+        try:
+            dialog.grab_set()
+        except tk.TclError:
+            pass
         dialog.lift(owner)
         (default_button or dialog).focus_force()
+        monitor = getattr(self, "ui_responsiveness", None)
+        if monitor is not None:
+            monitor.note("modal_open", title=str(title), owner_visible=owner_visible,
+                         requested_parent_hidden=bool(parent is not None and parent is not owner))
         dialog.wait_window()
+        if monitor is not None:
+            monitor.note("modal_closed", title=str(title))
         return result["value"]
 
     def _show_centered_error(self, title: str, message: str, *, parent: tk.Widget | None = None) -> None:
@@ -68237,6 +68267,9 @@ class BossTimerApp:
     def on_close(self) -> None:
         if getattr(self, "discord_handover_busy", False):
             return
+        monitor = getattr(self, "ui_responsiveness", None)
+        if monitor is not None:
+            monitor.close()
         self._close_desktop_banner()
         self._close_web_service()
         if getattr(self, "notice_runtime", None) is not None:

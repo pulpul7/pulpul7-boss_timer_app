@@ -183,6 +183,17 @@ class AccessHandoverTests(unittest.TestCase):
                     https=NS(settings={}, lock=threading.RLock(), view={}),
                     pin_public_port=Mock(), previous_mapping_owner='',
                     public_preference_touched=True, public=NS(configure=Mock()))
+        held, acquired = [], []
+        class OrderedLock:
+            def __init__(self, name): self.name = name
+            def __enter__(self):
+                held.append(self.name)
+                acquired.append(self.name)
+            def __exit__(self, *_): held.pop()
+        second.lock = OrderedLock('manager')
+        second.delegation = NS(lock=OrderedLock('relay'), bridge=NS(lock=OrderedLock('bridge')))
+        def guarded():
+            self.assertEqual(held, ['relay', 'bridge', 'manager'])
         writes = {}
         with patch('web_shared_state.read_json', return_value=settings), \
                 patch('web_shared_state.unprotect_secret', return_value='test-token'), \
@@ -191,7 +202,9 @@ class AccessHandoverTests(unittest.TestCase):
                 patch('web_shared_state.publish_certificate'), \
                 patch('web_shared_state.public_certificate', return_value={}), \
                 patch('web_shared_state.write_json', side_effect=lambda path, data: writes.update({path.name: data})):
-            import_state(second, envelope, ('100', 'c' * 32, 'd' * 32, 6), Mock())
+            import_state(second, envelope, ('100', 'c' * 32, 'd' * 32, 6), guarded)
+        self.assertEqual(acquired, ['relay', 'bridge', 'manager'])
+        self.assertEqual(held, [])
         stored = writes['access_settings.json']
         self.assertEqual(policy.readable_pins(stored)['member']['value'], '1234')
         for role in ('member', 'guest'):

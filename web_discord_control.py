@@ -5,7 +5,7 @@ import threading
 import time
 
 from discord_connection_policy import ConnectionPolicy
-from web_delegated_hosting import delegation_info
+from web_delegated_hosting import delegation_info, valid_token
 from web_standalone_hosting import standalone_info
 
 
@@ -51,13 +51,26 @@ class DiscordWebControl:
                     raise ValueError('웹 요청 번호가 올바르지 않습니다.')
                 with coordinator.lock:
                     data, _ = coordinator.record.read()
-                target = coordinator.record.resolve_member(coordinator._live_data(data), selector)
+                handover = payload.get('handover_operation')
+                expected_runtime = payload.get('expected_target_runtime')
+                if action == 'stop' and valid_token(handover) and valid_token(expected_runtime) and valid_token(payload.get('target_client_id')):
+                    target = payload['target_client_id']  # Exact session is fenced again by the CAS and target claim.
+                else:
+                    target = coordinator.record.resolve_member(coordinator._live_data(data), selector)
                 def publish(record):
                     if record.get('phase') in {'requested', 'joining'}:
                         raise ValueError('관리자 승계 중입니다. 완료 후 웹서버 명령을 다시 실행하세요.')
                     member = coordinator.record.online_members(record).get(target)
                     if not member:
                         raise ValueError('대상 관리자 연결이 끊겼습니다. 기존 웹은 유지합니다.')
+                    if handover:
+                        operation = record.get('web_operation') or {}
+                        if (action != 'stop' or operation.get('id') != handover
+                                or operation.get('owner') != coordinator.client
+                                or operation.get('runtime') != getattr(coordinator, 'runtime', None)
+                                or operation.get('expires', 0) <= time.time()
+                                or member.get('runtime') != expected_runtime):
+                            raise ValueError('웹 인계 요청 또는 대상 실행 세션이 변경되었습니다.')
                     if action in {'stop', 'force'} and member.get('web_standalone_protocol') != 1:
                         raise ValueError('대상 PC의 GUI와 봇을 새 버전으로 교체해주세요. 웹 종료 명령 지원을 확인하지 못했습니다.')
                     old = member.get('web_call', {})
@@ -65,6 +78,8 @@ class DiscordWebControl:
                         raise ValueError('해당 PC에서 웹 요청을 처리 중입니다.')
                     member['web_call'] = dict(id=call_id, runtime=member['runtime'], action=action,
                                              state='pending', expires=time.time()+10)
+                    if handover:
+                        member['web_call']['handover_operation'] = handover
                 with coordinator.lock:
                     published = coordinator.record.mutate(publish)
                 self.observe(published, coordinator._status())
@@ -126,7 +141,14 @@ class DiscordWebControl:
                 raise ValueError('웹 모듈이 준비되지 않았거나 관리자 승계 중입니다.')
             action = call.get('action', 'retry')
             if action == 'stop':
-                manager.stop_web_verified()
+                handover = call.get('handover_operation')
+                if handover:
+                    operation = data.get('web_operation') or {}
+                    if operation.get('id') != handover or operation.get('expires', 0) <= time.time():
+                        raise ValueError('웹 인계 요청이 종료되어 이전 중지 명령을 취소했습니다.')
+                    manager.stop_web_verified(for_handover=True)
+                else:
+                    manager.stop_web_verified()
                 manager._log('discord_web_stop_verified', request=call['id'])
                 self._finish(call, True, '웹 서버 종료 완료 · 외부 접근과 주소 갱신을 중지했습니다. 봇과 디코 송출은 유지합니다.', stopped=True)
                 return

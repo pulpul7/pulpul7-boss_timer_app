@@ -72,6 +72,27 @@ class WebCommandTests(unittest.TestCase):
         # Three CAS writes: requested, accepted, completed. No polling reads.
         self.assertEqual(repo.writes, 3)
 
+    def test_internal_handover_stops_only_exact_session_and_preserves_settings(self):
+        control, coordinator, manager, repo, _ = self.node()
+        coordinator.runtime = HOST_SESSION
+        coordinator._live_data = Mock(side_effect=AssertionError('unnecessary extra probe'))
+        repo.data['web_operation'] = dict(id='e'*32, owner=HOST, runtime=HOST_SESSION, expires=time.time()+100)
+        done = self.request(control, operation='administrator_web_stop', target_client_id=HOST,
+            expected_target_runtime=HOST_SESSION, handover_operation='e'*32)
+        self.assertTrue(done.call_args.args[0])
+        manager.stop_web_verified.assert_called_once_with(for_handover=True)
+        coordinator._live_data.assert_not_called()
+
+    def test_internal_handover_rejects_replaced_target_session(self):
+        control, coordinator, manager, repo, _ = self.node()
+        coordinator.runtime = HOST_SESSION
+        repo.data['web_operation'] = dict(id='e'*32, owner=HOST, runtime=HOST_SESSION, expires=time.time()+100)
+        done = self.request(control, operation='administrator_web_stop', target_client_id=HOST,
+            expected_target_runtime='9'*32, handover_operation='e'*32)
+        self.assertFalse(done.call_args.args[0])
+        manager.stop_web_verified.assert_not_called()
+        self.assertEqual(repo.writes, 0)
+
     def test_designated_host_without_voice_can_retry(self):
         control, _, manager, repo, _ = self.node(role='host')
         done=self.request(control)

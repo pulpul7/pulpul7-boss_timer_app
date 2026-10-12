@@ -28,7 +28,7 @@ class ReturnTests(unittest.TestCase):
         manager.authority_key = relay.bridge.context[0]
         manager.authority_ready = False
         manager.root = Path('unused-offline-web-root')
-        manager.emergency_stop = Mock()
+        manager.emergency_stop = Mock(side_effect=lambda **_: manager.public.status.return_value.update(state='off', busy=False))
         manager._flush_authority = Mock()
         manager.retry_public = Mock()
         manager.ddns = NS(active=True, status=Mock(return_value=dict(busy=False, state='ready',
@@ -113,6 +113,17 @@ class ReturnTests(unittest.TestCase):
         self.assertEqual(recovery.stage, 'preflight_failed')
         self.assertEqual(self.repo.writes, 0)
 
+    def test_verified_failure_notice_is_logged_on_existing_host_without_stopping_it(self):
+        relay, manager, coordinator, _, _ = self.recovery_node(role='host')
+        info = relay.info
+        event = dict(kind='web', operation='preflight_failed', delegate=info['id'],
+            target=HOST, target_runtime=HOST_SESSION, client=SOURCE, runtime=SOURCE_SESSION,
+            sender_bot_id='22', phase_name='schedule-sync', reason='upload failed')
+        relay.receive(event, self.repo.data)
+        manager._log.assert_any_call('web_peer_preflight_failed', phase_name='schedule-sync', reason='upload failed')
+        manager.emergency_stop.assert_not_called()
+        self.assertIn('upload failed', relay.message)
+
     def test_preflight_checks_local_tls_before_release(self):
         relay, manager, coordinator, _, recovery = self.recovery_node()
         with patch('web_direct_hosting.check_local_https') as probe:
@@ -149,7 +160,7 @@ class ReturnTests(unittest.TestCase):
         manager.authority_ready = True
         manager.public.status.return_value = dict(state='error', enabled=True)
         order = []
-        manager.emergency_stop.side_effect = lambda: order.append('stop')
+        manager.emergency_stop.side_effect = lambda **_: (order.append('stop'), manager.public.status.return_value.update(state='off', busy=False))
         manager._flush_authority.side_effect = lambda **_: order.append('deny')
         manager.ddns.status.side_effect = lambda: order.append('drain') or dict(busy=False)
         with patch.object(recovery_module, 'read_json', return_value=dict(enabled=False)):

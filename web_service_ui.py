@@ -124,9 +124,12 @@ class WebServiceWindow:
         roles = {"host": "이 PC: 웹 담당", "source": "이 PC: Discord·스케줄 담당", "": "일반 운영"}
         role = ("이 PC: 단독 웹 담당" if manual['local'] else "다른 PC에서 단독 웹 운영") if manual['state'] == 'active' else roles[state['role']]
         host = manual['owner_name'] if manual['state'] == 'active' else state['host']
+        recovery = getattr(self.manager, 'web_return_recovery', None)
+        failure = ("\n" + recovery.message if recovery is not None
+                   and recovery.stage in {'preflight_failed', 'restoring'} else "")
         self.joint_text.set(f"{role}\n웹 담당: {host}   ·   스케줄 담당: {state['source']}\n"
                             f"{state['message']}\n최근 웹 반영: {state['last_applied_at']}\n"
-                            f"{manual['message']}")
+                            f"{manual['message']}{failure}")
         for button in (self.joint_sync, self.joint_return):
             button.configure(state="normal" if state["role"] == "source" else "disabled")
         for button in (self.joint_stop, self.joint_force):

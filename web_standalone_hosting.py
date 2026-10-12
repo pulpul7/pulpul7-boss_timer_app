@@ -222,7 +222,9 @@ class StandaloneHosting:
                 import_state(self.manager, envelope, stamp, guard)
             local_preparing = True
             self.manager.public_paused = False
-            self.manager.set_enabled(True)
+            worker = self.manager.status()
+            if not worker.get('enabled') or worker['state'] not in {'running', 'starting'}:
+                self.manager.set_enabled(True)
             deadline = time.monotonic()+35
             while True:
                 guard()
@@ -244,7 +246,9 @@ class StandaloneHosting:
                 self._progress('stopping_peer', '상대 PC에 웹 로그아웃 요청 · 종료 확인 대기')
                 result, finished = [], threading.Event()
                 coordinator.web_control.request(dict(operation='administrator_web_stop',
-                    request_id=str(uuid.uuid4().int)[:23], target_client_id=host),
+                    request_id=str(uuid.uuid4().int)[:23], target_client_id=host,
+                    expected_target_runtime=latest.get('members', {}).get(host, {}).get('runtime', ''),
+                    handover_operation=operation),
                     lambda ok, message: (result.append((ok, message)), finished.set()))
                 if not finished.wait(80) or not result or not result[0][0]:
                     raise ValueError(result[0][1] if result else '상대 웹 종료 응답이 없습니다. 단독 공개를 시작하지 않았습니다.')
@@ -402,17 +406,18 @@ class StandaloneHosting:
                 self.busy = False
         threading.Thread(target=worker, name='web-standalone-stop', daemon=True).start()
 
-    def stop_sync(self):
+    def stop_sync(self, *, for_handover=False):
         self.cancelled.set()
         self._progress('stopping', '이 PC 웹 종료 · 외부 접근과 주소 갱신 중지 확인')
         self._save_settings_before_stop()
-        self.manager.emergency_stop()
-        self.manager.set_authority((), message='웹 종료 · 단독 강제 실행으로 다시 시작할 수 있습니다.')
+        self.manager.emergency_stop(standby=for_handover)
+        self.manager.set_authority((), message='웹 대기 · 다른 PC에서 공개합니다.' if for_handover else
+                                   '웹 종료 · 단독 강제 실행으로 다시 시작할 수 있습니다.')
         self.manager._flush_authority(force=True)
         if read_json(self.manager.root/'authority_lease.json').get('enabled') is not False:
             raise ValueError('웹 외부 접근 차단을 확인하지 못했습니다.')
         deadline = time.monotonic()+35
-        while (self.manager.status()['state'] != 'stopped' or self.manager.ddns.status().get('busy')
+        while ((not for_handover and self.manager.status()['state'] != 'stopped') or self.manager.ddns.status().get('busy')
                or self.manager.public.status().get('busy') or self.manager.public.status()['state'] != 'off'):
             if self.manager.closed.is_set() or time.monotonic() >= deadline:
                 raise ValueError('웹 프로세스·외부 연결·주소 갱신 종료를 확인하지 못했습니다.')
@@ -433,7 +438,8 @@ class StandaloneHosting:
                 data = coordinator.record.mutate(mark)
             coordinator._process_record(data, coordinator._status())
             self._notify(coordinator, data)
-        self._progress('stopped', '이 PC 웹 종료 완료 · 봇 연결과 디코 송출은 유지합니다.')
+        self._progress('stopped', '웹 공개 인계 완료 · 웹서비스 설정을 유지하고 대기합니다.' if for_handover else
+                       '이 PC 웹 종료 완료 · 봇 연결과 디코 송출은 유지합니다.')
 
     def _save_settings_before_stop(self):
         coordinator = getattr(self.app, 'discord_handover', None)

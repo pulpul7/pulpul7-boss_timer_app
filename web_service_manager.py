@@ -183,20 +183,26 @@ class WebServiceManager:
         self.public.configure(True)
         self._log("web_public_retry_requested")
 
-    def emergency_stop(self):
+    def emergency_stop(self, *, standby=False):
         self.public_paused = True
         self.authority_ready = False
-        self.authority_message = "웹 긴급 중지 · 웹 강제 승계/재시도로 다시 시작할 수 있습니다."
+        self.authority_message = ("웹 대기 · 다른 PC에서 공개합니다." if standby else
+                                  "웹 긴급 중지 · 웹 강제 승계/재시도로 다시 시작할 수 있습니다.")
         try:
             self._flush_authority(force=True)
         except OSError as exc:
             self._log("web_emergency_gate_write_failed", error_type=type(exc).__name__)
-        try:
-            self.set_enabled(False)
-        except OSError:
-            self._request(False)  # Stop the owned worker even if OFF cannot be saved.
-            raise
-        self._log("web_emergency_stop_requested")
+        if standby:
+            self.ddns.set_active(False)
+            self.https.set_active(False)
+            self.public.set_active(False)
+        else:
+            try:
+                self.set_enabled(False)
+            except OSError:
+                self._request(False)  # Stop the owned worker even if OFF cannot be saved.
+                raise
+        self._log("web_handover_standby_requested" if standby else "web_emergency_stop_requested")
 
     def force_start_web(self):
         self.standalone.start()
@@ -204,8 +210,8 @@ class WebServiceManager:
     def stop_web(self):
         self.standalone.stop()
 
-    def stop_web_verified(self):
-        self.standalone.stop_sync()
+    def stop_web_verified(self, *, for_handover=False):
+        self.standalone.stop_sync(for_handover=for_handover)
 
     def _public_context(self):
         with self.lock:

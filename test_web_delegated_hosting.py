@@ -393,6 +393,7 @@ class DelegatedTests(unittest.TestCase):
         self.repo.data['web_delegate']['state'] = 'releasing'
         relay.observe(self.repo.data, coordinator)
         manager.emergency_stop = Mock()
+        manager.public.status.return_value.update(state='off', busy=False)
         manager.ddns_status = Mock(return_value=dict(configured=False))
         manager.ddns = NS(status=Mock(return_value=dict(busy=False)))
         manager._flush_authority = Mock()
@@ -569,6 +570,7 @@ class DelegatedTests(unittest.TestCase):
         manager.ddns_status = Mock(return_value=dict(configured=True))
         manager.ddns = NS(status=Mock(return_value=dict(busy=False)))
         manager.emergency_stop = Mock()
+        manager.public.status.return_value.update(state='off', busy=False)
         manager._flush_authority = Mock()
         manager.root = Path('unused-offline-web-root')
         encrypted = dict(schema=1, ciphertext='offline encrypted settings')

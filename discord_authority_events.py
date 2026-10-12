@@ -232,10 +232,13 @@ class AuthorityEvents:
                                generation=int(command.get("generation", 0)))
             self.queue_notice(command)
         elif action == "web":
-            if command.get("operation") not in {"schedule", "ack", "ready"}:
+            if command.get("operation") not in {"schedule", "ack", "ready", "preflight_failed"}:
                 raise ValueError("지원하지 않는 웹 전달 요청입니다.")
             values = {key: command[key] for key in ("operation", "delegate", "target", "target_runtime",
-                      "transfer", "sequence", "hash", "ok", "applied_at", "ready") if key in command}
+                      "transfer", "sequence", "hash", "ok", "applied_at", "ready", "reason", "phase_name") if key in command}
+            if values["operation"] == "preflight_failed":
+                values["reason"] = str(values.get("reason") or "웹 준비 실패")[:300]
+                values["phase_name"] = str(values.get("phase_name") or "prepare")[:40]
             await self.publish("web", **values)
         elif action == "probe":
             probe = str(command["id"])
