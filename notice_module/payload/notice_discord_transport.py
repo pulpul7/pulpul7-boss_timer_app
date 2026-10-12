@@ -11,7 +11,8 @@ class DiscordNoticeTransport:
     def prepare_prepared(self, lease):
         handle = dict(id=uuid.uuid4().hex, lease=lease, state='preparing')
         try:
-            result = self.request(dict(id=handle['id'], action='prepare', path=str(lease.path)))
+            result = self.request(dict(id=handle['id'], action='prepare', path=str(lease.path),
+                                       text=str(getattr(lease, 'text', '') or '')[:10000]))
             handle['state'] = result['state'] if result.get('accepted') else 'failed'
         except Exception:
             # Keep ownership even after an uncertain timeout, so stop must be

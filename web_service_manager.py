@@ -44,7 +44,7 @@ class WebServiceManager:
         self.process = None
         self.logger = None
         self.recent = deque(maxlen=160)
-        self.settings = dict(enabled=False, port=DEFAULT_PORT, external_port=None)
+        self.settings = dict(enabled=True, port=DEFAULT_PORT, external_port=None)
         self.generation = 0
         self.desired = False
         self.run_id = ""
@@ -61,6 +61,7 @@ class WebServiceManager:
         self.authority_key = ()
         self.authority_until = 0.0
         self.authority_ready = False
+        self.local_https_preparing = False
         self.authority_snapshot_version = 0
         self.public_paused = False
         self.authority_message = "스탠바이 · Discord 송출권한을 기다립니다."
@@ -76,11 +77,11 @@ class WebServiceManager:
         self.access_jobs = deque()
         self.access_results = {}
         self.network = NetworkDiagnostics(self.root)
-        self.ddns = DDNSService(self.root)
+        self.ddns = DDNSService(self.root, on_saved=self._on_ddns_saved)
         self.https = CertificateService(self.root)
         self.public = DirectHostingService(self.root, self._public_context)
         self.public_preference_touched = self.public.path.exists()
-        self.view = dict(state="stopped", enabled=False, port=DEFAULT_PORT,
+        self.view = dict(state="stopped", enabled=True, port=DEFAULT_PORT,
                          address="", phase=PHASE, message="웹서비스가 꺼져 있습니다.", request_count=0,
                          schedule_state="waiting", schedule_count=0, schedule_updated_at=None)
         try:
@@ -117,7 +118,7 @@ class WebServiceManager:
             active = self.view["state"] == "running" and self.view["enabled"]
         owns = self.has_web_authority()
         self.ddns.set_active(active and self.publication_allowed() and self.public.status()["state"] == "prepared")
-        self.https.set_active(active and owns and self.authority_ready)
+        self.https.set_active(active and owns and (self.authority_ready or getattr(self, "local_https_preparing", False)))
         self.public.set_active(active and self.publication_allowed())
 
     def has_web_authority(self):
@@ -133,6 +134,8 @@ class WebServiceManager:
 
     def set_authority(self, key, *, ready=False, message="", remaining=10):
         with self.lock:
+            if not key or ready:
+                self.local_https_preparing = False
             changed = tuple(key) != self.authority_key
             if key and ready and (changed or not self.authority_ready):
                 self.authority_snapshot_version = self.snapshot_version
@@ -159,6 +162,12 @@ class WebServiceManager:
             self.root.mkdir(parents=True, exist_ok=True)
             write_json(self.root / "authority_lease.json", data)
             self.last_authority_write = time.monotonic()
+
+    def prepare_local_https(self, key, remaining):
+        """Run loopback TLS only; authority_ready stays false and the public lease stays denied."""
+        with self.lock:
+            self.local_https_preparing = True
+            self.set_authority(key, ready=False, remaining=remaining, message="기존 웹 유지 · 이 PC의 HTTPS 준비 확인")
 
     def retry_public(self, *, once=False):
         if self.authority_retry is None:
@@ -269,6 +278,29 @@ class WebServiceManager:
 
     def configure_ddns(self, enabled, domain, token):
         return self.ddns.configure(enabled, domain, token)
+
+    def _on_ddns_saved(self, saved):
+        """Credential setup also arms hosting; runs on DDNS's worker, even with the panel closed."""
+        if self.closed.is_set() or not saved["enabled"]:
+            return ""
+        self.public_paused = False
+        if not self.status()["enabled"]:
+            self.set_enabled(True)
+        public = self.public.status()
+        if not public["enabled"] or public["state"] == "error":
+            self.configure_public(True)
+        relay = getattr(self, "delegation", None)
+        role = relay.status()["role"] if relay is not None else ""
+        if role == "source":
+            relay.configuration_saved()
+        elif (not role and self.authority_retry is not None
+                and not (self.publication_allowed() and public["state"] == "prepared")):
+            try:
+                self.authority_retry()
+            except ValueError:
+                pass  # No voice authority yet: the normal acquisition event starts preparation.
+        self._log("web_credentials_saved_setup_armed", role=role)
+        return "웹서비스·외부 공개를 켰습니다. 송출권한에 따라 웹 준비와 승계를 자동 진행합니다."
 
     def update_ddns(self):
         if not self.publication_allowed() or self.public.status()["state"] != "prepared":

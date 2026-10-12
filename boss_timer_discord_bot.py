@@ -51,7 +51,7 @@ except ImportError:
 DEFAULT_STATUS_PORT = 18765
 VOICE_BRIDGE_POLL_INTERVAL_SEC = 0.05
 VOICE_CLIP_GAP_SEC = 0.02
-DEFAULT_TEXT_CHANNEL_KEEP_COUNT = 12
+DEFAULT_TEXT_CHANNEL_KEEP_COUNT = 0
 TEXT_CLEANUP_HISTORY_LIMIT = 100
 TEXT_CLEANUP_INTERVAL_SEC = 30.0
 TEXT_CLEANUP_DELETE_LIMIT = 20
@@ -886,7 +886,7 @@ class StatusHandler(BaseHTTPRequestHandler):
         future = None
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 16384:
+            if not 0 < length <= (65536 if self.path == '/notice' else 16384):
                 raise ValueError('invalid request size')
             self.connection.settimeout(2)
             command = json.loads(self.rfile.read(length))
@@ -4508,6 +4508,49 @@ class DiscordScheduleBot:
             self.current_voice_scope_id = ""
             self.current_timed_composite_source = None
             self.current_timed_composite_scope_id = ""
+
+    def _queue_notice_text(self, output) -> None:
+        text = str(getattr(output, "notice_text", "") or "").strip()
+        if not text or getattr(output, "notice_text_announced", False):
+            return
+        generation = getattr(output, "notice_text_generation", -1)
+        coroutine = self._send_notice_text(output, text, generation)
+        try:
+            task = self.client.loop.create_task(coroutine)
+            task.boss_authority_generation = generation
+            output.notice_text_announced = True
+        except Exception as exc:
+            coroutine.close()
+            log(f"notice_chat_queue_failed type={type(exc).__name__}")
+
+    async def _send_notice_text(self, output, text: str, generation: int) -> None:
+        def current():
+            return (self._send_allowed() and self._connection_state()["authority_generation"] == generation
+                    and output.state in {"playing", "pausing", "paused", "completed"}
+                    and not self._is_voice_bridge_scope_cancelled(output.scope_id))
+        try:
+            lock = getattr(self, "notice_text_lock", None)
+            if lock is None:
+                lock = self.notice_text_lock = asyncio.Lock()
+            async with lock:
+                if not current():
+                    return
+                channel = await self._resolve_text_channel()
+                if channel is None:
+                    log("notice_chat_skipped reason=text_channel_not_found")
+                    return
+                chunks = [text[offset:offset+3500] for offset in range(0, len(text), 3500)]
+                for index, chunk in enumerate(chunks, 1):
+                    if not current():
+                        return
+                    suffix = f" · {index}/{len(chunks)}" if len(chunks) > 1 else ""
+                    embed = self.discord.Embed(title="📢 보탐매니저 알리미" + suffix,
+                        description=chunk, color=0xA78BFA, timestamp=datetime.now())
+                    await channel.send(embed=embed, allowed_mentions=self.discord.AllowedMentions.none())
+                await self._cleanup_bot_text_channel_messages(channel)
+                log(f"notice_chat_sent scope={output.scope_id} channel_id={getattr(channel, 'id', '')} parts={len(chunks)}")
+        except Exception as exc:
+            log(f"notice_chat_failed scope={output.scope_id} type={type(exc).__name__}")
 
     async def _install_prepared_notice_output(self, source, *, scope_id: str, deadline: float) -> bool:
         if not self._send_allowed():

@@ -169,10 +169,18 @@ class AuthorityRecord:
                 preserve_web or delegation_info(data)) else None
             if not delegated and automatic_preserve_web and not preserve_web and not previous_web:
                 delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
+            if (not delegated and verified_previous is None and not previous_web
+                    and data.get("members", {}).get(data.get("owner"), {}).get("web_public_available") is True
+                    and data.get("members", {}).get(data.get("owner"), {}).get("web_recovery_protocol") == 1
+                    and member.get("web_recovery_protocol") == 1):
+                # Keep the working web host until the configured receiver passes preflight.
+                delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
             if delegated:
+                delegated["keep_host"] = bool(preserve_web or (previous_web or {}).get("keep_host"))
                 data["web_delegate"] = delegated
             else:
                 data.pop("web_delegate", None)
+            data.pop("web_return_pending", None)  # A new voice request supersedes an old web trial.
             data.update(scope=self.scope, receiver=client, receiver_runtime=runtime,
                         generation=generation, request=request, phase="joining" if solo else "requested",
                         deadline=now + (JOIN_SECONDS if solo else HANDOVER_SECONDS),
@@ -447,6 +455,13 @@ class DiscordAuthority:
         if available != getattr(self, "web_presence_queued", None):
             self.web_presence_queued = available
             self.session_connected()
+        manager = getattr(getattr(self, "app", None), "web_service_manager", None)
+        relay = getattr(manager, "delegation", None)
+        if relay is not None:
+            try:
+                relay.take_over_when_configured(available)
+            except Exception as exc:
+                self.app._append_debug_log(f"web_auto_return_check_failed type={type(exc).__name__}")
 
     def _metadata(self, status):
         identity = self.app._get_administrator_identity()
@@ -457,6 +472,7 @@ class DiscordAuthority:
         metadata["bot_user_id"] = str(status.get("bot_user_id") or status.get("application_id") or "")
         metadata["web_delegate_protocol"] = getattr(self, "web_delegate_protocol", 0)
         metadata["web_public_available"] = self._web_publication_configured()
+        metadata["web_recovery_protocol"] = 1
         return metadata
 
     def _presence(self, data, status, metadata):
@@ -898,6 +914,7 @@ class DiscordAuthority:
         self.outgoing_progress_done = True
         self.outgoing_progress_result = "음성 종료 확인 완료 · 새 담당자에게 승계"
         snapshot = None
+        uploaded_entry = None
         try:
             snapshot = self._ui(lambda: deepcopy(self.app._build_github_schedule_payload("0.0.0")))
             snapshot["payload"].update(share_prefix=str(entry["id"]), server_name=entry["name"])
@@ -912,7 +929,7 @@ class DiscordAuthority:
                         and current.get("owner") in {data["owner"], data["receiver"]}
                         and int(current.get("generation", 0)) in {data["generation"], data["generation"] + 1}
                         and time.monotonic() < deadline)
-            ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
+            ok, message, uploaded_entry = self.app._upload_current_schedule_to_github_data(entry,
                 handover_schedule_payload=snapshot, handover_guard=may_upload,
                 progress_callback=lambda message: self._progress("outgoing", token, "upload", message))
         except Exception as exc:
@@ -943,7 +960,7 @@ class DiscordAuthority:
                     return
                 current["web_transfer"] = dict(request=token, state="ready" if ok and snapshot is not None else "failed",
                     web_state_path=web_state_path,
-                    entry=dict(entry), content_hash=self.app._get_github_schedule_content_hash(snapshot) if snapshot is not None else "",
+                    entry=dict(uploaded_entry or entry), content_hash=self.app._get_github_schedule_content_hash(snapshot) if snapshot is not None else "",
                     source_season=str(self.scope.get("season") or ""))
             with self.lock:
                 self.record.mutate(web_result)
@@ -983,14 +1000,15 @@ class DiscordAuthority:
                     latest, _ = self.record.read()
                 return (self.record.owner_stamp(latest) == stamp and time.monotonic() < deadline
                         and (expected_request is None or latest.get("request") == expected_request))
-            ok, message, _ = self.app._upload_current_schedule_to_github_data(entry,
+            ok, message, uploaded_entry = self.app._upload_current_schedule_to_github_data(entry,
                 handover_schedule_payload=deepcopy(snapshot), handover_guard=still_current)
             if ok:
                 expected_hash = self.app._get_github_schedule_content_hash(snapshot)
                 def web_retry_result(latest):
                     artifact = latest.get("web_transfer") or {}
                     if (self.record.owner_stamp(latest) == stamp and artifact.get("content_hash") == expected_hash
-                            and (artifact.get("entry") or {}).get("schedule") == entry.get("schedule")):
+                            and str((artifact.get("entry") or {}).get("id")) == str(entry.get("id"))):
+                        artifact["entry"] = dict(uploaded_entry or artifact.get("entry") or entry)
                         artifact["state"] = "ready"
                 with self.lock:
                     self.record.mutate(web_retry_result)

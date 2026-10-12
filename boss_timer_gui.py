@@ -1859,7 +1859,7 @@ class BossTimerApp:
         self.schedule_fixed_boss_alarm_new_entry_enabled_default = self.schedule_fixed_boss_alarm_enabled_default
         try:
             self.schedule_alarm_master_var.set(self.schedule_alarm_master_enabled_default)
-            self.schedule_alarm_countdown_enabled_var.set(self.schedule_alarm_countdown_enabled_default)
+            self._set_schedule_alarm_countdown_enabled(self.schedule_alarm_countdown_enabled_default, source="profile_settings_load")
             self.schedule_alarm_ai_recording_preferred_var.set(self.schedule_alarm_ai_recording_preferred_default)
             self.schedule_alarm_countdown_start_var.set(str(self.schedule_alarm_countdown_start_default))
             self.schedule_second_precision_expire_hours_var.set(str(self.schedule_second_precision_expire_hours_default))
@@ -2846,6 +2846,9 @@ class BossTimerApp:
         self.schedule_following_boss_seconds_var = tk.StringVar(value=":--")
         self.schedule_alarm_master_var = tk.BooleanVar(value=self.schedule_alarm_master_enabled_default)
         self.schedule_alarm_countdown_enabled_var = tk.BooleanVar(value=self.schedule_alarm_countdown_enabled_default)
+        self.schedule_alarm_countdown_change_serial = 0
+        self.schedule_alarm_countdown_confirmation_pending = False
+        self._append_debug_log(f"countdown_setting_loaded source=startup enabled={int(self.schedule_alarm_countdown_enabled_default)}")
         self.schedule_alarm_ai_recording_preferred_var = tk.BooleanVar(value=self.schedule_alarm_ai_recording_preferred_default)
         self.schedule_alarm_countdown_start_var = tk.StringVar(value=str(self.schedule_alarm_countdown_start_default))
         self.schedule_second_precision_expire_hours_var = tk.StringVar(value=str(self.schedule_second_precision_expire_hours_default))
@@ -3823,7 +3826,7 @@ class BossTimerApp:
             self.scheduler_worker_alarm_settings_mtime = settings_mtime
             payload = self._load_schedule_alarm_settings()
             self.schedule_alarm_master_var.set(bool(payload.get("master_enabled", True)))
-            self.schedule_alarm_countdown_enabled_var.set(bool(payload.get("countdown_enabled", False)))
+            self._set_schedule_alarm_countdown_enabled(bool(payload.get("countdown_enabled", False)), source="scheduler_settings_reload")
             self.schedule_alarm_ai_recording_preferred_var.set(bool(payload.get("ai_recording_preferred", False)))
             self.schedule_alarm_countdown_start_var.set(str(int(payload.get("countdown_start_seconds", 10) or 10)))
             self.schedule_fixed_boss_skip_due_time_var.set(bool(payload.get("fixed_boss_skip_due_time", True)))
@@ -6091,7 +6094,7 @@ class BossTimerApp:
         config = configparser.ConfigParser(interpolation=None)
         persisted_voice_panel_channel_id = ""
         persisted_voice_panel_message_id = ""
-        persisted_text_channel_keep_count = "12"
+        persisted_text_channel_keep_count = "0"
         try:
             config.read(config_path, encoding="utf-8")
             if config.has_section("discord_bot"):
@@ -6101,7 +6104,7 @@ class BossTimerApp:
                 persisted_voice_panel_message_id = str(
                     config["discord_bot"].get("voice_panel_message_id", "") or ""
                 ).strip()
-                persisted_text_channel_keep_count = str(config["discord_bot"].get("text_channel_keep_count", "12"))
+                persisted_text_channel_keep_count = str(config["discord_bot"].get("text_channel_keep_count", "0"))
         except (OSError, configparser.Error):
             pass
         application_id = self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", ""))
@@ -10135,6 +10138,51 @@ class BossTimerApp:
         self._refresh_schedule_view()
         return True
 
+    def _reconcile_github_handover_schedule_versions(self, index_payload, index_sha, entry,
+            remote_schedule, schedule_sha, expected_payload, guard=None):
+        """Repair metadata only when the captured handover and persisted contents match."""
+        expected_hash = self._get_github_schedule_content_hash(expected_payload)
+        actual_hash = self._get_github_schedule_content_hash(remote_schedule)
+        if not expected_hash or expected_hash != actual_hash:
+            raise ValueError("인계 내용과 서버 파일이 달라 버전 기록을 자동 수정하지 않았습니다.")
+        actual_version = str(remote_schedule.get("dataVersion") or "").strip()
+        listed_version = str(entry.get("scheduleVersion") or entry.get("dataVersion") or "").strip()
+        version = listed_version if self._compare_github_data_versions(listed_version, actual_version) > 0 else actual_version
+        if not version:
+            raise ValueError("인계할 서버 파일의 버전을 확인하지 못했습니다.")
+        server_id = str(entry["id"])
+        schedule_path = f"data/schedules/{server_id}.json"
+        if guard is not None and not guard():
+            raise ValueError("승계 요청이 변경되어 버전 기록 수정을 취소했습니다.")
+        repaired_schedule = dict(remote_schedule, dataVersion=version, contentHash=actual_hash)
+        if version != actual_version:
+            ok, error = self._github_put_json_file(schedule_path, repaired_schedule, sha=schedule_sha,
+                message=f"Reconcile BossTimer schedule version {server_id}")
+            if not ok:
+                raise ValueError(error or "스케줄 파일의 버전 기록을 맞추지 못했습니다.")
+        repaired_index = self._build_github_server_index_payload(index_payload, server_id=server_id,
+            server_name=str(entry.get("name") or server_id), schedule_path=schedule_path,
+            schedule_version=version, schedule_hash=actual_hash,
+            boss_config_path=str(entry.get("bosses") or f"data/bosses/{server_id}.json"),
+            boss_config_version=str(entry.get("bossConfigVersion") or ""),
+            boss_config_hash=str(entry.get("bossConfigHash") or ""))
+        if guard is not None and not guard():
+            raise ValueError("승계 요청이 변경되어 서버 목록 수정을 취소했습니다.")
+        ok, error = self._github_put_json_file("data/server_index.json", repaired_index, sha=index_sha,
+            message=f"Reconcile BossTimer handover index {server_id}")
+        if not ok:
+            raise ValueError(error or "서버 목록의 버전 기록을 맞추지 못했습니다.")
+        # Use the new index SHA for any subsequent boss-settings commit.
+        refreshed_index, refreshed_sha, error = self._github_get_json_file("data/server_index.json")
+        repaired_entry = self._build_github_server_index_entry(refreshed_index, server_id)
+        if (error or not refreshed_sha or not repaired_entry
+                or repaired_entry.get("schedule") != schedule_path
+                or repaired_entry.get("scheduleVersion") != version
+                or repaired_entry.get("scheduleHash") != actual_hash):
+            raise ValueError(error or "버전 기록 수정 후 서버 목록이 변경되었습니다. 다시 인계하세요.")
+        self._append_debug_log(f"handover_version_metadata_reconciled server={server_id} version={version}")
+        return repaired_schedule, refreshed_index, repaired_entry, refreshed_sha
+
     def _upload_current_schedule_to_github_data(
         self,
         target_server: dict[str, object] | None = None,
@@ -10223,11 +10271,28 @@ class BossTimerApp:
                 return False, schedule_error, None
             if remote_schedule is not None:
                 actual_version = str(remote_schedule.get("dataVersion") or "").strip()
-                if (existing_schedule_version and actual_version
-                        and actual_version != existing_schedule_version):
-                    return False, "서버 스케줄 파일과 서버 목록의 버전이 다릅니다. 서버 자료를 확인한 뒤 다시 인계하세요.", None
-                existing_schedule_version = actual_version or existing_schedule_version
                 handover_remote_hash = self._get_github_schedule_content_hash(remote_schedule)
+                version_mismatch = bool(existing_schedule_version and actual_version and actual_version != existing_schedule_version)
+                hash_mismatch = bool(existing_schedule_hash and existing_schedule_hash != handover_remote_hash)
+                if version_mismatch or hash_mismatch:
+                    self._append_debug_log(f"handover_schedule_metadata_mismatch server={server_id} "
+                        f"listed_version={existing_schedule_version} file_version={actual_version} "
+                        f"same_content={int(handover_hash == handover_remote_hash)}")
+                if (version_mismatch or hash_mismatch) and handover_hash == handover_remote_hash:
+                    progress("스케줄 실제 내용은 동일합니다. 파일·서버 목록의 버전 기록을 맞추는 중입니다.")
+                    try:
+                        remote_schedule, index_payload, existing_entry, index_sha = self._reconcile_github_handover_schedule_versions(
+                            index_payload, index_sha, dict(existing_entry or {}, id=server_id, name=server_name),
+                            remote_schedule, schedule_sha, handover_schedule_payload, handover_guard)
+                    except ValueError as exc:
+                        return False, str(exc), None
+                    actual_version = existing_schedule_version = existing_entry["scheduleVersion"]
+                    existing_schedule_hash = existing_entry["scheduleHash"]
+                    existing_boss_config_version = str(existing_entry.get("bossConfigVersion") or "").strip()
+                    existing_boss_config_hash = str(existing_entry.get("bossConfigHash") or "").strip()
+                elif version_mismatch:
+                    return False, "서버 스케줄 파일과 서버 목록의 버전이 다르고 실제 인계 내용도 다릅니다. 기존 웹을 유지하며 서버 자료 확인이 필요합니다.", None
+                existing_schedule_version = actual_version or existing_schedule_version
                 if handover_remote_hash != handover_hash and not local_schedule_version:
                     return False, "이 PC의 스케줄 버전을 확인할 수 없습니다. 먼저 동기화한 뒤 내용을 확인하고 다시 인계하세요.", None
         schedule_version_compare = self._compare_github_data_versions(local_schedule_version, existing_schedule_version)
@@ -10241,6 +10306,12 @@ class BossTimerApp:
         if boss_config_dirty and existing_boss_config_version and boss_config_version_compare <= 0:
             boss_config_changed = False
         if remote_schedule_newer or remote_boss_config_newer:
+            if handover_schedule_payload is not None and handover_hash and handover_hash == handover_remote_hash:
+                self._set_github_cached_versions(server_id, existing_schedule_version, existing_boss_config_version,
+                    server_name=server_name, schedule_path=schedule_path)
+                return True, f"{server_name}: 인계 스케줄 실제 내용이 같습니다. 스케줄 업로드 없이 현재 서버 자료를 사용합니다.", dict(
+                    existing_entry or {}, id=server_id, name=server_name, schedule=schedule_path,
+                    scheduleVersion=existing_schedule_version, scheduleHash=handover_hash)
             newer_parts: list[str] = []
             if remote_schedule_newer:
                 newer_parts.append(f"스케쥴 서버={existing_schedule_version}, PC={local_schedule_version}")
@@ -10273,6 +10344,9 @@ class BossTimerApp:
                     schedule_path=schedule_path,
                 )
             unchanged_entry = self._build_github_server_index_entry(index_payload, server_id) or existing_entry
+            if handover_schedule_payload is not None:
+                unchanged_entry = dict(unchanged_entry or {}, id=server_id, name=server_name,
+                    schedule=schedule_path, scheduleVersion=existing_schedule_version, scheduleHash=handover_hash)
             return True, f"{server_name}: 스케쥴/보스설정이 같은 버전입니다. 업로드하지 않았습니다.", unchanged_entry
         schedule_version = local_schedule_version if schedule_changed else existing_schedule_version
         boss_config_version = local_boss_config_version if boss_config_changed else existing_boss_config_version
@@ -10343,7 +10417,11 @@ class BossTimerApp:
             self._set_github_cached_versions(
                 server_id, existing_schedule_version, existing_boss_config_version,
                 server_name=server_name, schedule_path=schedule_path)
-            return True, f"{server_name}: 실제 내용이 같아 업로드하지 않았습니다.", existing_entry
+            unchanged_entry = existing_entry
+            if handover_schedule_payload is not None:
+                unchanged_entry = dict(existing_entry or {}, id=server_id, name=server_name,
+                    schedule=schedule_path, scheduleVersion=existing_schedule_version, scheduleHash=handover_hash)
+            return True, f"{server_name}: 실제 내용이 같아 업로드하지 않았습니다.", unchanged_entry
         schedule_hash_for_index = computed_schedule_hash if schedule_changed else (existing_schedule_hash or computed_schedule_hash)
         boss_config_hash_for_index = computed_boss_config_hash if boss_config_changed else (existing_boss_config_hash or computed_boss_config_hash)
         schedule_payload["contentHash"] = computed_schedule_hash
@@ -20909,8 +20987,10 @@ class BossTimerApp:
             if not configured_server_id.isdigit() or request_server_id != configured_server_id:
                 return False, "초읽기 요청의 서버 정보를 확인할 수 없습니다."
             if bool(self.schedule_alarm_countdown_enabled_var.get()) == enabled:
+                if getattr(self, "schedule_alarm_countdown_confirmation_pending", False):
+                    self._set_schedule_alarm_countdown_enabled(enabled, source="discord_command")
                 return True, "이미 초읽기가 켜져 있습니다." if enabled else "이미 초읽기가 해제되어 있습니다."
-            self.schedule_alarm_countdown_enabled_var.set(enabled)
+            self._set_schedule_alarm_countdown_enabled(enabled, source="discord_command")
             self._apply_schedule_alarm_global_options(show_status=False)
             return True, "초읽기를 켰습니다." if enabled else "초읽기를 해제했습니다."
         if operation == "discord_reconnect":
@@ -54148,7 +54228,7 @@ class BossTimerApp:
             return
         try:
             self.schedule_alarm_master_var.set(bool(snapshot.get("master_enabled", True)))
-            self.schedule_alarm_countdown_enabled_var.set(bool(snapshot.get("countdown_enabled", False)))
+            self._set_schedule_alarm_countdown_enabled(bool(snapshot.get("countdown_enabled", False)), source="voice_test_restore")
             self.schedule_alarm_ai_recording_preferred_var.set(bool(snapshot.get("ai_recording_preferred", False)))
             self.schedule_alarm_countdown_start_var.set(str(snapshot.get("countdown_start_seconds") or "15"))
             self.schedule_second_precision_expire_hours_var.set(str(snapshot.get("second_precision_expire_hours") or "168"))
@@ -54539,7 +54619,7 @@ class BossTimerApp:
         countdown_enabled = bool(settings.get("countdown", False)) if isinstance(settings, dict) else False
         try:
             self.schedule_alarm_master_var.set(True)
-            self.schedule_alarm_countdown_enabled_var.set(countdown_enabled)
+            self._set_schedule_alarm_countdown_enabled(countdown_enabled, source="voice_test_case")
             self.schedule_alarm_countdown_start_var.set("15")
             self.schedule_second_precision_expire_hours_var.set("24")
             self.schedule_fixed_boss_skip_due_time_var.set(bool(settings.get("fixed_boss_skip_due_time", True)))
@@ -55708,6 +55788,42 @@ class BossTimerApp:
         self._refresh_schedule_alarm_window()
         self._refresh_schedule_tree_scope()
 
+    def _set_schedule_alarm_countdown_enabled(self, enabled: bool, *, source: str) -> None:
+        previous = bool(self.schedule_alarm_countdown_enabled_var.get())
+        self.schedule_alarm_countdown_change_serial = int(getattr(self, "schedule_alarm_countdown_change_serial", 0)) + 1
+        self.schedule_alarm_countdown_enabled_var.set(bool(enabled))
+        if previous != bool(enabled):
+            self._append_debug_log(f"countdown_setting_changed source={source} previous={int(previous)} enabled={int(bool(enabled))}")
+
+    def _on_schedule_alarm_countdown_toggled(self, *, parent=None, show_status: bool = True, source="schedule_options") -> bool:
+        enabled = bool(self.schedule_alarm_countdown_enabled_var.get())
+        if getattr(self, "schedule_alarm_countdown_confirmation_pending", False):
+            self._set_schedule_alarm_countdown_enabled(False, source="ui_confirmation_busy")
+            return False
+        if enabled:
+            # Checkbutton changes its shared BooleanVar before invoking command.
+            # Keep the live scheduler OFF during the popup's nested Tk event loop.
+            self._set_schedule_alarm_countdown_enabled(False, source="ui_confirmation_wait")
+            serial = self.schedule_alarm_countdown_change_serial
+            self.schedule_alarm_countdown_confirmation_pending = True
+            try:
+                confirmed = self._show_centered_messagebox(
+                    "askyesno", "초읽기 사용 확인",
+                    "초읽기를 사용하시겠습니까?\n\n초까지 확정된 보스의 등장 직전에 숫자 음성이 재생됩니다.\n실수로 누르셨다면 '아니요'를 선택하세요.",
+                    parent=parent, default="no")
+            finally:
+                self.schedule_alarm_countdown_confirmation_pending = False
+            if serial != self.schedule_alarm_countdown_change_serial:
+                self._append_debug_log(f"countdown_confirmation_discarded source={source} reason=settings_changed")
+                return False
+            if not confirmed:
+                self._append_debug_log(f"countdown_confirmation_cancelled source={source}")
+                return False
+            self._set_schedule_alarm_countdown_enabled(True, source=source)
+        self._append_debug_log(f"countdown_ui_toggle_applied source={source} enabled={int(enabled)}")
+        self._apply_schedule_alarm_global_options(show_status=show_status)
+        return True
+
     def _get_schedule_alarm_global_options_snapshot(self) -> dict[str, object]:
         countdown_start = min(60, max(1, self._parse_int(self.schedule_alarm_countdown_start_var.get(), 10)))
         second_precision_expire_hours = max(0, self._parse_int(self.schedule_second_precision_expire_hours_var.get(), 0))
@@ -55747,7 +55863,10 @@ class BossTimerApp:
         self.schedule_second_precision_expire_hours_var.set(str(second_precision_expire_hours))
         self.schedule_alarm_countdown_start_default = countdown_start
         self.schedule_second_precision_expire_hours_default = second_precision_expire_hours
+        previous_countdown_enabled = bool(getattr(self, "schedule_alarm_countdown_enabled_default", False))
         self.schedule_alarm_countdown_enabled_default = bool(self.schedule_alarm_countdown_enabled_var.get())
+        if previous_countdown_enabled != self.schedule_alarm_countdown_enabled_default:
+            self._append_debug_log(f"countdown_setting_committed previous={int(previous_countdown_enabled)} enabled={int(self.schedule_alarm_countdown_enabled_default)}")
         self.schedule_alarm_ai_recording_preferred_default = bool(self.schedule_alarm_ai_recording_preferred_var.get())
         self.schedule_fixed_boss_skip_due_time_default = bool(self.schedule_fixed_boss_skip_due_time_var.get())
         countdown_ai_enabled = self.schedule_alarm_countdown_enabled_default and self.schedule_alarm_ai_recording_preferred_default
@@ -59188,7 +59307,7 @@ class BossTimerApp:
             schedule_option_frame,
             text="초읽기 사용",
             variable=self.schedule_alarm_countdown_enabled_var,
-            command=lambda: self._apply_schedule_alarm_global_options(show_status=False),
+            command=lambda: self._on_schedule_alarm_countdown_toggled(parent=self.schedule_window, show_status=False),
             font=self.percent_font,
             bg="#dbeafe",
             fg="#0f172a",
@@ -61130,7 +61249,7 @@ class BossTimerApp:
             right_frame,
             text="초읽기 사용",
             variable=self.schedule_alarm_countdown_enabled_var,
-            command=self._apply_schedule_alarm_global_options,
+            command=lambda: self._on_schedule_alarm_countdown_toggled(parent=self.schedule_alarm_window, source="alarm_options"),
             font=self.percent_font,
             bg="#eff6ff",
             fg="#0f172a",

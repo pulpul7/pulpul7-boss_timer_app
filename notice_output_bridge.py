@@ -9,7 +9,7 @@ from pathlib import Path
 def request_notice(port, secret, pid, command):
     data = dict(command, pid=pid, sent_at=time.time())
     request = urllib.request.Request(f'http://127.0.0.1:{int(port)}/notice',
-        data=json.dumps(data).encode('utf-8'), method='POST',
+        data=json.dumps(data, ensure_ascii=False).encode('utf-8'), method='POST',
         headers={'Content-Type': 'application/json', 'X-Notice-Secret': secret})
     with urllib.request.urlopen(request, timeout=4) as response:
         result = json.loads(response.read(65536))
@@ -54,6 +54,10 @@ async def handle_notice_command(bot, command, status, *, clock=time.monotonic):
                 if not accepted:
                     source.cleanup()
             output = bot.notice_output
+            if accepted:
+                output.notice_text = str(command.get('text') or '')[:10000]
+                output.notice_text_generation = bot._connection_state()['authority_generation']
+                output.notice_text_announced = False
         else:
             accepted = True  # Retry of the same silent prepare never resets position.
     elif owns:
@@ -62,6 +66,10 @@ async def handle_notice_command(bot, command, status, *, clock=time.monotonic):
         output.deadline = clock() + 3
         if action in {'play', 'resume'}:
             accepted = await output.play()
+            if accepted:
+                publish = getattr(bot, '_queue_notice_text', None)
+                if callable(publish):
+                    publish(output)
         elif action == 'pause':
             async with bot.voice_transition_lock:
                 if output.owns(bot.current_voice_playback_token):

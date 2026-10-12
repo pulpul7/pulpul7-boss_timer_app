@@ -27,16 +27,17 @@ class RuntimeOptimizationTests(unittest.IsolatedAsyncioTestCase):
         self.bot.client = NS(user=NS(id=900))
         self.channel = NS(id=101)
 
-    def test_default_twelve_and_saved_choices_preserved(self):
-        self.assertEqual(self.bot._text_channel_keep_count(), 12)
+    def test_default_unlimited_and_saved_choices_preserved(self):
+        self.assertEqual(self.bot._text_channel_keep_count(), 0)
         for value in ("", None, "invalid", "-1", "51"):
             self.bot.config["text_channel_keep_count"] = value
-            self.assertEqual(self.bot._text_channel_keep_count(), 12)
+            self.assertEqual(self.bot._text_channel_keep_count(), 0)
         for value in (0, 2, 12, 50):
             self.bot.config["text_channel_keep_count"] = str(value)
             self.assertEqual(self.bot._text_channel_keep_count(), value)
 
     async def test_history_is_bounded_and_repeated_pass_is_deferred(self):
+        self.bot.config["text_channel_keep_count"] = "12"
         scans = []
         messages = [NS(id=i, author=NS(id=900), pinned=False, embeds=[],
                        delete=AsyncMock()) for i in range(40)]

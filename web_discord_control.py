@@ -142,6 +142,9 @@ class DiscordWebControl:
                     raise ValueError('대상 PC의 봇 연결이 변경되어 웹 시도 완료를 확인하지 못했습니다.')
                 public = manager.public.status()
                 state = manager.status()
+                recovery = getattr(manager, 'web_return_recovery', None)
+                if recovery is not None and recovery.stage in {'preflight_failed', 'restoring'}:
+                    raise ValueError(recovery.message)
                 if manager.publication_allowed() and public['state'] == 'prepared' and public.get('address'):
                     self._finish(call, True, '웹 공개 준비 완료 · 대상 PC에서 1회 시도했습니다.\n'+public['address'])
                     return

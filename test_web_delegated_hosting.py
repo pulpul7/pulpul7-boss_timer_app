@@ -223,7 +223,7 @@ class DelegatedTests(unittest.TestCase):
         relay.synced = True
         relay.offer_local(public_snapshot())
         relay._step()
-        self.now += 119
+        self.now += 89
         relay._step()
         self.repo.put.assert_not_called()
         self.now += 1
@@ -235,7 +235,7 @@ class DelegatedTests(unittest.TestCase):
         relay._step()
         self.assertIsNone(relay.pending)
         self.assertEqual(self.repo.put.call_count, 1)
-        self.now += 120
+        self.now += 90
         relay._step()
         self.assertEqual(self.repo.put.call_count, 2)
         self.assertGreater(relay.pending['sequence'], old_pending['sequence'])

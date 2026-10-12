@@ -188,7 +188,7 @@ class ChannelPolicyTests(unittest.IsolatedAsyncioTestCase):
         self.bot._cleanup_bot_text_channel_messages = AsyncMock()
         result = await self.bot._set_text_channel_keep_count(1, self.guild)
         self.assertIn("저장하지 못했습니다", result)
-        self.assertEqual(self.bot._text_channel_keep_count(), 12)
+        self.assertEqual(self.bot._text_channel_keep_count(), 0)
         self.bot._cleanup_bot_text_channel_messages.assert_not_awaited()
 
     async def test_plain_boss_count_command_does_not_become_schedule_input(self):
@@ -240,10 +240,10 @@ class ChannelPolicyTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(all(message.delete.await_count == 0 for message in messages[:3]))
             self.assertEqual(sum(message.delete.await_count for message in messages), 20)
 
-    async def test_bad_config_uses_twelve_default(self):
+    async def test_bad_config_uses_unlimited_default(self):
         for value in (None, "", "oops", "-1", "51"):
             self.bot.config["text_channel_keep_count"] = value
-            self.assertEqual(self.bot._text_channel_keep_count(), 12)
+            self.assertEqual(self.bot._text_channel_keep_count(), 0)
 
     async def test_legacy_panel_removal_only_deletes_verified_saved_bot_panel(self):
         self.bot.voice_channel_panel_message_id = "600"

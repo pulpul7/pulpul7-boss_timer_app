@@ -209,8 +209,12 @@ function refreshAlarms() {
   const byId=new Map(data.events.filter(isBoss).map(row=>[row.id,row]));
   document.querySelectorAll('[data-alarm]').forEach(button=>{ const row=byId.get(button.dataset.alarmId); if(row) updateAlarm(button,row); });
 }
+function bossName(row) {
+  // Keep the star on the name itself, even when a summary moves its child nodes.
+  return node('span',row.name,`boss-name${row.important===true?' important':''}`);
+}
 function nameWithTime(row,className,sharing=false) {
-  const n=node('div','',className), name=node('span',row.name,'boss-name');
+  const n=node('div','',className), name=bossName(row);
   name.style.color=colorOf(row,sharing); n.append(node('time',`[${clock(row.at)}] `),name); return n;
 }
 function withinHour(row,now) {
@@ -224,7 +228,9 @@ function renderSummary(now) {
   const first=future[0], second=future[1];
   const key=[data.schedule_version,data.major_version,selectedFilter,selectedDay(now),...past.map(row=>row.id),first?.id || '',second?.id || ''].join('|');
   if (key!==summaryKey) {
-    summaryKey=key; element('recent').replaceChildren(...past.map(row=>node('s',`[${clock(row.at,true)}] ${row.name}`)));
+    summaryKey=key; element('recent').replaceChildren(...past.map(row=>{
+      const item=node('s'); item.append(node('time',`[${clock(row.at,true)}] `),bossName(row)); return item;
+    }));
     element('next-name').replaceChildren(...(first?[...nameWithTime(first,'').childNodes]:[node('span','다음 보스가 없습니다.')]));
     element('next-name').closest('.hero').classList.toggle('type-invasion',first?.kind==='invasion');
     element('following').classList.toggle('type-invasion',second?.kind==='invasion');
@@ -329,7 +335,9 @@ function renderActive(now) {
   const key=[data.schedule_version,data.major_version,selectedFilter,selectedDay(now)].join('|');
   if(key===activeKey) return; activeKey=key;
   const rows=selectedDay(now)!==dayKey(now)?[]:data.active.filter(row=>selectedFilter==='all' || majorBoss(row));
-  element('active').replaceChildren(...rows.map(row=>node('li',`${row.name} · ${row.status}`)));
+  element('active').replaceChildren(...rows.map(row=>{
+    const item=node('li'); item.append(bossName(row),node('span',` · ${row.status}`)); return item;
+  }));
   element('active-section').hidden=rows.length===0;
 }
 function applyMajorUpdates(status) {

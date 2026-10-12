@@ -17,7 +17,7 @@ from web_service_common import timestamp
 from web_service_common import read_json
 from web_schedule_snapshot import validate_snapshot
 
-SYNC_DELAY = 120
+SYNC_DELAY = 90
 MAX_ATTEMPTS = 3
 RETRY_DELAY = 15
 ACK_TIMEOUT = 15
@@ -76,6 +76,8 @@ def build_delegation(data, client, runtime, scope, generation, request):
     previous = delegation_info(data)
     host = previous["host"] if previous else data.get("owner")
     host_runtime = previous["host_runtime"] if previous else data.get("owner_runtime")
+    if not host and data.get("phase", "idle") == "idle":
+        return None  # Releasing voice leaves no previous owner to preserve.
     if host == client:
         return None  # Taking voice back on the existing web host reunites roles.
     if data.get("members", {}).get(client, {}).get("web_delegate_protocol") != WEB_RELAY_PROTOCOL:
@@ -138,6 +140,8 @@ class DelegatedHosting:
         self.synced = False
         self.initial_sync_failed = False
         self.release_done = False
+        self.auto_return_started = False
+        self.restore_started = False
         self.peer_ready = None
         self.last_ready_sent = None
         self.last_applied_at = ""
@@ -179,6 +183,7 @@ class DelegatedHosting:
                 self.latest_hash = self.sent_hash = ""
                 self.sequence = self.applied_sequence = 0
                 self.synced = self.release_done = False
+                self.auto_return_started = self.restore_started = False
                 self.initial_sync_failed = False
                 self.peer_ready = self.last_ready_sent = None
                 self.last_applied_at = ""
@@ -186,6 +191,8 @@ class DelegatedHosting:
                 self.worker_retry_at, self.worker_retries = 0, 0
                 self.public_retry_at, self.public_retries = 0, 0
                 self.force = False
+                if role == "source" and (info or {}).get("restore_after_failure"):
+                    self.force = True  # Send one fresh post-recovery snapshot without the edit debounce.
                 self.requests.clear()
                 self.local_payload = None
                 with self.manager.lock:
@@ -202,6 +209,12 @@ class DelegatedHosting:
                     self.manager._log("web_delegated_stop_lease_failed", error_type=type(exc).__name__)
         if changed:
             self.manager._log("web_delegation_role_changed", role=role, delegate=(info or {}).get("id", ""))
+        recovery = getattr(self.bridge, "recovery", None)
+        if recovery is not None:
+            try:
+                recovery.observe(data)
+            except Exception as exc:
+                self.manager._log("web_return_observe_failed", error_type=type(exc).__name__)
         self.wake.set()
         self.bridge.wake.set()
 
@@ -276,7 +289,7 @@ class DelegatedHosting:
                         self.message = "웹 반영 응답 대기 · 자동 재시도 중"
             elif self.role == "source" and event.get("operation") == "ready":
                 self.peer_ready = event.get("ready") is True
-                self.message = "기존 웹 연결 확인 · 스케줄 변경 후 2분 뒤 전달" if self.peer_ready else "기존 웹 연결 준비/재시도 중 · 분리 운영 유지"
+                self.message = "기존 웹 연결 확인 · 스케줄 변경 후 1분 30초 뒤 전달" if self.peer_ready else "기존 웹 연결 준비/재시도 중 · 분리 운영 유지"
         self.wake.set()
 
     def _guard(self, info, role):
@@ -323,8 +336,30 @@ class DelegatedHosting:
         with self.lock:
             if self.role != "source" or not self.info:
                 raise ValueError("현재 스케줄 제공자 PC에서 요청해주세요.")
+            if self.info["state"] != "active" or any(item.get("operation") == "return" for item in self.requests) or (self.host_job or {}).get("operation") == "return":
+                return
+            self.auto_return_started = True
             self.requests.append(dict(operation="return"))
+            recovery = getattr(self.bridge, "recovery", None)
+            if recovery is not None:
+                recovery.stage, recovery.message = "queued", "기존 웹 유지 · 새 PC의 웹 준비를 확인합니다."
         self.wake.set()
+
+    def take_over_when_configured(self, available):
+        with self.lock:
+            info = self.info
+            if (not available or not info or self.role != "source" or info["state"] != "active"
+                    or info.get("keep_host") or self.auto_return_started or not self.coordinator
+                    or not ConnectionPolicy.has_authority(self.coordinator.policy.snapshot(), info["source_runtime"])):
+                return
+        # Exactly one attempt for this assignment; preparing/retrying is not a failure.
+        self.return_web_here()
+
+    def configuration_saved(self):
+        with self.lock:
+            if self.role == "source" and self.info and not self.info.get("keep_host"):
+                self.auto_return_started = False
+        self.take_over_when_configured(True)
 
     def retry(self, *, once=False):
         with self.lock:
@@ -430,6 +465,10 @@ class DelegatedHosting:
 
     def _return_request(self, info):
         coordinator = self._guard(info, "source")
+        recovery = getattr(self.bridge, "recovery", None)
+        if recovery is not None and not recovery.preflight(info, coordinator):
+            self.host_job = None
+            return
         def change(data):
             current = delegation_info(data)
             if not current or current["id"] != info["id"] or data.get("phase") != "active":
@@ -493,12 +532,14 @@ class DelegatedHosting:
             current = delegation_info(data)
             if not current or current["id"] != info["id"] or current["state"] != "stopped":
                 raise ValueError("기존 웹 공개 중지가 확인되지 않았습니다.")
+            from web_return_recovery import pending_return
+            data["web_return_pending"] = pending_return(info)
             data.pop("web_delegate", None)
         with coordinator.lock:
             data = coordinator.record.mutate(change)
         coordinator._process_record(data, coordinator._status())
-        coordinator._notify(data)
         self.bridge.retry()
+        self.notice = data
         self.manager._log("web_delegated_return_completed", delegate=info["id"])
 
     def _step(self):
@@ -536,6 +577,11 @@ class DelegatedHosting:
                 return
             if info["state"] != "active":
                 return
+            if info.get("restore_after_failure") and not self.restore_started:
+                self._guard(info, "host")
+                self.manager.retry_public()
+                self.restore_started = True
+                self.manager._log("web_previous_host_restore_started", delegate=info["id"])
             state = self.manager.status()
             if state["state"] == "running":
                 self.worker_retries = 0

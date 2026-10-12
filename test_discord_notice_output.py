@@ -133,6 +133,9 @@ class FakeVoice:
 class BotNoticeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.bot = bot = bot_module.DiscordScheduleBot.__new__(bot_module.DiscordScheduleBot)
+        bot.config = {}
+        bot._send_allowed = Mock(return_value=True)
+        bot._connection_state = Mock(return_value={"authority_generation": 7})
         bot.client = SimpleNamespace(loop=asyncio.get_running_loop())
         bot.discord = SimpleNamespace(AudioSource=object)
         bot.voice_client = self.voice = FakeVoice()

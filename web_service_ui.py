@@ -99,7 +99,7 @@ class WebServiceWindow:
         self.joint_return = self._button(actions, "웹도 이 PC로 승계", lambda: self._joint_action(self.manager.retry_public))
         for button in (self.joint_sync, self.joint_return):
             button.pack(side="left", padx=(0, 10), ipady=4)
-        self._label(frame, "스케줄 마지막 변경 2분 후 자동 업로드하고, 기존 웹 PC가 요청을 받아 자동 반영합니다.\n"
+        self._label(frame, "스케줄 마지막 변경 1분 30초 후 자동 업로드하고, 기존 웹 PC가 요청을 받아 자동 반영합니다.\n"
                     "기존 웹 PC에는 확인창이 뜨지 않습니다. GitHub 스케줄을 반복 조회하지 않습니다.\n"
                     "'웹도 이 PC로 승계'는 기존 웹의 외부 접근 중단을 자동 확인한 뒤 진행합니다.\n"
                     "기존 웹 PC의 로컬 스케줄은 보존하고, 웹 표시 데이터만 갱신합니다.",
@@ -462,8 +462,8 @@ class WebServiceWindow:
                  font=("맑은 고딕", 11, "bold"), bg="#f8fafc", fg="#1e3a8a").pack(fill="x", padx=18, pady=(16, 8))
         self._label(frame, "1. 홈페이지 열기 → 로그인 → 원하는 주소 이름 등록\n"
                     "2. 등록한 주소 이름과 홈페이지의 Token을 아래에 복사\n"
-                    "3. 자동 갱신 체크 → 저장. 송출권한과 웹 공개 준비 후 주소를 갱신합니다.\n"
-                    "공동 관리자는 추가 가입 없이 길드의 같은 주소·Token을 입력하세요.",
+                    "3. 설정 저장 → 웹서비스·외부 공개를 켜고 송출권한에 따라 자동 준비합니다.\n"
+                    "공동 관리자는 같은 주소·Token만 입력하세요. 비밀번호·인증서·약관 동의 기록은 인계받습니다.",
                     anchor="w", justify="left", wraplength=660).pack(fill="x", padx=18, pady=6)
         self._button(frame, "DuckDNS 홈페이지 열기 (무료)", self._open_ddns_registration).pack(anchor="w", padx=18, pady=6)
         inputs = tk.Frame(frame, bg="#f8fafc")
@@ -477,7 +477,7 @@ class WebServiceWindow:
         self.ddns_token_hint = tk.StringVar()
         tk.Label(frame, textvariable=self.ddns_token_hint, font=self.font, bg="#f8fafc", fg="#475569",
                  anchor="w", wraplength=660).pack(fill="x", padx=18)
-        self.ddns_enabled = tk.BooleanVar(value=data["enabled"])
+        self.ddns_enabled = tk.BooleanVar(value=True)
         self.ddns_enable_check = tk.Checkbutton(frame, text="무료 주소 자동 갱신", variable=self.ddns_enabled,
             bg="#f8fafc", font=self.font, activebackground="#f8fafc")
         self.ddns_enable_check.pack(anchor="w", padx=18, pady=8)
@@ -574,10 +574,10 @@ class WebServiceWindow:
         tk.Label(frame, text="무료 인증서로 HTTPS 연결 준비", font=("맑은 고딕", 11, "bold"),
                  bg="#f8fafc", fg="#1e3a8a", anchor="w").pack(fill="x", padx=18, pady=(16, 8))
         self._label(frame, "1. 무료 주소에 저장한 주소와 Token을 그대로 사용합니다.\n"
-                    "2. 약관 동의 → 무료 인증서 발급·확인. DNS 반영에 몇 분 걸릴 수 있습니다.\n"
-                    "3. HTTPS 실행 중이 되면 '로컬 HTTPS 확인'을 눌러주세요.",
+                    "2. 공동 관리자는 기존 인증서·약관 동의 기록을 자동으로 인계받습니다.\n"
+                    "3. 인계 시 로컬 HTTPS도 자동 확인합니다. 아래 버튼은 최초 설정·수동 점검용입니다.",
                     anchor="w", justify="left", wraplength=660).pack(fill="x", padx=18, pady=6)
-        self.https_agreed = tk.BooleanVar(value=data["terms_agreed"])
+        self.https_agreed = tk.BooleanVar(value=True)
         tk.Checkbutton(frame, text="Let’s Encrypt 무료 인증기관 이용약관에 동의합니다", variable=self.https_agreed,
                        font=self.font, bg="#f8fafc", activebackground="#f8fafc").pack(anchor="w", padx=18, pady=(8, 3))
         self._button(frame, "인증기관 약관 보기", self._open_https_terms).pack(anchor="w", padx=18, pady=3)

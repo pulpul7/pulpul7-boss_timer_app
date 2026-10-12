@@ -20,6 +20,8 @@ class WebHandoverBridge:
         self.next_shared_check = 0
         self.retry_serial = 0
         self.operation_local = threading.local()
+        from web_return_recovery import WebReturnRecovery
+        self.recovery = manager.web_return_recovery = WebReturnRecovery(self)
         self.delegation = manager.delegation = DelegatedHosting(self)
         self.after_id = app.root.after(500, self._tick)
         manager.authority_retry = self.retry
@@ -27,6 +29,13 @@ class WebHandoverBridge:
         self.thread.start()
 
     def _tick(self):
+        try:
+            self.refresh_context()
+        finally:
+            if not self.closed.is_set() and not self.manager.closed.is_set():
+                self.after_id = self.app.root.after(1000, self._tick)
+
+    def refresh_context(self):
         if self.closed.is_set() or self.manager.closed.is_set():
             return
         candidate = None
@@ -59,9 +68,9 @@ class WebHandoverBridge:
             self.delegation.tick()
         except Exception as exc:
             self.manager._log("web_delegated_lease_failed", error_type=type(exc).__name__)
-        self.after_id = self.app.root.after(1000, self._tick)
 
     def retry(self, *, once=False):
+        self.refresh_context()
         role = self.delegation.status()["role"]
         if role == "source":
             self.delegation.return_web_here()
@@ -171,6 +180,7 @@ class WebHandoverBridge:
 
     def _prepare(self, key, coordinator, data, season):
         operation_serial = getattr(self.operation_local, "serial", self.retry_serial)
+        delegated_info = getattr(self.operation_local, "delegated_info", None)
         data = self._sync(key, coordinator, data, season)
         if self.manager.ddns_status()["configured"]:
             path = (data.get("web_transfer") or {}).get("web_state_path")
@@ -187,7 +197,7 @@ class WebHandoverBridge:
         # A fresh post-sync snapshot is collected on Tk before public activation.
         def snapshot():
             from web_schedule_snapshot import collect_snapshot
-            self._guard(key, coordinator, operation_serial)
+            self._guard(key, coordinator, operation_serial, delegated_info=delegated_info)
             self.manager.offer_snapshot(collect_snapshot(self.app))
         coordinator._ui(snapshot)
         self.ready_key = key
@@ -221,6 +231,11 @@ class WebHandoverBridge:
         while not self.closed.is_set() and not self.manager.closed.is_set():
             with self.lock:
                 context, serial = self.context, self.retry_serial
+            if context:
+                try:
+                    self.recovery.monitor(context[0], context[1])
+                except Exception as exc:
+                    self.manager._log("web_return_recovery_check_failed", error_type=type(exc).__name__)
             if (context and not self.delegation.status()["role"]
                     and self.manager.status()["enabled"] and not self.manager.public_paused):
                 key, coordinator, season = context
@@ -228,6 +243,7 @@ class WebHandoverBridge:
                 preparing = False
                 try:
                     data = self._read_owner(key, coordinator)
+                    self.recovery.observe(data)
                     if self.failed_key != key:
                         if self.ready_key != key:
                             preparing = True
@@ -254,6 +270,7 @@ class WebHandoverBridge:
                     if preparing and serial == self.retry_serial:
                         self.failed_key = key
                     self.manager._log("web_handover_prepare_failed", generation=key[3], error_type=type(exc).__name__)
+                    self.recovery.fail(key, coordinator, exc)
             self.wake.wait(5)
             self.wake.clear()
 

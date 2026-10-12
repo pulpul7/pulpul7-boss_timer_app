@@ -33,9 +33,10 @@ class ChangeDebounce:
 
 
 class PreparedLease:
-    def __init__(self, pool, entry):
+    def __init__(self, pool, entry, *, text=""):
         self.pool, self.entry = pool, entry
         self.path = entry['path']
+        self.text = text
         self.released = False
 
     def stop(self):
@@ -151,7 +152,7 @@ class PreparedSpeechPool:
             if not entry or not Path(entry['path']).is_file() or binding[1][2] != request['tts_text']:
                 return None
             entry['leases'] += 1
-            return PreparedLease(self, entry)
+            return PreparedLease(self, entry, text=binding[1][2])
 
     def close(self):
         with self.lock:

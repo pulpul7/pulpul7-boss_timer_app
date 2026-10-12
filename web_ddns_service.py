@@ -93,8 +93,9 @@ def _dns(domain, address):
 
 
 class DDNSService:
-    def __init__(self, root):
+    def __init__(self, root, *, on_saved=None):
         self.root, self.path = root, root / "ddns_settings.json"
+        self.on_saved = on_saved
         self.lock = threading.RLock()
         self.wake, self.closed = threading.Event(), threading.Event()
         self.thread = None
@@ -107,8 +108,8 @@ class DDNSService:
         self.last_manual = -MANUAL_INTERVAL
         self.last_update = 0.0
         self.current_address = ""
-        self.settings = dict(schema=1, enabled=False, domain="", protected_token="")
-        self.view = dict(enabled=False, domain="", has_token=False, state="unconfigured", busy=False,
+        self.settings = dict(schema=1, enabled=True, domain="", protected_token="")
+        self.view = dict(enabled=True, domain="", has_token=False, state="unconfigured", busy=False,
                          message="무료 주소를 처음 한 번 등록한 뒤 주소 이름과 Token을 입력하세요.",
                          current_ip="", dns_state="waiting", dns_message="미확인", dns_addresses=[],
                          last_checked=None, last_updated=None, configured=False, settings_error=False)
@@ -233,6 +234,14 @@ class DDNSService:
                              state="waiting" if saved["enabled"] and self.active else "paused",
                              message="설정을 저장했습니다. 웹서버 실행 중에는 자동 갱신합니다." if saved["enabled"] else "자동 갱신을 껐습니다.")
         diagnostic(self.logger, "ddns_settings_saved", enabled=saved["enabled"], domain=saved["domain"])
+        if self.on_saved is not None:
+            try:
+                message = self.on_saved(saved)
+                if message:
+                    return "DDNS 설정을 저장했습니다. " + message
+            except Exception as exc:
+                diagnostic(self.logger, "ddns_saved_setup_failed", error_type=type(exc).__name__)
+                return "DDNS 설정은 저장했습니다. 웹 준비를 완료하지 못해 웹 강제 승계/재시도가 필요합니다."
         return "DDNS 설정을 저장했습니다."
 
     def _refresh(self, *, force=False):

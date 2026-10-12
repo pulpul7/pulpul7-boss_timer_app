@@ -68,8 +68,8 @@ class DirectHostingService:
         self.active = False
         self.generation = 0
         self.pending_save = False
-        self.settings = dict(schema=1, enabled=False, owner=uuid.uuid4().hex)
-        self.view = dict(enabled=False, busy=False, state="off", message="외부 공개가 꺼져 있습니다.",
+        self.settings = dict(schema=1, enabled=True, owner=uuid.uuid4().hex)
+        self.view = dict(enabled=True, busy=False, state="off", message="송출권한과 HTTPS 준비 후 외부 공개합니다.",
                          external_port=0,
                          address="", firewall="설정 전", mapping="설정 전", https="로컬 전용", external="외부 접속 미검증")
         self.resources = None
