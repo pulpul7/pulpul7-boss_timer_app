@@ -785,3 +785,21 @@ GitHub 저장소와 안내채팅 채널을 함께 사용합니다. 웹 담당자
 `web_delegated_worker_retry`, `web_delegated_public_retry`, `web_delegated_host_stopped`,
 `web_delegated_return_completed`, `web_host_voice_stop_retry`, `handover_upload_retry_result`.
 GitHub 스케줄 반복 조회를 추가하지 않으며, 웹 담당자의 공개 권한 유지도 로컬 GUI·봇 상태만 확인합니다.
+
+## 수동 웹 종료 / 단독 강제 실행
+
+웹 → 공동 운영의 **이 PC 웹 종료**는 외부 접근, 주소 갱신, 웹 프로세스를 종료합니다.
+봇 연결과 디코 송출권한은 유지합니다. **웹 단독 강제 실행**은 현재 PC의 스케줄을 그대로
+공개하며, 인계 업로드·스케줄 다운로드를 기다리지 않습니다. 봇 연결과 DuckDNS 설정은 필요합니다.
+다른 PC가 웹 담당이면 동일한 원격 웹 종료 경로로 종료를 요청하고, 공개 차단·프로세스 종료·
+진행 중인 주소 갱신 종료를 확인한 뒤 이 PC의 웹만 시작합니다. 종료 확인이 없으면 새 공개를 시작하지 않습니다.
+단독 모드는 디코 승계와 별도로 유지되며, 종료 후 다시 단독 실행을 요청할 수 있습니다.
+암호화된 공동 인증서·비밀번호는 재사용하고, 이후 설정 변경도 공동 저장소에 반영합니다.
+
+Discord 관리자/서버 관리 권한이 있는 사용자는 `/웹서버`의 관리자이름 입력칸에
+`로그아웃 나츠`를 입력해 나츠 PC의 웹을 종료하거나, `단독 나츠`로 단독 실행을 요청할 수 있습니다.
+기존처럼 `나츠`만 입력하면 일반 웹 공개 재시도입니다. 종료 명령도 중복 응답 방지를 적용합니다.
+모든 관리자 PC의 GUI와 봇을 새 버전으로 교체해야 합니다. 이전 GUI에는 종료 명령을 보내지 않습니다.
+
+진단 이벤트: `web_standalone_stage`, `web_standalone_start_failed`, `web_standalone_lease_failed`,
+`discord_web_stop_verified`, `discord_web_standalone_requested`, `web_standalone_shared_state_published`.

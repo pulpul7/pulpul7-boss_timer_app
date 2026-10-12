@@ -97,12 +97,18 @@ class WebServiceWindow:
         actions.pack(fill="x", padx=22, pady=8)
         self.joint_sync = self._button(actions, "지금 웹 갱신", lambda: self._joint_action(relay.sync_now))
         self.joint_return = self._button(actions, "웹도 이 PC로 승계", lambda: self._joint_action(self.manager.retry_public))
-        for button in (self.joint_sync, self.joint_return):
+        self.joint_stop = self._button(actions, "이 PC 웹 종료", lambda: self._joint_action(self.manager.stop_web))
+        self.joint_force = self._button(actions, "웹 단독 강제 실행", lambda: self._joint_action(self.manager.force_start_web))
+        self.joint_stop.configure(bg="#fee2e2", fg="#991b1b")
+        self.joint_force.configure(bg="#dcfce7", fg="#166534")
+        for button in (self.joint_sync, self.joint_return, self.joint_stop, self.joint_force):
             button.pack(side="left", padx=(0, 10), ipady=4)
         self._label(frame, "스케줄 마지막 변경 1분 30초 후 자동 업로드하고, 기존 웹 PC가 요청을 받아 자동 반영합니다.\n"
                     "기존 웹 PC에는 확인창이 뜨지 않습니다. GitHub 스케줄을 반복 조회하지 않습니다.\n"
                     "'웹도 이 PC로 승계'는 기존 웹의 외부 접근 중단을 자동 확인한 뒤 진행합니다.\n"
-                    "기존 웹 PC의 로컬 스케줄은 보존하고, 웹 표시 데이터만 갱신합니다.",
+                    "기존 웹 PC의 로컬 스케줄은 보존하고, 웹 표시 데이터만 갱신합니다.\n"
+                    "단독 강제 실행: 상대 웹 종료를 확인하고 이 PC의 현재 스케줄로 공개합니다.\n"
+                    "디코 송출권한은 그대로이며, 스케줄 업로드·다운로드를 기다리지 않습니다.",
                     anchor="w", justify="left", wraplength=660).pack(fill="x", padx=22, pady=14)
 
     def _joint_action(self, callback):
@@ -113,12 +119,18 @@ class WebServiceWindow:
 
     def _refresh_joint(self):
         state = self.manager.delegation.status()
+        manual = self.manager.standalone.status()
         self.split_web.set(state["split_for_next"])
         roles = {"host": "이 PC: 웹 담당", "source": "이 PC: Discord·스케줄 담당", "": "일반 운영"}
-        self.joint_text.set(f"{roles[state['role']]}\n웹 담당: {state['host']}   ·   스케줄 담당: {state['source']}\n"
-                            f"{state['message']}\n최근 웹 반영: {state['last_applied_at']}")
+        role = ("이 PC: 단독 웹 담당" if manual['local'] else "다른 PC에서 단독 웹 운영") if manual['state'] == 'active' else roles[state['role']]
+        host = manual['owner_name'] if manual['state'] == 'active' else state['host']
+        self.joint_text.set(f"{role}\n웹 담당: {host}   ·   스케줄 담당: {state['source']}\n"
+                            f"{state['message']}\n최근 웹 반영: {state['last_applied_at']}\n"
+                            f"{manual['message']}")
         for button in (self.joint_sync, self.joint_return):
             button.configure(state="normal" if state["role"] == "source" else "disabled")
+        for button in (self.joint_stop, self.joint_force):
+            button.configure(state="disabled" if manual["busy"] else "normal")
 
     def _build_service(self, frame):
         self.enabled = tk.BooleanVar(value=self.manager.status()["enabled"])

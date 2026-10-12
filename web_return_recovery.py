@@ -60,6 +60,9 @@ class WebReturnRecovery:
 
     def _guard(self, key, coordinator):
         coordinator._assert_profile()
+        manual = getattr(self.bridge, 'standalone', None)
+        if manual is not None and manual.suppresses_normal():
+            raise ValueError('웹 단독 실행 또는 종료로 기존 웹 승계 작업을 취소했습니다.')
         state = coordinator.policy.snapshot()
         if (self.bridge.closed.is_set() or self.manager.closed.is_set() or not coordinator.alive
                 or not ConnectionPolicy.has_authority(state, key[2])

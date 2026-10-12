@@ -31,6 +31,8 @@ class WebCommandTests(unittest.TestCase):
         elif not authorized:
             data.update(owner=SOURCE, owner_runtime=SOURCE_SESSION)
         repo = MemoryRepository(data)
+        for member in repo.data['members'].values():
+            member['web_standalone_protocol'] = 1
         public = dict(state='waiting', enabled=True, address='')
         policy = dict(ConnectionPolicy._empty(), protocol=CONTROL_PROTOCOL, runtime_id=HOST_SESSION,
                       standby=role == 'host' or not authorized, authority_active=authorized,
@@ -42,6 +44,8 @@ class WebCommandTests(unittest.TestCase):
         def retry(**_kwargs):
             public.update(state=result, address='https://example.invalid:8766' if result=='prepared' else '')
         manager.retry_public = Mock(side_effect=retry)
+        manager.stop_web_verified = Mock()
+        manager.force_start_web = Mock()
         coordinator = NS(client=HOST, alive=True, busy=False, releasing=False, lock=threading.RLock(),
             app=NS(web_service_manager=manager, _append_debug_log=Mock()), _assert_profile=Mock(),
             record=AuthorityRecord(repo.get, repo.put, SCOPE), _live_data=lambda data:data,
@@ -115,6 +119,55 @@ class WebCommandTests(unittest.TestCase):
         manager.retry_public.assert_not_called()
         self.assertIn('이미 웹 공개 중',done.call_args.args[1])
 
+    def test_stop_command_works_without_voice_or_ddns_and_records_stop_proof(self):
+        control, _, manager, repo, _ = self.node(authorized=False, configured=False)
+        before = AuthorityRecord.owner_stamp(repo.data)
+        done = self.request(control, operation='administrator_web_stop')
+        self.assertTrue(done.call_args.args[0])
+        manager.stop_web_verified.assert_called_once()
+        manager.retry_public.assert_not_called()
+        self.assertTrue(repo.data['members'][HOST]['web_call']['stopped'])
+        self.assertEqual(AuthorityRecord.owner_stamp(repo.data), before)
+
+    def test_stop_failure_never_claims_peer_has_stopped(self):
+        control, _, manager, repo, _ = self.node()
+        manager.stop_web_verified.side_effect = ValueError('public deny failed')
+        done = self.request(control, operation='administrator_web_stop')
+        self.assertFalse(done.call_args.args[0])
+        self.assertFalse(repo.data['members'][HOST]['web_call']['stopped'])
+
+    def test_old_target_cannot_mistake_logout_for_web_retry(self):
+        control, _, manager, repo, _ = self.node()
+        repo.data['members'][HOST]['web_standalone_protocol'] = 0
+        done = self.request(control, operation='administrator_web_stop')
+        self.assertFalse(done.call_args.args[0])
+        manager.retry_public.assert_not_called()
+        manager.stop_web_verified.assert_not_called()
+
+    def test_success_without_stop_proof_is_rejected(self):
+        control, _, _, _, _ = self.node()
+        control.latest = dict(members={HOST: dict(runtime=HOST_SESSION, web_call=dict(
+            id='123', runtime=HOST_SESSION, state='done', action='stop', ok=True))})
+        with self.assertRaisesRegex(ValueError, '종료 확인'):
+            control._wait(HOST, '123', Mock(), time.monotonic()+10)
+
+    def test_force_command_is_web_only_and_can_target_standby_pc(self):
+        control, _, manager, repo, _ = self.node(authorized=False)
+        before = AuthorityRecord.owner_stamp(repo.data)
+        done = self.request(control, operation='administrator_web_force')
+        self.assertTrue(done.call_args.args[0])
+        manager.force_start_web.assert_called_once()
+        manager.retry_public.assert_not_called()
+        self.assertEqual(AuthorityRecord.owner_stamp(repo.data), before)
+
+    def test_standalone_owner_without_voice_can_use_existing_retry_command(self):
+        control, _, manager, repo, _ = self.node(authorized=False)
+        repo.data['web_standalone'] = dict(protocol=1, id='e'*32, state='active',
+            owner=HOST, runtime=HOST_SESSION, **SCOPE)
+        done = self.request(control)
+        self.assertTrue(done.call_args.args[0])
+        manager.retry_public.assert_called_once_with(once=True)
+
     def test_host_once_disables_background_public_and_worker_retries(self):
         from web_delegated_hosting import DelegatedHosting
         relay=object.__new__(DelegatedHosting)
@@ -167,6 +220,12 @@ class WebCommandTests(unittest.TestCase):
         interaction=NS()
         asyncio.run(callback(interaction,' 나츠 '))
         bot._administrator_command.assert_awaited_once_with(interaction,'administrator_web_retry',target='나츠')
+        bot._administrator_command.reset_mock()
+        asyncio.run(callback(interaction,'로그아웃 나츠'))
+        bot._administrator_command.assert_awaited_once_with(interaction,'administrator_web_stop',target='나츠')
+        bot._administrator_command.reset_mock()
+        asyncio.run(callback(interaction,'단독 나츠'))
+        bot._administrator_command.assert_awaited_once_with(interaction,'administrator_web_force',target='나츠')
 
 
 if __name__ == '__main__': unittest.main()

@@ -2,6 +2,7 @@
 from copy import deepcopy
 from types import SimpleNamespace as NS
 from pathlib import Path
+from types import MethodType
 import threading
 import unittest
 from unittest.mock import Mock, patch
@@ -120,6 +121,80 @@ class DelegatedTests(unittest.TestCase):
         requested = AuthorityRecord(repo.get, repo.put, SCOPE).request(
             SOURCE, SOURCE_SESSION, '777', automatic_preserve_web=True)
         self.assertNotIn('web_delegate', requested)
+
+    def test_verified_voice_stop_still_preserves_web_for_unconfigured_receiver(self):
+        data = initial_record()
+        data['members'][HOST]['web_public_available'] = True
+        repo = MemoryRepository(data)
+        record = AuthorityRecord(repo.get, repo.put, SCOPE)
+        requested = record.request(SOURCE, SOURCE_SESSION, '777', automatic_preserve_web=True,
+                                   verified_previous=record.owner_stamp(data))
+        self.assertEqual(requested['phase'], 'joining')
+        self.assertEqual(delegation_info(requested)['host'], HOST)
+
+    def reunite_host(self, phase='active'):
+        relay, manager, coordinator, policy = self.node('host')
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.retained_host = None
+        bridge.retry_serial = 0
+        bridge.synced_requests = set()
+        bridge._keep_retained_host = MethodType(WebHandoverBridge._keep_retained_host, bridge)
+        bridge.retain_web_host = MethodType(WebHandoverBridge.retain_web_host, bridge)
+        data = dict(deepcopy(self.repo.data), generation=3, request='e'*32, phase=phase,
+                    owner=HOST if phase == 'active' else SOURCE,
+                    owner_runtime=HOST_SESSION if phase == 'active' else SOURCE_SESSION,
+                    receiver=HOST, receiver_runtime=HOST_SESSION)
+        data.pop('web_delegate')
+        policy['authority_generation'] = 3
+        manager.set_authority.reset_mock()
+        relay.observe(data, coordinator)
+        return relay, manager, coordinator, policy
+
+    def test_existing_host_reunites_voice_without_disabling_web(self):
+        for phase in ('requested', 'joining', 'active'):
+            with self.subTest(phase=phase):
+                relay, manager, coordinator, _ = self.reunite_host(phase)
+                self.assertIsNotNone(relay.bridge.retained_host)
+                self.assertTrue(all(call.args[0] for call in manager.set_authority.call_args_list))
+                key = (SCOPE['guild'], HOST, HOST_SESSION, 3)
+                self.assertTrue(relay.bridge._keep_retained_host(key, coordinator))
+
+    def test_failed_initial_sync_keeps_existing_host_web(self):
+        relay, manager, coordinator, _ = self.reunite_host()
+        bridge = relay.bridge
+        bridge._ui = lambda callback: callback()
+        data = dict(deepcopy(relay.record), previous_owner=[SOURCE, SOURCE_SESSION, 2, 'f'*32],
+                    web_transfer=dict(request='e'*32, state='failed'))
+        manager.set_authority.reset_mock()
+        with self.assertRaisesRegex(ValueError, '업로드에 실패'):
+            WebHandoverBridge._sync(bridge, (SCOPE['guild'], HOST, HOST_SESSION, 3), coordinator, data, '18')
+        self.assertTrue(all(call.args[0] for call in manager.set_authority.call_args_list))
+        self.assertIsNotNone(bridge.retained_host)
+
+    def test_retained_web_keeps_detached_schedule_until_sync_succeeds(self):
+        relay, manager, _, _ = self.reunite_host()
+        self.assertTrue(manager.delegated_snapshot_only)
+        old_events = deepcopy(manager.pending_snapshot['events'])
+        manager.pending_snapshot = public_snapshot('unsynced local schedule')
+        kept = relay.host_snapshot()
+        self.assertEqual(kept['events'], old_events)
+        self.assertNotEqual(kept['events'], manager.pending_snapshot['events'])
+
+    def test_retained_web_ends_on_release_expired_session_pause_or_new_request(self):
+        for case in ('release', 'session', 'pause', 'request'):
+            with self.subTest(case=case):
+                relay, manager, coordinator, policy = self.reunite_host()
+                if case == 'release': relay.record.update(phase='idle', owner='')
+                elif case == 'session': policy['query_until'] = 0
+                elif case == 'pause': manager.public_paused = True
+                else: relay.record['request'] = '9'*32
+                manager.set_authority.reset_mock()
+                self.assertFalse(relay.bridge._keep_retained_host())
+                manager.set_authority.assert_not_called()
+                self.assertIsNone(relay.bridge.retained_host)
+                self.assertFalse(manager.delegated_snapshot_only)
 
     def test_older_split_capable_host_with_unknown_web_state_is_preserved(self):
         data = initial_record()
@@ -427,6 +502,65 @@ class DelegatedTests(unittest.TestCase):
         relay.sync_now()
         relay._step()
         self.assertEqual(self.repo.put.call_count, 1)
+
+    def test_late_upload_success_resumes_failed_sync_and_web_preflight(self):
+        relay, manager, coordinator, _ = self.node('source')
+        relay.record['web_transfer'] = dict(request='f'*32, state='failed')
+        relay.initial_sync_failed = relay.synced = relay.auto_return_started = True
+        relay.local_payload = public_snapshot()
+        relay.sent_hash = edit_hash(relay.local_payload)
+        relay.bridge.recovery = NS(stage='preflight_failed', observe=Mock())
+        data = dict(deepcopy(relay.record), web_transfer=dict(request='f'*32, state='ready'))
+        relay.observe(data, coordinator)
+        self.assertFalse(relay.synced)
+        self.assertFalse(relay.initial_sync_failed)
+        self.assertFalse(relay.auto_return_started)
+        manager._log.assert_any_call('web_delegated_upload_ready', resume_sync=True, delegate=relay.info['id'])
+
+    def test_late_upload_success_never_overwrites_local_edits_after_failed_sync(self):
+        relay, _, coordinator, _ = self.node('source')
+        relay.record['web_transfer'] = dict(request='f'*32, state='failed')
+        relay.initial_sync_failed = relay.synced = relay.auto_return_started = True
+        relay.sent_hash = edit_hash(public_snapshot())
+        relay.local_payload = public_snapshot('local edit')
+        relay.bridge.recovery = NS(stage='preflight_failed', observe=Mock())
+        data = dict(deepcopy(relay.record), web_transfer=dict(request='f'*32, state='ready'))
+        relay.observe(data, coordinator)
+        self.assertTrue(relay.synced)
+        self.assertTrue(relay.initial_sync_failed)
+        self.assertTrue(relay.auto_return_started)
+
+    def test_upload_ready_event_clears_only_matching_failed_web_attempt(self):
+        relay, _, coordinator, _ = self.node('source')
+        bridge = relay.bridge
+        bridge.transfer_state = None
+        bridge.failed_key = bridge.context[0]
+        data = dict(deepcopy(relay.record), web_transfer=dict(request='f'*32, state='ready'))
+        WebHandoverBridge.observe_transfer(bridge, data, coordinator)
+        self.assertIsNone(bridge.failed_key)
+        bridge.failed_key = bridge.context[0]
+        WebHandoverBridge.observe_transfer(bridge, data, coordinator)  # Duplicate is a no-op.
+        self.assertIsNotNone(bridge.failed_key)
+        data.update(generation=99, request='e'*32, web_transfer=dict(request='e'*32, state='ready'))
+        WebHandoverBridge.observe_transfer(bridge, data, coordinator)
+        self.assertEqual(bridge.failed_key, bridge.context[0])
+
+    def test_upload_retry_publishes_ready_event_without_extra_polling(self):
+        node = object.__new__(DiscordAuthority)
+        node.alive, node.lock = True, threading.RLock()
+        self.repo.data['web_transfer'] = dict(request='f'*32, state='failed',
+                                             content_hash='snapshot-hash', entry=dict(id='9'))
+        node.record = AuthorityRecord(self.repo.get, self.repo.put, SCOPE)
+        node._assert_profile = Mock()
+        node._ui = lambda callback, **_: callback()
+        node._notify = Mock()
+        node.app = NS(_upload_current_schedule_to_github_data=Mock(return_value=(True, 'ready', dict(id='9'))),
+                      _get_github_schedule_content_hash=lambda _: 'snapshot-hash',
+                      schedule_status_var=Mock(), _append_debug_log=Mock())
+        node._retry_upload(dict(id='9'), {}, 1, expected_request='f'*32)
+        self.assertEqual(self.repo.data['web_transfer']['state'], 'ready')
+        node._notify.assert_called_once()
+        self.assertEqual(node._notify.call_args.args[0]['web_transfer']['state'], 'ready')
 
     def test_latest_encrypted_settings_are_prepared_before_web_stop(self):
         relay, manager, coordinator, _ = self.node('host')

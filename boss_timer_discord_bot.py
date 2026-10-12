@@ -3301,10 +3301,16 @@ class DiscordScheduleBot:
                 ephemeral=True,
             )
 
-        @self.tree.command(name="웹서버", description="지정한 관리자 PC에서 웹 공개를 1회 시도합니다.")
-        @self.discord.app_commands.describe(관리자이름="/보탐 관리자에 표시된 담당자 이름 또는 관리자 ID")
+        @self.tree.command(name="웹서버", description="웹 실행 / 로그아웃 이름으로 웹 종료 / 단독 이름으로 강제 실행")
+        @self.discord.app_commands.describe(관리자이름="관리자 이름·ID, 또는 로그아웃 나츠 / 단독 나츠")
         async def webserver_once(interaction: Any, 관리자이름: str) -> None:
-            await self._administrator_command(interaction, "administrator_web_retry", target=관리자이름.strip())
+            target = 관리자이름.strip()
+            operation = "administrator_web_retry"
+            for prefix, action in (("로그아웃", "administrator_web_stop"), ("단독", "administrator_web_force")):
+                if target == prefix or target.startswith(prefix + " "):
+                    operation, target = action, target[len(prefix):].strip()
+                    break
+            await self._administrator_command(interaction, operation, target=target)
 
         @self.tree.command(name="보탐", description="스케쥴 조회 / 담당자 이름으로 접속 / 초읽기 / 메시지 보관 0~50")
         @self.discord.app_commands.describe(동작="비우면 조회. +/++/+++는 1/2/3일 추가. 관리자, 담당자 이름, 접속, ?, 초읽기 또는 보관 개수 0~50")

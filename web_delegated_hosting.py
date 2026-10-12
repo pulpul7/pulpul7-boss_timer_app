@@ -169,10 +169,15 @@ class DelegatedHosting:
             self.split_for_next = bool(enabled)
 
     def observe(self, data, coordinator):
-        info = delegation_info(data)
+        manual = getattr(self.bridge, "standalone", None)
+        if manual is not None:
+            manual.observe(data, coordinator)
+        info = delegation_info(data) if not (manual and manual.suppresses_normal()) else None
         role = ("host" if info["host"] == coordinator.client else "source" if info["source"] == coordinator.client else "") if info else ""
         with self.lock:
             old_role = self.role
+            old_info = self.info
+            previous_transfer = self.record.get("web_transfer") or {}
             changed = (self.info or {}).get("id") != (info or {}).get("id") or role != self.role
             self.record, self.coordinator = deepcopy(data), coordinator
             self.info, self.role = info, role
@@ -201,12 +206,31 @@ class DelegatedHosting:
                                 "Discord 송출 담당 · 기존 PC의 웹 준비 응답 대기" if role == "source" else
                                 "일반 운영 · Discord와 웹을 함께 승계합니다.")
             with self.manager.lock:
-                self.manager.delegated_snapshot_only = role == "host"
+                self.manager.delegated_snapshot_only = (role == "host" or old_role == "host"
+                                                       or getattr(self.bridge, "retained_host", None) is not None)
             if old_role == "host" and role != "host":
                 try:
-                    self.manager.set_authority((), message="기존 웹 담당 종료 · 현재 담당 상태 확인 중")
+                    retain = getattr(self.bridge, "retain_web_host", None)
+                    if not (callable(retain) and not (manual and manual.suppresses_normal())
+                            and retain(data, old_info, coordinator)):
+                        with self.manager.lock:
+                            self.manager.delegated_snapshot_only = role == "host"
+                        self.manager.set_authority((), message="기존 웹 담당 종료 · 현재 담당 상태 확인 중")
                 except OSError as exc:
                     self.manager._log("web_delegated_stop_lease_failed", error_type=type(exc).__name__)
+            transfer = data.get("web_transfer") or {}
+            if (not changed and role == "source" and transfer.get("request") == data.get("request")
+                    and transfer.get("state") == "ready" and previous_transfer.get("state") != "ready"):
+                unchanged = (not self.initial_sync_failed or bool(self.local_payload
+                    and edit_hash(self.local_payload) == self.sent_hash))
+                if self.initial_sync_failed and unchanged:
+                    self.synced = self.initial_sync_failed = False
+                    self.sent_hash = ""
+                recovery = getattr(self.bridge, "recovery", None)
+                if recovery is not None and recovery.stage == "preflight_failed" and unchanged:
+                    self.auto_return_started = False
+                self.manager._log("web_delegated_upload_ready", resume_sync=unchanged,
+                                  delegate=info["id"])
         if changed:
             self.manager._log("web_delegation_role_changed", role=role, delegate=(info or {}).get("id", ""))
         recovery = getattr(self.bridge, "recovery", None)
@@ -215,6 +239,9 @@ class DelegatedHosting:
                 recovery.observe(data)
             except Exception as exc:
                 self.manager._log("web_return_observe_failed", error_type=type(exc).__name__)
+        observer = getattr(self.bridge, "observe_transfer", None)
+        if callable(observer):
+            observer(data, coordinator)
         self.wake.set()
         self.bridge.wake.set()
 
@@ -236,7 +263,8 @@ class DelegatedHosting:
     def host_snapshot(self):
         with self.lock:
             if self.role != "host" or not self.remote_payload:
-                return None
+                retained = getattr(self.bridge, "retained_host", None)
+                return dict(retained[3], captured_at=timestamp()) if retained and retained[3] else None
             return dict(self.remote_payload, captured_at=timestamp())
 
     def tick(self):
@@ -500,6 +528,7 @@ class DelegatedHosting:
                     message="BossTimer encrypted delegated web return", timeout=5)
                 if not ok:
                     raise ValueError(error or "최신 웹 설정 이전에 실패했습니다.")
+        self._guard(info, "host")
         self.manager.emergency_stop()  # Flush the deny lease before acknowledging stop.
         self.manager.set_authority((), message="웹 담당 변경 · 기존 웹 공개 중지 확인")
         self.manager._flush_authority(force=True)

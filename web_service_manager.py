@@ -197,6 +197,15 @@ class WebServiceManager:
             raise
         self._log("web_emergency_stop_requested")
 
+    def force_start_web(self):
+        self.standalone.start()
+
+    def stop_web(self):
+        self.standalone.stop()
+
+    def stop_web_verified(self):
+        self.standalone.stop_sync()
+
     def _public_context(self):
         with self.lock:
             return dict(self.view, run_id=self.run_id, preferred_external_port=self.settings["external_port"],

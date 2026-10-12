@@ -139,6 +139,82 @@ class VersionRepairTests(unittest.TestCase):
             self.assertEqual(entry['schedule'], self.entry['schedule'])
         self.assertEqual(self.writes, [])
 
+    def prepare_changed_upload(self, local_version):
+        app = self.app
+        app._load_github_local_schedule_payload = lambda _: (dict(
+            _githubScheduleVersion=local_version, _githubBossConfigVersion='2026.10.12.001'), '')
+        app._get_next_github_data_version = lambda _: '2026.10.12.003'
+        app._build_github_boss_config_payload = lambda version: dict(dataVersion=version, payload=dict(boss='old'))
+        app._get_github_boss_config_content_hash = lambda data: app._get_github_data_content_hash(data['payload'])
+        for name in ('_update_github_import_meta', '_save_current_schedule_to_github_local_cache', '_save_schedule_state'):
+            setattr(app, name, Mock())
+        remote = self.files['data/schedules/9.json']
+        remote['dataVersion'] = '2026.10.12.002'
+        remote['payload']['schedule_events'] = []
+        remote['contentHash'] = app._get_github_schedule_content_hash(remote)
+        return remote
+
+    def test_verified_partial_commit_allows_newer_local_changes(self):
+        remote = self.prepare_changed_upload('2026.10.12.003')
+        ok, message, entry = self.app._upload_current_schedule_to_github_data(
+            self.entry, handover_schedule_payload=deepcopy(self.payload), handover_guard=lambda: True)
+        self.assertTrue(ok, message)
+        self.assertEqual(entry['scheduleVersion'], '2026.10.12.003')
+        self.assertEqual([item[0] for item in self.writes],
+                         ['data/server_index.json', 'data/schedules/9.json', 'data/server_index.json'])
+        self.assertEqual(self.files['data/schedules/9.json']['payload'], self.payload['payload'])
+
+    def test_downloaded_base_can_advance_stale_index_version_before_new_changes(self):
+        remote = self.prepare_changed_upload('2026.10.12.001')
+        cached = dict(deepcopy(remote['payload']), _githubScheduleVersion='2026.10.12.001',
+                      _githubBossConfigVersion='2026.10.12.001')
+        self.app._load_github_local_schedule_payload = lambda _: (cached, '')
+        ok, message, entry = self.app._upload_current_schedule_to_github_data(
+            self.entry, handover_schedule_payload=deepcopy(self.payload))
+        self.assertTrue(ok, message)
+        self.assertEqual(entry['scheduleVersion'], '2026.10.12.003')
+
+    def test_verified_newer_file_repairs_index_but_never_overwrites_from_stale_pc(self):
+        remote = self.prepare_changed_upload('2026.10.12.001')
+        before = deepcopy(remote)
+        ok, _, _ = self.app._upload_current_schedule_to_github_data(
+            self.entry, handover_schedule_payload=deepcopy(self.payload))
+        self.assertFalse(ok)
+        self.assertEqual(self.files['data/schedules/9.json'], before)
+        self.assertEqual([item[0] for item in self.writes], ['data/server_index.json'])
+        self.assertEqual(self.files['data/server_index.json']['servers'][0]['scheduleVersion'], '2026.10.12.002')
+
+    def test_bad_checksum_and_other_season_never_repair_different_content(self):
+        for case in ('checksum', 'season', 'kind'):
+            with self.subTest(case=case):
+                self.setUp()
+                remote = self.prepare_changed_upload('2026.10.12.003')
+                if case == 'checksum':
+                    remote['contentHash'] = 'invalid'
+                elif case == 'season':
+                    remote['payload']['season_no'] = '17'
+                    remote['contentHash'] = self.app._get_github_schedule_content_hash(remote)
+                else:
+                    remote['kind'] = 'boss_config'
+                    remote['contentHash'] = self.app._get_github_schedule_content_hash(remote)
+                ok, _, _ = self.app._upload_current_schedule_to_github_data(
+                    self.entry, handover_schedule_payload=deepcopy(self.payload))
+                self.assertFalse(ok)
+                self.assertEqual(self.writes, [])
+
+    def test_schedule_changes_during_repair_never_use_its_new_sha_to_overwrite(self):
+        self.prepare_changed_upload('2026.10.12.003')
+        original_get = self.app._github_get_json_file.side_effect
+        def changed(path, **kwargs):
+            if path == 'data/schedules/9.json' and self.writes:
+                self.files[path]['payload']['schedule_events'] = [dict(boss_name='concurrent')]
+            return original_get(path, **kwargs)
+        self.app._github_get_json_file.side_effect = changed
+        ok, _, _ = self.app._upload_current_schedule_to_github_data(
+            self.entry, handover_schedule_payload=deepcopy(self.payload))
+        self.assertFalse(ok)
+        self.assertEqual([item[0] for item in self.writes], ['data/server_index.json'])
+
     def test_boss_settings_commit_uses_sha_after_schedule_repair(self):
         self.entry['scheduleVersion'] = '2026.10.12.002'
         self.files['data/server_index.json']['servers'][0] = deepcopy(self.entry)

@@ -473,6 +473,7 @@ class DiscordAuthority:
         metadata["web_delegate_protocol"] = getattr(self, "web_delegate_protocol", 0)
         metadata["web_public_available"] = self._web_publication_configured()
         metadata["web_recovery_protocol"] = 1
+        metadata["web_standalone_protocol"] = 1
         return metadata
 
     def _presence(self, data, status, metadata):
@@ -768,9 +769,9 @@ class DiscordAuthority:
                 grant_checked_at = time.monotonic()
                 relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
                 preserve_web = bool(relay and relay.status()["split_for_next"])
-                automatic_preserve_web = bool(relay and verified_previous is None and owner
-                    and owner.get("runtime") == existing.get("owner_runtime")
-                    and not self._web_publication_configured())
+                # The CAS validates the previous host. A verified voice stop must
+                # not revoke its independent web service for an unconfigured PC.
+                automatic_preserve_web = bool(relay and not self._web_publication_configured())
                 self.current = self.record.request(self.client, runtime, channel,
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
                     verified_previous=verified_previous, verified_kind=verified_kind,
@@ -963,7 +964,12 @@ class DiscordAuthority:
                     entry=dict(uploaded_entry or entry), content_hash=self.app._get_github_schedule_content_hash(snapshot) if snapshot is not None else "",
                     source_season=str(self.scope.get("season") or ""))
             with self.lock:
-                self.record.mutate(web_result)
+                updated = self.record.mutate(web_result)
+            if updated.get("request") == token:
+                try:
+                    self._notify(updated)
+                except Exception as exc:
+                    self.app._append_debug_log(f"web_handover_result_notice_failed type={type(exc).__name__}")
         except Exception as exc:
             self.app._append_debug_log(f"web_handover_result_failed type={type(exc).__name__}")
         self._progress("outgoing", token, "voice", "음성 종료 확인 완료 · 업로드 결과: " + str(message))
@@ -1011,7 +1017,14 @@ class DiscordAuthority:
                         artifact["entry"] = dict(uploaded_entry or artifact.get("entry") or entry)
                         artifact["state"] = "ready"
                 with self.lock:
-                    self.record.mutate(web_retry_result)
+                    updated = self.record.mutate(web_retry_result)
+                artifact = updated.get("web_transfer") or {}
+                if (self.record.owner_stamp(updated) == stamp and artifact.get("state") == "ready"
+                        and artifact.get("content_hash") == expected_hash):
+                    try:
+                        self._notify(updated)
+                    except Exception as exc:
+                        self.app._append_debug_log(f"web_handover_retry_notice_failed type={type(exc).__name__}")
         except Exception as exc:
             ok, message = False, str(exc)
         self._ui(lambda: self.app.schedule_status_var.set(str(message)), wait=False)
@@ -1245,7 +1258,7 @@ class DiscordAuthority:
         threading.Thread(target=worker, daemon=True, name="discord-query-routing").start()
 
     def command(self, payload, done):
-        if payload.get("operation") == "administrator_web_retry":
+        if payload.get("operation") in {"administrator_web_retry", "administrator_web_stop", "administrator_web_force"}:
             self.web_control.request(payload, done)
             return
         if payload.get("operation") in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:

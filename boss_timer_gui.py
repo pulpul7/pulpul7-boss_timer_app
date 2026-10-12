@@ -3430,7 +3430,7 @@ class BossTimerApp:
             return
         try:
             relay = getattr(manager, "delegation", None)
-            if relay is not None and relay.status()["role"] == "host":
+            if relay is not None and manager.delegated_snapshot_only:
                 payload = relay.host_snapshot()
                 if payload is not None:
                     manager.offer_snapshot(payload, origin="delegated")
@@ -10278,18 +10278,57 @@ class BossTimerApp:
                     self._append_debug_log(f"handover_schedule_metadata_mismatch server={server_id} "
                         f"listed_version={existing_schedule_version} file_version={actual_version} "
                         f"same_content={int(handover_hash == handover_remote_hash)}")
-                if (version_mismatch or hash_mismatch) and handover_hash == handover_remote_hash:
-                    progress("스케줄 실제 내용은 동일합니다. 파일·서버 목록의 버전 기록을 맞추는 중입니다.")
+                repair_basis = handover_schedule_payload
+                checked_base = False
+                if version_mismatch and handover_hash != handover_remote_hash:
+                    # Runtime state may change after a sync (spawn/elapsed rows).
+                    # Repair the persisted file's metadata separately from the
+                    # new handover, only with a verified local base or version.
+                    cached_hash = self._get_github_schedule_content_hash(cached_schedule_payload)
+                    remote_payload = remote_schedule.get("payload") or {}
+                    same_scope = (remote_schedule.get("kind") == "schedule" and isinstance(remote_payload, dict)
+                        and str(remote_payload.get("share_prefix")) == server_id
+                        and str(remote_payload.get("season_no")) == str(self.current_season_no))
+                    checked_file = bool(handover_remote_hash and
+                        str(remote_schedule.get("contentHash") or "") == handover_remote_hash)
+                    checked_base = bool(local_schedule_version and handover_remote_hash and cached_hash == handover_remote_hash)
+                    not_older = bool(local_schedule_version
+                        and self._compare_github_data_versions(local_schedule_version, actual_version) >= 0
+                        and self._compare_github_data_versions(local_schedule_version, existing_schedule_version) >= 0)
+                    partial_newer_file = bool(checked_file
+                        and self._compare_github_data_versions(actual_version, existing_schedule_version) > 0)
+                    if same_scope and (checked_base or (checked_file and not_older) or partial_newer_file):
+                        repair_basis = remote_schedule
+                        self._append_debug_log(f"handover_version_repair_base_verified server={server_id} "
+                            f"cached_match={int(checked_base)} local_version={local_schedule_version}")
+                    else:
+                        self._append_debug_log(f"handover_version_repair_blocked server={server_id} "
+                            f"scope_match={int(same_scope)} cached_match={int(checked_base)} "
+                            f"file_hash_verified={int(checked_file)} local_not_older={int(not_older)}")
+                if (version_mismatch or hash_mismatch) and (
+                        handover_hash == handover_remote_hash or repair_basis is remote_schedule):
+                    repair_local_changes = repair_basis is remote_schedule
+                    progress("검증된 서버 스케줄의 파일·서버 목록 버전 기록을 맞추는 중입니다.")
                     try:
                         remote_schedule, index_payload, existing_entry, index_sha = self._reconcile_github_handover_schedule_versions(
                             index_payload, index_sha, dict(existing_entry or {}, id=server_id, name=server_name),
-                            remote_schedule, schedule_sha, handover_schedule_payload, handover_guard)
+                            remote_schedule, schedule_sha, repair_basis, handover_guard)
                     except ValueError as exc:
                         return False, str(exc), None
                     actual_version = existing_schedule_version = existing_entry["scheduleVersion"]
                     existing_schedule_hash = existing_entry["scheduleHash"]
                     existing_boss_config_version = str(existing_entry.get("bossConfigVersion") or "").strip()
                     existing_boss_config_hash = str(existing_entry.get("bossConfigHash") or "").strip()
+                    if repair_local_changes and checked_base and local_schedule_version:
+                        # A verified downloaded base may have carried the stale
+                        # index version. New changes still receive a newer version.
+                        if self._compare_github_data_versions(local_schedule_version, actual_version) < 0:
+                            local_schedule_version = actual_version
+                    checked_schedule, schedule_sha, schedule_error = self._github_get_json_file(schedule_path)
+                    if (schedule_error or not schedule_sha or not isinstance(checked_schedule, dict)
+                            or self._get_github_schedule_content_hash(checked_schedule) != handover_remote_hash
+                            or str(checked_schedule.get("dataVersion") or "").strip() != actual_version):
+                        return False, schedule_error or "버전 복구 중 서버 스케줄이 변경되었습니다. 현재 자료로 다시 인계하세요.", None
                 elif version_mismatch:
                     return False, "서버 스케줄 파일과 서버 목록의 버전이 다르고 실제 인계 내용도 다릅니다. 기존 웹을 유지하며 서버 자료 확인이 필요합니다.", None
                 existing_schedule_version = actual_version or existing_schedule_version

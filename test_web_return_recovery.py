@@ -241,6 +241,7 @@ class ReturnTests(unittest.TestCase):
         relay, manager, coordinator, _, _ = self.recovery_node()
         bridge = relay.bridge
         bridge.operation_local.delegated_info = relay.info
+        bridge.retained_host = None
         bridge._guard = Mock()
         # Mimic Tk's distinct thread-local state when it runs the closure.
         def ui(callback):
@@ -254,6 +255,21 @@ class ReturnTests(unittest.TestCase):
         with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot()):
             WebHandoverBridge._prepare(bridge, *bridge.context[:2], self.repo.data, '18')
         self.assertEqual(bridge._guard.call_args.kwargs['delegated_info'], relay.info)
+
+    def test_successful_preparation_replaces_retained_web_snapshot_on_tk(self):
+        relay, manager, coordinator, _, _ = self.recovery_node()
+        bridge = relay.bridge
+        bridge._guard = Mock()
+        bridge.retained_host = ('f'*32, coordinator, relay.info, public_snapshot('old'))
+        manager.delegated_snapshot_only = True
+        coordinator._ui = lambda callback: callback()
+        fresh = public_snapshot('fresh')
+        with patch('web_schedule_snapshot.collect_snapshot', return_value=fresh):
+            WebHandoverBridge._prepare(bridge, *bridge.context[:2], self.repo.data, '18')
+        self.assertEqual(manager.offer_snapshot.call_args.args[0], fresh)
+        self.assertEqual(manager.offer_snapshot.call_args.kwargs['origin'], 'delegated')
+        self.assertIsNone(bridge.retained_host)
+        self.assertFalse(manager.delegated_snapshot_only)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 """Optional web publication follows Discord authority; never controls voice."""
 import hashlib
+from copy import deepcopy
 import threading
 import time
 
@@ -19,10 +20,14 @@ class WebHandoverBridge:
         self.shared_signature = None
         self.next_shared_check = 0
         self.retry_serial = 0
+        self.retained_host = None
+        self.transfer_state = None
         self.operation_local = threading.local()
         from web_return_recovery import WebReturnRecovery
         self.recovery = manager.web_return_recovery = WebReturnRecovery(self)
         self.delegation = manager.delegation = DelegatedHosting(self)
+        from web_standalone_hosting import StandaloneHosting
+        self.standalone = manager.standalone = StandaloneHosting(self)
         self.after_id = app.root.after(500, self._tick)
         manager.authority_retry = self.retry
         self.thread = threading.Thread(target=self._loop, name="web-authority-bridge", daemon=True)
@@ -56,20 +61,102 @@ class WebHandoverBridge:
                 self.ready_key = self.failed_key = None
                 self.shared_signature = None
                 self.next_shared_check = 0
+        manual = self.standalone.suppresses_normal()
+        retained = self._keep_retained_host() if not manual else False
         if changed:
             try:
-                if self.delegation.status()["role"] != "host":
+                if self.delegation.status()["role"] != "host" and not retained and not manual:
                     self.manager.set_authority((), message="스탠바이 · Discord 송출권한을 기다립니다." if not candidate else
                                                "송출권한 확인 · 웹 승계 자료를 준비합니다.")
             except Exception as exc:
                 self.app._append_debug_log(f"web_authority_gate_write_failed type={type(exc).__name__}")
             self.wake.set()
         try:
-            self.delegation.tick()
+            if manual:
+                self.standalone.tick()
+            else:
+                self.delegation.tick()
         except Exception as exc:
             self.manager._log("web_delegated_lease_failed", error_type=type(exc).__name__)
 
+    def retain_web_host(self, data, info, coordinator):
+        """Reuniting voice on the existing host must not stop its working web."""
+        if (not info or info.get("state") != "active" or info.get("host") != coordinator.client
+                or info.get("host_runtime") != coordinator.runtime
+                or not self.manager.publication_allowed()):
+            return False
+        with self.manager.lock:
+            payload = deepcopy(self.manager.pending_snapshot)
+            self.manager.delegated_snapshot_only = True
+        with self.lock:
+            self.retained_host = (data.get("request"), coordinator, dict(info), payload)
+        kept = self._keep_retained_host()
+        if kept:
+            self.manager._log("web_existing_host_retained", request=data.get("request"),
+                              generation=data.get("generation"))
+        return kept
+
+    def observe_transfer(self, data, coordinator):
+        artifact = data.get("web_transfer") or {}
+        signature = (data.get("request"), artifact.get("state"))
+        with self.lock:
+            previous, self.transfer_state = self.transfer_state, signature
+            context = self.context
+            if (signature == previous or artifact.get("request") != signature[0]
+                    or signature[1] != "ready" or not context or context[1] is not coordinator
+                    or context[0][1] != data.get("owner") or context[0][2] != data.get("owner_runtime")
+                    or context[0][3] != data.get("generation")):
+                return
+            if self.failed_key == context[0]:
+                self.failed_key = None
+                self.manager._log("web_handover_upload_ready_resumed", request=signature[0])
+        self.wake.set()
+
+    def _keep_retained_host(self, key=None, coordinator=None):
+        with self.lock:
+            retained = self.retained_host
+        if retained is None:
+            return False
+        request, previous_coordinator, info, _payload = retained
+        coordinator = coordinator or previous_coordinator
+        with self.delegation.lock:
+            data = self.delegation.record
+            phase = data.get("phase")
+            assigned = (data.get("owner") == coordinator.client and
+                        data.get("owner_runtime") == coordinator.runtime) if phase == "active" else (
+                        phase in {"requested", "joining"} and data.get("receiver") == coordinator.client
+                        and data.get("receiver_runtime") == coordinator.runtime)
+            valid = (coordinator is previous_coordinator and data.get("request") == request
+                     and assigned and not self.delegation.role
+                     and str(data.get("scope", {}).get("server")) == info["server"]
+                     and str(data.get("scope", {}).get("season")) == info["season"])
+        state = coordinator.policy.snapshot()
+        valid = (valid and not self.closed.is_set() and not self.manager.closed.is_set()
+                 and not self.manager.public_paused and coordinator.alive
+                 and state.get("runtime_id") == info["host_runtime"]
+                 and state.get("query_until", 0) > time.monotonic()
+                 and str(self.app.current_season_no) == info["season"]
+                 and coordinator.scope["server"] == info["server"]
+                 and (key is None or (key[1] == coordinator.client and key[2] == coordinator.runtime
+                                     and key[3] == data.get("generation"))))
+        if not valid:
+            with self.lock:
+                if self.retained_host is retained:
+                    self.retained_host = None
+            with self.manager.lock:
+                self.manager.delegated_snapshot_only = self.delegation.role == "host"
+            return False
+        self.manager.set_authority((info["guild"], coordinator.client, coordinator.runtime,
+                                    "retained:" + request), ready=self.manager.snapshot_version > 0,
+                                   message="기존 웹 유지 · 인계 동기화 확인 대기")
+        return True
+
     def retry(self, *, once=False):
+        if self.standalone.suppresses_normal():
+            if not self.standalone.status()['local']:
+                raise ValueError('다른 PC의 웹 단독 운영을 유지합니다. 변경하려면 공동 운영의 웹 단독 강제 실행을 눌러주세요.')
+            self.standalone.start()
+            return
         self.refresh_context()
         role = self.delegation.status()["role"]
         if role == "source":
@@ -84,7 +171,8 @@ class WebHandoverBridge:
             self._guard(self.context[0], self.context[1])
             self.failed_key = self.ready_key = None
             self.retry_serial += 1
-        self.manager.set_authority((), message="현재 송출권한으로 웹 공개를 다시 준비합니다.")
+        if not self._keep_retained_host():
+            self.manager.set_authority((), message="현재 송출권한으로 웹 공개를 다시 준비합니다.")
         self.wake.set()
 
     def _guard(self, key, coordinator, operation_serial=None, *, delegated_info=None):
@@ -95,7 +183,9 @@ class WebHandoverBridge:
         delegated_info = delegated_info or getattr(self.operation_local, "delegated_info", None)
         if delegated_info:
             self.delegation._guard(delegated_info, "source")
+        manual = getattr(self, "standalone", None)
         if (self.closed.is_set() or self.manager.closed.is_set() or self.manager.public_paused
+                or (manual is not None and manual.suppresses_normal())
                 or (self.delegation.role and not delegated_info)
                 or not context or context[0] != key or context[1] is not coordinator
                 or (getattr(self.operation_local, "serial", serial) if operation_serial is None else operation_serial) != serial
@@ -120,7 +210,8 @@ class WebHandoverBridge:
         request = data.get("request", "")
         if not previous or not previous[0] or previous[0] == key[1] or request in self.synced_requests:
             return data
-        self.manager.set_authority((), message="Discord 송출 중 · 이전 담당자의 스케줄 업로드를 기다립니다.")
+        if not self._keep_retained_host(key, coordinator):
+            self.manager.set_authority((), message="Discord 송출 중 · 이전 담당자의 스케줄 업로드를 기다립니다.")
         deadline = time.monotonic() + 60
         while True:
             artifact = data.get("web_transfer") or {}
@@ -198,7 +289,15 @@ class WebHandoverBridge:
         def snapshot():
             from web_schedule_snapshot import collect_snapshot
             self._guard(key, coordinator, operation_serial, delegated_info=delegated_info)
-            self.manager.offer_snapshot(collect_snapshot(self.app))
+            self.manager.offer_snapshot(collect_snapshot(self.app),
+                                        origin="delegated" if self.retained_host else "local")
+            # This runs on Tk: release the retained snapshot before another
+            # GUI heartbeat can replace the freshly synchronized schedule.
+            with self.lock:
+                if self.retained_host is not None:
+                    self.retained_host = None
+                    with self.manager.lock:
+                        self.manager.delegated_snapshot_only = False
         coordinator._ui(snapshot)
         self.ready_key = key
 
@@ -236,7 +335,11 @@ class WebHandoverBridge:
                     self.recovery.monitor(context[0], context[1])
                 except Exception as exc:
                     self.manager._log("web_return_recovery_check_failed", error_type=type(exc).__name__)
-            if (context and not self.delegation.status()["role"]
+            try:
+                self.standalone.publish_shared()
+            except Exception as exc:
+                self.manager._log("web_standalone_settings_check_failed", error_type=type(exc).__name__)
+            if (context and not self.standalone.suppresses_normal() and not self.delegation.status()["role"]
                     and self.manager.status()["enabled"] and not self.manager.public_paused):
                 key, coordinator, season = context
                 self.operation_local.serial = serial
@@ -256,13 +359,17 @@ class WebHandoverBridge:
                         state = coordinator.policy.snapshot()
                         self.manager.set_authority(key, ready=True, remaining=state["authority_until"] - time.monotonic(),
                                                    message="Discord 송출권한 확인 · 웹 공개 준비 중")
+                        with self.lock:
+                            self.retained_host = None
+                        with self.manager.lock:
+                            self.manager.delegated_snapshot_only = False
                         try:
                             self._publish_shared(key, coordinator)
                         except Exception as exc:
                             self.manager._log("web_shared_state_publish_failed", error_type=type(exc).__name__)
                 except Exception as exc:
                     try:
-                        if not self.delegation.status()["role"]:
+                        if not self.delegation.status()["role"] and not self._keep_retained_host(key, coordinator):
                             self.manager.set_authority((), message=str(exc) if isinstance(exc, ValueError) else
                                                        "웹 승계 준비 실패 · 진단 로그 확인 후 웹 재시도를 눌러주세요.")
                     except OSError:

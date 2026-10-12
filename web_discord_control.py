@@ -6,6 +6,7 @@ import time
 
 from discord_connection_policy import ConnectionPolicy
 from web_delegated_hosting import delegation_info
+from web_standalone_hosting import standalone_info
 
 
 class DiscordWebControl:
@@ -44,6 +45,8 @@ class DiscordWebControl:
                 if not selector:
                     raise ValueError('관리자 이름 또는 ID를 입력해주세요. /보탐 관리자에서 확인할 수 있습니다.')
                 call_id = str(payload['request_id'])
+                action = {'administrator_web_stop': 'stop', 'administrator_web_force': 'force'}.get(
+                    payload.get('operation'), 'retry')
                 if not call_id.isdigit() or len(call_id) > 24:
                     raise ValueError('웹 요청 번호가 올바르지 않습니다.')
                 with coordinator.lock:
@@ -55,10 +58,12 @@ class DiscordWebControl:
                     member = coordinator.record.online_members(record).get(target)
                     if not member:
                         raise ValueError('대상 관리자 연결이 끊겼습니다. 기존 웹은 유지합니다.')
+                    if action in {'stop', 'force'} and member.get('web_standalone_protocol') != 1:
+                        raise ValueError('대상 PC의 GUI와 봇을 새 버전으로 교체해주세요. 웹 종료 명령 지원을 확인하지 못했습니다.')
                     old = member.get('web_call', {})
                     if old.get('state') in {'pending', 'accepted'} and time.time() < old.get('expires', 0):
                         raise ValueError('해당 PC에서 웹 요청을 처리 중입니다.')
-                    member['web_call'] = dict(id=call_id, runtime=member['runtime'],
+                    member['web_call'] = dict(id=call_id, runtime=member['runtime'], action=action,
                                              state='pending', expires=time.time()+10)
                 with coordinator.lock:
                     published = coordinator.record.mutate(publish)
@@ -79,6 +84,8 @@ class DiscordWebControl:
                 if call.get('id') != call_id or member.get('runtime') != call.get('runtime'):
                     raise ValueError('대상 관리자 실행 상태가 변경되어 웹 요청을 취소했습니다.')
                 if call.get('state') == 'done':
+                    if call.get('action') == 'stop' and call.get('ok') and call.get('stopped') is not True:
+                        raise ValueError('상대 웹 종료 확인이 없어 단독 공개를 시작하지 않았습니다.')
                     done(bool(call.get('ok')), str(call.get('message') or '웹 요청 완료'))
                     return
                 pending = call.get('state') == 'pending'
@@ -117,6 +124,19 @@ class DiscordWebControl:
             manager = getattr(coordinator.app, 'web_service_manager', None)
             if manager is None or coordinator.busy or coordinator.releasing:
                 raise ValueError('웹 모듈이 준비되지 않았거나 관리자 승계 중입니다.')
+            action = call.get('action', 'retry')
+            if action == 'stop':
+                manager.stop_web_verified()
+                manager._log('discord_web_stop_verified', request=call['id'])
+                self._finish(call, True, '웹 서버 종료 완료 · 외부 접근과 주소 갱신을 중지했습니다. 봇과 디코 송출은 유지합니다.', stopped=True)
+                return
+            if action == 'force':
+                manager.force_start_web()
+                manager._log('discord_web_standalone_requested', request=call['id'])
+                self._finish(call, True, '웹 단독 강제 실행 요청 · 상대 웹 종료 확인 후 이 PC 스케줄로 공개합니다.')
+                return
+            if action != 'retry':
+                raise ValueError('지원하지 않는 웹 요청입니다.')
             role = manager.delegation.status()['role']
             info = delegation_info(data)
             hosts_web = bool(role == 'host' and info and info['state'] == 'active'
@@ -124,7 +144,9 @@ class DiscordWebControl:
             owns_voice = (data.get('phase') == 'active' and data.get('owner') == coordinator.client
                           and data.get('owner_runtime') == call['runtime']
                           and ConnectionPolicy.has_authority(coordinator.policy.snapshot(), call['runtime']))
-            if not owns_voice and not hosts_web:
+            manual = standalone_info(data)
+            owns_standalone = bool(manual and manual['owner'] == coordinator.client and manual['runtime'] == call['runtime'])
+            if not owns_voice and not hosts_web and not owns_standalone:
                 raise ValueError('현재 Discord 송출 담당자 또는 별도로 지정된 웹 담당자를 선택하세요. 음성 권한은 변경하지 않습니다.')
             if not manager.ddns_status()['configured']:
                 raise ValueError('대상 PC의 웹 → 무료 주소에서 DuckDNS 주소와 Token을 먼저 저장해주세요.')
@@ -156,15 +178,17 @@ class DiscordWebControl:
             message = str(exc) if isinstance(exc, ValueError) else '웹 공개 시도 실패 · 대상 PC의 진단 로그를 확인하세요.'
             self._finish(call, False, message)
 
-    def _finish(self, call, ok, message):
+    def _finish(self, call, ok, message, *, stopped=False):
         coordinator = self.coordinator
         try:
             def update(data):
-                current = data.get('members', {}).get(coordinator.client, {}).get('web_call', {})
+                member = data.get('members', {}).get(coordinator.client, {})
+                current = member.get('web_call', {})
                 if (current.get('id') != call['id'] or current.get('runtime') != call['runtime']
+                        or member.get('runtime') != call['runtime']
                         or current.get('state') != 'accepted'):
                     raise ValueError('새 웹 요청이 있어 이전 결과를 기록하지 않습니다.')
-                current.update(state='done', ok=bool(ok), message=message)
+                current.update(state='done', ok=bool(ok), message=message, stopped=bool(stopped))
             with coordinator.lock:
                 coordinator._assert_profile()
                 data = coordinator.record.mutate(update)
