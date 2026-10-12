@@ -181,7 +181,7 @@ class AutoHandoverTests(unittest.TestCase):
         self.repo.get.assert_not_called()
         self.repo.put.assert_not_called()
 
-    def test_first_connection_prepares_tls_during_join_and_publishes_after_join(self):
+    def test_first_connection_publishes_while_voice_is_joining(self):
         self.repo.data.pop('web_delegate')
         self.repo.data.update(phase='joining', receiver=SOURCE, receiver_runtime=SOURCE_SESSION)
         relay, manager, coordinator, policy = self.node('source')
@@ -205,16 +205,16 @@ class AutoHandoverTests(unittest.TestCase):
         manager.set_authority.reset_mock()
         with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('local')):
             WebHandoverBridge._loop(bridge)
-        manager.prepare_local_https.assert_called_once()
-        manager.set_authority.assert_not_called()
-        bridge._publish_shared.assert_not_called()
+        manager.prepare_local_https.assert_not_called()
+        self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
+        bridge._publish_shared.assert_called_once()
         self.assertEqual(manager.pending_snapshot['events'][0]['name'], 'local')
         self.repo.data['phase'] = 'active'
         policy['authority_active'] = True
         bridge.closed.clear()
         WebHandoverBridge._loop(bridge)
         self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
-        bridge._publish_shared.assert_called_once()
+        self.assertEqual(bridge._publish_shared.call_count, 2)
         bridge.recovery.fail.assert_not_called()
 
     def test_cancelled_old_worker_does_not_rollback_replacement_with_same_voice_key(self):

@@ -82,12 +82,13 @@ class WebServiceWindow:
     def _build_joint(self, frame):
         relay = self.manager.delegation
         self.split_web = tk.BooleanVar(value=relay.status()["split_for_next"])
-        tk.Checkbutton(frame, text="다음 승계는 Discord만 · 기존 관리자 PC의 웹 유지", variable=self.split_web,
+        split_check = tk.Checkbutton(frame, text="디코와 웹은 독립 실행 · 디코 승계만으로 웹 담당자를 바꾸지 않습니다", variable=self.split_web,
             command=lambda: relay.choose_next(self.split_web.get()), font=("맑은 고딕", 10, "bold"),
-            bg="#f8fafc", fg="#1e3a8a", activebackground="#f8fafc", selectcolor="white").pack(
-                anchor="w", padx=18, pady=(18, 10))
-        self._label(frame, "웹을 운영할 수 없는 PC가 Discord 송출을 맡아야 할 때, 승계 전에 선택하세요.\n"
-                    "한 번의 승계에만 적용합니다. 연결 중·재시도 중이라는 이유로 자동 선택하지 않습니다.\n"
+            bg="#f8fafc", fg="#1e3a8a", activebackground="#f8fafc", selectcolor="white")
+        split_check.configure(state='disabled')
+        split_check.pack(anchor="w", padx=18, pady=(18, 10))
+        self._label(frame, "디코송출과 웹실행 버튼으로 각각 시작하거나 종료합니다.\n"
+                    "디코 설정의 ‘디코 송출 시 웹 동시 실행’을 켜면 두 작업을 함께 요청합니다.\n"
                     "같은 시즌·게임 서버에서, 모든 관리자의 GUI와 봇을 새 버전으로 사용해야 합니다.",
                     anchor="w", justify="left", wraplength=660).pack(fill="x", padx=22, pady=8)
         self.joint_text = tk.StringVar()
@@ -96,7 +97,7 @@ class WebServiceWindow:
         actions = tk.Frame(frame, bg="#f8fafc")
         actions.pack(fill="x", padx=22, pady=8)
         self.joint_sync = self._button(actions, "지금 웹 갱신", lambda: self._joint_action(relay.sync_now))
-        self.joint_return = self._button(actions, "웹도 이 PC로 승계", lambda: self._joint_action(self.manager.retry_public))
+        self.joint_return = self._button(actions, "웹실행 / 승계", lambda: self._joint_action(self.manager.start_web))
         self.joint_stop = self._button(actions, "이 PC 웹 종료", lambda: self._joint_action(self.manager.stop_web))
         self.joint_force = self._button(actions, "웹 단독 강제 실행", lambda: self._joint_action(self.manager.force_start_web))
         self.joint_stop.configure(bg="#fee2e2", fg="#991b1b")
@@ -105,9 +106,10 @@ class WebServiceWindow:
             button.pack(side="left", padx=(0, 10), ipady=4)
         self._label(frame, "스케줄 마지막 변경 1분 30초 후 자동 업로드하고, 기존 웹 PC가 요청을 받아 자동 반영합니다.\n"
                     "기존 웹 PC에는 확인창이 뜨지 않습니다. GitHub 스케줄을 반복 조회하지 않습니다.\n"
-                    "'웹도 이 PC로 승계'는 기존 웹의 외부 접근 중단을 자동 확인한 뒤 진행합니다.\n"
+                     "'웹실행 / 승계'는 기존 웹의 외부 접근 중단을 자동 확인한 뒤 진행합니다.\n"
                     "기존 웹 PC의 로컬 스케줄은 보존하고, 웹 표시 데이터만 갱신합니다.\n"
-                    "단독 강제 실행: 상대 웹 종료를 확인하고 이 PC의 현재 스케줄로 공개합니다.\n"
+                     "일반 웹실행은 승계 여부를 묻고, 동시 실행은 디코 승계 확인에 통합됩니다.\n"
+                     "단독 강제 실행은 별도 경로이며 상대 웹 종료를 확인하고 공개합니다.\n"
                     "디코 송출권한은 그대로이며, 스케줄 업로드·다운로드를 기다리지 않습니다.",
                     anchor="w", justify="left", wraplength=660).pack(fill="x", padx=22, pady=14)
 
@@ -132,6 +134,7 @@ class WebServiceWindow:
                             f"{manual['message']}{failure}")
         for button in (self.joint_sync, self.joint_return):
             button.configure(state="normal" if state["role"] == "source" else "disabled")
+        self.joint_return.configure(state='disabled' if manual['busy'] else 'normal')
         for button in (self.joint_stop, self.joint_force):
             button.configure(state="disabled" if manual["busy"] else "normal")
 
@@ -680,12 +683,12 @@ class WebServiceWindow:
         actions.pack(fill="x", padx=18, pady=10)
         self.public_copy_button = self._button(actions, "주소 복사", lambda: self._copy(self.manager.public_status()["address"]))
         self.public_open_button = self._button(actions, "브라우저에서 열기", self._open_public)
-        self.public_retry_button = self._button(actions, "웹 강제 승계/재시도", self._retry_public)
+        self.public_retry_button = self._button(actions, "웹 실행 / 재시도", self._retry_public)
         for button in (self.public_copy_button, self.public_open_button, self.public_retry_button):
             button.pack(side="left", padx=(0, 8), ipady=3)
         self.public_stop_button = self._button(actions, "웹 긴급 중지", self._emergency_stop)
         self.public_stop_button.pack(side="left", ipady=3)
-        self._label(frame, "기본은 송출권한을 따라 공개합니다. 분리 운영은 기존 웹 유지 · 웹 승계 시 기존 공개 중단부터 확인합니다.",
+        self._label(frame, "웹은 디코 송출과 별도로 실행합니다. 웹 승계 시 기존 공개 중단을 확인한 뒤 전환합니다.",
                     anchor="w", wraplength=660).pack(fill="x", padx=18, pady=4)
         self._label(frame, "'공개 준비 완료'는 외부 접속 성공을 뜻하지 않습니다.\n"
                     "휴대폰 Wi-Fi를 끄고 모바일 데이터로 공개 주소에 접속해 비밀번호 입장을 확인해주세요.\n"

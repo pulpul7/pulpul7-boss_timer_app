@@ -3419,8 +3419,8 @@ class BossTimerApp:
         self.web_schedule_snapshot_failed = False
         try:
             self.web_service_manager = WebServiceManager(get_user_config_dir())
-            from web_handover_bridge import WebHandoverBridge
-            self.web_handover_bridge = WebHandoverBridge(self, self.web_service_manager)
+            from web_independent_controller import IndependentWebController
+            self.web_handover_bridge = IndependentWebController(self, self.web_service_manager)
             self.web_service_window = WebServiceWindow(self.root, self.web_service_manager, self._show_centered_messagebox)
             atexit.register(self.web_service_manager.close, wait=True)
             self.root.after(1500, self.web_service_manager.start_saved)
@@ -3520,6 +3520,8 @@ class BossTimerApp:
                         text, bg, hover, status_fg = "웹 승계 실패", "#b91c1c", "#991b1b", "#b91c1c"
                     elif publication_requested and relay_state.get("return_started"):
                         text, bg, hover, status_fg = "웹 승계 중", "#b45309", "#92400e", "#b45309"
+                    elif publication_requested and not relay_state.get("keep_host"):
+                        text, bg, hover, status_fg = "웹 승계 대기", "#b45309", "#92400e", "#b45309"
                 else:
                     worker, public = manager.status(), manager.public_status()
                     if worker["enabled"] and public["enabled"]:
@@ -3528,7 +3530,11 @@ class BossTimerApp:
                         elif public["state"] == "prepared" and public["address"] and worker["web_ready"]:
                             text, bg, hover, status_fg = "웹 공개 중", "#15803d", "#166534", "#15803d"
                         elif public["state"] == "standby":
-                            text, status_fg = "웹 대기", "#64748b"
+                            bridge = getattr(relay, "bridge", None)
+                            if getattr(bridge, "context", None) and not manager.public_paused:
+                                text, bg, hover, status_fg = "웹 준비 중", "#b45309", "#92400e", "#b45309"
+                            else:
+                                text, status_fg = "웹 대기", "#64748b"
                         else:
                             text, bg, hover, status_fg = "웹 준비 중", "#b45309", "#92400e", "#b45309"
         except Exception:
@@ -3536,6 +3542,12 @@ class BossTimerApp:
         button = getattr(self, "schedule_web_button", None)
         label = getattr(self, "schedule_web_status_label", None)
         try:
+            execute = getattr(self, 'schedule_web_execute_button', None)
+            if self._widget_available(execute) and manager is not None:
+                state = manager.standalone.status()
+                execute.configure(text='웹종료' if state['local'] and state['state'] == 'active'
+                                  and manager.publication_allowed() else '웹실행',
+                                  state='disabled' if state['busy'] else 'normal')
             if self._widget_available(button) and getattr(button, "_web_status_colors", None) != (bg, hover):
                 button.configure(bg=bg, fg="#ffffff", activebackground=hover, activeforeground="#ffffff")
                 self._bind_hover_button(button, bg, hover, "#ffffff", "#ffffff")
@@ -6068,6 +6080,7 @@ class BossTimerApp:
         if self.discord_bot_application_id and self.discord_bot_invite_url == DISCORD_BOT_DEFAULT_INVITE_URL:
             self.discord_bot_invite_url = self._build_discord_bot_invite_url(self.discord_bot_application_id)
         self.discord_bot_mute_pc_audio_when_online = bool(payload.get("mute_pc_audio_when_online", True))
+        self.discord_start_web_together = bool(payload.get("start_web_together", True))
 
     def _load_discord_bot_settings(self) -> dict[str, object]:
         config_path = self._get_discord_bot_config_storage_path()
@@ -6104,6 +6117,7 @@ class BossTimerApp:
             "invite_links": invite_links,
             "voice_bridge_enabled": section.getboolean("voice_bridge_enabled", fallback=True),
             "mute_pc_audio_when_online": section.getboolean("mute_pc_audio_when_online", fallback=True),
+            "start_web_together": section.getboolean("start_web_together", fallback=True),
         }
 
     def _save_discord_bot_settings(self) -> bool:
@@ -6159,6 +6173,7 @@ class BossTimerApp:
             "invite_url": invite_url,
             "voice_bridge_enabled": "1",
             "mute_pc_audio_when_online": "1" if bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)) else "0",
+            "start_web_together": "1" if bool(getattr(self, "discord_start_web_together", True)) else "0",
         }
         config["discord_bot_invite_links"] = {
             key: value for key, value in sorted(invite_links.items()) if key and value
@@ -6238,7 +6253,7 @@ class BossTimerApp:
             button = getattr(self, "discord_bot_toggle_button", None)
             if self._widget_available(button):
                 if button_text is None:
-                    button_text = '연결 오류 · 다시 실행'
+                    button_text = '재시도'
                 button.configure(text=button_text,bg=color,activebackground=color,
                                  fg='#ffffff',activeforeground='#ffffff',disabledforeground='#ffffff')
         except tk.TclError:
@@ -6365,7 +6380,8 @@ class BossTimerApp:
         state = policy.snapshot()
         if state["error"] or state["retries"] >= MAX_RETRIES:
             return
-        if bool(getattr(self, "discord_bot_reconnect_in_progress", False)):
+        if (bool(getattr(self, "discord_bot_reconnect_in_progress", False))
+                or bool(getattr(self, "discord_bot_stale_recovery_in_progress", False))):
             return
         now_monotonic = time.monotonic()
         if now_monotonic < float(getattr(self, "discord_bot_voice_bridge_recovery_grace_until", 0.0) or 0.0):
@@ -7472,9 +7488,84 @@ class BossTimerApp:
 
     def _cleanup_stale_discord_bot_runtime_at_startup(self) -> bool:
         self.discord_bot_startup_cleanup_failed = False
-        return True  # Startup never kills an existing listener.
+        return True  # Recovery is deferred until configured bot connection begins.
+
+    def _queue_discord_bot_stale_recovery(self, payload, *, automatic=False, orphan_only=False) -> bool:
+        """Replace an identifiable leftover bot once, without blocking Tk."""
+        if getattr(self, "discord_bot_stale_recovery_in_progress", False):
+            return True
+        from discord_bot_process_recovery import find_stale_bots, terminate_stale_bots
+        profile = self._get_discord_bot_config_storage_path()
+        owned_child = bool(payload.get("ok") and self._owns_discord_bot_child(payload))
+        if owned_child and orphan_only:
+            return False
+        process = getattr(self, "discord_bot_process", None)
+        try:
+            candidates = [] if owned_child else find_stale_bots(
+                payload=payload, config_path=profile,
+                client_id=self._get_administrator_identity()["client_id"],
+                owned_pid=getattr(process, "pid", 0),
+                expected_executable=self._get_discord_bot_executable_path(),
+                allow_current_parent=not orphan_only)
+        except Exception as exc:
+            self._append_debug_log(f"discord_bot_stale_scan_failed type={type(exc).__name__}")
+            return False
+        if not owned_child and not candidates:
+            return False
+        self.discord_bot_stale_recovery_in_progress = True
+        self.schedule_status_var.set("이전 봇을 정리한 뒤 다시 연결합니다.")
+        self._append_debug_log(
+            f"discord_bot_stale_recovery_started pids={[p.pid for p in candidates]} owned={int(owned_child)}")
+
+        def worker():
+            success = False
+            try:
+                if owned_child:
+                    success = self._stop_discord_bot_runtime_core()
+                else:
+                    if payload.get("ok"):
+                        # Graceful shutdown is sent only to the verified leftover listener.
+                        current = self._query_discord_bot_status_port(timeout=.2)
+                        if current.get("pid") == payload.get("pid"):
+                            self._request_discord_bot_shutdown()
+                            self._wait_discord_bot_status_port_down(timeout=.75)
+                    success = terminate_stale_bots(candidates)
+                    if success:
+                        success = self._wait_discord_bot_status_port_down(timeout=2.0)
+            except Exception as exc:
+                self._append_debug_log(f"discord_bot_stale_recovery_failed type={type(exc).__name__}")
+            self._append_debug_log(f"discord_bot_stale_recovery_finished success={int(success)}")
+
+            def finish():
+                self.discord_bot_stale_recovery_in_progress = False
+                if (getattr(self, "discord_bot_exit_requested", False)
+                        or self._get_discord_bot_config_storage_path() != profile):
+                    return  # Never restart after exit or into a different server profile.
+                if not success:
+                    self.schedule_status_var.set("이전 봇을 종료하지 못했습니다. 봇 연결을 다시 시도하세요.")
+                    return
+                self.discord_bot_process = None
+                self.discord_bot_running = False
+                self.discord_bot_last_status_payload = {}
+                self.discord_bot_voice_bridge_online = False
+                started = self._start_discord_bot_runtime(
+                    gateway_only=True, automatic=automatic, _stale_recovery_attempted=True)
+                self._append_debug_log(f"discord_bot_stale_reconnect_started success={int(started)}")
+
+            try:
+                self.root.after(0, finish)
+            except (tk.TclError, RuntimeError):
+                self.discord_bot_stale_recovery_in_progress = False
+
+        try:
+            threading.Thread(target=worker, name="discord-stale-bot-recovery", daemon=True).start()
+        except RuntimeError:
+            self.discord_bot_stale_recovery_in_progress = False
+            return False
+        return True
 
     def _shutdown_discord_bot_at_exit(self) -> None:
+        self.discord_bot_exit_requested = True
         self.discord_bot_expected_running = False
         payload = self._query_discord_bot_status_port(timeout=.2)
         if (payload.get("ok") and not self._discord_bot_status_matches(payload)
@@ -7559,8 +7650,14 @@ class BossTimerApp:
         if self.discord_bot_token:
             self._start_discord_bot_runtime(gateway_only=True)
 
-    def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False, gateway_only: bool = False) -> bool:
-        if automatic and getattr(self, "discord_handover_busy", False):
+    def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False, gateway_only: bool = False,
+                                   _stale_recovery_attempted: bool = False) -> bool:
+        if getattr(self, "discord_bot_exit_requested", False):
+            return False
+        if getattr(self, "discord_bot_stale_recovery_in_progress", False):
+            return True
+        if (automatic and getattr(self, "discord_handover_busy", False)
+                and not (gateway_only and _stale_recovery_attempted)):
             return False  # A delayed recovery cannot race the approved handover.
         # Validate persisted settings BEFORE creating any remote owner record.
         # In-memory defaults may still refer to another server at first launch.
@@ -7587,12 +7684,14 @@ class BossTimerApp:
         payload = self._query_discord_bot_status_port(timeout=.3)
         if payload.get("ok"):
             if not self._discord_bot_status_matches(payload):
-                if (self._owns_discord_bot_child(payload) and payload.get("control_protocol") == CONTROL_PROTOCOL
-                        and not automatic):
-                    if self._stop_discord_bot_runtime_core():
-                        return self._start_discord_bot_runtime(gateway_only=True)
+                if (not _stale_recovery_attempted
+                        and self._queue_discord_bot_stale_recovery(payload, automatic=automatic)):
+                    return True
                 self.schedule_status_var.set("다른 설정 또는 구버전 봇이 실행 중입니다. 기존 봇을 종료한 뒤 다시 연결하세요.")
                 return False
+            if (not payload.get("online") and not _stale_recovery_attempted
+                    and self._queue_discord_bot_stale_recovery(payload, automatic=automatic, orphan_only=True)):
+                return True
             if not automatic:
                 ConnectionPolicy(self._get_discord_bot_config_storage_path()).resume()
             self.discord_bot_running = self.discord_bot_expected_running = True
@@ -7604,6 +7703,9 @@ class BossTimerApp:
             self._set_discord_bot_status_payload(payload)
             self._ensure_discord_authority()
             self._schedule_discord_bot_status_poll()
+            return True
+        if (not _stale_recovery_attempted
+                and self._queue_discord_bot_stale_recovery({}, automatic=automatic)):
             return True
         if self._is_discord_bot_process_alive():
             return getattr(self, "discord_bot_process_profile", None) == self._get_discord_bot_config_storage_path()
@@ -7685,6 +7787,37 @@ class BossTimerApp:
             self._ensure_discord_authority().release()
         else:
             self._start_discord_bot_runtime()
+
+    def _start_web_runtime(self, *, ensure_bot=True, automatic=False) -> None:
+        try:
+            if ensure_bot:
+                if not self._ensure_administrator_name(parent=self.schedule_window or self.root):
+                    return
+                if not self._start_discord_bot_runtime(gateway_only=True):
+                    return
+                self._ensure_discord_authority()
+            manager = getattr(self, 'web_service_manager', None)
+            if manager is None:
+                raise ValueError('웹 모듈을 준비하지 못했습니다.')
+            manager.start_web(approved=automatic)
+        except Exception as exc:
+            self._append_debug_log(f'web_start_request_failed type={type(exc).__name__}')
+            if not automatic:
+                self._show_centered_messagebox('showerror', '웹 실행', str(exc), parent=self.schedule_window or self.root)
+
+    def _toggle_web_runtime(self) -> None:
+        manager = getattr(self, 'web_service_manager', None)
+        if manager is not None:
+            state = manager.standalone.status()
+            if state['busy']:
+                return
+            if state['local'] and state['state'] == 'active' and manager.publication_allowed():
+                try:
+                    manager.stop_web()
+                except Exception as exc:
+                    self._show_centered_messagebox('showerror', '웹 종료', str(exc), parent=self.schedule_window or self.root)
+                return
+        self._start_web_runtime()
 
     def _reconnect_discord_bot_runtime_from_request(
         self,
@@ -7893,7 +8026,7 @@ class BossTimerApp:
         dialog.resizable(False, False)
         dialog.configure(bg="#eef2ff")
         dialog.transient(parent)
-        self._center_window_over_parent(dialog, parent, 520, 526)
+        self._center_window_over_parent(dialog, parent, 520, 556)
 
         token_var = tk.StringVar(value=self._sanitize_discord_bot_token(getattr(self, "discord_bot_token", "")))
         application_id_var = tk.StringVar(value=self._sanitize_discord_bot_application_id(getattr(self, "discord_bot_application_id", "")))
@@ -7901,6 +8034,7 @@ class BossTimerApp:
         voice_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_default_voice_channel_id", "") or getattr(self, "discord_bot_voice_channel_id", "") or ""))
         text_channel_id_var = tk.StringVar(value=str(getattr(self, "discord_bot_text_channel_id", "") or ""))
         mute_pc_audio_var = tk.BooleanVar(value=bool(getattr(self, "discord_bot_mute_pc_audio_when_online", True)))
+        start_web_var = tk.BooleanVar(value=bool(getattr(self, "discord_start_web_together", True)))
         status_var = tk.StringVar(value=getattr(self, "discord_bot_settings_validation_message", "") or f"저장 위치: {self._get_discord_bot_config_storage_path()}")
 
         def close_dialog() -> None:
@@ -7937,6 +8071,7 @@ class BossTimerApp:
             self.discord_bot_text_channel_id = text_channel_id_text
             self.discord_bot_authority_control_channel_id = text_channel_id_text
             self.discord_bot_mute_pc_audio_when_online = bool(mute_pc_audio_var.get())
+            self.discord_start_web_together = bool(start_web_var.get())
             if self.discord_bot_application_id:
                 matched_invite_url = self._get_discord_bot_invite_url_for_application_id(self.discord_bot_application_id)
                 if self.discord_bot_application_id == previous_app_id and previous_invite_url:
@@ -8004,6 +8139,10 @@ class BossTimerApp:
             anchor="w",
             cursor="hand2",
         ).place(x=134, y=368, width=330, height=26)
+        tk.Checkbutton(dialog, text="디코 송출 시 웹 동시 실행", variable=start_web_var,
+            font=self.button_font, bg="#eef2ff", fg="#0f172a", selectcolor="#ffffff",
+            activebackground="#eef2ff", activeforeground="#0f172a", highlightthickness=0,
+            bd=0, anchor="w", cursor="hand2").place(x=134, y=398, width=330, height=26)
         tk.Label(
             dialog,
             textvariable=status_var,
@@ -8013,7 +8152,7 @@ class BossTimerApp:
             anchor="w",
             justify="left",
             wraplength=470,
-        ).place(x=24, y=402, width=470, height=54)
+        ).place(x=24, y=432, width=470, height=54)
         tk.Button(
             dialog,
             text="저장",
@@ -8027,7 +8166,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=save_settings,
             cursor="hand2",
-        ).place(x=300, y=478, width=88, height=30)
+        ).place(x=300, y=508, width=88, height=30)
         tk.Button(
             dialog,
             text="닫기",
@@ -8041,7 +8180,7 @@ class BossTimerApp:
             highlightthickness=0,
             command=close_dialog,
             cursor="hand2",
-        ).place(x=400, y=478, width=88, height=30)
+        ).place(x=400, y=508, width=88, height=30)
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
 
     def open_discord_bot_invite_window(self) -> None:
@@ -59161,7 +59300,8 @@ class BossTimerApp:
             ("임시점검", "#dc2626", "#ffffff", self._open_temporary_maintenance_dialog, 638, 87, 70),
             ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 794, 80, 110),
             ("정기점검", "#2563eb", "#ffffff", self._open_regular_maintenance_dialog, 714, 87, 70),
-            ("디스코드봇 실행", "#5865f2", "#ffffff", self._toggle_discord_bot_runtime, 18, 80, 132),
+            ("디코송출", "#5865f2", "#ffffff", self._toggle_discord_bot_runtime, 18, 80, 64),
+            ("웹실행", "#0f766e", "#ffffff", self._toggle_web_runtime, 86, 80, 64),
             ("설정", "#475569", "#ffffff", self.open_discord_bot_settings_window, 158, 80, 62),
             ("보탐 로그", "#475569", "#ffffff", self._open_discord_schedule_monitor_window, 228, 80, 90),
             ("초대링크", "#16a34a", "#ffffff", self.open_discord_bot_invite_window, 326, 80, 86),
@@ -59178,7 +59318,8 @@ class BossTimerApp:
             button = tk.Button(
                 top_frame,
                 text=text,
-                font=self.percent_font if small_maintenance_button else self.button_font,
+                font=self.percent_font if small_maintenance_button or command in (
+                    self._toggle_discord_bot_runtime, self._toggle_web_runtime) else self.button_font,
                 bg=bg,
                 fg=fg,
                 activebackground=bg,
@@ -59200,6 +59341,9 @@ class BossTimerApp:
             elif command == self._toggle_discord_bot_runtime:
                 self.discord_bot_toggle_button = button
                 self.schedule_discord_bot_button = button
+                self.schedule_tutorial_targets["디스코드봇 실행"] = button
+            elif command == self._toggle_web_runtime:
+                self.schedule_web_execute_button = button
             elif command == self.open_discord_bot_settings_window:
                 self.discord_bot_settings_button = button
             hover_bg = (
@@ -68293,6 +68437,7 @@ class BossTimerApp:
     def on_close(self) -> None:
         if getattr(self, "discord_handover_busy", False):
             return
+        self.discord_bot_exit_requested = True
         monitor = getattr(self, "ui_responsiveness", None)
         if monitor is not None:
             monitor.close()

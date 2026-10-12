@@ -178,11 +178,31 @@ class DelegatedHosting:
             previous_manual = standalone_info(manual.record)
             manual.observe(data, coordinator)
         info = delegation_info(data) if not (manual and manual.suppresses_normal()) else None
+        if getattr(self.bridge, 'independent', False):
+            from web_standalone_hosting import standalone_info
+            web = standalone_info(data)
+            source = data.get('owner')
+            source_runtime = data.get('owner_runtime')
+            info = None
+            # Data relay is separate from web ownership: voice changes may
+            # choose a schedule provider, but never stop or move the website.
+            if (web and web['state'] == 'active' and data.get('phase') == 'active'
+                    and source and source != web['owner']
+                    and data.get('members', {}).get(source, {}).get('runtime') == source_runtime
+                    and web['server'] == str(data.get('scope', {}).get('server'))
+                    and web['season'] == str(data.get('scope', {}).get('season'))):
+                relay_id = hashlib.sha256((web['id'] + ':' + str(data['generation']) + ':' + data['request']).encode()).hexdigest()[:32]
+                info = dict(protocol=1, id=relay_id, host=web['owner'], host_runtime=web['runtime'],
+                    source=source, source_runtime=source_runtime, generation=data['generation'], request=data['request'],
+                    guild=web['guild'], server=web['server'], season=web['season'], state='active', keep_host=True,
+                    restore_after_failure=bool(web.get('restore_after_failure')))
         role = ("host" if info["host"] == coordinator.client else "source" if info["source"] == coordinator.client else "") if info else ""
         with self.lock:
             old_role = self.role
             old_info = self.info
             changed = (self.info or {}).get("id") != (info or {}).get("id") or role != self.role
+            if getattr(self.bridge, 'independent', False):
+                changed = changed or self.info != info
             self.record, self.coordinator = deepcopy(data), coordinator
             self.info, self.role = info, role
             if changed:
@@ -210,7 +230,8 @@ class DelegatedHosting:
                                 "Discord 송출 담당 · 기존 PC의 웹 준비 응답 대기" if role == "source" else
                                 "일반 운영 · Discord와 웹을 함께 승계합니다.")
             with self.manager.lock:
-                self.manager.delegated_snapshot_only = (False if manual and manual.suppresses_normal() else
+                self.manager.delegated_snapshot_only = ((role == 'host') if getattr(self.bridge, 'independent', False) else
+                    False if manual and manual.suppresses_normal() else
                     (role == "host" or old_role == "host" or getattr(self.bridge, "retained_host", None) is not None))
             resumed_self = bool(previous_manual and previous_manual["state"] == "active"
                 and previous_manual["owner"] == coordinator.client and previous_manual["runtime"] == coordinator.runtime
@@ -243,6 +264,12 @@ class DelegatedHosting:
         self.bridge.wake.set()
 
     def unattended(self, data=None):
+        if getattr(self.bridge, 'independent', False):
+            from web_standalone_hosting import standalone_info
+            web = standalone_info(data if data is not None else self.record)
+            coordinator = self.coordinator or getattr(self.app, 'discord_handover', None)
+            if web and coordinator and web['owner'] == coordinator.client and web['runtime'] == coordinator.runtime:
+                return True
         info = delegation_info(data) if data is not None else self.info
         coordinator = self.coordinator or getattr(self.app, "discord_handover", None)
         return bool(info and coordinator and info["host"] == coordinator.client)
@@ -266,6 +293,8 @@ class DelegatedHosting:
 
     def tick(self):
         """Local health only; safe during remote uploads/downloads."""
+        if getattr(self.bridge, 'independent', False):
+            return  # Only the independent controller renews web publication authority.
         with self.lock:
             info, role, coordinator = self.info, self.role, self.coordinator
         if not info or role != "host" or info["state"] != "active" or not coordinator or not coordinator.alive:
@@ -359,6 +388,9 @@ class DelegatedHosting:
         self.wake.set()
 
     def return_web_here(self):
+        if getattr(self.bridge, 'independent', False):
+            self.manager.start_web()
+            return
         with self.lock:
             if self.role != "source" or not self.info:
                 raise ValueError("현재 스케줄 제공자 PC에서 요청해주세요.")
@@ -373,6 +405,8 @@ class DelegatedHosting:
         self.wake.set()
 
     def take_over_when_configured(self, available):
+        if getattr(self.bridge, 'independent', False):
+            return
         with self.lock:
             info = self.info
             if not info or self.role != "source":

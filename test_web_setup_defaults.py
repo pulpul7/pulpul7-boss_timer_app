@@ -11,6 +11,27 @@ import web_ddns_service as ddns_module
 
 
 class SetupTests(unittest.TestCase):
+    def test_voice_grant_immediately_refreshes_web_context_and_isolates_optional_errors(self):
+        from discord_authority import DiscordAuthority
+        node = object.__new__(DiscordAuthority)
+        node.client = 'a'*32
+        node.lock = threading.RLock()
+        node.releasing = False
+        node._assert_profile = Mock()
+        node.policy = NS(snapshot=lambda: {}, update=Mock())
+        node.record = NS(online_members=lambda _: {}, query_members=lambda _: [])
+        refresh = Mock()
+        relay = NS(observe=Mock(), bridge=NS(refresh_context=refresh))
+        node.app = NS(web_service_manager=NS(delegation=relay), _append_debug_log=Mock())
+        record = dict(owner=node.client, owner_runtime='b'*32, phase='joining', generation=7)
+        node._observe(record, dict(runtime_id='b'*32, online=True))
+        refresh.assert_called_once()
+        self.assertFalse(node.policy.update.call_args.kwargs['authority_active'])
+        refresh.side_effect = OSError('web module unavailable')
+        node._observe(record, dict(runtime_id='b'*32, online=True))
+        self.assertEqual(node.policy.update.call_count, 2)
+        node.app._append_debug_log.assert_called_once()
+
     def manager(self, role=''):
         return NS(closed=threading.Event(), public_paused=True,
             status=Mock(return_value=dict(enabled=False)), set_enabled=Mock(),
@@ -45,7 +66,7 @@ class SetupTests(unittest.TestCase):
         manager = self.manager()
         manager.authority_retry.side_effect = ValueError('no voice authority yet')
         message = WebServiceManager._on_ddns_saved(manager, dict(enabled=True))
-        self.assertIn('자동', message)
+        self.assertIn('웹실행', message)
         manager.set_enabled.assert_called_once_with(True)
 
     def test_active_host_is_not_restarted_on_save(self):

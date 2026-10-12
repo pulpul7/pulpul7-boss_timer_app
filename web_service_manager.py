@@ -65,7 +65,7 @@ class WebServiceManager:
         self.authority_snapshot_version = 0
         self.public_paused = False
         self.public_resume_serial = 0
-        self.authority_message = "스탠바이 · Discord 송출권한을 기다립니다."
+        self.authority_message = "웹 대기 · 웹실행 버튼으로 공개할 수 있습니다."
         self.authority_retry = None
         self.last_authority_write = 0.0
         self.previous_mapping_owner = ""
@@ -171,6 +171,9 @@ class WebServiceManager:
             self.set_authority(key, ready=False, remaining=remaining, message="기존 웹 유지 · 이 PC의 HTTPS 준비 확인")
 
     def retry_public(self, *, once=False):
+        if getattr(getattr(getattr(self, 'delegation', None), 'bridge', None), 'independent', False):
+            self.start_web()
+            return
         if self.authority_retry is None:
             raise ValueError("Discord 송출권한을 먼저 얻어주세요.")
         self.public_paused = False
@@ -187,7 +190,7 @@ class WebServiceManager:
         self.public_paused = True
         self.authority_ready = False
         self.authority_message = ("웹 대기 · 다른 PC에서 공개합니다." if standby else
-                                  "웹 긴급 중지 · 웹 강제 승계/재시도로 다시 시작할 수 있습니다.")
+                                  "웹 긴급 중지 · 웹실행으로 다시 시작할 수 있습니다.")
         try:
             self._flush_authority(force=True)
         except OSError as exc:
@@ -205,7 +208,10 @@ class WebServiceManager:
         self._log("web_handover_standby_requested" if standby else "web_emergency_stop_requested")
 
     def force_start_web(self):
-        self.standalone.start()
+        self.standalone.start(force=True)
+
+    def start_web(self, *, approved=False):
+        self.standalone.start(force=False, approved=approved)
 
     def stop_web(self):
         self.standalone.stop()
@@ -313,17 +319,18 @@ class WebServiceManager:
         if role == "source":
             relay.configuration_saved()
         elif (not role and self.authority_retry is not None
+                and not getattr(getattr(relay, 'bridge', None), 'independent', False)
                 and not (self.publication_allowed() and public["state"] == "prepared")):
             try:
                 self.authority_retry()
             except ValueError:
                 pass  # No voice authority yet: the normal acquisition event starts preparation.
         self._log("web_credentials_saved_setup_armed", role=role)
-        return "웹서비스·외부 공개를 켰습니다. 송출권한에 따라 웹 준비와 승계를 자동 진행합니다."
+        return "웹서비스·외부 공개 설정을 준비했습니다. 웹실행 버튼으로 공개할 수 있습니다."
 
     def update_ddns(self):
         if not self.publication_allowed() or self.public.status()["state"] != "prepared":
-            raise ValueError("송출권한 획득 및 웹 공개 준비 후 주소를 자동 갱신합니다.")
+            raise ValueError("웹 담당자 확인 및 공개 준비 후 주소를 자동 갱신합니다.")
         return self.ddns.update_now()
 
     def ddns_result(self, job):

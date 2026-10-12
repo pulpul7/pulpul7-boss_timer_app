@@ -86,7 +86,7 @@ class StandaloneTests(unittest.TestCase):
         manual, manager, coordinator, _ = self.node()
         coordinator.web_control.request.side_effect = lambda _, done: done(False, 'peer did not stop')
         self.run_start(manual)
-        self.assertIsNone(standalone_info(self.repo.data))
+        self.assertEqual(standalone_info(self.repo.data)['owner'], HOST)
         manager.public.configure.assert_not_called()
         manager.offer_snapshot.assert_not_called()
         self.assertEqual(manual.stage, 'error')
@@ -99,15 +99,15 @@ class StandaloneTests(unittest.TestCase):
         manager.set_authority.assert_not_called()
         self.assertEqual(self.repo.data['web_operation']['id'], '9'*32)
 
-    def test_voice_changes_during_force_start_cancel_older_operation(self):
+    def test_voice_changes_during_force_start_do_not_cancel_web_operation(self):
         manual, manager, coordinator, _ = self.node()
         def changed(_, done):
             self.repo.data['generation'] += 1
             done(True, 'stopped')
         coordinator.web_control.request.side_effect = changed
         self.run_start(manual)
-        self.assertIsNone(standalone_info(self.repo.data))
-        manager.public.configure.assert_not_called()
+        self.assertEqual(standalone_info(self.repo.data)['owner'], SOURCE)
+        manager.public.configure.assert_called_once()
 
     def test_logout_during_force_start_prevents_late_public_activation(self):
         manual, manager, coordinator, _ = self.node()
@@ -116,7 +116,7 @@ class StandaloneTests(unittest.TestCase):
             done(True, 'stopped')
         coordinator.web_control.request.side_effect = logout
         self.run_start(manual)
-        self.assertIsNone(standalone_info(self.repo.data))
+        self.assertEqual(standalone_info(self.repo.data)['owner'], HOST)
         manager.public.configure.assert_not_called()
         self.assertEqual(manual.stage, 'error')
 

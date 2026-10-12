@@ -17,8 +17,8 @@ from web_access_settings import validate_settings, valid_id
 from web_certificate_store import load_certificate, hostname
 from web_ddns_service import _public_ipv4
 from web_firewall import FirewallError, apply as firewall_apply, rule_data
-from web_network_diagnostics import _route, _upnp, _windows_network
-from web_port_mapping import MappingError, add, owned, remove, specific, validate_mapping
+from web_network_diagnostics import _route, _text, _upnp, _windows_network
+from web_port_mapping import MappingError, add, owned, remove, soap, specific, validate_mapping
 from web_service_common import close_logger, diagnostic, diagnostic_logger, read_json, timestamp, write_json
 
 
@@ -62,6 +62,7 @@ class DirectHostingService:
     def __init__(self, root, context):
         self.root, self.context = root, context
         self.path, self.resources_path = root / "public_settings.json", root / "public_resources.json"
+        self.connection_cache_path = root / "public_connection_cache.json"
         self.lock = threading.RLock()
         self.wake, self.closed = threading.Event(), threading.Event()
         self.thread = self.logger = None
@@ -198,9 +199,24 @@ class DirectHostingService:
             raise PublicError("무료 주소와 HTTPS 인증서 주소가 다릅니다. HTTPS 탭에서 확인해주세요.")
         if not ddns.get("enabled"):
             raise PublicError("무료 주소 탭에서 자동 갱신을 켜고 저장해주세요.")
-        self._progress("PC·공유기와 HTTPS 상태를 확인합니다…", "public_preflight", state="starting", busy=True, address="")
         check_local_https(domain, port)
         self._check(generation)
+        cached = self._cached_network(generation, domain, port, context.get("preferred_external_port"))
+        if cached:
+            self._progress("이전에 성공한 연결 정보로 외부 공개를 시작합니다…", "public_fast_connect_begin",
+                           state="starting", busy=True, address="")
+            try:
+                self._publish(generation, context, domain, port, *cached)
+                return
+            except (PublicCancelled, HTTPSWaiting, FirewallError):
+                raise
+            except Exception as exc:
+                self._check(generation)
+                diagnostic(self.logger, "public_fast_connect_failed", error_type=type(exc).__name__)
+                self._cleanup()  # Failed cleanup must block a second attempt.
+                self.connection_cache_path.unlink(missing_ok=True)
+        self._check(generation)
+        self._progress("PC·공유기와 HTTPS 상태를 확인합니다…", "public_preflight", state="starting", busy=True, address="")
         route = _route(_windows_network(), 4)
         if not route:
             raise PublicError("공유기로 연결되는 IPv4 경로를 찾지 못했습니다. 네트워크 진단을 확인해주세요.")
@@ -210,6 +226,46 @@ class DirectHostingService:
         public_ip = _public_ipv4()
         if not router["wan"] or not ipaddress.ip_address(router["wan"]).is_global or router["wan"] != public_ip:
             raise PublicError("공유기 외부 IP와 인터넷 공인 IP가 일치하지 않습니다. 상위 공유기·통신사 NAT·VPN을 확인해주세요.")
+        self._publish(generation, context, domain, port, route, router)
+
+    def _cached_network(self, generation, domain, port, preferred):
+        """Reuse this PC's successful IGD endpoint; no discovery or Windows inventory."""
+        try:
+            cached = read_json(self.connection_cache_path)
+            if (cached.get("schema") != 1 or cached.get("owner") != self.settings["owner"]
+                    or cached.get("domain") != domain or cached.get("port") != port):
+                return None
+            route, router, mapping = cached["route"], cached["router"], cached["mapping"]
+            validate_mapping(mapping)
+            if (mapping["description"] != "BossTimerWeb-" + self.settings["owner"]
+                    or mapping["gateway"] != route["gateway"] or mapping["client"] != route["local"]
+                    or mapping["service"] != router["service"] or mapping["control"] != router["control"]
+                    or mapping["internal_port"] != port or (preferred and mapping["external_port"] != preferred)):
+                return None
+            # UDP connect chooses a route without sending packets or resolving DNS.
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                probe.connect(("1.1.1.1", 443))
+                if probe.getsockname()[0] != route["local"]:
+                    diagnostic(self.logger, "public_connection_cache_invalid", reason="local_route_changed")
+                    return None
+            self._check(generation)
+            reply = soap(mapping, "GetExternalIPAddress", {})
+            wan = ipaddress.ip_address(_text(reply, "NewExternalIPAddress"))
+            if wan.version != 4 or not wan.is_global or str(wan) != router["wan"]:
+                diagnostic(self.logger, "public_connection_cache_invalid", reason="router_wan_changed")
+                return None
+            self._check(generation)
+            return route, router
+        except PublicCancelled:
+            raise
+        except FileNotFoundError:
+            return None
+        except Exception as exc:
+            self._check(generation)
+            diagnostic(self.logger, "public_connection_cache_invalid", error_type=type(exc).__name__)
+            return None
+
+    def _publish(self, generation, context, domain, port, route, router):
         self._check(generation)
         rule = rule_data(self.settings["owner"], str(Path(sys.executable).resolve()), route["local"], port)
         resource = dict(schema=1, owner=self.settings["owner"], run_id=context["run_id"], activation=uuid.uuid4().hex,
@@ -281,6 +337,11 @@ class DirectHostingService:
         self.activation_generation = generation
         self.next_renewal = time.monotonic() + 1200
         diagnostic(self.logger, "public_prepared", domain=domain, external_port=external_port, permanent=permanent)
+        try:
+            write_json(self.connection_cache_path, dict(schema=1, owner=self.settings["owner"], domain=domain,
+                port=port, route=route, router=router, mapping=resource["mapping"], saved_at=timestamp()))
+        except OSError as exc:
+            diagnostic(self.logger, "public_connection_cache_save_failed", error_type=type(exc).__name__)
 
     def _maintain(self, generation):
         self._check(generation)
@@ -309,6 +370,7 @@ class DirectHostingService:
         self.logger = diagnostic_logger(self.root, "public")
         try:
             while not self.closed.is_set():
+                retry_wait = 10
                 self.wake.clear()
                 with self.lock:
                     generation, active, enabled = self.generation, self.active, self.settings["enabled"]
@@ -332,6 +394,7 @@ class DirectHostingService:
                         else:
                             self._maintain(generation)
                 except HTTPSWaiting:
+                    retry_wait = 0.5  # Local worker state only; no repeated network diagnostics.
                     with self.lock:
                         self.view.update(state="waiting", busy=False, message="HTTPS 실행을 기다립니다. HTTPS 탭에서 인증서와 로컬 확인을 완료해주세요.")
                 except PublicCancelled:
@@ -355,7 +418,7 @@ class DirectHostingService:
                         if generation == self.generation:
                             self.blocked_generation = generation
                             self.view.update(state="error", busy=False, message=message, address="", https="로컬 전용")
-                self.wake.wait(10)
+                self.wake.wait(retry_wait)
         finally:
             try:
                 self._cleanup()

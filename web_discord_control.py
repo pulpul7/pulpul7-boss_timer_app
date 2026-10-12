@@ -58,8 +58,6 @@ class DiscordWebControl:
                 else:
                     target = coordinator.record.resolve_member(coordinator._live_data(data), selector)
                 def publish(record):
-                    if record.get('phase') in {'requested', 'joining'}:
-                        raise ValueError('관리자 승계 중입니다. 완료 후 웹서버 명령을 다시 실행하세요.')
                     member = coordinator.record.online_members(record).get(target)
                     if not member:
                         raise ValueError('대상 관리자 연결이 끊겼습니다. 기존 웹은 유지합니다.')
@@ -134,11 +132,9 @@ class DiscordWebControl:
                 data = coordinator.record.mutate(claim)
             self.observe(data, coordinator._status())
             coordinator._notify(data)
-            if data.get('phase') not in {'active', 'idle'}:
-                raise ValueError('관리자 승계 중입니다. 완료 후 웹서버 명령을 다시 실행하세요.')
             manager = getattr(coordinator.app, 'web_service_manager', None)
-            if manager is None or coordinator.busy or coordinator.releasing:
-                raise ValueError('웹 모듈이 준비되지 않았거나 관리자 승계 중입니다.')
+            if manager is None:
+                raise ValueError('웹 모듈이 준비되지 않았습니다.')
             action = call.get('action', 'retry')
             if action == 'stop':
                 handover = call.get('handover_operation')
@@ -168,7 +164,8 @@ class DiscordWebControl:
                           and ConnectionPolicy.has_authority(coordinator.policy.snapshot(), call['runtime']))
             manual = standalone_info(data)
             owns_standalone = bool(manual and manual['owner'] == coordinator.client and manual['runtime'] == call['runtime'])
-            if not owns_voice and not hosts_web and not owns_standalone:
+            independent = getattr(getattr(manager.delegation, 'bridge', None), 'independent', False)
+            if not independent and not owns_voice and not hosts_web and not owns_standalone:
                 raise ValueError('현재 Discord 송출 담당자 또는 별도로 지정된 웹 담당자를 선택하세요. 음성 권한은 변경하지 않습니다.')
             if not manager.ddns_status()['configured']:
                 raise ValueError('대상 PC의 웹 → 무료 주소에서 DuckDNS 주소와 Token을 먼저 저장해주세요.')
@@ -176,7 +173,10 @@ class DiscordWebControl:
             if manager.publication_allowed() and public['state'] == 'prepared' and public.get('address'):
                 self._finish(call, True, '이미 웹 공개 중입니다.\n'+public['address'])
                 return
-            manager.retry_public(once=True)
+            if independent:
+                manager.start_web(approved=True)
+            else:
+                manager.retry_public(once=True)
             manager._log('discord_web_retry_once', request=call['id'])
             finish = time.monotonic()+60
             while coordinator.alive and time.monotonic() < finish:

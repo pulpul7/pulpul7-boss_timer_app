@@ -1,5 +1,6 @@
 """Explicit web-only hosting. No voice ownership changes or schedule imports."""
 from copy import deepcopy
+from datetime import datetime
 import threading
 import time
 import uuid
@@ -27,7 +28,7 @@ def web_host(data):
     delegated = delegation_info(data)
     if delegated and delegated['state'] != 'stopped':
         return delegated['host']
-    return data.get('owner') or ''
+    return '' if data.get('web_independent') else data.get('owner') or ''
 
 
 def automatic_delegation(data, client, runtime, scope, generation, request, verified_replacement=None):
@@ -78,6 +79,8 @@ class StandaloneHosting:
         self.shared_signature = self.shared_attempt_signature = None
         self.shared_failures = 0
         self.next_shared_check = 0
+        self.confirmed_web = None
+        self.confirm_attempts, self.confirm_retry_at = 0, 0
         self.resume_stopped_key = None
         self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         self.stage, self.message = 'idle', '단독 실행은 이 PC의 현재 스케줄을 사용합니다.'
@@ -99,17 +102,25 @@ class StandaloneHosting:
             self.record = deepcopy(data)
             current = standalone_info(data)
             if (previous or {}).get('id') != (current or {}).get('id'):
+                self.confirm_attempts, self.confirm_retry_at = 0, 0
                 self.shared_signature = self.shared_attempt_signature = None
                 self.shared_failures, self.next_shared_check = 0, 0
                 self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         info = standalone_info(data)
+        if (info and info.get('restore_after_failure') and info['owner'] == coordinator.client
+                and info['runtime'] == coordinator.runtime and (previous or {}).get('id') != info['id']):
+            self.manager.public_paused = False
+            if not self.manager.status().get('enabled'):
+                self.manager.set_enabled(True)
+            self.manager.public.configure(True)
+            self.manager._log('web_independent_previous_host_restoring', request=info['id'])
         if info:
             self.bridge.retained_host = None
         elif previous:
-            self._progress('idle', '새 디코 접속 요청 · 일반 웹 자동 승계로 복귀합니다.')
+            self._progress('idle', '웹 담당 기록 변경 · 현재 웹 상태를 확인합니다.')
         if info and (info['state'] != 'active' or info['owner'] != coordinator.client
                      or info['runtime'] != coordinator.runtime):
-            if getattr(self.manager, 'authority_key', None):
+            if not self.busy and getattr(self.manager, 'authority_key', None):
                 self.manager.set_authority((), message='웹 단독 담당 변경 또는 웹 종료')
         self.bridge.wake.set()
 
@@ -174,8 +185,7 @@ class StandaloneHosting:
             self.stage, self.message = stage, message
         self.manager._log('web_standalone_stage', stage=stage)
 
-    def start(self):
-        self._coordinator()
+    def start(self, *, force=True, approved=False):
         if not self.manager.ddns_status()['configured']:
             raise ValueError('무료 주소에서 DuckDNS 주소와 Token을 먼저 저장해주세요.')
         with self.lock:
@@ -183,28 +193,64 @@ class StandaloneHosting:
                 raise ValueError('웹 단독 실행 또는 종료를 처리 중입니다.')
             self.busy = True
             self.cancelled.clear()
-        threading.Thread(target=self._start_worker, name='web-standalone-start', daemon=True).start()
+        threading.Thread(target=self._start_worker, kwargs=dict(force=force, approved=approved), name='web-standalone-start', daemon=True).start()
 
-    def _start_worker(self):
+    def _start_worker(self, *, force=True, approved=False):
         operation = uuid.uuid4().hex
         coordinator = None
         local_preparing = False
+        previous_web, peer_stopped = None, False
+        reserved = False
         try:
-            coordinator = self._coordinator()
+            deadline = time.monotonic()+35
+            while True:
+                if self.cancelled.is_set() or self.manager.closed.is_set():
+                    raise ValueError('웹 실행을 취소했습니다.')
+                try:
+                    coordinator = self._coordinator()
+                    break
+                except ValueError:
+                    if time.monotonic() >= deadline or self.manager.closed.wait(.25):
+                        raise ValueError('봇 관리 통신 연결을 확인하지 못했습니다. 음성 송출권한은 필요하지 않습니다.')
+            with coordinator.lock:
+                existing, _ = coordinator.record.read()
+            existing_host = self._web_host(existing)
+            if not force and not approved and existing_host and existing_host != coordinator.client:
+                name = existing.get('members', {}).get(existing_host, {}).get('name') or existing_host[:8]
+                if not coordinator._ui(lambda: self.app._show_centered_messagebox('askyesno', '웹 담당자 승계',
+                        f'{name} PC에서 웹을 공개 중입니다. 웹 담당자를 이 PC로 인계할까요?\n'
+                        'Discord 송출권한은 변경하지 않습니다.', parent=self.app.schedule_window or self.app.root), timeout=None):
+                    self._progress('idle', '기존 PC의 웹을 유지합니다.')
+                    return
+            existing_info = standalone_info(existing)
+            if (existing_info and existing_info['state'] == 'active' and existing_info['runtime'] == coordinator.runtime
+                    and existing_host == coordinator.client and self.manager.publication_allowed()
+                    and self.manager.public.status()['state'] == 'prepared'):
+                self._progress('running', '이 PC의 웹이 이미 공개 중입니다.')
+                return
             self._progress('preparing', '이 PC HTTPS 준비 확인 · 기존 웹은 유지합니다.')
             def reserve(data):
-                if data.get('phase') in {'requested', 'joining'}:
-                    raise ValueError('디코 승계가 끝난 뒤 웹 단독 실행을 눌러주세요.')
                 pending = data.get('web_operation') or {}
                 if pending.get('expires', 0) > time.time():
                     raise ValueError('다른 PC에서 웹 실행을 처리 중입니다.')
                 member = data.get('members', {}).get(coordinator.client, {})
                 if not member.get('online') or member.get('runtime') != coordinator.runtime:
                     raise ValueError('이 PC의 관리자 연결이 변경되었습니다.')
+                if not force and self._web_host(data) != existing_host:
+                    raise ValueError('확인 중 웹 담당자가 바뀌었습니다. 다시 웹실행을 눌러주세요.')
+                web_generation = max(int(data.get('web_generation', 0)), int(data.get('generation', 0)))+1
+                data['web_generation'] = web_generation
+                if existing_host and not data.get('web_standalone') and not delegation_info(data):
+                    prior = data.get('members', {}).get(existing_host, {})
+                    data['web_standalone'] = dict(protocol=1, id=uuid.uuid4().hex, state='active',
+                        owner=existing_host, runtime=prior.get('runtime', ''),
+                        guild=coordinator.scope['guild'], server=coordinator.scope['server'], season=coordinator.scope['season'])
+                data['web_independent'] = True
                 data['web_operation'] = dict(id=operation, owner=coordinator.client,
-                    runtime=coordinator.runtime, generation=data.get('generation'), expires=time.time()+150)
+                    runtime=coordinator.runtime, web_generation=web_generation, expires=time.time()+150)
             with coordinator.lock:
                 data = coordinator.record.mutate(reserve)
+            reserved = True
             self._notify(coordinator, data)
             def guard():
                 if self.cancelled.is_set():
@@ -213,7 +259,7 @@ class StandaloneHosting:
                     raise ValueError('관리자 실행 연결이 바뀌어 이전 웹 실행 요청을 취소했습니다.')
                 if self.manager.closed.is_set():
                     raise ValueError('웹서비스가 종료되었습니다.')
-            stamp = (coordinator.scope['guild'], coordinator.client, coordinator.runtime, int(data.get('generation', 0)))
+            stamp = (coordinator.scope['guild'], coordinator.client, coordinator.runtime, data['web_generation'])
             envelope, _, error = self.app._github_get_json_file(self.bridge._shared_path(stamp), timeout=5)
             if error:
                 raise ValueError('공동 인증서·비밀번호를 확인하지 못했습니다. 기존 웹은 유지합니다.')
@@ -241,8 +287,15 @@ class StandaloneHosting:
             with coordinator.lock:
                 latest, _ = coordinator.record.read()
             self._check_operation(latest, operation, coordinator)
-            host = web_host(latest)
+            host = self._web_host(latest)
             if host and host != coordinator.client:
+                previous_web = standalone_info(latest)
+                if previous_web is None:
+                    delegated = delegation_info(latest) or {}
+                    previous_web = dict(protocol=1, id=uuid.uuid4().hex, state='active', owner=host,
+                        runtime=latest.get('members', {}).get(host, {}).get('runtime', ''),
+                        guild=coordinator.scope['guild'], server=str(delegated.get('server') or coordinator.scope['server']),
+                        season=str(delegated.get('season') or coordinator.scope['season']))
                 self._progress('stopping_peer', '상대 PC에 웹 로그아웃 요청 · 종료 확인 대기')
                 result, finished = [], threading.Event()
                 coordinator.web_control.request(dict(operation='administrator_web_stop',
@@ -252,6 +305,7 @@ class StandaloneHosting:
                     lambda ok, message: (result.append((ok, message)), finished.set()))
                 if not finished.wait(80) or not result or not result[0][0]:
                     raise ValueError(result[0][1] if result else '상대 웹 종료 응답이 없습니다. 단독 공개를 시작하지 않았습니다.')
+                peer_stopped = True
                 # The old host saves its latest PIN/certificate before stopping.
                 envelope, _, error = self.app._github_get_json_file(self.bridge._shared_path(stamp), timeout=5)
                 if error:
@@ -264,17 +318,21 @@ class StandaloneHosting:
                 if self.cancelled.is_set():
                     raise ValueError('웹 종료 요청으로 이전 단독 실행을 취소했습니다.')
                 self._check_operation(current, operation, coordinator)
-                if web_host(current) not in {'', coordinator.client, host}:
+                if self._web_host(current) not in {'', coordinator.client, host}:
                     raise ValueError('웹 담당자가 바뀌어 단독 실행을 취소했습니다.')
-                current['web_standalone'] = dict(protocol=1, id=operation, state='active',
+                current['web_standalone'] = dict(protocol=1, id=operation, state='active', generation=stamp[3],
                     owner=coordinator.client, runtime=coordinator.runtime,
                     guild=coordinator.scope['guild'], server=coordinator.scope['server'],
-                    season=coordinator.scope['season'])
+                    season=coordinator.scope['season'], started_at=time.time())
+                if not force and previous_web is not None:
+                    current['web_standalone']['backup'] = previous_web
+                    current['web_standalone']['trial_deadline'] = time.time()+120
                 current.pop('web_delegate', None)
                 current.pop('web_return_pending', None)
                 current.pop('web_operation', None)
             with coordinator.lock:
                 data = coordinator.record.mutate(activate)
+            reserved = False
             coordinator._process_record(data, coordinator._status())
             self._notify(coordinator, data)
             self.bridge.retained_host = None
@@ -294,8 +352,10 @@ class StandaloneHosting:
                 self.manager.public_paused = True
             self._progress('error', str(exc) if isinstance(exc, ValueError) else '웹 단독 실행 실패 · 진단 로그를 확인해주세요.')
             self.manager._log('web_standalone_start_failed', error_type=type(exc).__name__)
+            if not force and peer_stopped and previous_web is not None and coordinator is not None:
+                self._restore_previous(coordinator, operation, previous_web)
         finally:
-            if coordinator is not None:
+            if coordinator is not None and reserved:
                 try:
                     def release(data):
                         if (data.get('web_operation') or {}).get('id') == operation:
@@ -314,10 +374,11 @@ class StandaloneHosting:
         pending = data.get('web_operation') or {}
         if (pending.get('id') != operation or pending.get('owner') != coordinator.client
                 or pending.get('runtime') != coordinator.runtime or pending.get('expires', 0) <= time.time()
-                or pending.get('generation') != data.get('generation')
-                or data.get('members', {}).get(coordinator.client, {}).get('runtime') != coordinator.runtime
-                or data.get('phase') in {'requested', 'joining'}):
+                or data.get('members', {}).get(coordinator.client, {}).get('runtime') != coordinator.runtime):
             raise ValueError('웹 실행 요청 또는 관리자 연결이 변경되었습니다.')
+
+    def _web_host(self, data):
+        return web_host(dict(data, web_independent=True)) if getattr(self.bridge, 'independent', False) else web_host(data)
 
     def tick(self):
         with self.lock:
@@ -335,18 +396,112 @@ class StandaloneHosting:
             self.manager.set_authority((info['guild'], info['owner'], info['runtime'], 'solo:'+info['id']),
                 ready=self.manager.snapshot_version > 0, message='웹 단독 운영 · 이 PC 스케줄 사용')
             public = self.manager.public.status()
-            if self.manager.publication_allowed() and public['state'] == 'prepared':
+            address_ready = False
+            if info.get('backup'):
+                ddns = self.manager.ddns.status()
+                try:
+                    updated_at = datetime.fromisoformat(ddns.get('last_updated') or '').timestamp()
+                except (ValueError, TypeError):
+                    updated_at = 0
+                address_ready = (ddns.get('state') in {'ready', 'dns_pending'}
+                                 and updated_at >= info.get('started_at', float('inf')))
+            trial_expired = bool(info.get('backup') and not address_ready
+                                 and time.time() >= info.get('trial_deadline', float('inf')))
+            if self.manager.publication_allowed() and public['state'] == 'prepared' and not trial_expired:
                 self._progress_once('running', '웹 단독 공개 중 · 디코 송출권한과 별도로 운영합니다.')
-            elif public['state'] == 'error' or self.manager.status()['state'] == 'error':
+                if (info.get('backup') and self.confirmed_web != info['id'] and self.confirm_attempts < 3
+                        and time.monotonic() >= self.confirm_retry_at):
+                    if address_ready:
+                        self.confirmed_web = info['id']
+                        self.confirm_attempts += 1
+                        self.confirm_retry_at = time.monotonic()+15
+                        threading.Thread(target=self._confirm_publication, args=(coordinator, info['id']),
+                                         name='web-independent-confirm', daemon=True).start()
+            elif trial_expired or public['state'] == 'error' or self.manager.status()['state'] == 'error':
                 self._progress_once('error', '단독 웹 공개 실패 · 웹 상태와 진단 로그 확인 후 다시 실행해주세요.')
+                if isinstance(info.get('backup'), dict):
+                    with self.lock:
+                        if self.busy:
+                            return
+                        self.busy = True
+                    def restore():
+                        try:
+                            self._restore_previous(coordinator, info['id'], info['backup'])
+                        finally:
+                            self.busy = False
+                    threading.Thread(target=restore, name='web-independent-restore', daemon=True).start()
         except Exception as exc:
             self.manager._log('web_standalone_lease_failed', error_type=type(exc).__name__)
+
+    def _confirm_publication(self, coordinator, operation):
+        try:
+            def change(data):
+                web = standalone_info(data)
+                if not web or web['id'] != operation or web['owner'] != coordinator.client or web['runtime'] != coordinator.runtime:
+                    raise ValueError('웹 담당자가 바뀌어 이전 공개 확인을 취소했습니다.')
+                data['web_standalone'].pop('backup', None)
+                data['web_standalone'].pop('trial_deadline', None)
+            with coordinator.lock:
+                data = coordinator.record.mutate(change)
+            coordinator._process_record(data, coordinator._status())
+            self._notify(coordinator, data)
+            self.manager._log('web_independent_publication_confirmed', request=operation)
+        except Exception as exc:
+            with self.lock:
+                if self.confirmed_web == operation:
+                    self.confirmed_web = None
+            self.manager._log('web_independent_publication_confirm_failed', error_type=type(exc).__name__)
+
+    def _restore_previous(self, coordinator, operation, backup):
+        def valid(data):
+            current = standalone_info(data) or {}
+            pending = data.get('web_operation') or {}
+            if pending and pending.get('id') != operation:
+                return False
+            return ((current.get('id') == operation and current.get('owner') == coordinator.client
+                     and current.get('runtime') == coordinator.runtime)
+                    or (pending.get('id') == operation and pending.get('owner') == coordinator.client
+                        and pending.get('runtime') == coordinator.runtime))
+        try:
+            with coordinator.lock:
+                current, _ = coordinator.record.read()
+            if not valid(current):
+                return
+            self.manager.emergency_stop(standby=True)
+            self.manager.set_authority((), message='웹 공개 실패 · 기존 웹 담당 복구 중')
+            self.manager._flush_authority(force=True)
+            if read_json(self.manager.root/'authority_lease.json').get('enabled') is not False:
+                raise ValueError('새 웹 공개 차단을 확인하지 못했습니다.')
+            deadline = time.monotonic()+35
+            while (self.manager.ddns.status().get('busy') or self.manager.public.status().get('busy')
+                   or self.manager.public.status().get('state') != 'off'):
+                if self.manager.closed.wait(.2) or time.monotonic() >= deadline:
+                    raise ValueError('새 웹 공개 규칙 정리가 끝나지 않았습니다.')
+            def change(data):
+                if not valid(data):
+                    raise ValueError('웹 담당자가 바뀌어 이전 복구를 취소했습니다.')
+                member = data.get('members', {}).get(backup['owner'], {})
+                if not member.get('online') or member.get('runtime') != backup['runtime']:
+                    raise ValueError('기존 웹 PC의 연결을 확인하지 못했습니다.')
+                data['web_generation'] = int(data.get('web_generation', 0))+1
+                data['web_standalone'] = dict(backup, id=uuid.uuid4().hex, state='active',
+                    generation=data['web_generation'], restore_after_failure=True)
+                data['web_standalone'].pop('backup', None)
+                data.pop('web_operation', None)
+            with coordinator.lock:
+                data = coordinator.record.mutate(change)
+            coordinator._process_record(data, coordinator._status())
+            self._notify(coordinator, data)
+            self.manager._log('web_independent_previous_host_restored', request=operation)
+            self._progress('error', '웹 공개 실패 · 기존 PC의 웹을 복구했습니다. 웹실행으로 재시도할 수 있습니다.')
+        except Exception as exc:
+            self.manager._log('web_independent_restore_failed', error_type=type(exc).__name__)
 
     def publish_shared(self):
         """Bridge worker only: upload encrypted settings on actual file changes."""
         with self.lock:
             info = standalone_info(self.record)
-            generation = int(self.record.get('generation', 0))
+            generation = int(self.record.get('web_generation', self.record.get('generation', 0)))
         coordinator = getattr(self.app, 'discord_handover', None)
         if (self.busy or not info or info['state'] != 'active' or coordinator is None
                 or info['owner'] != coordinator.client or info['runtime'] != coordinator.runtime
@@ -452,7 +607,8 @@ class StandaloneHosting:
             if (web_host(data) != coordinator.client or
                     data.get('members', {}).get(coordinator.client, {}).get('runtime') != coordinator.runtime):
                 return
-            stamp = (coordinator.scope['guild'], coordinator.client, coordinator.runtime, int(data.get('generation', 0)))
+            stamp = (coordinator.scope['guild'], coordinator.client, coordinator.runtime,
+                     int(data.get('web_generation', data.get('generation', 0))))
             from web_shared_state import export_state
             payload = export_state(self.manager, stamp)
             path = self.bridge._shared_path(stamp)

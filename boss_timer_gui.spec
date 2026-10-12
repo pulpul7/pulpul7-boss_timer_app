@@ -330,6 +330,7 @@ a = Analysis(
         "web_service_login",
         "web_authority_gate",
         "web_handover_bridge",
+        "web_independent_controller",
         "web_delegated_hosting",
         "web_shared_state",
         "web_asset_store",
@@ -339,6 +340,7 @@ a = Analysis(
         "web_return_recovery",
         "web_standalone_hosting",
         "ui_responsiveness",
+        "discord_bot_process_recovery",
         "cryptography.hazmat.primitives.ciphers.aead",
         # Standard library used by dynamically loaded public notice adapters.
         "html.parser",

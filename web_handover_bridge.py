@@ -336,7 +336,12 @@ class WebHandoverBridge:
                                 raise WebOperationCancelled("새 웹 재시도로 이전 작업을 취소했습니다.")
                         self._guard(key, coordinator)
                         state = coordinator.policy.snapshot()
-                        if ConnectionPolicy.has_authority(state):
+                        previous = data.get("previous_owner") or []
+                        first_connection = (not (previous and previous[0]) and not data.get("web_return_pending")
+                                            and not self.retained_host)
+                        if ConnectionPolicy.has_authority(state) or first_connection:
+                            if first_connection and not state.get("authority_active") and getattr(self.manager, "authority_key", ()) != key:
+                                self.manager._log("web_first_publication_parallel", generation=key[3])
                             self.manager.set_authority(key, ready=True, remaining=state["authority_until"] - time.monotonic(),
                                                        message="Discord 송출권한 확인 · 웹 공개 준비 중")
                             with self.lock:

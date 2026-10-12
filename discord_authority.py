@@ -135,7 +135,7 @@ class AuthorityRecord:
 
     def request(self, client, runtime, channel, *, call_id="", expected_owner=None, verified_previous=None,
                 verified_kind="operator_confirmed", minimum_generation=0, preserve_web=False,
-                automatic_preserve_web=False, resume_web=False, verified_web_replacement=None):
+                automatic_preserve_web=False, resume_web=False, verified_web_replacement=None, independent_web=False):
         def change(data):
             now = time.time()
             if expected_owner is not None and not (
@@ -165,32 +165,43 @@ class AuthorityRecord:
                 data.pop("web_delegate_previous", None)
             generation = max(int(data.get("generation", 0)), int(minimum_generation)) + 1
             request = uuid.uuid4().hex
-            transitioned, delegated = False, None
-            if resume_web and expected_owner is None:
-                from web_standalone_hosting import automatic_delegation
-                transitioned, delegated = automatic_delegation(data, client, runtime, self.scope, generation, request,
-                                                               verified_web_replacement)
-                if transitioned:
-                    data["web_standalone_previous"] = data.pop("web_standalone")
-            if not transitioned:
-                data.pop("web_standalone_previous", None)
-                delegated = build_delegation(data, client, runtime, self.scope, generation, request) if (
-                    preserve_web or delegation_info(data)) else None
-            if not transitioned and not delegated and automatic_preserve_web and not preserve_web and not previous_web:
-                delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
-            if (not transitioned and not delegated and verified_previous is None and not previous_web
-                    and data.get("members", {}).get(data.get("owner"), {}).get("web_public_available") is True
-                    and data.get("members", {}).get(data.get("owner"), {}).get("web_recovery_protocol") == 1
-                    and member.get("web_recovery_protocol") == 1):
-                # Keep the working web host until the configured receiver passes preflight.
-                delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
-            if delegated:
-                delegated["keep_host"] = bool(preserve_web or
-                    (automatic_preserve_web and (previous_web or {}).get("keep_host")))
-                data["web_delegate"] = delegated
+            if independent_web:
+                data['web_independent'] = True
+                if previous_web and not data.get('web_standalone'):
+                    data['web_standalone'] = dict(protocol=1, id=previous_web['id'], state='active',
+                        owner=previous_web['host'], runtime=previous_web['host_runtime'],
+                        guild=previous_web['guild'], server=previous_web['server'], season=previous_web['season'])
+                data.pop('web_delegate', None)
+                data.pop('web_delegate_previous', None)
+                data.pop('web_standalone_previous', None)
+                data.pop('web_return_pending', None)
             else:
-                data.pop("web_delegate", None)
-            data.pop("web_return_pending", None)  # A new voice request supersedes an old web trial.
+                transitioned, delegated = False, None
+                if resume_web and expected_owner is None:
+                    from web_standalone_hosting import automatic_delegation
+                    transitioned, delegated = automatic_delegation(data, client, runtime, self.scope, generation, request,
+                                                                   verified_web_replacement)
+                    if transitioned:
+                        data["web_standalone_previous"] = data.pop("web_standalone")
+                if not transitioned:
+                    data.pop("web_standalone_previous", None)
+                    delegated = build_delegation(data, client, runtime, self.scope, generation, request) if (
+                        preserve_web or delegation_info(data)) else None
+                if not transitioned and not delegated and automatic_preserve_web and not preserve_web and not previous_web:
+                    delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
+                if (not transitioned and not delegated and verified_previous is None and not previous_web
+                        and data.get("members", {}).get(data.get("owner"), {}).get("web_public_available") is True
+                        and data.get("members", {}).get(data.get("owner"), {}).get("web_recovery_protocol") == 1
+                        and member.get("web_recovery_protocol") == 1):
+                    # Keep the working web host until the configured receiver passes preflight.
+                    delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
+                if delegated:
+                    delegated["keep_host"] = bool(preserve_web or
+                        (automatic_preserve_web and (previous_web or {}).get("keep_host")))
+                    data["web_delegate"] = delegated
+                else:
+                    data.pop("web_delegate", None)
+                data.pop("web_return_pending", None)  # A new voice request supersedes an old web trial.
             data.update(scope=self.scope, receiver=client, receiver_runtime=runtime,
                         generation=generation, request=request, phase="joining" if solo else "requested",
                         deadline=now + (JOIN_SECONDS if solo else HANDOVER_SECONDS),
@@ -426,6 +437,12 @@ class DiscordAuthority:
         relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
         if relay is not None:
             relay.observe(data, self)
+            refresh_web = getattr(getattr(relay, "bridge", None), "refresh_context", None)
+            if callable(refresh_web):
+                try:
+                    refresh_web()  # Wake the independent web worker on the grant, not the next Tk tick.
+                except Exception as exc:
+                    self.app._append_debug_log(f"web_authority_context_refresh_failed type={type(exc).__name__}")
 
     def _unattended_web_host(self, data=None):
         relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
@@ -736,11 +753,6 @@ class DiscordAuthority:
                 result, message = True, "관리자 · 송출 중 (현재 연결 확인 완료)"
                 return
             live = self._live_data(existing)
-            from web_standalone_hosting import standalone_info
-            manual = standalone_info(existing)
-            replacement = live["members"].get(manual["owner"], {}) if manual else {}
-            verified_web_replacement = ((manual["id"], manual["owner"], replacement["runtime"])
-                if manual and replacement.get("runtime") and replacement["runtime"] != manual["runtime"] else None)
             owner = live["members"].get(existing.get("owner"), {})
             if owner.get("runtime") != existing.get("owner_runtime"):
                 owner = {}
@@ -775,6 +787,8 @@ class DiscordAuthority:
                     and existing.get("owner") != self.client and not remote):
                 if not self._ui(lambda: self.app._show_centered_messagebox("askyesno", "관리자 승계",
                     "다른 관리자가 운영 중입니다. 권한을 승계하고 음성채널에 입장할까요?\n"
+                    + ("웹 동시 실행이 켜져 있어 웹 승계도 함께 요청합니다.\n"
+                       if getattr(self.app, "discord_start_web_together", True) else "") +
                     "아니오를 선택하면 봇 연결만 유지합니다. 스케줄은 자동 동기화하지 않습니다.",
                     parent=self.app.schedule_window or self.app.root), timeout=None):
                     message = "봇 연결됨 · 권한 없음 (승계 취소)"
@@ -782,39 +796,31 @@ class DiscordAuthority:
             channel = str((call or {}).get("channel") or channel or self.app.discord_bot_voice_channel_id)
             if not channel.isdigit():
                 raise AuthorityError("입장할 음성채널을 설정하세요.")
+            if expected_owner is None and getattr(self.app, "discord_start_web_together", True):
+                start_web = getattr(self.app, "_start_web_runtime", None)
+                if callable(start_web):
+                    def request_web():
+                        try:
+                            start_web(ensure_bot=False, automatic=True)
+                        except Exception as web_error:
+                            self.app._append_debug_log(f"web_parallel_start_failed type={type(web_error).__name__}")
+                    try:
+                        self._ui(request_web, wait=False)
+                    except Exception as web_error:
+                        self.app._append_debug_log(f"web_parallel_start_queue_failed type={type(web_error).__name__}")
             with self.lock:
                 grant_checked_at = time.monotonic()
-                relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
-                preserve_web = bool(relay and relay.status()["split_for_next"])
-                # The CAS validates the previous host. A verified voice stop must
-                # not revoke its independent web service for an unconfigured PC.
-                automatic_preserve_web = bool(relay and not self._web_publication_configured())
                 self.current = self.record.request(self.client, runtime, channel,
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
                     verified_previous=verified_previous, verified_kind=verified_kind,
                     minimum_generation=self.policy.snapshot().get("authority_generation", 0),
-                    preserve_web=preserve_web, automatic_preserve_web=automatic_preserve_web,
-                    resume_web=bool(relay and not automatic_preserve_web),
-                    verified_web_replacement=verified_web_replacement)
-                if relay:
-                    relay.choose_next(False)
+                    resume_web=False,
+                    independent_web=True)
             manager = getattr(self.app, "web_service_manager", None)
             if manager is not None:
                 try:
-                    manual = self.current.get("web_standalone") or {}
-                    manual_member = self.current.get("members", {}).get(manual.get("owner"), {})
-                    manager._log("web_handover_assignment", automatic_preserve=automatic_preserve_web,
-                                 explicit_preserve=preserve_web, previous_host_retained=bool(self.current.get("web_delegate")),
-                                 receiver_web_enabled=bool(manager.status()["enabled"]),
-                                 receiver_public_enabled=bool(manager.public.status()["enabled"]),
-                                 receiver_ddns_configured=bool(manager.ddns_status()["configured"]),
-                                 receiver_web_paused=bool(manager.public_paused),
-                                 keep_host=bool((self.current.get("web_delegate") or {}).get("keep_host")),
-                                 manual_mode_retained=bool(manual), manual_state=manual.get("state", ""),
-                                 manual_host_online=manual_member.get("online"),
-                                 manual_host_session_matches=manual.get("runtime") == manual_member.get("runtime"),
-                                 manual_scope_matches=manual.get("server") == self.scope["server"]
-                                     and manual.get("season") == self.scope["season"])
+                    manager._log("discord_voice_request_independent", web_together=bool(
+                        getattr(self.app, "discord_start_web_together", True)))
                 except Exception:
                     pass  # Optional web diagnostics must not interrupt the voice handover.
             request_id = self.current["request"]
@@ -850,13 +856,10 @@ class DiscordAuthority:
                     raise AuthorityError("다른 승계 요청으로 변경되었습니다.")
             with self.lock:
                 self.policy.resume()
-                manager = getattr(self.app, "web_service_manager", None)
-                if manager is not None and self._web_publication_configured():
-                    manager.public_paused = False  # Prepare web alongside the verified voice grant.
                 self._observe(self.current, self._status(), grant_checked_at)
             self._progress("incoming", self.incoming_progress_token, "voice",
                            "관리자 권한 확인 완료 · 음성채널에 입장하고 있습니다.\n"
-                           "웹서비스를 켜둔 경우 웹 승계 준비는 별도로 진행합니다.")
+                            "웹 실행은 디코 송출 연결과 독립적으로 진행합니다.")
             deadline = time.monotonic() + JOIN_SECONDS
             while time.monotonic() < deadline:
                 status = self._status()
@@ -869,9 +872,6 @@ class DiscordAuthority:
                     with self.lock:
                         grant_checked_at = time.monotonic()
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
-                        manager = getattr(self.app, "web_service_manager", None)
-                        if manager is not None and self._web_publication_configured():
-                            manager.public_paused = False  # A fresh verified acquisition ends the runtime hold.
                         self._observe(self.current, status, grant_checked_at)
                     self._notify(self.current, notice="completed")
                     manager = getattr(self.app, "web_service_manager", None)
@@ -983,7 +983,8 @@ class DiscordAuthority:
         web_state_path = ""
         try:
             manager = getattr(self.app, "web_service_manager", None)
-            if manager is not None and manager.ddns_status()["configured"] and not data.get("web_delegate"):
+            if (manager is not None and manager.ddns_status()["configured"] and not data.get("web_delegate")
+                    and not data.get('web_independent')):
                 from web_shared_state import export_state
                 previous = data.get("previous_owner") or [self.client, runtime, data["generation"], ""]
                 blob = export_state(manager, (self.scope["guild"], self.client, runtime, int(previous[2])))
