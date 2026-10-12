@@ -3501,8 +3501,13 @@ class BossTimerApp:
         try:
             if manager is not None and not manager.closed.is_set():
                 relay = getattr(manager, "delegation", None)
-                if relay is not None and relay.status()["role"] == "source":
+                relay_state = relay.status() if relay is not None else {}
+                if relay_state.get("role") == "source":
                     text, status_fg = "웹 별도 PC", "#7c3aed"
+                    if relay_state.get("return_stage") == "preflight_failed":
+                        text, bg, hover, status_fg = "웹 승계 실패", "#b91c1c", "#991b1b", "#b91c1c"
+                    elif relay_state.get("return_started"):
+                        text, bg, hover, status_fg = "웹 승계 중", "#b45309", "#92400e", "#b45309"
                 else:
                     worker, public = manager.status(), manager.public_status()
                     if worker["enabled"] and public["enabled"]:

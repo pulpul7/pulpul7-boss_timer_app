@@ -141,6 +141,7 @@ class DelegatedHosting:
         self.initial_sync_failed = False
         self.release_done = False
         self.auto_return_started = False
+        self.auto_return_check = None
         self.restore_started = False
         self.peer_ready = None
         self.last_ready_sent = None
@@ -162,6 +163,8 @@ class DelegatedHosting:
                 return (members.get(client, {}).get("name") or client[:8]) if client else "—"
             return dict(role=self.role, split_for_next=self.split_for_next, message=self.message,
                         host=label(info.get("host", "")), source=label(info.get("source", "")),
+                         keep_host=bool(info.get("keep_host")), return_started=self.auto_return_started,
+                         return_stage=getattr(getattr(self.bridge, "recovery", None), "stage", ""),
                         last_applied_at=self.last_applied_at or "아직 전달되지 않음", peer_ready=self.peer_ready)
 
     def choose_next(self, enabled):
@@ -385,12 +388,23 @@ class DelegatedHosting:
     def take_over_when_configured(self, available):
         with self.lock:
             info = self.info
-            if (not available or not info or self.role != "source" or info["state"] != "active"
-                    or info.get("keep_host") or self.auto_return_started or not self.coordinator
-                    or not ConnectionPolicy.has_authority(self.coordinator.policy.snapshot(), info["source_runtime"])):
+            if not info or self.role != "source":
+                return
+            reason = ("web_settings_off" if not available else
+                      "host_transition_pending" if info["state"] != "active" else
+                      "explicit_keep_host" if info.get("keep_host") else
+                      "already_started" if self.auto_return_started else
+                      "voice_authority_pending" if not self.coordinator or not
+                      ConnectionPolicy.has_authority(self.coordinator.policy.snapshot(), info["source_runtime"]) else "ready")
+            signature = (info["id"], reason)
+            if signature != self.auto_return_check:
+                self.auto_return_check = signature
+                self.manager._log("web_auto_return_check", delegate=info["id"], reason=reason)
+            if reason != "ready":
                 return
         # Exactly one attempt for this assignment; preparing/retrying is not a failure.
         self.return_web_here()
+        self.manager._log("web_auto_return_queued", delegate=info["id"])
 
     def configuration_saved(self):
         with self.lock:

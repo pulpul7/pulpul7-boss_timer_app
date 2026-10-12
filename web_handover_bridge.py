@@ -338,6 +338,14 @@ class WebHandoverBridge:
                 except Exception as exc:
                     self.manager._log("web_stopped_mode_resume_check_failed", error_type=type(exc).__name__)
                 try:
+                    # Drive acquisition from the web worker as well as the GUI
+                    # snapshot callback. A delayed/absent repaint must not leave
+                    # the configured voice owner permanently in split hosting.
+                    if not self.standalone.suppresses_normal():
+                        self.delegation.take_over_when_configured(context[1]._web_publication_configured())
+                except Exception as exc:
+                    self.manager._log("web_auto_return_check_failed", error_type=type(exc).__name__)
+                try:
                     self.recovery.monitor(context[0], context[1])
                 except Exception as exc:
                     self.manager._log("web_return_recovery_check_failed", error_type=type(exc).__name__)

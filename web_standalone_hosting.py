@@ -30,16 +30,28 @@ def web_host(data):
     return data.get('owner') or ''
 
 
-def automatic_delegation(data, client, runtime, scope, generation, request):
+def automatic_delegation(data, client, runtime, scope, generation, request, verified_replacement=None):
     """Return to normal hosting on an explicit configured voice acquisition."""
     info = standalone_info(data)
     if info is None:
         return False, None
     if info['state'] == 'stopped':
         return True, None  # A verified stopped web no longer needs a deny override.
+    host = data.get('members', {}).get(info['owner'], {})
+    if (host.get('runtime') == info['runtime'] and host.get('online') is False):
+        return True, None  # Durable shutdown of that exact session, not a probe timeout.
+    if (info['owner'] == client and host.get('runtime') == runtime and host.get('online')
+            and info['runtime'] != runtime):
+        # This installation has registered its replacement bot session. Its
+        # previous local web lease is denied by the new manager; it cannot be
+        # retained as a remote host. Missing/unknown remote sessions stay fenced.
+        return True, None
+    if (verified_replacement == (info['id'], info['owner'], host.get('runtime'))
+            and valid_token(host.get('runtime')) and host.get('online')
+            and info['runtime'] != host['runtime']):
+        return True, None  # The existing authenticated probe found the replacement session.
     if info['server'] != str(scope['server']) or info['season'] != str(scope['season']):
         return False, None
-    host = data.get('members', {}).get(info['owner'], {})
     if not host.get('online') or host.get('runtime') != info['runtime']:
         return False, None
     if info['owner'] == client and info['runtime'] == runtime:

@@ -108,6 +108,80 @@ class AutoHandoverTests(unittest.TestCase):
         requested = AuthorityRecord(repo.get, repo.put, SCOPE).request(SOURCE, SOURCE_SESSION, '777', resume_web=True)
         self.assertEqual(requested['web_standalone'], data['web_standalone'])
 
+    def test_offline_standalone_session_does_not_block_first_publication(self):
+        data = self.configured_record()
+        data.update(owner='', owner_runtime='', phase='idle')
+        data['members'][HOST]['online'] = False
+        data['web_standalone'] = dict(protocol=1, id='e'*32, owner=HOST,
+                                      runtime=HOST_SESSION, state='active', **SCOPE)
+        repo = MemoryRepository(data)
+        requested = AuthorityRecord(repo.get, repo.put, SCOPE).request(SOURCE, SOURCE_SESSION, '777', resume_web=True)
+        self.assertEqual(requested['phase'], 'joining')
+        self.assertNotIn('web_standalone', requested)
+        self.assertNotIn('web_delegate', requested)
+
+    def test_probed_replacement_of_remote_session_retires_only_matching_old_mode(self):
+        data = self.configured_record()
+        data.update(owner='', owner_runtime='', phase='idle')
+        data['web_standalone'] = dict(protocol=1, id='e'*32, owner=HOST,
+                                      runtime='9'*32, state='active', **SCOPE)
+        for ident, retained in (('e'*32, False), ('1'*32, True)):
+            with self.subTest(mode_id=ident):
+                repo = MemoryRepository(data)
+                requested = AuthorityRecord(repo.get, repo.put, SCOPE).request(
+                    SOURCE, SOURCE_SESSION, '777', resume_web=True,
+                    verified_web_replacement=(ident, HOST, HOST_SESSION))
+                self.assertEqual('web_standalone' in requested, retained)
+
+    def test_restarted_local_session_reaches_preparation_without_force(self):
+        data = self.configured_record()
+        data.update(owner='', owner_runtime='', phase='idle')
+        data['web_standalone'] = dict(protocol=1, id='e'*32, owner=SOURCE,
+                                      runtime='9'*32, state='active', **SCOPE)
+        self.repo = MemoryRepository(data)
+        record = AuthorityRecord(self.repo.get, self.repo.put, SCOPE)
+        requested = record.request(SOURCE, SOURCE_SESSION, '777', resume_web=True)
+        self.assertNotIn('web_standalone', requested)
+        active = record.change(requested['request'], SOURCE, phases={'joining'}, phase='active')
+        relay, manager, coordinator, policy = self.node('source')
+        policy.update(authority_generation=active['generation'], authority_request=active['request'])
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.retry_serial = 0
+        bridge.synced_requests = set()
+        bridge.retained_host = None
+        bridge.standalone = StandaloneHosting(bridge)
+        manager.ddns_status = lambda: dict(configured=False)
+        coordinator._ui = lambda callback: callback()
+        for name in ('_guard', '_read_owner', '_sync', '_prepare'):
+            setattr(bridge, name, MethodType(getattr(WebHandoverBridge, name), bridge))
+        key = (SCOPE['guild'], SOURCE, SOURCE_SESSION, active['generation'])
+        with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('local')):
+            bridge._prepare(key, coordinator, active, '18')
+        self.assertEqual(bridge.ready_key, key)
+        self.assertEqual(manager.pending_snapshot['events'][0]['name'], 'local')
+        self.assertTrue(all(call.args[0].startswith('data/handover/') for call in self.repo.get.call_args_list))
+
+    def test_web_worker_queues_handover_without_gui_snapshot_callback(self):
+        relay, manager, coordinator, _ = self.node('source')
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.retry_serial = 0
+        bridge.standalone = NS(resume_stopped=Mock(return_value=False),
+                               suppresses_normal=lambda: False, publish_shared=Mock())
+        bridge.recovery = NS(monitor=Mock())
+        bridge.wake = NS(wait=lambda _: bridge.closed.set(), clear=Mock())
+        coordinator._web_publication_configured = lambda: True
+        for _ in range(2):
+            bridge.closed.clear()
+            WebHandoverBridge._loop(bridge)
+        self.assertEqual(len(relay.requests), 1)
+        self.assertEqual(relay.requests[0]['operation'], 'return')
+        self.repo.get.assert_not_called()
+        self.repo.put.assert_not_called()
+
     def test_voice_join_failure_restores_existing_standalone_web(self):
         data = self.configured_record()
         manual = dict(protocol=1, id='e'*32, owner=HOST, runtime=HOST_SESSION,

@@ -135,7 +135,7 @@ class AuthorityRecord:
 
     def request(self, client, runtime, channel, *, call_id="", expected_owner=None, verified_previous=None,
                 verified_kind="operator_confirmed", minimum_generation=0, preserve_web=False,
-                automatic_preserve_web=False, resume_web=False):
+                automatic_preserve_web=False, resume_web=False, verified_web_replacement=None):
         def change(data):
             now = time.time()
             if expected_owner is not None and not (
@@ -168,7 +168,8 @@ class AuthorityRecord:
             transitioned, delegated = False, None
             if resume_web and expected_owner is None:
                 from web_standalone_hosting import automatic_delegation
-                transitioned, delegated = automatic_delegation(data, client, runtime, self.scope, generation, request)
+                transitioned, delegated = automatic_delegation(data, client, runtime, self.scope, generation, request,
+                                                               verified_web_replacement)
                 if transitioned:
                     data["web_standalone_previous"] = data.pop("web_standalone")
             if not transitioned:
@@ -735,6 +736,11 @@ class DiscordAuthority:
                 result, message = True, "관리자 · 송출 중 (현재 연결 확인 완료)"
                 return
             live = self._live_data(existing)
+            from web_standalone_hosting import standalone_info
+            manual = standalone_info(existing)
+            replacement = live["members"].get(manual["owner"], {}) if manual else {}
+            verified_web_replacement = ((manual["id"], manual["owner"], replacement["runtime"])
+                if manual and replacement.get("runtime") and replacement["runtime"] != manual["runtime"] else None)
             owner = live["members"].get(existing.get("owner"), {})
             if owner.get("runtime") != existing.get("owner_runtime"):
                 owner = {}
@@ -788,12 +794,15 @@ class DiscordAuthority:
                     verified_previous=verified_previous, verified_kind=verified_kind,
                     minimum_generation=self.policy.snapshot().get("authority_generation", 0),
                     preserve_web=preserve_web, automatic_preserve_web=automatic_preserve_web,
-                    resume_web=bool(relay and not automatic_preserve_web))
+                    resume_web=bool(relay and not automatic_preserve_web),
+                    verified_web_replacement=verified_web_replacement)
                 if relay:
                     relay.choose_next(False)
             manager = getattr(self.app, "web_service_manager", None)
             if manager is not None:
                 try:
+                    manual = self.current.get("web_standalone") or {}
+                    manual_member = self.current.get("members", {}).get(manual.get("owner"), {})
                     manager._log("web_handover_assignment", automatic_preserve=automatic_preserve_web,
                                  explicit_preserve=preserve_web, previous_host_retained=bool(self.current.get("web_delegate")),
                                  receiver_web_enabled=bool(manager.status()["enabled"]),
@@ -801,7 +810,11 @@ class DiscordAuthority:
                                  receiver_ddns_configured=bool(manager.ddns_status()["configured"]),
                                  receiver_web_paused=bool(manager.public_paused),
                                  keep_host=bool((self.current.get("web_delegate") or {}).get("keep_host")),
-                                 manual_mode_retained=bool(self.current.get("web_standalone")))
+                                 manual_mode_retained=bool(manual), manual_state=manual.get("state", ""),
+                                 manual_host_online=manual_member.get("online"),
+                                 manual_host_session_matches=manual.get("runtime") == manual_member.get("runtime"),
+                                 manual_scope_matches=manual.get("server") == self.scope["server"]
+                                     and manual.get("season") == self.scope["season"])
                 except Exception:
                     pass  # Optional web diagnostics must not interrupt the voice handover.
             request_id = self.current["request"]
