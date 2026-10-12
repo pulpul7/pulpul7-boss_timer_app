@@ -135,7 +135,7 @@ class AuthorityRecord:
 
     def request(self, client, runtime, channel, *, call_id="", expected_owner=None, verified_previous=None,
                 verified_kind="operator_confirmed", minimum_generation=0, preserve_web=False,
-                automatic_preserve_web=False):
+                automatic_preserve_web=False, resume_web=False):
         def change(data):
             now = time.time()
             if expected_owner is not None and not (
@@ -165,18 +165,27 @@ class AuthorityRecord:
                 data.pop("web_delegate_previous", None)
             generation = max(int(data.get("generation", 0)), int(minimum_generation)) + 1
             request = uuid.uuid4().hex
-            delegated = build_delegation(data, client, runtime, self.scope, generation, request) if (
-                preserve_web or delegation_info(data)) else None
-            if not delegated and automatic_preserve_web and not preserve_web and not previous_web:
+            transitioned, delegated = False, None
+            if resume_web and expected_owner is None:
+                from web_standalone_hosting import automatic_delegation
+                transitioned, delegated = automatic_delegation(data, client, runtime, self.scope, generation, request)
+                if transitioned:
+                    data["web_standalone_previous"] = data.pop("web_standalone")
+            if not transitioned:
+                data.pop("web_standalone_previous", None)
+                delegated = build_delegation(data, client, runtime, self.scope, generation, request) if (
+                    preserve_web or delegation_info(data)) else None
+            if not transitioned and not delegated and automatic_preserve_web and not preserve_web and not previous_web:
                 delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
-            if (not delegated and verified_previous is None and not previous_web
+            if (not transitioned and not delegated and verified_previous is None and not previous_web
                     and data.get("members", {}).get(data.get("owner"), {}).get("web_public_available") is True
                     and data.get("members", {}).get(data.get("owner"), {}).get("web_recovery_protocol") == 1
                     and member.get("web_recovery_protocol") == 1):
                 # Keep the working web host until the configured receiver passes preflight.
                 delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
             if delegated:
-                delegated["keep_host"] = bool(preserve_web or (previous_web or {}).get("keep_host"))
+                delegated["keep_host"] = bool(preserve_web or
+                    (automatic_preserve_web and (previous_web or {}).get("keep_host")))
                 data["web_delegate"] = delegated
             else:
                 data.pop("web_delegate", None)
@@ -232,6 +241,8 @@ class AuthorityRecord:
                     or actor not in {data.get("owner"), data.get("receiver")}):
                 raise AuthorityError("권한 요청이 변경되었거나 이미 종료되었습니다.")
             data.update(changes)
+            if changes.get("phase") == "active":
+                data.pop("web_standalone_previous", None)
         return self.mutate(update)
 
 
@@ -776,14 +787,21 @@ class DiscordAuthority:
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
                     verified_previous=verified_previous, verified_kind=verified_kind,
                     minimum_generation=self.policy.snapshot().get("authority_generation", 0),
-                    preserve_web=preserve_web, automatic_preserve_web=automatic_preserve_web)
+                    preserve_web=preserve_web, automatic_preserve_web=automatic_preserve_web,
+                    resume_web=bool(relay and not automatic_preserve_web))
                 if relay:
                     relay.choose_next(False)
             manager = getattr(self.app, "web_service_manager", None)
             if manager is not None:
                 try:
                     manager._log("web_handover_assignment", automatic_preserve=automatic_preserve_web,
-                                 explicit_preserve=preserve_web, previous_host_retained=bool(self.current.get("web_delegate")))
+                                 explicit_preserve=preserve_web, previous_host_retained=bool(self.current.get("web_delegate")),
+                                 receiver_web_enabled=bool(manager.status()["enabled"]),
+                                 receiver_public_enabled=bool(manager.public.status()["enabled"]),
+                                 receiver_ddns_configured=bool(manager.ddns_status()["configured"]),
+                                 receiver_web_paused=bool(manager.public_paused),
+                                 keep_host=bool((self.current.get("web_delegate") or {}).get("keep_host")),
+                                 manual_mode_retained=bool(self.current.get("web_standalone")))
                 except Exception:
                     pass  # Optional web diagnostics must not interrupt the voice handover.
             request_id = self.current["request"]
@@ -1068,6 +1086,9 @@ class DiscordAuthority:
                         data["web_delegate"] = previous
                     else:
                         data.pop("web_delegate", None)
+                    manual = data.pop("web_standalone_previous", None)
+                    if manual:
+                        data["web_standalone"] = manual
             with self.lock:
                 restored = self.record.mutate(cancel)
             self._notify(restored)
@@ -1089,6 +1110,11 @@ class DiscordAuthority:
                     data.update(released=True, release_proof=dict(kind="voice_stopped", client=self.client,
                                 runtime=runtime, request=data["request"]))
                 else:
+                    if failure:
+                        previous_manual = data.pop("web_standalone_previous", None)
+                        if previous_manual:
+                            data["web_standalone"] = previous_manual
+                            data.pop("web_delegate", None)
                     data.update(owner="", owner_runtime="", owner_application_id="", owner_bot_user_id="", phase="idle", receiver="",
                                 generation=int(data["generation"]) + 1,
                                 failure=failure, failure_request=request_id if failure else "")

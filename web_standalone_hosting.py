@@ -6,6 +6,7 @@ import uuid
 
 from web_delegated_hosting import delegation_info, valid_token
 from web_service_common import read_json
+from discord_connection_policy import ConnectionPolicy
 
 
 def standalone_info(data):
@@ -29,6 +30,32 @@ def web_host(data):
     return data.get('owner') or ''
 
 
+def automatic_delegation(data, client, runtime, scope, generation, request):
+    """Return to normal hosting on an explicit configured voice acquisition."""
+    info = standalone_info(data)
+    if info is None:
+        return False, None
+    if info['state'] == 'stopped':
+        return True, None  # A verified stopped web no longer needs a deny override.
+    if info['server'] != str(scope['server']) or info['season'] != str(scope['season']):
+        return False, None
+    host = data.get('members', {}).get(info['owner'], {})
+    if not host.get('online') or host.get('runtime') != info['runtime']:
+        return False, None
+    if info['owner'] == client and info['runtime'] == runtime:
+        return True, None
+    from web_delegated_hosting import build_delegation
+    # The existing standalone host can differ from the voice owner. Give the
+    # pure builder its actual host identity; never change voice fields here.
+    shadow = dict(data, owner=info['owner'], owner_runtime=info['runtime'],
+                  phase='active', scope=dict(scope))
+    shadow.pop('web_delegate', None)
+    try:
+        return True, build_delegation(shadow, client, runtime, scope, generation, request)
+    except ValueError:
+        return False, None
+
+
 class StandaloneHosting:
     def __init__(self, bridge):
         self.bridge, self.manager, self.app = bridge, bridge.manager, bridge.app
@@ -39,6 +66,8 @@ class StandaloneHosting:
         self.shared_signature = self.shared_attempt_signature = None
         self.shared_failures = 0
         self.next_shared_check = 0
+        self.resume_stopped_key = None
+        self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         self.stage, self.message = 'idle', '단독 실행은 이 PC의 현재 스케줄을 사용합니다.'
 
     def status(self):
@@ -49,7 +78,7 @@ class StandaloneHosting:
                         owner=info['owner'] if info else '',
                         owner_name=((self.record.get('members', {}).get(info['owner'], {}).get('name')
                                     or info['owner'][:8]) if info else '—'),
-                        local=bool(info and coordinator and info['owner'] == coordinator.client),
+                        local=bool(info and coordinator and info['owner'] == coordinator.client and info['runtime'] == coordinator.runtime),
                         state=info['state'] if info else '')
 
     def observe(self, data, coordinator):
@@ -60,7 +89,12 @@ class StandaloneHosting:
             if (previous or {}).get('id') != (current or {}).get('id'):
                 self.shared_signature = self.shared_attempt_signature = None
                 self.shared_failures, self.next_shared_check = 0, 0
+                self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         info = standalone_info(data)
+        if info:
+            self.bridge.retained_host = None
+        elif previous:
+            self._progress('idle', '새 디코 접속 요청 · 일반 웹 자동 승계로 복귀합니다.')
         if info and (info['state'] != 'active' or info['owner'] != coordinator.client
                      or info['runtime'] != coordinator.runtime):
             if getattr(self.manager, 'authority_key', None):
@@ -70,6 +104,47 @@ class StandaloneHosting:
     def suppresses_normal(self):
         with self.lock:
             return self.busy or standalone_info(self.record) is not None
+
+    def resume_stopped(self, key, coordinator):
+        """Bridge worker only. Explicit ON restores an already active voice owner."""
+        with self.lock:
+            info = standalone_info(self.record)
+        configured = (self.manager.status().get('enabled') and self.manager.public.status().get('enabled')
+                      and self.manager.ddns_status().get('configured') and not self.manager.public_paused)
+        if not configured:
+            self.resume_stopped_key = None
+            return False
+        if self.busy or not info or info['state'] != 'stopped':
+            return False
+        # A remote logout must stay stopped even if this standby PC's boxes
+        # were already ON. Resume only after a subsequent explicit ON action.
+        if getattr(self.manager, 'public_resume_serial', 0) == self.stopped_resume_serial:
+            return False
+        attempt = (info['id'], key)
+        if attempt == self.resume_stopped_key:
+            return False
+        self.resume_stopped_key = attempt
+        try:
+            coordinator._assert_profile()
+            if not ConnectionPolicy.has_authority(coordinator.policy.snapshot(), key[2]):
+                return False
+            def resume(data):
+                current = standalone_info(data)
+                if (current != info or data.get('phase') != 'active'
+                        or data.get('owner') != key[1] or data.get('owner_runtime') != key[2]
+                        or data.get('generation') != key[3]):
+                    raise ValueError('웹 중지 기록 또는 송출 담당자가 바뀌어 자동 재개를 취소했습니다.')
+                data.pop('web_standalone', None)
+                data.pop('web_standalone_previous', None)
+            with coordinator.lock:
+                data = coordinator.record.mutate(resume)
+            coordinator._process_record(data, coordinator._status())
+            self._notify(coordinator, data)
+            self.manager._log('web_stopped_mode_resumed', generation=key[3])
+            return True
+        except Exception as exc:
+            self.manager._log('web_stopped_mode_resume_failed', error_type=type(exc).__name__)
+            return False
 
     def _coordinator(self):
         coordinator = getattr(self.app, 'discord_handover', None)

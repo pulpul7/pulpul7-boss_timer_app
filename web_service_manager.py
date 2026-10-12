@@ -64,6 +64,7 @@ class WebServiceManager:
         self.local_https_preparing = False
         self.authority_snapshot_version = 0
         self.public_paused = False
+        self.public_resume_serial = 0
         self.authority_message = "스탠바이 · Discord 송출권한을 기다립니다."
         self.authority_retry = None
         self.last_authority_write = 0.0
@@ -228,6 +229,9 @@ class WebServiceManager:
         return state
 
     def configure_public(self, enabled):
+        if enabled:
+            self.public_paused = False
+            self.public_resume_serial = getattr(self, "public_resume_serial", 0) + 1
         self.public_preference_touched = True
         return self.public.configure(enabled)
 
@@ -476,6 +480,9 @@ class WebServiceManager:
             self._log("settings_write_failed", error_type=type(exc).__name__, errno=exc.errno)
             raise
         self.settings = settings
+        if settings["enabled"]:
+            self.public_paused = False
+            self.public_resume_serial = getattr(self, "public_resume_serial", 0) + 1
         self._request(settings["enabled"])
         self.page_updater.start()
 

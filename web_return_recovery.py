@@ -112,7 +112,8 @@ class WebReturnRecovery:
             raise ValueError('새 PC의 HTTPS 준비가 아직 완료되지 않았습니다.')
         except Exception as exc:
             self.stage = 'preflight_failed'
-            self.message = '새 웹 준비 실패 · 기존 PC의 웹을 유지합니다.'
+            reason = str(exc)[:300] if isinstance(exc, ValueError) else '진단 로그를 확인해주세요.'
+            self.message = '새 웹 준비 실패 · 기존 PC의 웹 유지 · ' + reason
             self.bridge.delegation.message = self.message
             # Never clear a newer authority key if voice ownership changed while preparing.
             try:
@@ -120,7 +121,7 @@ class WebReturnRecovery:
                 self.manager.set_authority((), message=self.message)
             except Exception:
                 pass
-            self.manager._log('web_return_preflight_failed', phase_name=phase, error_type=type(exc).__name__)
+            self.manager._log('web_return_preflight_failed', phase_name=phase, error_type=type(exc).__name__, reason=reason)
             return False
         finally:
             self.bridge.operation_local.delegated_info = None

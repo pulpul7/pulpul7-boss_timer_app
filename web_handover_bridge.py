@@ -332,6 +332,12 @@ class WebHandoverBridge:
                 context, serial = self.context, self.retry_serial
             if context:
                 try:
+                    if self.standalone.resume_stopped(context[0], context[1]):
+                        with self.lock:
+                            self.failed_key = self.ready_key = None
+                except Exception as exc:
+                    self.manager._log("web_stopped_mode_resume_check_failed", error_type=type(exc).__name__)
+                try:
                     self.recovery.monitor(context[0], context[1])
                 except Exception as exc:
                     self.manager._log("web_return_recovery_check_failed", error_type=type(exc).__name__)
@@ -376,7 +382,8 @@ class WebHandoverBridge:
                         pass  # The independent worker lease still expires without renewal.
                     if preparing and serial == self.retry_serial:
                         self.failed_key = key
-                    self.manager._log("web_handover_prepare_failed", generation=key[3], error_type=type(exc).__name__)
+                    self.manager._log("web_handover_prepare_failed", generation=key[3], error_type=type(exc).__name__,
+                                      reason=str(exc)[:300] if isinstance(exc, ValueError) else "")
                     self.recovery.fail(key, coordinator, exc)
             self.wake.wait(5)
             self.wake.clear()

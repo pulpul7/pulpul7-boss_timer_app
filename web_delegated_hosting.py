@@ -170,7 +170,10 @@ class DelegatedHosting:
 
     def observe(self, data, coordinator):
         manual = getattr(self.bridge, "standalone", None)
+        previous_manual = None
         if manual is not None:
+            from web_standalone_hosting import standalone_info
+            previous_manual = standalone_info(manual.record)
             manual.observe(data, coordinator)
         info = delegation_info(data) if not (manual and manual.suppresses_normal()) else None
         role = ("host" if info["host"] == coordinator.client else "source" if info["source"] == coordinator.client else "") if info else ""
@@ -206,13 +209,19 @@ class DelegatedHosting:
                                 "Discord 송출 담당 · 기존 PC의 웹 준비 응답 대기" if role == "source" else
                                 "일반 운영 · Discord와 웹을 함께 승계합니다.")
             with self.manager.lock:
-                self.manager.delegated_snapshot_only = (role == "host" or old_role == "host"
-                                                       or getattr(self.bridge, "retained_host", None) is not None)
-            if old_role == "host" and role != "host":
+                self.manager.delegated_snapshot_only = (False if manual and manual.suppresses_normal() else
+                    (role == "host" or old_role == "host" or getattr(self.bridge, "retained_host", None) is not None))
+            resumed_self = bool(previous_manual and previous_manual["state"] == "active"
+                and previous_manual["owner"] == coordinator.client and previous_manual["runtime"] == coordinator.runtime
+                and not (manual and manual.suppresses_normal()) and role != "host")
+            if (old_role == "host" and role != "host") or resumed_self:
                 try:
                     retain = getattr(self.bridge, "retain_web_host", None)
-                    if not (callable(retain) and not (manual and manual.suppresses_normal())
-                            and retain(data, old_info, coordinator)):
+                    retained_info = (dict(previous_manual, host=previous_manual["owner"],
+                                          host_runtime=previous_manual["runtime"]) if resumed_self else old_info)
+                    manual_owns = bool(manual and manual.status()["local"] and manual.status()["state"] == "active")
+                    if not manual_owns and not (callable(retain) and not (manual and manual.suppresses_normal())
+                            and retain(data, retained_info, coordinator)):
                         with self.manager.lock:
                             self.manager.delegated_snapshot_only = role == "host"
                         self.manager.set_authority((), message="기존 웹 담당 종료 · 현재 담당 상태 확인 중")
@@ -660,8 +669,9 @@ class DelegatedHosting:
                     self.bridge.operation_local.delegated_info = info
                     self.bridge._sync(*context[:2], self.record, context[2])
                 except Exception as exc:
-                    self.manager._log("web_delegated_initial_sync_failed", error_type=type(exc).__name__)
-                    self.message = "인계 동기화 확인 실패 · 현재 로컬 스케줄을 사용합니다."
+                    reason = str(exc)[:300] if isinstance(exc, ValueError) else "진단 로그를 확인해주세요."
+                    self.manager._log("web_delegated_initial_sync_failed", error_type=type(exc).__name__, reason=reason)
+                    self.message = "인계 동기화 확인 실패 · 기존 웹 유지 · " + reason
                     # Keep the existing web data until a real edit or an explicit
                     # 'sync now', rather than replacing it with an unsynced PC.
                     self.sent_hash = edit_hash(payload)
