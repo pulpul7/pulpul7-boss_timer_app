@@ -3514,9 +3514,11 @@ class BossTimerApp:
                     bg, hover, status_fg = "#b45309", "#92400e", "#b45309"
                 elif relay_state.get("role") == "source":
                     text, status_fg = "웹 별도 PC", "#7c3aed"
-                    if relay_state.get("return_stage") == "preflight_failed":
+                    publication_requested = bool(manager.status()["enabled"] and manager.public.status()["enabled"])
+                    if (publication_requested and relay_state.get("return_started")
+                            and relay_state.get("return_stage") == "preflight_failed"):
                         text, bg, hover, status_fg = "웹 승계 실패", "#b91c1c", "#991b1b", "#b91c1c"
-                    elif relay_state.get("return_started"):
+                    elif publication_requested and relay_state.get("return_started"):
                         text, bg, hover, status_fg = "웹 승계 중", "#b45309", "#92400e", "#b45309"
                 else:
                     worker, public = manager.status(), manager.public_status()
@@ -12027,6 +12029,20 @@ class BossTimerApp:
         anchor.lift()
         return anchor
 
+    def _get_centered_messagebox_stack_parent(self, owner: tk.Widget, previous_grab=None) -> tk.Widget:
+        """Keep confirmations above an active modal or connection progress window."""
+        try:
+            if self._widget_available(previous_grab) and previous_grab.winfo_viewable():
+                return previous_grab.winfo_toplevel()
+            progress = getattr(self, "discord_connection_progress", None)
+            window = getattr(progress, "window", None)
+            if (progress is not None and not getattr(progress, "finished", True)
+                    and self._widget_available(window) and window.winfo_viewable()):
+                return window
+        except tk.TclError:
+            pass
+        return owner
+
     def _show_centered_messagebox(self, method_name: str, title: str, message: str, *, parent: tk.Widget | None = None, default=None):
         owner = self._get_centered_messagebox_parent(parent)
         try:
@@ -12040,9 +12056,10 @@ class BossTimerApp:
         dialog.title(title)
         dialog.resizable(False, False)
         dialog.configure(bg="#f8fafc")
-        if owner_visible:
-            dialog.transient(owner)
         previous_grab = owner.grab_current()
+        stack_parent = self._get_centered_messagebox_stack_parent(owner, previous_grab)
+        if owner_visible:
+            dialog.transient(stack_parent)
         normalized_method = str(method_name or "showinfo").strip()
         result = {"value": None}
         width = 500
@@ -12127,7 +12144,16 @@ class BossTimerApp:
             dialog.grab_set()
         except tk.TclError:
             pass
-        dialog.lift(owner)
+        dialog.lift(stack_parent)
+        try:
+            was_topmost = dialog.attributes("-topmost")
+            dialog.attributes("-topmost", True)
+            def restore_dialog_topmost():
+                if self._widget_available(dialog):
+                    dialog.attributes("-topmost", was_topmost)
+            dialog.after(250, restore_dialog_topmost)
+        except tk.TclError:
+            pass
         (default_button or dialog).focus_force()
         monitor = getattr(self, "ui_responsiveness", None)
         if monitor is not None:

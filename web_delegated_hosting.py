@@ -137,10 +137,9 @@ class DelegatedHosting:
         self.return_settings = None
         self.requests = deque(maxlen=32)
         self.force = False
-        self.synced = False
-        self.initial_sync_failed = False
         self.release_done = False
         self.auto_return_started = False
+        self.prepared_return = None
         self.auto_return_check = None
         self.restore_started = False
         self.peer_ready = None
@@ -183,7 +182,6 @@ class DelegatedHosting:
         with self.lock:
             old_role = self.role
             old_info = self.info
-            previous_transfer = self.record.get("web_transfer") or {}
             changed = (self.info or {}).get("id") != (info or {}).get("id") or role != self.role
             self.record, self.coordinator = deepcopy(data), coordinator
             self.info, self.role = info, role
@@ -193,9 +191,9 @@ class DelegatedHosting:
                 self.return_settings = None
                 self.latest_hash = self.sent_hash = ""
                 self.sequence = self.applied_sequence = 0
-                self.synced = self.release_done = False
+                self.release_done = False
                 self.auto_return_started = self.restore_started = False
-                self.initial_sync_failed = False
+                self.prepared_return = None
                 self.peer_ready = self.last_ready_sent = None
                 self.last_applied_at = ""
                 self.failures, self.next_attempt = 0, 0
@@ -230,19 +228,6 @@ class DelegatedHosting:
                         self.manager.set_authority((), message="기존 웹 담당 종료 · 현재 담당 상태 확인 중")
                 except OSError as exc:
                     self.manager._log("web_delegated_stop_lease_failed", error_type=type(exc).__name__)
-            transfer = data.get("web_transfer") or {}
-            if (not changed and role == "source" and transfer.get("request") == data.get("request")
-                    and transfer.get("state") == "ready" and previous_transfer.get("state") != "ready"):
-                unchanged = (not self.initial_sync_failed or bool(self.local_payload
-                    and edit_hash(self.local_payload) == self.sent_hash))
-                if self.initial_sync_failed and unchanged:
-                    self.synced = self.initial_sync_failed = False
-                    self.sent_hash = ""
-                recovery = getattr(self.bridge, "recovery", None)
-                if recovery is not None and recovery.stage == "preflight_failed" and unchanged:
-                    self.auto_return_started = False
-                self.manager._log("web_delegated_upload_ready", resume_sync=unchanged,
-                                  delegate=info["id"])
         if changed:
             self.manager._log("web_delegation_role_changed", role=role, delegate=(info or {}).get("id", ""))
         recovery = getattr(self.bridge, "recovery", None)
@@ -321,7 +306,6 @@ class DelegatedHosting:
                     if event.get("ok") is True:
                         self.sent_hash = pending["edit_hash"]
                         self.pending = None
-                        self.initial_sync_failed = False
                         self.failures, self.next_attempt = 0, 0
                         self.last_applied_at = str(event.get("applied_at") or timestamp())[:64]
                         self.message = "기존 웹 담당자에 최신 스케줄 반영 완료"
@@ -337,7 +321,7 @@ class DelegatedHosting:
                 self.manager._log("web_peer_preflight_failed", phase_name=phase, reason=reason)
         self.wake.set()
 
-    def _guard(self, info, role):
+    def _guard(self, info, role, *, allow_joining=False):
         with self.lock:
             current, coordinator = self.info, self.coordinator
             if (self.closed.is_set() or self.manager.closed.is_set() or not current
@@ -349,7 +333,7 @@ class DelegatedHosting:
             raise ValueError("웹 분리 운영의 시즌·서버가 변경되었습니다.")
         if role == "source":
             state = coordinator.policy.snapshot()
-            if (not ConnectionPolicy.has_authority(state, info["source_runtime"])
+            if (not ConnectionPolicy.has_authority(state, info["source_runtime"], allow_joining=allow_joining)
                     or state.get("authority_generation") != info["generation"]
                     or state.get("authority_request") != info["request"]):
                 raise ValueError("스케줄 제공자의 Discord 송출권한이 변경되었습니다.")
@@ -358,7 +342,7 @@ class DelegatedHosting:
     def _send(self, info, operation, **values):
         with self.lock:
             role = self.role
-        coordinator = self._guard(info, role)
+        coordinator = self._guard(info, role, allow_joining=operation == "preflight_failed")
         peer = "source" if role == "host" else "host"
         result = coordinator._control("web", operation=operation, delegate=info["id"],
                                       target=info[peer], target_runtime=info[peer + "_runtime"], **values)
@@ -370,9 +354,6 @@ class DelegatedHosting:
             if self.role != "source":
                 raise ValueError("Discord 송출·스케줄 제공 담당자 PC에서 눌러주세요.")
             self.force = True
-            if self.initial_sync_failed:
-                self.sent_hash = ""
-                self.initial_sync_failed = False
             self.failures, self.next_attempt = 0, 0
             self.message = "수동 웹 갱신 요청 · 최신 스케줄을 준비합니다."
         self.wake.set()
@@ -384,6 +365,7 @@ class DelegatedHosting:
             if self.info["state"] != "active" or any(item.get("operation") == "return" for item in self.requests) or (self.host_job or {}).get("operation") == "return":
                 return
             self.auto_return_started = True
+            self.prepared_return = None
             self.requests.append(dict(operation="return"))
             recovery = getattr(self.bridge, "recovery", None)
             if recovery is not None:
@@ -400,7 +382,8 @@ class DelegatedHosting:
                       "explicit_keep_host" if info.get("keep_host") else
                       "already_started" if self.auto_return_started else
                       "voice_authority_pending" if not self.coordinator or not
-                      ConnectionPolicy.has_authority(self.coordinator.policy.snapshot(), info["source_runtime"]) else "ready")
+                      ConnectionPolicy.has_authority(self.coordinator.policy.snapshot(), info["source_runtime"],
+                                                     allow_joining=True) else "ready")
             signature = (info["id"], reason)
             if signature != self.auto_return_check:
                 self.auto_return_check = signature
@@ -520,10 +503,26 @@ class DelegatedHosting:
         self._send(info, "ack", transfer=event["transfer"], sequence=event["sequence"], ok=True, applied_at=self.last_applied_at)
 
     def _return_request(self, info):
-        coordinator = self._guard(info, "source")
+        coordinator = self._guard(info, "source", allow_joining=True)
         recovery = getattr(self.bridge, "recovery", None)
-        if recovery is not None and not recovery.preflight(info, coordinator):
-            self.host_job = None
+        just_prepared = False
+        if self.prepared_return != info["id"]:
+            if recovery is not None and not recovery.preflight(info, coordinator):
+                self.host_job = None
+                return
+            self.prepared_return = info["id"]
+            just_prepared = True
+        if (not self.manager.status()["enabled"] or self.manager.public_paused
+                or not self.manager.public.status().get("enabled")):
+            self.host_job = self.prepared_return = None
+            self.manager._log("web_return_preflight_cancelled", reason="web_settings_off", delegate=info["id"])
+            return
+        state = coordinator.policy.snapshot()
+        if not ConnectionPolicy.has_authority(state, info["source_runtime"]):
+            if not just_prepared:
+                key = (info["guild"], info["source"], info["source_runtime"], info["generation"])
+                self.manager.prepare_local_https(key, state["authority_until"] - time.monotonic())
+            self.message = "웹 준비 완료 · 음성 입장 병행 중 · 기존 웹 유지"
             return
         def change(data):
             current = delegation_info(data)
@@ -534,6 +533,7 @@ class DelegatedHosting:
             data = coordinator.record.mutate(change)
         coordinator._process_record(data, coordinator._status())
         self.notice = data
+        self.host_job = None
         self.message = "기존 웹의 공개 중지 확인 대기 · 확인 전에는 이 PC에서 공개하지 않습니다."
 
     def _release_host(self, info):
@@ -674,35 +674,11 @@ class DelegatedHosting:
             self._finish_return(info)
         elif event and event.get("operation") == "return":
             self._return_request(info)
-            self.host_job = None
         elif info["state"] == "active" and payload:
             if not ConnectionPolicy.has_authority(coordinator.policy.snapshot(), info["source_runtime"]):
                 return  # Voice is joining/reconnecting: pending, never a hosting failure.
-            if not self.synced:
-                self._guard(info, "source")
-                with self.bridge.lock:
-                    context = self.bridge.context
-                if (not context or context[1] is not coordinator or context[0][1] != coordinator.client
-                        or context[0][2] != info["source_runtime"] or context[0][3] != info["generation"]):
-                    return
-                try:
-                    self.bridge.operation_local.delegated_info = info
-                    self.bridge._sync(*context[:2], self.record, context[2])
-                except Exception as exc:
-                    reason = str(exc)[:300] if isinstance(exc, ValueError) else "진단 로그를 확인해주세요."
-                    self.manager._log("web_delegated_initial_sync_failed", error_type=type(exc).__name__, reason=reason)
-                    self.message = "인계 동기화 확인 실패 · 기존 웹 유지 · " + reason
-                    # Keep the existing web data until a real edit or an explicit
-                    # 'sync now', rather than replacing it with an unsynced PC.
-                    self.sent_hash = edit_hash(payload)
-                    self.initial_sync_failed = True
-                finally:
-                    self.bridge.operation_local.delegated_info = None
-                with self.lock:
-                    self._guard(info, "source")
-                    self.synced = True
-                    self.local_payload = None
-                return  # Collect the post-sync snapshot on Tk before publishing.
+            # Relay only a read-only web snapshot of the current local schedule.
+            # Canonical upload results never gate this relay; GUI synchronization is manual.
             self._source_upload(info, payload)
 
     def _loop(self):

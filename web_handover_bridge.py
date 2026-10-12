@@ -20,7 +20,6 @@ class WebHandoverBridge:
         self.wake, self.closed = threading.Event(), threading.Event()
         self.context = None
         self.ready_key = self.failed_key = None
-        self.synced_requests = set()
         self.shared_signature = None
         self.next_shared_check = 0
         self.retry_serial = 0
@@ -53,7 +52,7 @@ class WebHandoverBridge:
             try:
                 coordinator._assert_profile()
                 state = coordinator.policy.snapshot()
-                if ConnectionPolicy.has_authority(state) and state.get("client_id") == coordinator.client:
+                if ConnectionPolicy.has_authority(state, allow_joining=True) and state.get("client_id") == coordinator.client:
                     key = (coordinator.scope["guild"], coordinator.client, state["runtime_id"], state["authority_generation"])
                     candidate = (key, coordinator, str(self.app.current_season_no or ""))
             except Exception:
@@ -102,18 +101,18 @@ class WebHandoverBridge:
 
     def observe_transfer(self, data, coordinator):
         artifact = data.get("web_transfer") or {}
-        signature = (data.get("request"), artifact.get("state"))
+        signature = (data.get("request"), artifact.get("web_state_path"))
         with self.lock:
             previous, self.transfer_state = self.transfer_state, signature
             context = self.context
             if (signature == previous or artifact.get("request") != signature[0]
-                    or signature[1] != "ready" or not context or context[1] is not coordinator
+                    or signature[1] != f"data/web/transfers/{signature[0]}.json"
+                    or not context or context[1] is not coordinator
                     or context[0][1] != data.get("owner") or context[0][2] != data.get("owner_runtime")
                     or context[0][3] != data.get("generation")):
                 return
-            if self.failed_key == context[0]:
-                self.failed_key = None
-                self.manager._log("web_handover_upload_ready_resumed", request=signature[0])
+            self.ready_key = self.failed_key = None
+            self.manager._log("web_handover_settings_available", request=signature[0])
         self.wake.set()
 
     def _keep_retained_host(self, key=None, coordinator=None):
@@ -152,7 +151,7 @@ class WebHandoverBridge:
             return False
         self.manager.set_authority((info["guild"], coordinator.client, coordinator.runtime,
                                     "retained:" + request), ready=self.manager.snapshot_version > 0,
-                                   message="기존 웹 유지 · 인계 동기화 확인 대기")
+                                   message="기존 웹 유지 · 현재 PC의 웹 준비 확인 대기")
         return True
 
     def retry(self, *, once=False):
@@ -186,14 +185,14 @@ class WebHandoverBridge:
         state = coordinator.policy.snapshot()
         delegated_info = delegated_info or getattr(self.operation_local, "delegated_info", None)
         if delegated_info:
-            self.delegation._guard(delegated_info, "source")
+            self.delegation._guard(delegated_info, "source", allow_joining=True)
         manual = getattr(self, "standalone", None)
         if (self.closed.is_set() or self.manager.closed.is_set() or self.manager.public_paused
                 or (manual is not None and manual.suppresses_normal())
                 or (self.delegation.role and not delegated_info)
                 or not context or context[0] != key or context[1] is not coordinator
                 or (getattr(self.operation_local, "serial", serial) if operation_serial is None else operation_serial) != serial
-                or not coordinator.alive or not ConnectionPolicy.has_authority(state)
+                or not coordinator.alive or not ConnectionPolicy.has_authority(state, allow_joining=True)
                 or state.get("runtime_id") != key[2] or state.get("authority_generation") != key[3]):
             raise ValueError("권한이 변경되어 이전 웹 작업을 취소했습니다.")
 
@@ -202,7 +201,7 @@ class WebHandoverBridge:
         with coordinator.lock:
             data, _ = coordinator.record.read()
         self._guard(key, coordinator)
-        if (data.get("phase") != "active" or data.get("owner") != key[1]
+        if (data.get("phase") not in {"joining", "active"} or data.get("owner") != key[1]
                 or data.get("owner_runtime") != key[2] or data.get("generation") != key[3]):
             from web_delegated_hosting import delegation_info
             info = delegation_info(data)
@@ -220,79 +219,12 @@ class WebHandoverBridge:
             raise ValueError("현재 Discord 권한 기록이 달라 웹 공개를 중단했습니다.")
         return data
 
-    def _sync(self, key, coordinator, data, season):
-        operation_serial = getattr(self.operation_local, "serial", self.retry_serial)
-        delegated_info = getattr(self.operation_local, "delegated_info", None)
-        previous = data.get("previous_owner") or []
-        request = data.get("request", "")
-        if not previous or not previous[0] or previous[0] == key[1] or request in self.synced_requests:
-            return data
-        if not self._keep_retained_host(key, coordinator):
-            self.manager.set_authority((), message="Discord 송출 중 · 이전 담당자의 스케줄 업로드를 기다립니다.")
-        deadline = time.monotonic() + 60
-        while True:
-            artifact = data.get("web_transfer") or {}
-            if artifact.get("request") == request and artifact.get("state") == "ready":
-                break
-            if artifact.get("state") == "failed" and artifact.get("request") == request:
-                detail = str(artifact.get("failure_reason") or "").strip()[:500]
-                raise ValueError("인계 스케줄 업로드에 실패했습니다. " + (detail or
-                    "기존 담당자의 업로드 재시도 후 웹 강제 승계/재시도를 눌러주세요."))
-            if time.monotonic() >= deadline:
-                raise ValueError("인계 스케줄 업로드 응답이 없습니다. 업로드 확인 후 웹 강제 승계/재시도를 눌러주세요.")
-            if self.closed.wait(2):
-                self._guard(key, coordinator)
-            data = self._read_owner(key, coordinator)
-        entry = artifact.get("entry") or {}
-        if str(entry.get("id")) != coordinator.scope["server"] or str(artifact.get("source_season")) != season:
-            raise ValueError("기존 담당자의 시즌·게임 서버가 다릅니다. 같은 시즌·서버로 맞춘 뒤 웹을 재시도해주세요.")
-        before_signature, profile = coordinator._ui(lambda: (
-            self.app._get_schedule_restore_snapshot_signature(self.app._create_schedule_restore_snapshot()),
-            self.app._get_schedule_state_storage_path()))
-        raw, _, error = self.app._github_get_json_file(entry["schedule"], timeout=5)
-        if error or not isinstance(raw, dict) or self.app._get_github_schedule_content_hash(raw) != artifact.get("content_hash"):
-            raise ValueError("인계 스케줄 내용 검증에 실패했습니다. 기존 송출은 유지하며 웹만 대기합니다.")
-        payload = self.app._unwrap_github_schedule_payload(raw)
-        self._read_owner(key, coordinator)
-        def apply():
-            self._guard(key, coordinator, operation_serial, delegated_info=delegated_info)
-            if (self.app._get_schedule_state_storage_path() != profile or before_signature !=
-                    self.app._get_schedule_restore_snapshot_signature(self.app._create_schedule_restore_snapshot())):
-                raise ValueError("동기화 중 로컬 스케줄이 변경되어 자동 교체하지 않았습니다.")
-            before = self.app._create_schedule_full_state_snapshot()
-            try:
-                self.app._append_current_schedule_restore_history_marker("웹 승계 동기화 전")
-                if not self.app._apply_loaded_schedule_shared_payload(payload, source_label="웹 승계 동기화",
-                        source_path=entry["schedule"], create_restore_history=False, create_backups=False,
-                        sync_shared_export=False, mark_github_dirty=False, save_state=False):
-                    raise ValueError("인계 스케줄을 적용하지 못했습니다.")
-                self._guard(key, coordinator, operation_serial, delegated_info=delegated_info)
-                meta = getattr(self.app, "schedule_last_import_meta", {})
-                meta = dict(meta) if isinstance(meta, dict) else {}
-                meta.update(source_type="github_data", github_server_id=str(entry["id"]),
-                            source_path=entry["schedule"], source_name=str(entry.get("name") or entry["id"]),
-                            server_name=str(entry.get("name") or entry["id"]),
-                            scheduleVersion=str(raw.get("dataVersion") or ""))
-                self.app.schedule_last_import_meta = meta
-                self.app._save_schedule_state(mark_github_dirty=False, sync_shared_export=False, raise_on_error=True)
-            except Exception:
-                self.app._restore_schedule_full_state_snapshot(before)
-                raise
-            cache_entry = dict(entry, scheduleVersion=str(raw.get("dataVersion") or ""), scheduleHash=artifact["content_hash"])
-            self.app._save_github_local_payload_cache(cache_entry, schedule_payload=payload)
-        coordinator._ui(apply)
-        self.synced_requests.add(request)
-        self.manager._log("web_handover_schedule_synced", generation=key[3], request=request)
-        return data
-
     def _shared_path(self, key):
         return "data/web/" + hashlib.sha256(key[0].encode()).hexdigest()[:24] + ".json"
 
     def _prepare(self, key, coordinator, data, season):
         operation_serial = getattr(self.operation_local, "serial", self.retry_serial)
         delegated_info = getattr(self.operation_local, "delegated_info", None)
-        self.operation_local.prepare_phase = "schedule-sync"
-        data = self._sync(key, coordinator, data, season)
         self.operation_local.prepare_phase = "shared-settings"
         if self.manager.ddns_status()["configured"]:
             path = (data.get("web_transfer") or {}).get("web_state_path")
@@ -307,14 +239,14 @@ class WebHandoverBridge:
                 self.manager._log("web_shared_state_imported", generation=key[3])
         self._read_owner(key, coordinator)
         self.operation_local.prepare_phase = "schedule-snapshot"
-        # A fresh post-sync snapshot is collected on Tk before public activation.
+        # Publish the receiver's current schedule; schedule synchronization is manual.
         def snapshot():
             from web_schedule_snapshot import collect_snapshot
             self._guard(key, coordinator, operation_serial, delegated_info=delegated_info)
             self.manager.offer_snapshot(collect_snapshot(self.app),
                                         origin="delegated" if self.retained_host else "local")
             # This runs on Tk: release the retained snapshot before another
-            # GUI heartbeat can replace the freshly synchronized schedule.
+            # GUI heartbeat can replace the freshly collected local schedule.
             with self.lock:
                 if self.retained_host is not None:
                     self.retained_host = None
@@ -322,6 +254,8 @@ class WebHandoverBridge:
                         self.manager.delegated_snapshot_only = False
         coordinator._ui(snapshot)
         self.ready_key = key
+        self.manager._log("web_handover_local_schedule_prepared", generation=key[3],
+                          request=data.get("request"), schedule_sync="manual")
 
     def _publish_shared(self, key, coordinator):
         if self.manager.public.status()["state"] != "prepared":
@@ -384,7 +318,9 @@ class WebHandoverBridge:
                     data = self._read_owner(key, coordinator)
                     self.recovery.observe(data)
                     if self.failed_key != key:
-                        if self.ready_key != key:
+                        state = coordinator.policy.snapshot()
+                        if (self.ready_key != key and (ConnectionPolicy.has_authority(state)
+                                or not self._keep_retained_host(key, coordinator))):
                             preparing = True
                             self._prepare(key, coordinator, data, season)
                             preparing = False
@@ -393,16 +329,21 @@ class WebHandoverBridge:
                                 raise ValueError("새 웹 재시도로 이전 작업을 취소했습니다.")
                         self._guard(key, coordinator)
                         state = coordinator.policy.snapshot()
-                        self.manager.set_authority(key, ready=True, remaining=state["authority_until"] - time.monotonic(),
-                                                   message="Discord 송출권한 확인 · 웹 공개 준비 중")
-                        with self.lock:
-                            self.retained_host = None
-                        with self.manager.lock:
-                            self.manager.delegated_snapshot_only = False
-                        try:
-                            self._publish_shared(key, coordinator)
-                        except Exception as exc:
-                            self.manager._log("web_shared_state_publish_failed", error_type=type(exc).__name__)
+                        if ConnectionPolicy.has_authority(state):
+                            self.manager.set_authority(key, ready=True, remaining=state["authority_until"] - time.monotonic(),
+                                                       message="Discord 송출권한 확인 · 웹 공개 준비 중")
+                            with self.lock:
+                                self.retained_host = None
+                            with self.manager.lock:
+                                self.manager.delegated_snapshot_only = False
+                            try:
+                                self._publish_shared(key, coordinator)
+                            except Exception as exc:
+                                self.manager._log("web_shared_state_publish_failed", error_type=type(exc).__name__)
+                        elif not self._keep_retained_host(key, coordinator):
+                            # Prepare TLS alongside voice joining; a failed voice
+                            # join must not interrupt the previous public host.
+                            self.manager.prepare_local_https(key, state["authority_until"] - time.monotonic())
                 except Exception as exc:
                     if isinstance(exc, WebAuthorityTransition):
                         self.manager._log("web_voice_task_cancelled_host_retained", generation=key[3])

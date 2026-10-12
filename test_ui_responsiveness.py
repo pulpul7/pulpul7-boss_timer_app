@@ -13,11 +13,12 @@ class ModalParentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tree = ast.parse(Path('boss_timer_gui.py').read_text(encoding='utf-8-sig'))
-        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-                      and node.name == '_get_centered_messagebox_parent')
+        wanted = {'_get_centered_messagebox_parent', '_get_centered_messagebox_stack_parent'}
+        methods = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name in wanted]
         scope = dict(tk=NS(Widget=object, TclError=RuntimeError))
-        exec(compile(ast.Module(body=[method], type_ignores=[]), 'modal-parent-source', 'exec'), scope)
-        cls.choose = staticmethod(scope[method.name])
+        exec(compile(ast.Module(body=methods, type_ignores=[]), 'modal-parent-source', 'exec'), scope)
+        cls.choose = staticmethod(scope['_get_centered_messagebox_parent'])
+        cls.stack_parent = staticmethod(scope['_get_centered_messagebox_stack_parent'])
 
     def test_hidden_schedule_is_not_owner_of_delayed_retry_dialog(self):
         root = NS(winfo_viewable=lambda: True)
@@ -31,6 +32,28 @@ class ModalParentTests(unittest.TestCase):
         schedule = NS(winfo_viewable=lambda: True)
         app = NS(root=root, _widget_available=lambda window: window is not None)
         self.assertIs(self.choose(app, schedule), schedule)
+
+    def test_confirmation_stacks_above_running_connection_progress(self):
+        owner = NS(winfo_viewable=lambda: True)
+        window = NS(winfo_viewable=lambda: True)
+        app = NS(_widget_available=lambda value: value is not None,
+                 discord_connection_progress=NS(window=window, finished=False))
+        self.assertIs(self.stack_parent(app, owner), window)
+        app.discord_connection_progress.finished = True
+        self.assertIs(self.stack_parent(app, owner), owner)
+
+    def test_hidden_progress_is_never_used_as_transient_parent(self):
+        owner = NS(winfo_viewable=lambda: True)
+        window = NS(winfo_viewable=lambda: False)
+        app = NS(_widget_available=lambda value: value is not None,
+                 discord_connection_progress=NS(window=window, finished=False))
+        self.assertIs(self.stack_parent(app, owner), owner)
+
+    def test_existing_visible_modal_has_priority_over_progress(self):
+        owner, modal = object(), object()
+        grab = NS(winfo_viewable=lambda: True, winfo_toplevel=lambda: modal)
+        app = NS(_widget_available=lambda value: value is not None)
+        self.assertIs(self.stack_parent(app, owner, grab), modal)
 
 
 class WatchdogTests(unittest.TestCase):

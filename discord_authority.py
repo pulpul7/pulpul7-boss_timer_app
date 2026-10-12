@@ -850,6 +850,9 @@ class DiscordAuthority:
                     raise AuthorityError("다른 승계 요청으로 변경되었습니다.")
             with self.lock:
                 self.policy.resume()
+                manager = getattr(self.app, "web_service_manager", None)
+                if manager is not None and self._web_publication_configured():
+                    manager.public_paused = False  # Prepare web alongside the verified voice grant.
                 self._observe(self.current, self._status(), grant_checked_at)
             self._progress("incoming", self.incoming_progress_token, "voice",
                            "관리자 권한 확인 완료 · 음성채널에 입장하고 있습니다.\n"

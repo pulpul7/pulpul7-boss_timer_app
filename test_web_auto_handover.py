@@ -1,4 +1,4 @@
-"""Automatic handover paths with real guards/sync/preflight and an in-memory repo."""
+"""Automatic handover paths with real guards/preflight and an in-memory repo."""
 from copy import deepcopy
 from datetime import datetime, timezone
 from types import MethodType, SimpleNamespace as NS
@@ -149,12 +149,11 @@ class AutoHandoverTests(unittest.TestCase):
         bridge.delegation = relay
         bridge.closed = threading.Event()
         bridge.retry_serial = 0
-        bridge.synced_requests = set()
         bridge.retained_host = None
         bridge.standalone = StandaloneHosting(bridge)
         manager.ddns_status = lambda: dict(configured=False)
         coordinator._ui = lambda callback: callback()
-        for name in ('_guard', '_read_owner', '_sync', '_prepare'):
+        for name in ('_guard', '_read_owner', '_prepare'):
             setattr(bridge, name, MethodType(getattr(WebHandoverBridge, name), bridge))
         key = (SCOPE['guild'], SOURCE, SOURCE_SESSION, active['generation'])
         with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('local')):
@@ -182,6 +181,68 @@ class AutoHandoverTests(unittest.TestCase):
         self.repo.get.assert_not_called()
         self.repo.put.assert_not_called()
 
+    def test_first_connection_prepares_tls_during_join_and_publishes_after_join(self):
+        self.repo.data.pop('web_delegate')
+        self.repo.data.update(phase='joining', receiver=SOURCE, receiver_runtime=SOURCE_SESSION)
+        relay, manager, coordinator, policy = self.node('source')
+        policy['authority_active'] = False
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.failed_key = bridge.ready_key = bridge.retained_host = None
+        bridge.retry_serial = 0
+        bridge.standalone = NS(resume_stopped=Mock(return_value=False),
+                               suppresses_normal=lambda: False, publish_shared=Mock())
+        bridge.recovery = NS(monitor=Mock(), observe=Mock(), fail=Mock())
+        bridge.wake = NS(wait=lambda _: bridge.closed.set(), clear=Mock())
+        bridge._publish_shared = Mock()
+        manager.ddns_status = lambda: dict(configured=False)
+        manager.prepare_local_https = Mock()
+        coordinator._ui = lambda callback: callback()
+        coordinator._web_publication_configured = lambda: True
+        for name in ('_guard', '_read_owner', '_prepare', '_keep_retained_host'):
+            setattr(bridge, name, MethodType(getattr(WebHandoverBridge, name), bridge))
+        manager.set_authority.reset_mock()
+        with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('local')):
+            WebHandoverBridge._loop(bridge)
+        manager.prepare_local_https.assert_called_once()
+        manager.set_authority.assert_not_called()
+        bridge._publish_shared.assert_not_called()
+        self.assertEqual(manager.pending_snapshot['events'][0]['name'], 'local')
+        self.repo.data['phase'] = 'active'
+        policy['authority_active'] = True
+        bridge.closed.clear()
+        WebHandoverBridge._loop(bridge)
+        self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
+        bridge._publish_shared.assert_called_once()
+        bridge.recovery.fail.assert_not_called()
+
+    def test_reuniting_existing_web_host_does_not_pause_publication_while_joining(self):
+        self.repo.data.pop('web_delegate')
+        self.repo.data.update(phase='joining', receiver=SOURCE, receiver_runtime=SOURCE_SESSION)
+        relay, manager, coordinator, policy = self.node('source')
+        policy['authority_active'] = False
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.failed_key = bridge.ready_key = None
+        bridge.retry_serial = 0
+        bridge._keep_retained_host = Mock(return_value=True)
+        bridge._guard = Mock()
+        bridge._read_owner = lambda *_: deepcopy(self.repo.data)
+        bridge._prepare = Mock()
+        bridge.standalone = NS(resume_stopped=Mock(return_value=False),
+                               suppresses_normal=lambda: False, publish_shared=Mock())
+        bridge.recovery = NS(monitor=Mock(), observe=Mock(), fail=Mock())
+        bridge.wake = NS(wait=lambda _: bridge.closed.set(), clear=Mock())
+        manager.prepare_local_https = Mock()
+        coordinator._web_publication_configured = lambda: True
+        manager.set_authority.reset_mock()
+        WebHandoverBridge._loop(bridge)
+        bridge._prepare.assert_not_called()
+        manager.prepare_local_https.assert_not_called()
+        manager.set_authority.assert_not_called()
+
     def test_new_host_assignment_seen_before_discord_hint_keeps_public_lease(self):
         data = self.configured_record()
         self.repo = MemoryRepository(data)
@@ -206,20 +267,31 @@ class AutoHandoverTests(unittest.TestCase):
         self.assertTrue(all(call.args[0] for call in manager.set_authority.call_args_list))
         self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
 
-    def test_failed_upload_displays_senders_exact_reason(self):
-        relay, manager, coordinator, _ = self.node('source')
-        bridge = relay.bridge
-        bridge.retained_host = None
-        bridge.retry_serial = 0
-        bridge.synced_requests = set()
-        bridge._keep_retained_host = lambda *_: False
-        bridge._read_owner = Mock()
-        data = deepcopy(self.repo.data)
-        data['previous_owner'] = [HOST, HOST_SESSION, 1, 'e'*32]
-        data['web_transfer'] = dict(request=data['request'], state='failed', failure_reason='server=.008 PC=.007')
-        with self.assertRaisesRegex(ValueError, r'server=\.008 PC=\.007'):
-            WebHandoverBridge._sync(bridge, bridge.context[0], coordinator, data, '18')
-        bridge._read_owner.assert_not_called()
+    def test_local_web_preparation_ignores_all_canonical_upload_states(self):
+        for state in ('failed', 'pending', 'ready', None):
+            with self.subTest(upload_state=state):
+                relay, manager, coordinator, _ = self.node('source')
+                bridge = relay.bridge
+                bridge.retained_host = None
+                bridge.retry_serial = 0
+                bridge._guard = Mock()
+                bridge._read_owner = Mock()
+                bridge._shared_path = MethodType(WebHandoverBridge._shared_path, bridge)
+                manager.ddns_status = lambda: dict(configured=True)
+                coordinator._ui = lambda callback: callback()
+                data = deepcopy(self.repo.data)
+                data['previous_owner'] = [HOST, HOST_SESSION, 1, 'e'*32]
+                if state is not None:
+                    data['web_transfer'] = dict(request=data['request'], state=state,
+                        failure_reason='server=.008 PC=.007', entry=dict(schedule='data/schedules/9.json'))
+                data_get = self.repo.get.call_count
+                with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('local')):
+                    WebHandoverBridge._prepare(bridge, bridge.context[0], coordinator, data, '18')
+                self.assertEqual(bridge.ready_key, bridge.context[0])
+                self.assertEqual(manager.pending_snapshot['events'][0]['name'], 'local')
+                self.assertEqual(self.repo.get.call_count, data_get + 1)
+                self.assertTrue(self.repo.get.call_args.args[0].startswith('data/web/'))
+                bridge._sync.assert_not_called()
 
     def test_voice_join_failure_restores_existing_standalone_web(self):
         data = self.configured_record()
@@ -310,20 +382,21 @@ class AutoHandoverTests(unittest.TestCase):
         self.assertEqual(AuthorityRecord.owner_stamp(fixture.repo.data), before)
         self.assertFalse(manual.resume_stopped(key, coordinator))
 
-    def test_actual_sync_and_preflight_release_then_activate_without_force(self):
+    def test_failed_canonical_upload_still_preflights_releases_and_activates_local_web(self):
         data = self.configured_record()
         self.repo = MemoryRepository(data)
         record = AuthorityRecord(self.repo.get, self.repo.put, SCOPE)
         requested = record.request(SOURCE, SOURCE_SESSION, '777', resume_web=True)
         record.acknowledge_stop(requested['request'], HOST, HOST_SESSION)
         record.accept_stopped(requested['request'], SOURCE, SOURCE_SESSION)
-        active = record.change(requested['request'], SOURCE, phases={'joining'}, phase='active')
-        active['web_transfer'] = dict(request=active['request'], state='ready', content_hash='verified',
+        active = deepcopy(record.read()[0])  # Voice joining: web preparation must already start.
+        active['web_transfer'] = dict(request=active['request'], state='failed', content_hash='verified',
+                                     failure_reason='server=.008 PC=.007',
                                      entry=dict(id='9', schedule='data/schedules/9.json'), source_season='18')
         self.repo.data = active
         self.repo.files['data/schedules/9.json'] = dict(kind='schedule', dataVersion='2026.10.12.002', payload=dict(boss='new'))
         source, manager, coordinator, policy = self.node('source')
-        policy.update(authority_generation=active['generation'], authority_request=active['request'])
+        policy.update(authority_active=False, authority_generation=active['generation'], authority_request=active['request'])
         bridge = source.bridge
         bridge.context = ((SCOPE['guild'], SOURCE, SOURCE_SESSION, active['generation']), coordinator, '18')
         bridge.closed = threading.Event()
@@ -332,40 +405,36 @@ class AutoHandoverTests(unittest.TestCase):
         bridge.retry_serial = 0
         bridge.transfer_state = bridge.shared_signature = None
         bridge.next_shared_check = 0
-        bridge.synced_requests = set()
         bridge.standalone = StandaloneHosting(bridge)
         bridge.recovery = WebReturnRecovery(bridge)
-        for name in ('_guard', '_read_owner', '_sync', '_prepare', '_shared_path', '_keep_retained_host',
+        for name in ('_guard', '_read_owner', '_prepare', '_shared_path', '_keep_retained_host',
                      'refresh_context', 'retry', 'observe_transfer'):
             setattr(bridge, name, MethodType(getattr(WebHandoverBridge, name), bridge))
         manager.ddns_status = lambda: dict(configured=True)
         manager.https_status = lambda: dict(https_state='running', domain='example.invalid', port=8766)
         manager.prepare_local_https = Mock()
         app = source.app
-        app.schedule_last_import_meta = {}
         app.local_schedule = dict(boss='old')
-        app._create_schedule_restore_snapshot = lambda: deepcopy(app.local_schedule)
-        app._create_schedule_full_state_snapshot = app._create_schedule_restore_snapshot
-        app._get_schedule_restore_snapshot_signature = lambda value: repr(value)
-        app._get_schedule_state_storage_path = lambda: 'in-memory-profile'
-        app._get_github_schedule_content_hash = lambda _: 'verified'
-        app._unwrap_github_schedule_payload = lambda value: deepcopy(value['payload'])
-        def apply(payload, **_):
-            app.local_schedule = deepcopy(payload)
-            return True
-        app._apply_loaded_schedule_shared_payload = Mock(side_effect=apply)
-        app._append_current_schedule_restore_history_marker = Mock()
-        app._save_schedule_state = app._save_github_local_payload_cache = Mock()
-        app._restore_schedule_full_state_snapshot = lambda value: setattr(app, 'local_schedule', value)
+        app._apply_loaded_schedule_shared_payload = Mock()
+        app._save_schedule_state = Mock()
         coordinator._ui = lambda callback: callback()
         source.take_over_when_configured(True)
         with patch('web_direct_hosting.check_local_https'), \
-             patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('new')):
+             patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('old')):
             source._step()
+        self.assertEqual(self.repo.data['phase'], 'joining')
+        self.assertEqual(self.repo.data['web_delegate']['state'], 'active')
+        source._step()  # Prepared once, existing web remains available while voice joins.
+        self.assertEqual(manager.prepare_local_https.call_count, 2)  # Renew the local TLS lease only.
+        manager.offer_snapshot.assert_called_once()
+        active = record.change(active['request'], SOURCE, phases={'joining'}, phase='active')
+        policy['authority_active'] = True
+        source.observe(active, coordinator)
+        source._step()
         self.assertEqual(self.repo.data['web_delegate']['state'], 'releasing')
-        self.assertEqual(app.local_schedule, dict(boss='new'))
-        self.assertIn(active['request'], bridge.synced_requests)
-        manager.prepare_local_https.assert_called_once()
+        self.assertEqual(app.local_schedule, dict(boss='old'))
+        self.assertEqual(manager.pending_snapshot['events'][0]['name'], 'old')
+        self.assertEqual(manager.prepare_local_https.call_count, 2)
         host, host_manager, host_coordinator, _ = self.node('host')
         host_manager.ddns_status = lambda: dict(configured=False)
         host_manager.ddns = NS(status=lambda: dict(busy=False))
@@ -381,7 +450,10 @@ class AutoHandoverTests(unittest.TestCase):
         self.assertNotIn('web_delegate', self.repo.data)
         self.assertIn('web_return_pending', self.repo.data)
         self.assertEqual(self.repo.data['owner'], SOURCE)
-        self.assertEqual(app._apply_loaded_schedule_shared_payload.call_count, 1)
+        app._apply_loaded_schedule_shared_payload.assert_not_called()
+        app._save_schedule_state.assert_not_called()
+        self.assertTrue(all(not call.args[0].startswith('data/schedules/')
+                            for call in self.repo.get.call_args_list))
 
 
 if __name__ == '__main__':

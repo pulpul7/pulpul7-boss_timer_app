@@ -58,14 +58,14 @@ class WebReturnRecovery:
                 self.attempts, self.next_attempt = 0, 0
                 self.stage, self.message = 'trial', '새 웹 연결 확인 · 실패 시 기존 웹 담당 복구'
 
-    def _guard(self, key, coordinator):
+    def _guard(self, key, coordinator, *, allow_joining=False):
         coordinator._assert_profile()
         manual = getattr(self.bridge, 'standalone', None)
         if manual is not None and manual.suppresses_normal():
             raise ValueError('웹 단독 실행 또는 종료로 기존 웹 승계 작업을 취소했습니다.')
         state = coordinator.policy.snapshot()
         if (self.bridge.closed.is_set() or self.manager.closed.is_set() or not coordinator.alive
-                or not ConnectionPolicy.has_authority(state, key[2])
+                or not ConnectionPolicy.has_authority(state, key[2], allow_joining=allow_joining)
                 or state.get('authority_generation') != key[3]
                 or str(self.app.current_season_no) != coordinator.scope['season']):
             raise ValueError('담당자 또는 실행 세션이 바뀌어 이전 웹 복구 작업을 취소했습니다.')
@@ -84,7 +84,7 @@ class WebReturnRecovery:
             if not context or context[1] is not coordinator:
                 raise ValueError('현재 송출권한의 웹 준비 연결을 확인하지 못했습니다.')
             key, _, season = context
-            self._guard(key, coordinator)
+            self._guard(key, coordinator, allow_joining=True)
             self.stage, self.message = 'preflight', '기존 웹 유지 · 새 PC 인증서·HTTPS 확인'
             self.bridge.operation_local.delegated_info = info
             self.bridge.operation_local.serial = self.bridge.retry_serial
@@ -97,8 +97,8 @@ class WebReturnRecovery:
                 self.manager.set_enabled(True)
             deadline = time.monotonic()+30
             while time.monotonic() < deadline:
-                self._guard(key, coordinator)
-                self.bridge.delegation._guard(info, 'source')
+                self._guard(key, coordinator, allow_joining=True)
+                self.bridge.delegation._guard(info, 'source', allow_joining=True)
                 state = coordinator.policy.snapshot()
                 self.manager.prepare_local_https(key, state['authority_until']-time.monotonic())
                 https = self.manager.https_status()
@@ -121,7 +121,7 @@ class WebReturnRecovery:
             self.bridge.delegation.message = self.message
             # Never clear a newer authority key if voice ownership changed while preparing.
             try:
-                self.bridge.delegation._guard(info, 'source')
+                self.bridge.delegation._guard(info, 'source', allow_joining=True)
                 self.manager.set_authority((), message=self.message)
             except Exception:
                 pass
