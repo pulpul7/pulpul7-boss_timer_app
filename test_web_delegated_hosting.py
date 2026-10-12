@@ -10,7 +10,7 @@ from discord_authority import AuthorityRecord, DiscordAuthority
 from discord_connection_policy import ConnectionPolicy, CONTROL_PROTOCOL
 import web_delegated_hosting as relay_module
 import discord_authority as authority_module
-from web_delegated_hosting import DelegatedHosting, build_delegation, delegation_info, content_hash, edit_hash
+from web_delegated_hosting import DelegatedHosting, build_delegation, build_automatic_delegation, delegation_info, content_hash, edit_hash
 from web_service_manager import WebServiceManager
 from web_handover_bridge import WebHandoverBridge
 
@@ -100,6 +100,80 @@ class DelegatedTests(unittest.TestCase):
         bridge.context = (('100', client, runtime, 2), coordinator, '18')
         relay.observe(self.repo.data, coordinator)
         return relay, manager, coordinator, policy
+
+    def test_web_off_receiver_preserves_existing_web_through_voice_grant(self):
+        data = initial_record()
+        data['members'][HOST]['web_public_available'] = True
+        repo = MemoryRepository(data)
+        record = AuthorityRecord(repo.get, repo.put, SCOPE)
+        requested = record.request(SOURCE, SOURCE_SESSION, '777', automatic_preserve_web=True)
+        self.assertEqual(delegation_info(requested)['host'], HOST)
+        record.acknowledge_stop(requested['request'], HOST, HOST_SESSION)
+        granted = record.accept_stopped(requested['request'], SOURCE, SOURCE_SESSION)
+        self.assertEqual(granted['owner'], SOURCE)
+        self.assertEqual(delegation_info(granted)['host'], HOST)
+
+    def test_both_web_off_does_not_start_a_schedule_relay(self):
+        data = initial_record()
+        data['members'][HOST]['web_public_available'] = False
+        repo = MemoryRepository(data)
+        requested = AuthorityRecord(repo.get, repo.put, SCOPE).request(
+            SOURCE, SOURCE_SESSION, '777', automatic_preserve_web=True)
+        self.assertNotIn('web_delegate', requested)
+
+    def test_older_split_capable_host_with_unknown_web_state_is_preserved(self):
+        data = initial_record()
+        self.assertNotIn('web_public_available', data['members'][HOST])
+        info = build_automatic_delegation(data, SOURCE, SOURCE_SESSION, SCOPE, 2, 'e' * 32)
+        self.assertEqual(info['host'], HOST)
+
+    def test_automatic_split_skips_missing_offline_and_wrong_profile_hosts(self):
+        for case in ('missing', 'offline', 'wrong-season', 'legacy'):
+            with self.subTest(case=case):
+                data = initial_record()
+                if case == 'missing': data.update(owner='', owner_runtime='', phase='idle')
+                elif case == 'offline': data['members'][HOST]['online'] = False
+                elif case == 'wrong-season': data['scope'] = dict(SCOPE, season='17')
+                else: data['members'][HOST]['web_delegate_protocol'] = 0
+                self.assertIsNone(build_automatic_delegation(data, SOURCE, SOURCE_SESSION, SCOPE, 2, 'e' * 32))
+
+    def test_automatic_preservation_keeps_an_existing_split_host(self):
+        requested = AuthorityRecord(self.repo.get, self.repo.put, SCOPE).request(
+            SOURCE, SOURCE_SESSION, '777', automatic_preserve_web=True)
+        self.assertEqual(delegation_info(requested)['host'], HOST)
+
+    def test_web_configuration_availability_ignores_transient_connection_states(self):
+        node = object.__new__(DiscordAuthority)
+        manager = NS(public_paused=False, status=Mock(return_value=dict(enabled=True, state='starting')),
+                     ddns_status=Mock(return_value=dict(configured=True)),
+                     public=NS(status=Mock(return_value=dict(enabled=True, state='waiting'))))
+        node.app = NS(web_service_manager=manager)
+        self.assertTrue(node._web_publication_configured())
+        manager.public.status.return_value['state'] = 'error'
+        self.assertTrue(node._web_publication_configured())
+        manager.status.return_value['enabled'] = False
+        self.assertFalse(node._web_publication_configured())
+        manager.status.return_value['enabled'] = True
+        manager.ddns_status.return_value['configured'] = False
+        self.assertFalse(node._web_publication_configured())
+        manager.ddns_status.return_value['configured'] = True
+        manager.public.status.return_value['enabled'] = False
+        self.assertFalse(node._web_publication_configured())
+
+    def test_web_presence_changes_do_not_create_periodic_remote_checks(self):
+        node = object.__new__(DiscordAuthority)
+        node.alive = True
+        node._web_publication_configured = Mock(return_value=True)
+        node.session_connected = Mock()
+        for _ in range(10): node.refresh_web_presence()
+        self.assertEqual(node.session_connected.call_count, 1)
+        node._web_publication_configured.return_value = False
+        for _ in range(10): node.refresh_web_presence()
+        self.assertEqual(node.session_connected.call_count, 2)
+        node.alive = False
+        node._web_publication_configured.return_value = True
+        node.refresh_web_presence()
+        self.assertEqual(node.session_connected.call_count, 2)
 
     def test_default_request_does_not_split_and_explicit_request_survives_voice_grant(self):
         repo = MemoryRepository(initial_record())

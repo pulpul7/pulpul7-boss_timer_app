@@ -134,7 +134,8 @@ class AuthorityRecord:
         raise AuthorityError("접속한 관리자를 찾지 못했습니다. /보탐 관리자로 이름을 확인한 뒤 /보탐 나츠처럼 입력하세요.")
 
     def request(self, client, runtime, channel, *, call_id="", expected_owner=None, verified_previous=None,
-                verified_kind="operator_confirmed", minimum_generation=0, preserve_web=False):
+                verified_kind="operator_confirmed", minimum_generation=0, preserve_web=False,
+                automatic_preserve_web=False):
         def change(data):
             now = time.time()
             if expected_owner is not None and not (
@@ -156,7 +157,7 @@ class AuthorityRecord:
             solo = (not data.get("owner") or (data.get("owner") == client and data.get("owner_runtime") == runtime)
                     or verified_previous is not None)
             previous_owner = self.owner_stamp(data)
-            from web_delegated_hosting import build_delegation, delegation_info
+            from web_delegated_hosting import build_delegation, build_automatic_delegation, delegation_info
             previous_web = delegation_info(data)
             if previous_web:
                 data["web_delegate_previous"] = previous_web
@@ -166,6 +167,8 @@ class AuthorityRecord:
             request = uuid.uuid4().hex
             delegated = build_delegation(data, client, runtime, self.scope, generation, request) if (
                 preserve_web or delegation_info(data)) else None
+            if not delegated and automatic_preserve_web and not preserve_web and not previous_web:
+                delegated = build_automatic_delegation(data, client, runtime, self.scope, generation, request)
             if delegated:
                 data["web_delegate"] = delegated
             else:
@@ -252,6 +255,8 @@ class DiscordAuthority:
         self.current = None
         self.outgoing_requests = set()
         self.calls = set()
+        from web_discord_control import DiscordWebControl
+        self.web_control = DiscordWebControl(self)
         self.failure_notices = set()
         self.unattended_requests = set()
         self.incoming_progress_token = ""
@@ -423,6 +428,26 @@ class DiscordAuthority:
         self.web_delegate_protocol = 1 if result.get("web_protocol") == 1 else 0
         return result
 
+    def _web_publication_configured(self):
+        manager = getattr(self.app, "web_service_manager", None)
+        if manager is None:
+            return False
+        # Configuration only: connecting/preparing/temporary errors do not mean OFF.
+        try:
+            return bool(manager.status()["enabled"] and not manager.public_paused
+                        and manager.ddns_status()["configured"] and manager.public.status()["enabled"])
+        except Exception:
+            return False  # A broken optional web module must not block Discord registration.
+
+    def refresh_web_presence(self):
+        """Local check; register only an actual web configuration availability change."""
+        if not self.alive:
+            return
+        available = self._web_publication_configured()
+        if available != getattr(self, "web_presence_queued", None):
+            self.web_presence_queued = available
+            self.session_connected()
+
     def _metadata(self, status):
         identity = self.app._get_administrator_identity()
         entry = dict(self.app._get_current_github_upload_server_entry())
@@ -431,6 +456,7 @@ class DiscordAuthority:
                     application_id=str(status.get("application_id") or ""))
         metadata["bot_user_id"] = str(status.get("bot_user_id") or status.get("application_id") or "")
         metadata["web_delegate_protocol"] = getattr(self, "web_delegate_protocol", 0)
+        metadata["web_public_available"] = self._web_publication_configured()
         return metadata
 
     def _presence(self, data, status, metadata):
@@ -447,6 +473,7 @@ class DiscordAuthority:
                 and (data.get("owner") or data.get("phase", "idle") != "idle")):
             raise AuthorityError("다른 관리자와 안내채팅 채널이 다릅니다. 모든 PC에 같은 안내채팅 ID를 설정하세요.")
         if all(member.get(key) == value for key, value in values.items()) and data.get("control_channel") == channel:
+            self.web_presence_queued = metadata.get("web_public_available") is True
             return data
         def update(record):
             self._assert_profile()
@@ -457,7 +484,9 @@ class DiscordAuthority:
             record["members"][self.client] = dict(previous, **values, seen=time.time())
             record["control_channel"] = channel
         with self.lock:
-            return self.record.mutate(update)
+            result = self.record.mutate(update)
+        self.web_presence_queued = metadata.get("web_public_available") is True
+        return result
 
     def _controller_watch(self):
         while self.alive:
@@ -499,6 +528,12 @@ class DiscordAuthority:
         if data.get("control_channel") != channel:
             raise AuthorityError("안내채팅 채널이 현재 담당자와 다릅니다. 모든 PC의 안내채팅 ID를 확인하세요.")
         self._observe(data, status)
+        web_control = getattr(self, "web_control", None)
+        if web_control is not None:
+            try:
+                web_control.observe(data, status)
+            except Exception as exc:
+                self.app._append_debug_log(f"discord_web_event_failed type={type(exc).__name__}")
         failed_request = data.get("failure_request")
         notice = (failed_request, data.get("generation"))
         if (data.get("failure") and failed_request == getattr(self, "outgoing_progress_token", "")
@@ -716,13 +751,24 @@ class DiscordAuthority:
             with self.lock:
                 grant_checked_at = time.monotonic()
                 relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
+                preserve_web = bool(relay and relay.status()["split_for_next"])
+                automatic_preserve_web = bool(relay and verified_previous is None and owner
+                    and owner.get("runtime") == existing.get("owner_runtime")
+                    and not self._web_publication_configured())
                 self.current = self.record.request(self.client, runtime, channel,
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
                     verified_previous=verified_previous, verified_kind=verified_kind,
                     minimum_generation=self.policy.snapshot().get("authority_generation", 0),
-                    preserve_web=bool(relay and relay.status()["split_for_next"]))
+                    preserve_web=preserve_web, automatic_preserve_web=automatic_preserve_web)
                 if relay:
                     relay.choose_next(False)
+            manager = getattr(self.app, "web_service_manager", None)
+            if manager is not None:
+                try:
+                    manager._log("web_handover_assignment", automatic_preserve=automatic_preserve_web,
+                                 explicit_preserve=preserve_web, previous_host_retained=bool(self.current.get("web_delegate")))
+                except Exception:
+                    pass  # Optional web diagnostics must not interrupt the voice handover.
             request_id = self.current["request"]
             self._notify(self.current, notice="started")
             if self.current["phase"] == "requested":
@@ -1181,6 +1227,9 @@ class DiscordAuthority:
         threading.Thread(target=worker, daemon=True, name="discord-query-routing").start()
 
     def command(self, payload, done):
+        if payload.get("operation") == "administrator_web_retry":
+            self.web_control.request(payload, done)
+            return
         if payload.get("operation") in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:
             self._query_command(payload, done)
             return

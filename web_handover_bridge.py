@@ -61,13 +61,13 @@ class WebHandoverBridge:
             self.manager._log("web_delegated_lease_failed", error_type=type(exc).__name__)
         self.after_id = self.app.root.after(1000, self._tick)
 
-    def retry(self):
+    def retry(self, *, once=False):
         role = self.delegation.status()["role"]
         if role == "source":
             self.delegation.return_web_here()
             return
         if role == "host":
-            self.delegation.retry()
+            self.delegation.retry(once=once)
             return
         with self.lock:
             if self.context is None:

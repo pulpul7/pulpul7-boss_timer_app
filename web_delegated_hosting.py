@@ -1,4 +1,4 @@
-"""Opt-in split hosting. Verified authority events drive downloads, never polling.
+"""Split hosting. Verified authority events drive downloads, never polling.
 
 The voice owner edits; the designated host only publishes detached web snapshots.
 No Tk prompts and no network calls on Tk or on the local lease-renewal path.
@@ -92,6 +92,21 @@ def build_delegation(data, client, runtime, scope, generation, request):
     return dict(protocol=WEB_RELAY_PROTOCOL, id=uuid.uuid4().hex, host=host, host_runtime=host_runtime,
                 source=client, source_runtime=runtime, generation=generation, request=request,
                 guild=str(scope["guild"]), server=str(scope["server"]), season=str(scope["season"]), state="active")
+
+
+def build_automatic_delegation(data, client, runtime, scope, generation, request):
+    """A web-OFF receiver leaves an eligible existing host in place."""
+    member = data.get("members", {}).get(data.get("owner"), {})
+    if member.get("web_public_available") is False:
+        return None  # Both PCs have web disabled: do not start a schedule relay.
+    try:
+        # Older split-capable GUIs do not advertise availability. Preserve their
+        # possible live web service instead of revoking it without a replacement.
+        return build_delegation(data, client, runtime, scope, generation, request)
+    except ValueError:
+        # First connection, offline/legacy peer or different season/server must
+        # not block voice authority just because automatic web preservation is unavailable.
+        return None
 
 
 def artifact_path(delegate, transfer):
@@ -311,11 +326,11 @@ class DelegatedHosting:
             self.requests.append(dict(operation="return"))
         self.wake.set()
 
-    def retry(self):
+    def retry(self, *, once=False):
         with self.lock:
             self.failures, self.next_attempt = 0, 0
             self.last_ready_sent = None
-            self.worker_retries = self.public_retries = 0
+            self.worker_retries = self.public_retries = MAX_ATTEMPTS if once else 0
             self.worker_retry_at = self.public_retry_at = 0
         self.wake.set()
 

@@ -335,6 +335,7 @@ a = Analysis(
         "web_asset_store",
         "web_page_updater",
         "web_request_limits",
+        "web_discord_control",
         "cryptography.hazmat.primitives.ciphers.aead",
         # Standard library used by dynamically loaded public notice adapters.
         "html.parser",

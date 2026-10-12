@@ -3450,6 +3450,9 @@ class BossTimerApp:
         finally:
             if not manager.closed.is_set():
                 try:
+                    coordinator = getattr(self, "discord_handover", None)
+                    if coordinator is not None:
+                        coordinator.refresh_web_presence()
                     self._refresh_schedule_web_status()
                     self.web_schedule_after_id = self.root.after(3000, self._publish_web_schedule_snapshot)
                 except tk.TclError:

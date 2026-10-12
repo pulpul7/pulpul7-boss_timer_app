@@ -160,11 +160,14 @@ class WebServiceManager:
             write_json(self.root / "authority_lease.json", data)
             self.last_authority_write = time.monotonic()
 
-    def retry_public(self):
+    def retry_public(self, *, once=False):
         if self.authority_retry is None:
             raise ValueError("Discord 송출권한을 먼저 얻어주세요.")
         self.public_paused = False
-        self.authority_retry()
+        if once:
+            self.authority_retry(once=True)
+        else:
+            self.authority_retry()
         self.set_enabled(True)
         self.public_preference_touched = True
         self.public.configure(True)
