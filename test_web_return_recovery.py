@@ -195,6 +195,15 @@ class ReturnTests(unittest.TestCase):
         manager.emergency_stop.assert_not_called()
         self.repo.put.assert_not_called()
 
+    def test_cancelled_old_job_never_rolls_back_same_authority_trial(self):
+        from web_handover_bridge import WebOperationCancelled
+        relay, manager, coordinator, _, recovery = self.begin_trial()
+        recovery.fail(relay.bridge.context[0], coordinator, WebOperationCancelled('replaced'))
+        manager.emergency_stop.assert_not_called()
+        self.repo.get.assert_not_called()
+        self.repo.put.assert_not_called()
+        self.assertIsNone(recovery.failed)
+
     def test_newer_durable_request_cannot_be_overwritten(self):
         relay, manager, coordinator, _, recovery = self.begin_trial()
         key = relay.bridge.context[0]

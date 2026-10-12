@@ -165,6 +165,9 @@ class WebReturnRecovery:
             self._rollback(*self.failed)
 
     def fail(self, key, coordinator, exc):
+        from web_handover_bridge import WebOperationCancelled
+        if isinstance(exc, WebOperationCancelled):
+            return  # A replacement can share the same voice key; it is not a failed trial.
         with self.lock:
             pending = recovery_info(self.record, key)
         if pending:

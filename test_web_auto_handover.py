@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from discord_authority import AuthorityRecord
 from web_delegated_hosting import delegation_info
-from web_handover_bridge import WebHandoverBridge, WebAuthorityTransition
+from web_handover_bridge import WebHandoverBridge, WebAuthorityTransition, WebOperationCancelled
 from web_return_recovery import WebReturnRecovery
 from web_standalone_hosting import StandaloneHosting
 from web_service_manager import WebServiceManager
@@ -216,6 +216,80 @@ class AutoHandoverTests(unittest.TestCase):
         self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
         bridge._publish_shared.assert_called_once()
         bridge.recovery.fail.assert_not_called()
+
+    def test_cancelled_old_worker_does_not_rollback_replacement_with_same_voice_key(self):
+        for failure in (WebOperationCancelled('old operation'), OSError('old request failed')):
+            with self.subTest(error_type=type(failure).__name__):
+                self.repo.data.pop('web_delegate', None)
+                relay, manager, coordinator, _ = self.node('source')
+                bridge = relay.bridge
+                bridge.delegation = relay
+                bridge.closed = threading.Event()
+                bridge.failed_key = bridge.ready_key = bridge.retained_host = None
+                bridge.retry_serial = 0
+                bridge.standalone = NS(resume_stopped=Mock(return_value=False),
+                                       suppresses_normal=lambda: False, publish_shared=Mock())
+                bridge.recovery = NS(monitor=Mock(), observe=Mock(), fail=Mock())
+                bridge.wake = NS(wait=lambda _: bridge.closed.set(), clear=Mock())
+                bridge._publish_shared = Mock()
+                manager.ddns_status = lambda: dict(configured=False)
+                coordinator._ui = lambda callback: callback()
+                coordinator._web_publication_configured = lambda: True
+                for name in ('_guard', '_prepare', '_keep_retained_host'):
+                    setattr(bridge, name, MethodType(getattr(WebHandoverBridge, name), bridge))
+                def obsolete_read(*_args):
+                    bridge.retry_serial += 1  # The delegated return starts a new attempt.
+                    raise failure
+                bridge._read_owner = obsolete_read
+                manager.set_authority.reset_mock()
+                WebHandoverBridge._loop(bridge)
+                bridge.recovery.fail.assert_not_called()
+                manager.set_authority.assert_not_called()
+                self.assertIsNone(bridge.failed_key)
+                bridge._read_owner = MethodType(WebHandoverBridge._read_owner, bridge)
+                bridge.closed.clear()
+                with patch('web_schedule_snapshot.collect_snapshot', return_value=public_snapshot('local')):
+                    WebHandoverBridge._loop(bridge)
+                self.assertTrue(manager.set_authority.call_args.kwargs['ready'])
+                bridge.recovery.fail.assert_not_called()
+
+    def test_explicit_retry_verifies_current_state_instead_of_old_thread_local_serial(self):
+        self.repo.data.pop('web_delegate')
+        relay, manager, coordinator, _ = self.node('source')
+        bridge = relay.bridge
+        bridge.closed = threading.Event()
+        bridge.retry_serial = 2
+        bridge.operation_local.serial = 1
+        bridge.delegation = relay
+        bridge.standalone = NS(suppresses_normal=lambda: False)
+        bridge.refresh_context = Mock()
+        bridge._keep_retained_host = Mock(return_value=False)
+        bridge._guard = MethodType(WebHandoverBridge._guard, bridge)
+        WebHandoverBridge.retry(bridge)
+        self.assertEqual(bridge.retry_serial, 3)
+        self.assertIsNone(bridge.failed_key)
+
+    def test_current_preparation_failure_still_denies_publication_and_recovers(self):
+        self.repo.data.pop('web_delegate')
+        relay, manager, coordinator, _ = self.node('source')
+        bridge = relay.bridge
+        bridge.delegation = relay
+        bridge.closed = threading.Event()
+        bridge.failed_key = bridge.ready_key = None
+        bridge.retry_serial = 0
+        bridge.standalone = NS(resume_stopped=Mock(return_value=False),
+                               suppresses_normal=lambda: False, publish_shared=Mock())
+        bridge.recovery = NS(monitor=Mock(), observe=Mock(), fail=Mock())
+        bridge.wake = NS(wait=lambda _: bridge.closed.set(), clear=Mock())
+        bridge._read_owner = lambda *_: deepcopy(self.repo.data)
+        bridge._prepare = Mock(side_effect=ValueError('invalid shared credentials'))
+        bridge._keep_retained_host = Mock(return_value=False)
+        coordinator._web_publication_configured = lambda: True
+        manager.set_authority.reset_mock()
+        WebHandoverBridge._loop(bridge)
+        self.assertEqual(manager.set_authority.call_args.args[0], ())
+        self.assertEqual(bridge.failed_key, bridge.context[0])
+        bridge.recovery.fail.assert_called_once()
 
     def test_reuniting_existing_web_host_does_not_pause_publication_while_joining(self):
         self.repo.data.pop('web_delegate')

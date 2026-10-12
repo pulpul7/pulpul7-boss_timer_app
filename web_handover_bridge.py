@@ -13,6 +13,10 @@ class WebAuthorityTransition(ValueError):
     """A verified new assignment keeps this PC's existing public website."""
 
 
+class WebOperationCancelled(ValueError):
+    """An obsolete local operation cannot deny or roll back its replacement."""
+
+
 class WebHandoverBridge:
     def __init__(self, app, manager):
         self.app, self.manager = app, manager
@@ -171,7 +175,7 @@ class WebHandoverBridge:
         with self.lock:
             if self.context is None:
                 raise ValueError("Discord 송출권한을 먼저 얻어주세요. 웹 재시도는 음성 권한을 변경하지 않습니다.")
-            self._guard(self.context[0], self.context[1])
+            self._guard(self.context[0], self.context[1], operation_serial=self.retry_serial)
             self.failed_key = self.ready_key = None
             self.retry_serial += 1
         if not self._keep_retained_host():
@@ -185,7 +189,10 @@ class WebHandoverBridge:
         state = coordinator.policy.snapshot()
         delegated_info = delegated_info or getattr(self.operation_local, "delegated_info", None)
         if delegated_info:
-            self.delegation._guard(delegated_info, "source", allow_joining=True)
+            try:
+                self.delegation._guard(delegated_info, "source", allow_joining=True)
+            except ValueError as exc:
+                raise WebOperationCancelled(str(exc)) from exc
         manual = getattr(self, "standalone", None)
         if (self.closed.is_set() or self.manager.closed.is_set() or self.manager.public_paused
                 or (manual is not None and manual.suppresses_normal())
@@ -194,7 +201,7 @@ class WebHandoverBridge:
                 or (getattr(self.operation_local, "serial", serial) if operation_serial is None else operation_serial) != serial
                 or not coordinator.alive or not ConnectionPolicy.has_authority(state, allow_joining=True)
                 or state.get("runtime_id") != key[2] or state.get("authority_generation") != key[3]):
-            raise ValueError("권한이 변경되어 이전 웹 작업을 취소했습니다.")
+            raise WebOperationCancelled("권한이 변경되어 이전 웹 작업을 취소했습니다.")
 
     def _read_owner(self, key, coordinator):
         self._guard(key, coordinator)
@@ -326,7 +333,7 @@ class WebHandoverBridge:
                             preparing = False
                         with self.lock:
                             if serial != self.retry_serial:
-                                raise ValueError("새 웹 재시도로 이전 작업을 취소했습니다.")
+                                raise WebOperationCancelled("새 웹 재시도로 이전 작업을 취소했습니다.")
                         self._guard(key, coordinator)
                         state = coordinator.policy.snapshot()
                         if ConnectionPolicy.has_authority(state):
@@ -349,17 +356,27 @@ class WebHandoverBridge:
                         self.manager._log("web_voice_task_cancelled_host_retained", generation=key[3])
                         self.wake.set()
                         continue
-                    try:
-                        if not self.delegation.status()["role"] and not self._keep_retained_host(key, coordinator):
-                            self.manager.set_authority((), message=str(exc) if isinstance(exc, ValueError) else
-                                                       "웹 승계 준비 실패 · 진단 로그 확인 후 웹 재시도를 눌러주세요.")
-                    except OSError:
-                        pass  # The independent worker lease still expires without renewal.
-                    if preparing and serial == self.retry_serial:
-                        self.failed_key = key
-                    self.manager._log("web_handover_prepare_failed", generation=key[3], error_type=type(exc).__name__,
-                                      reason=str(exc)[:300] if isinstance(exc, ValueError) else "")
-                    self.recovery.fail(key, coordinator, exc)
+                    with self.lock:
+                        current_serial = self.retry_serial
+                        obsolete = serial != current_serial or context != self.context
+                    if isinstance(exc, WebOperationCancelled) or obsolete:
+                        # A return/retry can replace this job while it reads the
+                        # record or imports settings. Cancellation is not a
+                        # failed public trial, even if the authority key is equal.
+                        self.manager._log("web_handover_obsolete_operation_cancelled", generation=key[3],
+                                          operation_serial=serial, current_serial=current_serial)
+                    else:
+                        try:
+                            if not self.delegation.status()["role"] and not self._keep_retained_host(key, coordinator):
+                                self.manager.set_authority((), message=str(exc) if isinstance(exc, ValueError) else
+                                                           "웹 승계 준비 실패 · 진단 로그 확인 후 웹 재시도를 눌러주세요.")
+                        except OSError:
+                            pass  # The independent worker lease still expires without renewal.
+                        if preparing and serial == self.retry_serial:
+                            self.failed_key = key
+                        self.manager._log("web_handover_prepare_failed", generation=key[3], error_type=type(exc).__name__,
+                                          reason=str(exc)[:300] if isinstance(exc, ValueError) else "")
+                        self.recovery.fail(key, coordinator, exc)
             self.wake.wait(5)
             self.wake.clear()
 
