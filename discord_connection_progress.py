@@ -11,6 +11,7 @@ class DiscordConnectionProgress:
             ("handover", "승계 처리 (기존 관리자 접속 시)"),
             ("authority", "관리자 권한 획득"),
             ("voice", "음성채널 입장"),
+            ("confirm", "송출 권한 최종 확인"),
         ),
         "outgoing": (
             ("stop", "송출 권한 반납 · 송출 중단"),
@@ -24,6 +25,8 @@ class DiscordConnectionProgress:
         self.role, self.token = role, token
         self.finished = False
         self.rows = {}
+        self.skipped = set()
+        self.position = -1
         self.close_job = None
         parent = getattr(app, "schedule_window", None)
         if not app._widget_available(parent) or not parent.winfo_viewable():
@@ -37,8 +40,9 @@ class DiscordConnectionProgress:
         font = getattr(app, "current_font_family", "Malgun Gothic")
         header = tk.Frame(self.window, bg="#1e3a8a", padx=18, pady=12)
         header.pack(fill="x")
-        tk.Label(header, text="관리자 인계 중" if role == "outgoing" else "디코 연결 중",
-                 bg="#1e3a8a", fg="white", font=(font, 14, "bold")).pack(anchor="w")
+        self.header = tk.Label(header, text="관리자 인계 중" if role == "outgoing" else "디코 연결 중",
+                               bg="#1e3a8a", fg="white", font=(font, 14, "bold"))
+        self.header.pack(anchor="w")
         self.peer = tk.StringVar(value="새 관리자에게 권한을 넘기고 있습니다." if role == "outgoing"
                                  else "봇 연결과 관리자 상태를 확인하고 있습니다.")
         tk.Label(header, textvariable=self.peer, bg="#1e3a8a", fg="#dbeafe",
@@ -62,7 +66,7 @@ class DiscordConnectionProgress:
                  fg="#64748b", font=(font, 9)).pack(side="left")
         tk.Button(footer, text="닫기", command=self.close, font=(font, 9), padx=8).pack(side="right")
         self.window.protocol("WM_DELETE_WINDOW", self.close)
-        app._center_window_over_parent(self.window, parent, 520, 410)
+        app._center_window_over_parent(self.window, parent, 520, 434 if role == 'incoming' else 410)
         self.window.deiconify()
         self.window.lift()
         # Paint before the existing synchronous settings/status checks. Do not
@@ -75,17 +79,29 @@ class DiscordConnectionProgress:
         except tk.TclError:
             return False
 
-    def update(self, step, detail="", peer=""):
+    def update(self, step, detail="", peer="", *, skipped=()):
         if self.finished or not self.is_open():
             return
         keys = [key for key, _label in self.STEPS[self.role]]
         if step not in keys:
             return
         position = keys.index(step)
+        if self.role == 'incoming' and position < self.position:
+            return  # Late display callbacks cannot move the progress backwards.
+        self.position = position
+        self.skipped.update(key for key in skipped if key in keys)
         for index, (key, label) in enumerate(self.STEPS[self.role]):
+            if key in self.skipped:
+                self.rows[key].configure(text="–  " + label + " · 생략", fg="#64748b")
+                continue
             mark, color = (("✓", "#15803d") if index < position else
                            ("●", "#1d4ed8") if index == position else ("○", "#64748b"))
             self.rows[key].configure(text=f"{mark}  {label}", fg=color)
+        if self.role == 'incoming':
+            titles = dict(bot='디코 연결 확인 중', owner='현재 관리자 확인 중', handover='관리자 승계 중',
+                          authority='관리자 권한 확인 중', voice='음성채널 입장 중',
+                          confirm='음성 입장 완료 · 송출 확인 중')
+            self.header.configure(text=titles[step])
         if detail:
             self.detail.set(detail)
         if peer:
@@ -97,9 +113,12 @@ class DiscordConnectionProgress:
         self.finished = True
         self.bar.stop()
         self.bar.configure(mode="determinate", value=100 if success else 0)
+        self.header.configure(text=('디코 송출 연결 완료' if self.role == 'incoming' else '관리자 인계 완료')
+                              if success else '연결 상태 확인 필요')
         if success:
             for key, label in self.STEPS[self.role]:
-                self.rows[key].configure(text="✓  " + label, fg="#15803d")
+                if key not in self.skipped:
+                    self.rows[key].configure(text="✓  " + label, fg="#15803d")
         self.detail.set(detail)
         # Only the display stays briefly; connection workers never wait for it.
         self.close_job = self.window.after(1800 if success else 3500, self.close)

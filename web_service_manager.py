@@ -216,8 +216,8 @@ class WebServiceManager:
     def stop_web(self):
         self.standalone.stop()
 
-    def stop_web_verified(self, *, for_handover=False):
-        self.standalone.stop_sync(for_handover=for_handover)
+    def stop_web_verified(self, *, for_handover=False, record_stop=True):
+        self.standalone.stop_sync(for_handover=for_handover, record_stop=record_stop)
 
     def _public_context(self):
         with self.lock:

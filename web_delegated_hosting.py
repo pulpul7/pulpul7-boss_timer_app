@@ -181,12 +181,15 @@ class DelegatedHosting:
         if getattr(self.bridge, 'independent', False):
             from web_standalone_hosting import standalone_info
             web = standalone_info(data)
+            host_member = data.get('members', {}).get((web or {}).get('owner'), {})
+            departed = bool(web and (host_member.get('web_closed_runtime') == web['runtime']
+                or (host_member.get('runtime') == web['runtime'] and host_member.get('online') is False)))
             source = data.get('owner')
             source_runtime = data.get('owner_runtime')
             info = None
             # Data relay is separate from web ownership: voice changes may
             # choose a schedule provider, but never stop or move the website.
-            if (web and web['state'] == 'active' and data.get('phase') == 'active'
+            if (web and not departed and web['state'] == 'active' and data.get('phase') == 'active'
                     and source and source != web['owner']
                     and data.get('members', {}).get(source, {}).get('runtime') == source_runtime
                     and web['server'] == str(data.get('scope', {}).get('server'))

@@ -169,7 +169,7 @@ class IndependentTests(unittest.TestCase):
         node._status = lambda: dict(online=True, runtime_id=SOURCE_SESSION)
         node._control = node._progress = node._metadata = node._finish = Mock()
         node._presence = lambda data, *_: data
-        node._live_data = lambda data: data
+        node._live_data = lambda data, probe=None: data
         node._ui = lambda callback, **_kw: callback()
         node.policy = NS(snapshot=lambda: {})
         node.app = NS(discord_start_web_together=together, schedule_window=None, root=None,
@@ -208,7 +208,7 @@ class IndependentTests(unittest.TestCase):
         node.app._start_web_runtime.side_effect = ValueError('web configuration missing')
         node._incoming(False, None, '777', None, None)
         node.record.request.assert_called_once()
-        node.app._append_debug_log.assert_called_once()
+        node.app._append_debug_log.assert_any_call('web_parallel_start_failed type=ValueError')
 
 
 if __name__ == '__main__':

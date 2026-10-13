@@ -299,6 +299,9 @@ class DiscordAuthority:
         self.lock = threading.RLock()
         self.event_lock = threading.Lock()
         self.session_lock = threading.Lock()
+        self.connection_notice_lock = threading.Lock()
+        self.connection_notices = queue.Queue()
+        self.connection_notice_running = False
         app.root.after(100, self._drain)
         threading.Thread(target=self._controller_watch, daemon=True, name="discord-local-controller").start()
 
@@ -344,9 +347,9 @@ class DiscordAuthority:
         status = self.app._query_discord_bot_status_port(timeout=.3)
         return status if self.app._discord_bot_status_matches(status) else {}
 
-    def _progress(self, role, token, step, detail, *, peer="", create=False):
+    def _progress(self, role, token, step, detail, *, peer="", create=False, skipped=()):
         """Post display-only updates; never wait for Tk or fetch remote data."""
-        value = (token, step, detail, peer)
+        value = (token, step, detail, peer, tuple(skipped))
         if not create and self.last_progress.get(role) == value:
             return
         self.last_progress[role] = value
@@ -358,7 +361,7 @@ class DiscordAuthority:
                 popup = (show_connection_progress(self.app, role=role, token=token) if create
                          else getattr(self.app, "discord_connection_progress", None))
                 if popup is not None and popup.token == token and popup.role == role:
-                    popup.update(step, detail, peer)
+                    popup.update(step, detail, peer, skipped=skipped)
             except Exception as exc:
                 self.app._append_debug_log(f"authority_progress_display_failed type={type(exc).__name__}")
         self._ui(show, wait=False)
@@ -433,16 +436,28 @@ class DiscordAuthority:
             if (local.get("runtime_id") == self.runtime
                     and local.get("authority_generation", 0) > values["authority_generation"]):
                 return
+            if (owns and data.get("phase") == "joining"
+                    and ConnectionPolicy.has_authority(local, self.runtime)
+                    and local.get("runtime_id") == self.runtime
+                    and local.get("authority_generation") == values["authority_generation"]
+                    and local.get("authority_request") == values["authority_request"]):
+                # Web/presence workers can finish observing an older snapshot
+                # after this same voice request was committed active. Refresh
+                # its lease, but never demote a completed join to joining again.
+                values["authority_active"] = True
+                self.app._append_debug_log(
+                    f"authority_completed_join_preserved request={values['authority_request']} "
+                    f"generation={values['authority_generation']} source=late_joining_snapshot")
             self.policy.update(**values)
         relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
         if relay is not None:
-            relay.observe(data, self)
-            refresh_web = getattr(getattr(relay, "bridge", None), "refresh_context", None)
-            if callable(refresh_web):
-                try:
+            try:
+                relay.observe(data, self)
+                refresh_web = getattr(getattr(relay, "bridge", None), "refresh_context", None)
+                if callable(refresh_web):
                     refresh_web()  # Wake the independent web worker on the grant, not the next Tk tick.
-                except Exception as exc:
-                    self.app._append_debug_log(f"web_authority_context_refresh_failed type={type(exc).__name__}")
+            except Exception as exc:
+                self.app._append_debug_log(f"web_authority_context_refresh_failed type={type(exc).__name__}")
 
     def _unattended_web_host(self, data=None):
         relay = getattr(getattr(self.app, "web_service_manager", None), "delegation", None)
@@ -569,6 +584,52 @@ class DiscordAuthority:
                           notice_voice_channel=str(data.get("channel") or ""))
         self._control("publish", **values)
 
+    def _queue_connection_notice(self, data, *, notice=""):
+        """Ordered notices for verified joins; Tk and voice never wait for delivery."""
+        with self.connection_notice_lock:
+            self.connection_notices.put((deepcopy(data), notice))
+            if self.connection_notice_running:
+                return
+            self.connection_notice_running = True
+
+        def worker():
+            while True:
+                with self.connection_notice_lock:
+                    try:
+                        recorded, kind = self.connection_notices.get_nowait()
+                    except queue.Empty:
+                        self.connection_notice_running = False
+                        return
+                started = time.monotonic()
+                try:
+                    self._assert_profile()
+                    local = self.policy.snapshot()
+                    if (recorded.get('owner') != self.client
+                            or local.get('runtime_id') != recorded.get('owner_runtime')):
+                        continue
+                    if kind == 'completed':
+                        if recorded.get('phase') != 'active':
+                            continue
+                        # This is a historical, verified completion. Keep its
+                        # notice even if the administrator immediately released.
+                    elif (local.get('authority_request') != recorded.get('request')
+                          or local.get('authority_generation') != recorded.get('generation')
+                          or local.get('blocked_request') == recorded.get('request')):
+                        continue  # Do not announce an obsolete operation after another handover.
+                    self._notify(recorded, notice=kind)
+                    self.app._append_debug_log(
+                        f"authority_connection_notice_sent notice={kind or 'changed'} "
+                        f"elapsed_ms={round((time.monotonic()-started)*1000)}")
+                except Exception as exc:
+                    self.app._append_debug_log(
+                        f"authority_connection_notice_failed notice={kind or 'changed'} type={type(exc).__name__}")
+        try:
+            threading.Thread(target=worker, name='discord-connection-notices', daemon=True).start()
+        except RuntimeError as exc:
+            with self.connection_notice_lock:
+                self.connection_notice_running = False
+            self.app._append_debug_log(f"authority_connection_notice_worker_failed type={type(exc).__name__}")
+
     def _process_record(self, data, status):
         channel = str(getattr(self, "control_channel_id", "") or getattr(self.app, "discord_bot_text_channel_id", "") or "")
         if data.get("control_channel") != channel:
@@ -666,8 +727,8 @@ class DiscordAuthority:
                         timer.start()
         threading.Thread(target=worker, daemon=True, name="discord-authority-event").start()
 
-    def _live_data(self, data):
-        result = self._control("probe")
+    def _live_data(self, data, probe=None):
+        result = probe if probe is not None else self._control("probe")
         live = {member.get("client_id"): member for member in result["members"] if member.get("online")}
         for client, member in live.items():
             if ((member.get("sending") or member.get("joining"))
@@ -713,6 +774,7 @@ class DiscordAuthority:
     def _incoming(self, remote, call, channel, done, expected_owner, attempt=0):
         request_id = ""
         result, message = False, ""
+        started_at = time.monotonic()
         try:
             deadline = time.monotonic() + JOIN_SECONDS
             while time.monotonic() < deadline:
@@ -725,9 +787,11 @@ class DiscordAuthority:
             else:
                 raise AuthorityError("봇 연결이 완료되지 않았습니다. 봇 연결은 유지하며 다시 시도할 수 있습니다.")
             runtime = str(status["runtime_id"])
-            self._control("check")
             self._progress("incoming", self.incoming_progress_token, "owner",
-                           "봇 연결 확인 완료 · 현재 담당 관리자를 확인하고 있습니다.")
+                           "봇 연결 확인 완료 · 관리자들의 실제 연결 응답을 확인하고 있습니다.")
+            probe_started = time.monotonic()
+            probe = self._control("probe")  # Also verifies the channel and control thread.
+            self.app._append_debug_log(f"authority_start_probe_completed elapsed_ms={round((time.monotonic()-probe_started)*1000)}")
             try:
                 with self.lock:
                     existing, _ = self.record.read()
@@ -751,8 +815,9 @@ class DiscordAuthority:
                     and existing.get("phase") == "active" and ConnectionPolicy.has_authority(local, runtime)
                     and status.get("voice_connected") and str(status.get("voice_channel_id")) == requested_channel):
                 result, message = True, "관리자 · 송출 중 (현재 연결 확인 완료)"
+                self._progress("incoming", self.incoming_progress_token, "confirm", message, skipped=("handover",))
                 return
-            live = self._live_data(existing)
+            live = self._live_data(existing, probe)
             owner = live["members"].get(existing.get("owner"), {})
             if owner.get("runtime") != existing.get("owner_runtime"):
                 owner = {}
@@ -824,14 +889,16 @@ class DiscordAuthority:
                 except Exception:
                     pass  # Optional web diagnostics must not interrupt the voice handover.
             request_id = self.current["request"]
-            self._notify(self.current, notice="started")
+            requested_handover = self.current["phase"] == "requested"
             if self.current["phase"] == "requested":
                 self._progress("incoming", self.incoming_progress_token, "handover",
                                "기존 관리자의 실제 음성 종료 확인을 기다립니다.\n"
                                "응답 시간이 끝나도 확인 없이 권한을 가져오지 않습니다.")
+                self._notify(self.current, notice="started")  # The previous owner must receive this request.
             else:
                 self._progress("incoming", self.incoming_progress_token, "authority",
-                               "기존 담당자가 없어 승계 대기를 생략하고 관리자 권한을 확인합니다.")
+                                "기존 담당자가 없어 승계 대기를 생략하고 관리자 권한을 확인합니다.",
+                                skipped=("handover",))
             wait_until = time.monotonic() + HANDOVER_SECONDS
             while self.current["phase"] == "requested":
                 if self.current.get("released"):
@@ -841,11 +908,9 @@ class DiscordAuthority:
                                    + "\n새 관리자 권한을 획득하고 있습니다.")
                     with self.lock:
                         grant_checked_at = time.monotonic()
-                        latest, _ = self.record.read()
-                        if latest.get("request") != request_id:
-                            raise AuthorityError("다른 승계 요청으로 변경되었습니다.")
+                        # accept_stopped re-reads and validates the request and
+                        # exact stop proof in its CAS; a separate read is redundant.
                         self.current = self.record.accept_stopped(request_id, self.client, runtime)
-                    self._notify(self.current)
                     break
                 if time.monotonic() >= wait_until:
                     raise AuthorityError("승계 응답 시간이 끝났습니다. 기존 송출 종료 확인이 없어 새 음성 입장을 중단했습니다.")
@@ -854,12 +919,14 @@ class DiscordAuthority:
                     self.current, _ = self.record.read()
                 if self.current.get("request") != request_id:
                     raise AuthorityError("다른 승계 요청으로 변경되었습니다.")
-            with self.lock:
-                self.policy.resume()
-                self._observe(self.current, self._status(), grant_checked_at)
             self._progress("incoming", self.incoming_progress_token, "voice",
                            "관리자 권한 확인 완료 · 음성채널에 입장하고 있습니다.\n"
                             "웹 실행은 디코 송출 연결과 독립적으로 진행합니다.")
+            with self.lock:
+                self.policy.resume()
+                self._observe(self.current, self._status(), grant_checked_at)
+            self._queue_connection_notice(self.current, notice="" if requested_handover else "started")
+            join_started = time.monotonic()
             deadline = time.monotonic() + JOIN_SECONDS
             while time.monotonic() < deadline:
                 status = self._status()
@@ -869,26 +936,39 @@ class DiscordAuthority:
                 if (status.get("online") and status.get("voice_connected")
                         and status.get("runtime_id") == runtime and str(status.get("voice_channel_id")) == channel
                         and status.get("voice_authority_generation") == self.current["generation"]):
+                    self._progress("incoming", self.incoming_progress_token, "confirm",
+                        "음성채널 입장 완료 · 송출 권한의 최종 기록을 저장하고 있습니다.")
+                    self.app._append_debug_log(
+                        f"authority_voice_join_observed request={request_id} "
+                        f"wait_ms={round((time.monotonic()-join_started)*1000)}")
+                    confirm_started = time.monotonic()
                     with self.lock:
                         grant_checked_at = time.monotonic()
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
                         self._observe(self.current, status, grant_checked_at)
-                    self._notify(self.current, notice="completed")
-                    manager = getattr(self.app, "web_service_manager", None)
-                    result, message = True, ("관리자 · 송출 중 (웹 승계 준비는 별도 진행)"
-                        if manager is not None and manager.status()["enabled"] else
-                        "관리자 · 송출 중 (로컬 스케줄 유지 · 동기화는 수동)")
+                    # Admission and committed ownership are already verified.
+                    # A completion notice or optional web status cannot revoke
+                    # the voice connection or leave the progress popup hanging.
+                    result, message = True, "관리자 · 송출 중 (로컬 스케줄 유지 · 동기화는 수동)"
+                    self.app._append_debug_log(
+                        f"authority_voice_join_completed request={request_id} generation={self.current['generation']} "
+                        f"confirm_ms={round((time.monotonic()-confirm_started)*1000)} "
+                        f"total_ms={round((time.monotonic()-started_at)*1000)}")
+                    self._queue_connection_notice(self.current, notice="completed")
                     return
                 if (state.get("runtime_id") != runtime or state.get("authority_request") != request_id
                         or state.get("authority_needs_sync") or state.get("standby")):
                     raise AuthorityError("로컬 연결 또는 담당자 상태가 변경되었습니다. 재검증 후 다시 요청하세요.")
-                time.sleep(1)
+                time.sleep(.25)  # Local status only, during this bounded join.
             raise AuthorityError("음성채널 입장에 실패했습니다. 봇 연결은 유지하고 권한을 반납합니다.")
         except Exception as exc:
             message = str(exc)
             if request_id:
                 self._cancel_incoming(request_id, runtime, reason=message)
         finally:
+            if result:
+                token, completed_message = self.incoming_progress_token, message
+                self._ui(lambda: self._finish_progress('incoming', token, completed_message, success=True), wait=False)
             if call:
                 self._answer_remote_call(call, result, message)
             self._ui(lambda: self._finish(message, done, result,
@@ -1132,6 +1212,19 @@ class DiscordAuthority:
             member = data["members"].get(self.client, {})
             if stopped and member.get("runtime") == runtime:
                 member["online"] = False
+                member['disconnected_at'] = time.time()
+                from web_standalone_hosting import closed_web_confirmed, web_host_stamp
+                manager = getattr(self.app, 'web_service_manager', None)
+                if closed_web_confirmed(manager):
+                    member['web_closed_runtime'] = runtime
+                    member['web_closed_at'] = time.time()
+                    stamp = web_host_stamp(data)
+                    if stamp and stamp[:2] == (self.client, runtime):
+                        from web_standalone_hosting import StandaloneHosting
+                        StandaloneHosting.mark_stopped(data, self)
+                    pending = data.get('web_operation') or {}
+                    if pending.get('owner') == self.client and pending.get('runtime') == runtime:
+                        data.pop('web_operation', None)
             if (data.get("owner") == self.client and data.get("owner_runtime") == runtime
                     and (not request_id or data.get("request") == request_id)):
                 if data.get("phase") == "requested":

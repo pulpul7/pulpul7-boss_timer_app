@@ -20,6 +20,7 @@ class Root:
 class ConnectionVisualTests(unittest.TestCase):
     def app(self):
         app=object.__new__(BossTimerApp)
+        app.current_font_family='Malgun Gothic'
         app.root=Root(); app.schedule_window=Widget(); app.schedule_window_open=True
         app.discord_bot_status_label=Widget(); app.discord_bot_toggle_button=Widget()
         app.discord_bot_connection_frames=['off','half','almost','connected']

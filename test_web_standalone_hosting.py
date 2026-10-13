@@ -187,6 +187,80 @@ class StandaloneTests(unittest.TestCase):
                 manual.stop_sync()
         self.assertIsNone(standalone_info(self.repo.data))
 
+    def test_remote_handover_defers_only_record_write_after_verified_shutdown(self):
+        manual, manager, _, public = self.node(owner=SOURCE)
+        public.update(state='off')
+        before = deepcopy(self.repo.data)
+        with patch('web_standalone_hosting.read_json', return_value=dict(enabled=False)), \
+             patch.object(manual, '_save_settings_before_stop') as save:
+            manual.stop_sync(for_handover=True, record_stop=False)
+        save.assert_called_once()
+        manager.emergency_stop.assert_called_once_with(standby=True)
+        self.assertEqual(self.repo.data, before)
+        self.assertEqual(self.repo.writes, 0)
+        self.assertFalse(manual.busy)
+
+    def test_remote_shutdown_keeps_lease_loop_paused_and_restores_busy_on_failure(self):
+        manual, manager, _, _ = self.node(owner=SOURCE)
+        manual.busy = True  # Simulate an earlier startup worker being cancelled.
+        def while_saving():
+            self.assertTrue(manual.status()['busy'])
+            self.assertTrue(manual.stopping)
+            manual.busy = False  # The earlier worker finishes during this stop.
+            self.assertTrue(manual.status()['busy'])
+            manual.tick()
+            manager.set_authority.assert_not_called()
+        with patch.object(manual, '_save_settings_before_stop', side_effect=while_saving), \
+             patch('web_standalone_hosting.read_json', return_value=dict(enabled=True)):
+            with self.assertRaises(ValueError):
+                manual.stop_sync(for_handover=True)
+        self.assertFalse(manual.busy)
+
+    def test_identical_shared_envelope_is_not_imported_twice_during_handover(self):
+        manual, _, _, _ = self.node()
+        envelope = dict(schema=1, encrypted='same verified fixture')
+        original = manual.app._github_get_json_file
+        manual.app._github_get_json_file = lambda path, **kwargs: (envelope, 'sha', '') if path == 'data/web/shared.json' else original(path)
+        with patch('web_shared_state.import_state') as imported:
+            self.run_start(manual)
+        imported.assert_called_once()
+        self.assertEqual(manual.stage, 'starting')
+
+    def test_changed_shared_envelope_after_peer_stop_is_always_imported(self):
+        manual, _, coordinator, _ = self.node()
+        envelopes = [dict(schema=1, encrypted='before'), dict(schema=1, encrypted='new PIN or certificate')]
+        manual.app._github_get_json_file = Mock(side_effect=[(data, 'sha', '') for data in envelopes])
+        with patch('web_shared_state.import_state') as imported:
+            self.run_start(manual)
+        self.assertEqual(imported.call_count, 2)
+        self.assertEqual(imported.call_args.args[1], envelopes[1])
+        self.assertEqual(manual.stage, 'starting')
+
+    def test_settings_already_uploaded_by_this_host_are_not_uploaded_again_on_stop(self):
+        manual, manager, _, _ = self.node(owner=SOURCE)
+        manager.settings_path = manager.root/'settings.json'
+        manual.app._github_put_json_file = self.repo.put
+        with patch.object(Path, 'stat', return_value=NS(st_mtime_ns=1, st_size=100)), \
+             patch('web_shared_state.export_state') as export:
+            manual.shared_signature = manual._shared_settings_signature()
+            before = self.repo.get.call_count
+            manual._save_settings_before_stop()
+        export.assert_not_called()
+        self.repo.put.assert_not_called()
+        self.assertEqual(self.repo.get.call_count-before, 1)  # Ownership proof only.
+
+    def test_changed_settings_are_saved_before_stop_and_cache_is_updated(self):
+        manual, manager, _, _ = self.node(owner=SOURCE)
+        manager.settings_path = manager.root/'settings.json'
+        manual.app._github_put_json_file = self.repo.put
+        with patch.object(Path, 'stat', return_value=NS(st_mtime_ns=2, st_size=100)), \
+             patch('web_shared_state.export_state', return_value=dict(schema=1, encrypted='fixture')) as export:
+            manual.shared_signature = ('old settings',)
+            manual._save_settings_before_stop()
+            self.assertEqual(manual.shared_signature, manual._shared_settings_signature())
+        export.assert_called_once()
+        self.repo.put.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

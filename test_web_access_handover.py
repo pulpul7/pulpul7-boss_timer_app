@@ -131,6 +131,34 @@ class AccessHandoverTests(unittest.TestCase):
             self.access.change('guest_pin', '1234')
         self.assertEqual(self.access.data, before)
 
+    def test_same_verified_certificate_is_reused_but_new_or_broken_certificate_is_replaced(self):
+        access, pins = policy.export_access(self.access.data)
+        domain = 'test.duckdns.org'
+        payload = dict(owner=['100', 'a'*32, 'b'*32, 1], access=access, pins=pins,
+                       chain='verified certificate', key='verified private key',
+                       external_port=8766, mapping_owner='e'*32, public_enabled=True)
+        for existing_chain, broken, expected_publications in ((b'verified certificate', False, 0),
+                                                              (b'older certificate', False, 1),
+                                                              (b'verified certificate', True, 1)):
+            manager = NS(root=Path('unused'), lock=threading.RLock(), access=self.access,
+                access_view={}, https=NS(settings={}, lock=threading.RLock(), view={}),
+                pin_public_port=Mock(), public_preference_touched=True, public=NS(configure=Mock()), _log=Mock())
+            local_certificate = Mock(return_value=(dict(domain=domain), NS(read_bytes=lambda: existing_chain), None, None))
+            if broken:
+                local_certificate.side_effect = ValueError('invalid local certificate')
+            with patch('web_shared_state.read_json', return_value=dict(domain=domain, protected_token='opaque')), \
+                    patch('web_shared_state.unprotect_secret', return_value='test-token'), \
+                    patch('web_shared_state.decrypt_state', return_value=payload), \
+                    patch('cryptography.hazmat.primitives.serialization.load_pem_private_key'), \
+                    patch('web_certificate_store.inspect_certificate'), \
+                    patch('web_shared_state.load_certificate', local_certificate), \
+                    patch('web_shared_state.publish_certificate') as publish, \
+                    patch('web_shared_state.public_certificate', return_value={}), \
+                    patch('web_shared_state.write_json'):
+                import_state(manager, {}, ('100', 'c'*32, 'd'*32, 2), Mock())
+            self.assertEqual(publish.call_count, expected_publications)
+            self.assertEqual(policy.readable_pins(manager.access.data)['member']['value'], '1234')
+
     def test_display_is_private_cached_and_survives_restart(self):
         saved = deepcopy(self.access.data)
         with patch.object(policy, 'read_json', return_value=saved):

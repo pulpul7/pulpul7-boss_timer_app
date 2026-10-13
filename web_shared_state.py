@@ -126,7 +126,16 @@ def import_state(manager, envelope, stamp, guard):
         guard()
         # The old listener is gated during preparation. Publish only validated state.
         if reusable:
-            publish_certificate(root, chain, key, domain, commit=lambda path, info: (guard(), write_json(path, info)))
+            same_certificate = False
+            try:
+                existing, existing_chain, _, _ = load_certificate(root)
+                same_certificate = existing['domain'] == domain and existing_chain.read_bytes() == chain
+            except (OSError, ValueError, KeyError):
+                pass
+            if same_certificate:
+                manager._log('web_shared_certificate_reused')
+            else:
+                publish_certificate(root, chain, key, domain, commit=lambda path, info: (guard(), write_json(path, info)))
         if txt.get("domain") == domain.removesuffix(".duckdns.org"):
             write_json(root / "https" / "txt_owner.json", txt)
         write_json(root / "access_settings.json", access)

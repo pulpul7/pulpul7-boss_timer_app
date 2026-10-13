@@ -3510,8 +3510,11 @@ class BossTimerApp:
                 manual = getattr(manager, "standalone", None)
                 manual_state = manual.status() if manual is not None else {}
                 if manual_state.get("busy"):
-                    text = "웹 중지 중" if manual_state.get("stage") == "stopping" else "웹 승계 중"
+                    text = ("웹 중지 중" if manual_state.get("stage") == "stopping" else
+                            "이전 웹 종료 확인" if manual_state.get("stage") == "verifying_peer" else "웹 승계 중")
                     bg, hover, status_fg = "#b45309", "#92400e", "#b45309"
+                elif manual_state.get('stage') == 'error':
+                    text, bg, hover, status_fg = '웹 승계 실패', '#b91c1c', '#991b1b', '#b91c1c'
                 elif relay_state.get("role") == "source":
                     text, status_fg = "웹 별도 PC", "#7c3aed"
                     publication_requested = bool(manager.status()["enabled"] and manager.public.status()["enabled"])
@@ -7291,7 +7294,9 @@ class BossTimerApp:
         # 연결 중에만 빠르게 조회한다. 중복 요청은 inflight 플래그로 막는다.
         connecting = (
             bool(getattr(self, "discord_bot_expected_running", False))
-            and not bool(getattr(self, "discord_bot_voice_bridge_online", False))
+            and (not bool((getattr(self, "discord_bot_last_status_payload", {}) or {}).get("online"))
+                 or bool((getattr(self, "discord_bot_last_status_payload", {}) or {}).get("authority_joining"))
+                 or bool(getattr(self, "discord_handover_busy", False)))
         )
         poll_interval_ms = 500 if connecting else 3000
         try:
@@ -7778,15 +7783,36 @@ class BossTimerApp:
     def _toggle_discord_bot_runtime(self) -> None:
         if self._is_discord_bot_toggle_locked() or getattr(self, "discord_handover_busy", False):
             return
+        progress = None
+        def show_preparation():
+            nonlocal progress
+            try:
+                from discord_connection_progress import show_connection_progress
+                progress = show_connection_progress(self, role='incoming', token='')
+                progress.update('bot', '저장된 설정과 봇 연결 상태를 확인하고 있습니다.')
+            except Exception as exc:
+                self._append_debug_log(f"discord_start_progress_failed type={type(exc).__name__}")
+
+        cached = getattr(self, "discord_bot_last_status_payload", {}) or {}
+        if not (cached.get("ok") and self._discord_bot_status_matches(cached)
+                and (cached.get("send_authorized") or cached.get("authority_joining"))):
+            show_preparation()  # Paint before status checks, settings reads or recovery.
         self._refresh_discord_bot_status_ui()
         payload = getattr(self, "discord_bot_last_status_payload", {}) or {}
-        if payload.get("ok") and not self._discord_bot_status_matches(payload):
-            self._start_discord_bot_runtime()
-            return
-        if payload.get("send_authorized") or payload.get("authority_joining"):
+        if (payload.get("ok") and self._discord_bot_status_matches(payload)
+                and (payload.get("send_authorized") or payload.get("authority_joining"))):
+            if progress is not None:
+                progress.close()
             self._ensure_discord_authority().release()
         else:
-            self._start_discord_bot_runtime()
+            if progress is None:
+                show_preparation()
+            started = False
+            try:
+                started = self._start_discord_bot_runtime()
+            finally:
+                if not started and progress is not None:
+                    progress.close()
 
     def _start_web_runtime(self, *, ensure_bot=True, automatic=False) -> None:
         try:

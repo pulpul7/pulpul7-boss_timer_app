@@ -47,6 +47,7 @@ class WebCommandTests(unittest.TestCase):
         manager.stop_web_verified = Mock()
         manager.force_start_web = Mock()
         coordinator = NS(client=HOST, alive=True, busy=False, releasing=False, lock=threading.RLock(),
+            scope=SCOPE,
             app=NS(web_service_manager=manager, _append_debug_log=Mock()), _assert_profile=Mock(),
             record=AuthorityRecord(repo.get, repo.put, SCOPE), _live_data=lambda data:data,
             _status=lambda:dict(online=True, runtime_id=HOST_SESSION), _notify=Mock(),
@@ -80,7 +81,10 @@ class WebCommandTests(unittest.TestCase):
         done = self.request(control, operation='administrator_web_stop', target_client_id=HOST,
             expected_target_runtime=HOST_SESSION, handover_operation='e'*32)
         self.assertTrue(done.call_args.args[0])
-        manager.stop_web_verified.assert_called_once_with(for_handover=True)
+        manager.stop_web_verified.assert_called_once_with(for_handover=True, record_stop=False)
+        self.assertEqual(repo.data['web_standalone']['state'], 'stopped')
+        self.assertTrue(repo.data['members'][HOST]['web_call']['stopped'])
+        self.assertEqual(repo.writes, 3)  # Request, acceptance, merged stopped/result.
         coordinator._live_data.assert_not_called()
 
     def test_internal_handover_rejects_replaced_target_session(self):
@@ -92,6 +96,29 @@ class WebCommandTests(unittest.TestCase):
         self.assertFalse(done.call_args.args[0])
         manager.stop_web_verified.assert_not_called()
         self.assertEqual(repo.writes, 0)
+
+    def test_superseded_handover_cannot_publish_a_stopped_acknowledgement(self):
+        control, coordinator, _, repo, _ = self.node()
+        coordinator.runtime = HOST_SESSION
+        call = dict(id='123', runtime=HOST_SESSION, action='stop', state='accepted', handover_operation='e'*32)
+        repo.data['members'][HOST]['web_call'] = deepcopy(call)
+        repo.data['web_operation'] = dict(id='f'*32, expires=time.time()+100)
+        before = deepcopy(repo.data)
+        control._finish(call, True, 'stopped', stopped=True, for_handover=True)
+        self.assertEqual(repo.data, before)
+        self.assertEqual(repo.writes, 0)
+        coordinator.app._append_debug_log.assert_called_once()
+
+    def test_stop_acceptance_notice_is_queued_without_delaying_cleanup(self):
+        control, coordinator, manager, repo, _ = self.node()
+        queued = Mock()
+        manager.standalone = NS(_notify=queued)
+        order = []
+        queued.side_effect = lambda *_: order.append('queued')
+        manager.stop_web_verified.side_effect = lambda: order.append('stop')
+        done = self.request(control, operation='administrator_web_stop')
+        self.assertTrue(done.call_args.args[0])
+        self.assertEqual(order, ['queued', 'stop'])
 
     def test_designated_host_without_voice_can_retry(self):
         control, _, manager, repo, _ = self.node(role='host')

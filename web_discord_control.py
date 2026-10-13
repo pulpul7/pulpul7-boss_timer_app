@@ -6,7 +6,7 @@ import time
 
 from discord_connection_policy import ConnectionPolicy
 from web_delegated_hosting import delegation_info, valid_token
-from web_standalone_hosting import standalone_info
+from web_standalone_hosting import StandaloneHosting, standalone_info
 
 
 class DiscordWebControl:
@@ -131,10 +131,14 @@ class DiscordWebControl:
                 coordinator._assert_profile()
                 data = coordinator.record.mutate(claim)
             self.observe(data, coordinator._status())
-            coordinator._notify(data)
             manager = getattr(coordinator.app, 'web_service_manager', None)
             if manager is None:
                 raise ValueError('웹 모듈이 준비되지 않았습니다.')
+            queue_notice = getattr(getattr(manager, 'standalone', None), '_notify', None)
+            if callable(queue_notice):
+                queue_notice(coordinator, data)  # Accepted progress must not delay the physical stop.
+            else:
+                coordinator._notify(data)
             action = call.get('action', 'retry')
             if action == 'stop':
                 handover = call.get('handover_operation')
@@ -142,11 +146,12 @@ class DiscordWebControl:
                     operation = data.get('web_operation') or {}
                     if operation.get('id') != handover or operation.get('expires', 0) <= time.time():
                         raise ValueError('웹 인계 요청이 종료되어 이전 중지 명령을 취소했습니다.')
-                    manager.stop_web_verified(for_handover=True)
+                    manager.stop_web_verified(for_handover=True, record_stop=False)
                 else:
                     manager.stop_web_verified()
                 manager._log('discord_web_stop_verified', request=call['id'])
-                self._finish(call, True, '웹 서버 종료 완료 · 외부 접근과 주소 갱신을 중지했습니다. 봇과 디코 송출은 유지합니다.', stopped=True)
+                self._finish(call, True, '웹 서버 종료 완료 · 외부 접근과 주소 갱신을 중지했습니다. 봇과 디코 송출은 유지합니다.',
+                             stopped=True, for_handover=bool(handover))
                 return
             if action == 'force':
                 manager.force_start_web()
@@ -200,7 +205,7 @@ class DiscordWebControl:
             message = str(exc) if isinstance(exc, ValueError) else '웹 공개 시도 실패 · 대상 PC의 진단 로그를 확인하세요.'
             self._finish(call, False, message)
 
-    def _finish(self, call, ok, message, *, stopped=False):
+    def _finish(self, call, ok, message, *, stopped=False, for_handover=False):
         coordinator = self.coordinator
         try:
             def update(data):
@@ -210,6 +215,14 @@ class DiscordWebControl:
                         or member.get('runtime') != call['runtime']
                         or current.get('state') != 'accepted'):
                     raise ValueError('새 웹 요청이 있어 이전 결과를 기록하지 않습니다.')
+                if for_handover and ok and stopped:
+                    operation = data.get('web_operation') or {}
+                    if (operation.get('id') != call.get('handover_operation')
+                            or operation.get('expires', 0) <= time.time()):
+                        raise ValueError('웹 인계 요청이 바뀌어 이전 종료 결과를 기록하지 않았습니다.')
+                    # Commit stopped host and verified RPC result together; the
+                    # recipient can proceed after a single durable event.
+                    StandaloneHosting.mark_stopped(data, coordinator)
                 current.update(state='done', ok=bool(ok), message=message, stopped=bool(stopped))
             with coordinator.lock:
                 coordinator._assert_profile()

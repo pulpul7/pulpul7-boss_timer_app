@@ -54,6 +54,12 @@ class IndependentWebController:
             self.wake.clear()
 
     def close(self):
+        if self.closed.is_set():
+            return
+        try:
+            self.standalone._save_settings_before_stop()
+        except Exception as exc:
+            self.manager._log('web_exit_settings_save_failed', error_type=type(exc).__name__)
         self.closed.set()
         self.standalone.cancelled.set()
         self.delegation.close()
