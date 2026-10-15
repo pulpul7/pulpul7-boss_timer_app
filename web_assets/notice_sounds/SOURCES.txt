@@ -1,0 +1,23 @@
+BossTimer web notice recordings
+Retrieved: 2026-10-15
+
+air-raid.mp3
+Title: Air Raid Siren Alarm
+Author: Poligonstudio
+Source: https://freesound.org/people/Poligonstudio/sounds/412171/
+Preview: https://cdn.freesound.org/previews/412/412171_7383104-hq.mp3
+License: CC0 1.0 Universal, https://creativecommons.org/publicdomain/zero/1.0/
+Changes: excerpt 00:08-00:12, mono 22050 Hz 48 kbit/s MP3, fades and peak limiter.
+SHA256: 002a6f0185c06e9698d91e3a8a9b2cff69911c54e9ab5ded678b21074ebc153a
+
+nuclear.mp3
+Title: Nuclear Alarm
+Author: radio_illuminati
+Source: https://freesound.org/people/radio_illuminati/sounds/206141/
+Preview: https://cdn.freesound.org/previews/206/206141_3863800-hq.mp3
+License: CC0 1.0 Universal, https://creativecommons.org/publicdomain/zero/1.0/
+Changes: excerpt 00:04-00:08, mono 22050 Hz 48 kbit/s MP3, fades and peak limiter.
+SHA256: 8d7be0e06bb3bb3b3a236c93e0b45ddb1b2e1d94082c3159c329d0bf31c149e9
+
+Marimba, waterdrop and piano notices are procedural Web Audio sounds authored
+for BossTimer in web_notice_sound_frontend.js; no third-party recording is used.

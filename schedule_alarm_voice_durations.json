@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-11 21:51:26",
+  "updated_at": "2026-10-15 16:53:10",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1632,6 +1632,27 @@
         41422
       ],
       "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\니다벨 닻.wav": {
+      "signature": [
+        1792049695297833400,
+        76512
+      ],
+      "duration_ms": 867
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\무스펠 닻.wav": {
+      "signature": [
+        1792049860007189700,
+        101512
+      ],
+      "duration_ms": 1151
+    },
+    "c:\\mycode\\bosstimer\\voice\\boss\\알브하임 닻.wav": {
+      "signature": [
+        1792049764059168700,
+        77736
+      ],
+      "duration_ms": 881
     }
   }
 }

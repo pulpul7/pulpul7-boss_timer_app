@@ -653,7 +653,9 @@ class WebServiceManager:
     def _start(self, port, generation):
         # A missing/unreadable policy must never publish an unprotected schedule.
         try:
-            self.access.ensure_saved()
+            with self.lock:
+                self.access.ensure_saved()
+                self.access_view.update(self.access.public_view())
         except Exception as exc:
             self._log("access_settings_read_failed", error_type=type(exc).__name__)
             self._update(_generation=generation, state="error", message="웹 접속 설정을 읽지 못했습니다. 진단 로그를 확인해주세요.")

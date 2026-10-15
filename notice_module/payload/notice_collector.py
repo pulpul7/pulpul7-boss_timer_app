@@ -36,6 +36,8 @@ class NoticeCollector:
                     else:
                         body = parse_article(page.text, row, store.clock())
                         body.update(etag=page.etag, modified=page.modified)
+                    if not body.get("published_date"):
+                        body["published_date"] = row.get("published_date") or (cached or {}).get("published_date")
                     fetched[row["id"]] = body
                 except Exception as exc:
                     errors[row["id"]] = str(exc)[:1000]

@@ -20,6 +20,7 @@ try:
     import dns.resolver
     import cheroot.wsgi
     import cheroot.ssl.builtin
+    import pywebpush
 except ImportError as exc:
     raise RuntimeError("Install GUI dependencies first: python -m pip install -r requirements-gui.txt") from exc
 
@@ -108,6 +109,68 @@ def read_distribution_default_setting_keys() -> tuple[str, ...]:
         if isinstance(values, (list, tuple)):
             return tuple(str(value) for value in values if str(value).strip())
     return ()
+
+
+def build_distribution_font_size_seed(project, user_base, staging) -> list[tuple[str, str]]:
+    """Bundle only validated per-font size numbers; never copy the runtime font settings file."""
+    folder = project / "web_assets" / "fonts"
+    catalog = json.loads((folder / "catalog.json").read_text(encoding="utf-8"))
+    allowed = {"system", *[row["id"] for row in catalog["fonts"]]}
+    sizes = {}
+    paths = [folder / "size_defaults.json"]
+    if user_base:
+        paths.append(Path(user_base) / "BossTimer" / "web_service" / "font_settings.json")
+    for path in paths:
+        try:
+            if path.stat().st_size > 1024 * 1024:
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            values = data.get("font_size_defaults", {}) if path.name == "font_settings.json" else data.get("sizes", {})
+            if not isinstance(values, dict):
+                continue
+            sizes.update({key: value for key, value in values.items()
+                          if key in allowed and type(value) is int and -4 <= value <= 6})
+        except (OSError, ValueError):
+            continue
+    target = staging / "size_defaults.json"
+    target.write_text(json.dumps(dict(schema=1, sizes=sizes), ensure_ascii=False), encoding="utf-8")
+    return [(str(target), "web_assets/fonts")]
+
+
+def build_distribution_boss_spectrum_seed(project, user_base, staging) -> list[tuple[str, str]]:
+    """Bundle shared light-theme color numbers, never runtime credentials."""
+    numbers = {}
+    paths = [project / "web_assets" / "boss_spectrum.json"]
+    if user_base:
+        paths.append(Path(user_base) / "BossTimer" / "web_service" / "boss_spectrum.json")
+    for path in paths:
+        try:
+            if path.stat().st_size > 1024 * 1024:
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            candidate = {}
+            if data.get("schema") == 2 and isinstance(data.get("numbers"), dict):
+                candidate = data["numbers"]
+            elif data.get("schema") == 1 and isinstance(data.get("themes"), dict):
+                for theme, mapping in data["themes"].items():
+                    if theme in {"sakura", "spring", "winter", "rain", "sky", "wood", "green", "blue", "magenta", "ivory", "canary", "gray"} and isinstance(mapping, dict) and len(mapping) <= 4000:
+                        candidate.update(mapping)
+            else:
+                continue
+            if len(candidate) > 4000:
+                continue
+            numbers = {key: number for key, number in candidate.items()
+                       if isinstance(key, str) and len(key) == 24 and all(c in "0123456789abcdef" for c in key)
+                       and type(number) is int and 1 <= number <= 30}
+        except (OSError, ValueError):
+            continue
+    target = staging / "boss_spectrum.json"
+    target.write_text(json.dumps(dict(schema=2, target='background', numbers=numbers), ensure_ascii=False), encoding="utf-8")
+    return [(str(target), "web_assets")]
 
 
 def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
@@ -222,6 +285,8 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
             seed_path = staging_dir / filename
             shutil.copy2(source_path, seed_path)
             generated_datas.append((str(seed_path), "init"))
+    generated_datas += build_distribution_font_size_seed(project_root, user_data_base, staging_dir)
+    generated_datas += build_distribution_boss_spectrum_seed(project_root, user_data_base, staging_dir)
     return generated_datas
 
 
@@ -276,7 +341,7 @@ datas = [
     (str(build_metadata_path), "."),
 ]
 datas += collect_tree(project_root / "assets", "assets")
-datas += collect_tree(project_root / "web_assets", "web_assets")
+datas += collect_tree(project_root / "web_assets", "web_assets", excluded_relative_paths={"fonts/size_defaults.json", "boss_spectrum.json"})
 # Trusted fallback sources, loaded through notice_runtime rather than Analysis
 # imports. Downloads override these without rebuilding the executable.
 datas += collect_tree(project_root / "notice_module", "notice_module")
@@ -325,6 +390,10 @@ a = Analysis(
         # Bundle the current HTML/CSS/JS/login modules in PYZ; no separate
         # editable HTML or developer web settings belong in the release ZIP.
         "web_service_worker",
+        "web_push",
+        "pywebpush",
+        "py_vapid",
+        "http_ece",
         "web_service_page",
         "web_schedule_frontend",
         "web_service_login",

@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 from .notice_management import collection_interval, parse_time, encode_time
+from .notice_text import compact, maintenance_extended
 
 EXTENSION_CHECK_MINUTES = 5
 EXTENSION_CHECK_DURATION_MINUTES = 60
@@ -23,13 +24,13 @@ def polling_plan(state, now):
         published = article.get("published_date")
         if (article.get("pinned") and article.get("category") == "maintenance"
                 and published and published <= now.date().isoformat()
-                and any([word in title for word in ("연장", "완료", "취소")])):
+                and (maintenance_extended(article) or any(word in compact(title) for word in ("완료", "취소")))):
             candidates.append(article)
     if not candidates:
         return normal
     latest_date = max(article["published_date"] for article in candidates)
     latest = [article for article in candidates if article["published_date"] == latest_date]
-    if any(["완료" in article["title"] or "취소" in article["title"] for article in latest]):
+    if any(["완료" in compact(article["title"]) or "취소" in compact(article["title"]) for article in latest]):
         return dict(normal, message="점검 완료/취소 공지 확인 · " + normal["message"])
     ends = set()
     for article in latest:

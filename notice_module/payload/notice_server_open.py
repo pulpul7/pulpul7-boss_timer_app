@@ -2,10 +2,11 @@
 
 No collection, schedule writes, speech or global default changes here.
 """
-import re
 from datetime import date, timedelta
 
 from .notice_management import parse_time
+from .notice_analysis import maintenance_reference
+from .notice_text import compact
 
 
 def server_open_override(state, now, reference=None, *, include_upcoming=False):
@@ -13,13 +14,15 @@ def server_open_override(state, now, reference=None, *, include_upcoming=False):
     reference = parse_time(reference) if reference is not None else now
     records = []
     for article in state.get('articles', {}).values():
-        title = re.sub(r'\s+', '', article.get('title', ''))
+        title = compact(article.get('title', ''))
         if article.get('category') != 'maintenance' or '정기점검' not in title:
             continue
         try:
             published = date.fromisoformat(article.get('published_date', ''))
         except (ValueError, TypeError):
-            continue
+            published = maintenance_reference(article)
+            if published is None:
+                continue
         if published > now.date():
             continue
         windows = article.get('analysis', {}).get('windows', [])

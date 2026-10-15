@@ -317,6 +317,28 @@ class EventTransportTests(unittest.IsolatedAsyncioTestCase):
         self.guild.get_member.return_value.voice = NS(channel=NS(id=777))
         self.assertFalse((await self.transport.command(command))["absent"])
 
+    async def test_confirmed_orphan_reset_leaves_only_our_standby_bot(self):
+        self.bot.connection_policy.update(standby=True, voice_requested=False, authority_active=False)
+        self.guild.me.voice = NS(channel=NS(id=777))
+        self.guild.get_member.return_value = self.guild.me
+        def left(**_):
+            self.guild.me.voice = None
+        self.guild.change_voice_state = AsyncMock(side_effect=left)
+        command = dict(self.command('verify_absent'), bot_user_id='11', reset_orphan=True)
+        self.assertTrue((await self.transport.command(command))['absent'])
+        self.guild.change_voice_state.assert_awaited_once_with(channel=None)
+
+    async def test_orphan_reset_cannot_disconnect_another_bot_or_current_authority(self):
+        self.guild.change_voice_state = AsyncMock()
+        for other_bot, active in ((True, False), (False, True)):
+            with self.subTest(other_bot=other_bot, active=active):
+                self.bot.connection_policy.update(standby=not active, voice_requested=active,
+                                                  authority_until=time.monotonic()+10)
+                command = dict(self.command('verify_absent'), bot_user_id='22' if other_bot else '11', reset_orphan=True)
+                with self.assertRaises(ValueError):
+                    await self.transport.command(command)
+        self.guild.change_voice_state.assert_not_awaited()
+
     async def test_bot_user_identity_is_separate_from_application_identity(self):
         self.transport.probes["query"] = {}
         await self.transport.receive(self.message("reply", probe="query",
@@ -381,6 +403,9 @@ class HandoverIntegrationTests(unittest.TestCase):
         node = object.__new__(DiscordAuthority)
         node.client = key; node.runtime = key+"-runtime"; node.lock = threading.RLock()
         node.event_lock = threading.Lock(); node.alive = True; node.releasing = False
+        node.connection_notice_lock = threading.Lock()
+        node.connection_notices = queue.Queue()
+        node.connection_notice_running = False
         node.busy = False; node.current = None; node.outgoing_requests = set(); node.calls = set()
         node.failure_notices = set()
         node.outgoing_progress_done = False; node.incoming_progress_token = ""
@@ -614,6 +639,7 @@ class VoiceReleaseTests(unittest.IsolatedAsyncioTestCase):
         bot.connection_policy = policy
         bot.authority_disconnect_generation = -1
         voice = bot._authority_voice_client_type(1)()
+        voice.guild = NS(id=100, voice_client=voice)
         wrapped = voice.create_connection_state()
         await wrapped._voice_disconnect()
         leave.assert_not_called()

@@ -70,7 +70,29 @@ def export_state(manager, stamp):
                                       serialization.NoEncryption()).decode("ascii"),
                 txt_owner=txt_owner, external_port=port,
                 public_enabled=manager.public.status()["enabled"])
-    return encrypt_state(data, unprotect_secret(settings["protected_token"]), stamp[0], domain)
+    try:
+        from web_push import read_push_state
+        if (root / "push_subscriptions.json").exists():
+            data["push"] = read_push_state(root, access)
+        if (root / "push_sent.json").exists():
+            sent = read_json(root / "push_sent.json").get("sent", {})
+            import time
+            data["push_sent"] = dict(sorted(((k, v) for k, v in sent.items()
+                if isinstance(k, str) and len(k) == 64 and type(v) in {int, float} and v > time.time() - 300),
+                key=lambda item: item[1])[-1000:])
+    except Exception as exc:
+        manager._log("push_shared_export_failed", error_type=type(exc).__name__)
+    token = unprotect_secret(settings["protected_token"])
+    try:
+        return encrypt_state(data, token, stamp[0], domain)
+    except ValueError:
+        if len(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()) <= LIMIT:
+            raise
+        # Optional push subscriptions must never prevent the main website handover.
+        data.pop("push", None)
+        data.pop("push_sent", None)
+        manager._log("push_shared_export_skipped_size")
+        return encrypt_state(data, token, stamp[0], domain)
 
 
 def import_state(manager, envelope, stamp, guard):
@@ -114,6 +136,13 @@ def import_state(manager, envelope, stamp, guard):
     terms = data.get("terms_agreed_at", "")
     if not isinstance(terms, str) or len(terms) > 64:
         raise ValueError("공동 HTTPS 설정을 확인하지 못했습니다.")
+    push = None
+    try:
+        from web_push import validate_push_state
+        if "push" in data:
+            push = validate_push_state(data["push"])
+    except Exception as exc:
+        manager._log("push_shared_import_failed", error_type=type(exc).__name__)
     # The UI takes the relay/bridge locks before the manager lock. Taking the
     # manager first and then calling guard() inverted that order and could
     # deadlock an incoming settings import against a UI status/lease update.
@@ -139,6 +168,20 @@ def import_state(manager, envelope, stamp, guard):
         if txt.get("domain") == domain.removesuffix(".duckdns.org"):
             write_json(root / "https" / "txt_owner.json", txt)
         write_json(root / "access_settings.json", access)
+        try:
+            from web_push import write_push_state
+            if push is not None:
+                write_push_state(root, access, push)
+            sent = data.get("push_sent", {})
+            import time
+            import math
+            if isinstance(sent, dict) and len(sent) <= 1000:
+                sent = {k: v for k, v in sent.items() if isinstance(k, str) and len(k) == 64
+                        and type(v) in {int, float} and math.isfinite(v) and v > time.time() - 300}
+                if sent:
+                    write_json(root / "push_sent.json", dict(schema=1, sent=sent))
+        except Exception as exc:
+            manager._log("push_shared_import_failed", error_type=type(exc).__name__)
         manager.access.data, manager.access.saved, manager.access.error = access, True, None
         manager.access_view.update(manager.access.public_view())
         https = dict(manager.https.settings, enabled=True, domain=domain)

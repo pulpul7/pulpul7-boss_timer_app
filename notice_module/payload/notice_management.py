@@ -332,12 +332,21 @@ class NoticeStore:
         if collected and not source_key:
             raise NoticeError("수집 알림은 공지와 안내 규칙을 식별하는 source_key가 필요합니다.")
         with (self._transaction() if _state is None else nullcontext(_state)) as state:
+            old = state["events"].get(key)
+            # A same-article extension often arrives after the former end has
+            # expired. Never revive user discards or manually fixed periods.
+            expired_extension = bool(collected and old and category == "maintenance"
+                and str(event.get("tts_template", "")).startswith("maintenance.")
+                and str(event.get("tts_template", "")).endswith(".extension")
+                and old.get("retired_reason") == "유효기간 만료" and not old.get("manual_period")
+                and period_start and period_start == old.get("event_from")
+                and period_end and old.get("event_until")
+                and parse_time(period_end) > max(parse_time(old["event_until"]), parse_time(self.clock())))
             if collected and (not state["settings"]["collection_enabled"]
                               or not state["settings"]["categories"][category]
-                              or source_key in state["suppressed"]):
+                              or (source_key in state["suppressed"] and not expired_extension)):
                 return False
-            old = state["events"].get(key)
-            if old and old.get("retired_at"):
+            if old and old.get("retired_at") and not expired_extension:
                 return False
             if season_number is not None:
                 event = dict(event, tts_template=season_template_key(state, season_number),
@@ -362,6 +371,8 @@ class NoticeStore:
                     item['source_recovery'] = deepcopy(old['source_recovery'])
                 for field in ("enabled", "created_at", "last_delivery", "delivered_revision", "manual_period"):
                     item[field] = old[field]
+                if expired_extension:
+                    item["enabled"] = old.get("enabled_before_retirement", False)
                 if collected and old["manual_period"]:
                     item["valid_from"], item["valid_until"] = old["valid_from"], old["valid_until"]
                 if collected and old.get("manual_tts"):
@@ -384,6 +395,8 @@ class NoticeStore:
                     return False
                 item["revision"] = old["revision"] + 1
             state["events"][key] = item
+            if expired_extension:
+                state["suppressed"].pop(source_key, None)
             self._prune(state)
             return True
 
@@ -716,7 +729,8 @@ class NoticeStore:
             for row in listing:
                 if fetched.get(row['id']):
                     related_articles[row['id']] = {**related_articles.get(row['id'], {}),
-                                                   **row, **fetched[row['id']], 'body_error': ''}
+                                                   **row, **fetched[row['id']], 'body_error': '',
+                                                   'first_seen': articles.get(row['id'], {}).get('first_seen', timestamp)}
             changed = 0
             for row in listing:
                 key, category = row["id"], row["category"]
@@ -739,8 +753,19 @@ class NoticeStore:
                 article["recent"] = bool(date and (now.date() - timedelta(days=3)).isoformat() <= date <= now.date().isoformat())
                 articles[key] = article
                 if body:
+                    if category == "maintenance":
+                        article.pop("maintenance_extension", None)
                     analysis = analyze_notice(article, related_articles=related_articles.values(), now=now)
                     article["analysis"] = analysis
+                    if category == "maintenance":
+                        current = analysis["windows"]
+                        previous = old.get("analysis", {}).get("windows", [])
+                        if (len(current) == len(previous) == 1
+                                and not current[0]["issue"] and not previous[0]["issue"]
+                                and current[0].get("start") == previous[0].get("start")
+                                and current[0].get("end") and previous[0].get("end")):
+                            later = parse_time(current[0]["end"]) > parse_time(previous[0]["end"])
+                            article["maintenance_extension"] = later or old.get("maintenance_extension", False)
                     if not analysis["windows"] or any([fact["issue"] for fact in analysis["windows"]]):
                         article.setdefault("uncertain_first_seen", timestamp)
                     candidates = notice_events(article, analysis)

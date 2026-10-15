@@ -130,6 +130,66 @@ class JoinCompletionTests(unittest.TestCase):
         self.assertTrue(node._finish.call_args.args[2])
         node.app.web_service_manager.status.assert_not_called()
 
+    def orphan_node(self):
+        node, saved = self.incoming_node()
+        saved[0].update(owner='local', owner_runtime='departed', owner_application_id='123',
+                        owner_bot_user_id='123', phase='active', request='departed-request', generation=6)
+        node._status.return_value = dict(self.status, voice_authority_generation=7)
+        node._live_data = lambda value, probe=None: dict(value, members={})
+        node.app._show_centered_messagebox = Mock(return_value=True)
+        node.app.schedule_window = None
+        node.app.root = None
+        def control(action, **kwargs):
+            if action == 'verify_absent':
+                return dict(absent=kwargs.get('reset_orphan') is True)
+            return dict(members=[])
+        node._control.side_effect = control
+        return node, saved
+
+    def test_confirmed_leftover_voice_does_not_block_new_runtime_admission(self):
+        node, saved = self.orphan_node()
+        with patch.object(authority.threading, 'Thread'):
+            node._incoming(False, None, '777', None, None)
+        node._control.assert_any_call('verify_absent', bot_user_id='123', reset_orphan=True)
+        self.assertEqual(saved[0]['owner_runtime'], 'runtime')
+        self.assertEqual(saved[0]['phase'], 'active')
+        self.assertTrue(node._finish.call_args.args[2])
+
+    def test_declined_or_unverified_orphan_recovery_never_grants_authority(self):
+        for approved, stopped in ((False, True), (True, False)):
+            with self.subTest(approved=approved, stopped=stopped):
+                node, saved = self.orphan_node()
+                node.app._show_centered_messagebox.return_value = approved
+                if not stopped:
+                    node._control.side_effect = lambda action, **_: dict(absent=False, members=[])
+                with patch.object(authority.threading, 'Thread'):
+                    node._incoming(False, None, '777', None, None)
+                self.assertEqual(saved[0]['owner_runtime'], 'departed')
+                self.assertFalse(node._finish.call_args.args[2])
+
+    def test_new_owner_or_returning_controller_cancels_old_confirmation(self):
+        for changed_owner in (True, False):
+            node, saved = self.orphan_node()
+            if changed_owner:
+                def approve(*_, **kwargs):
+                    saved[0]['generation'] += 1
+                    return True
+                node.app._show_centered_messagebox.side_effect = approve
+            else:
+                node._live_data = Mock(side_effect=[dict(members={}), dict(members={'local':dict(runtime='departed')})])
+            with patch.object(authority.threading, 'Thread'):
+                node._incoming(False, None, '777', None, None)
+            self.assertFalse(any(call.kwargs.get('reset_orphan') for call in node._control.call_args_list))
+            self.assertFalse(node._finish.call_args.args[2])
+
+    def test_unattended_remote_request_never_resets_leftover_voice_without_confirmation(self):
+        node, _ = self.orphan_node()
+        with patch.object(authority.threading, 'Thread'):
+            node._incoming(True, None, '777', None, None)
+        node.app._show_centered_messagebox.assert_not_called()
+        self.assertFalse(any(call.kwargs.get('reset_orphan') for call in node._control.call_args_list))
+        self.assertFalse(node._finish.call_args.args[2])
+
     def test_completed_notice_timeout_does_not_undo_verified_admission(self):
         node, saved = self.incoming_node(failed_notice=True)
         class ImmediateThread:

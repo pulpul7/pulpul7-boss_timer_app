@@ -8,6 +8,7 @@ import uuid
 
 from web_delegated_hosting import delegation_info, valid_token
 from web_service_common import read_json
+from web_direct_hosting import PublicError
 from discord_connection_policy import ConnectionPolicy
 
 
@@ -310,6 +311,9 @@ class StandaloneHosting:
                 self.manager.prepare_local_https(stamp, 10)
                 state = self.manager.https_status()
                 if state.get('https_state') == 'running':
+                    access = getattr(self.manager, 'access', None)
+                    if access is not None:
+                        access.require_member_pin()  # Check before stopping the old host.
                     from web_direct_hosting import check_local_https
                     check_local_https(state['domain'], state['port'])
                     self.manager._log('web_handover_local_https_ready', request=operation,
@@ -391,12 +395,17 @@ class StandaloneHosting:
             self.manager.public.configure(True)
             self._progress('starting', '상대 웹 종료 확인 완료 · 이 PC 스케줄로 단독 공개 준비')
         except Exception as exc:
+            # PublicError contains a deliberate, safe explanation from the
+            # local HTTPS/publication checks. Keep it visible like ValueError;
+            # unexpected exception text may contain credentials or file paths.
+            reason = str(exc) if isinstance(exc, (ValueError, PublicError)) else ''
+            message = reason or '웹 단독 실행 실패 · 진단 로그를 확인해주세요.'
             if local_preparing:
-                self.manager.set_authority((), message='웹 단독 실행 실패 · 진단 로그 확인')
+                self.manager.set_authority((), message=message)
                 self.manager.public_paused = True
-            self._progress('error', str(exc) if isinstance(exc, ValueError) else '웹 단독 실행 실패 · 진단 로그를 확인해주세요.')
+            self._progress('error', message)
             self.manager._log('web_standalone_start_failed', error_type=type(exc).__name__,
-                              reason=str(exc)[:200] if isinstance(exc, ValueError) else '')
+                              reason=reason[:200])
             if not force and peer_stopped and previous_web is not None and coordinator is not None:
                 self._restore_previous(coordinator, operation, previous_web)
         finally:
@@ -761,7 +770,7 @@ class StandaloneHosting:
         paths = (self.manager.root/'access_settings.json', self.manager.root/'https'/'current.json',
                  self.manager.settings_path, self.manager.root/'ddns_settings.json',
                  self.manager.root/'https_settings.json', self.manager.root/'public_settings.json',
-                 self.manager.root/'https'/'txt_owner.json')
+                 self.manager.root/'https'/'txt_owner.json', self.manager.root/'push_subscriptions.json')
         result = []
         for path in paths:
             try:

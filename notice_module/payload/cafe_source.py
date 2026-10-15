@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 
 from .notice_management import KST, NoticeError
+from .notice_text import compact, normalized
 
 LIST_URL = "https://m.cafe.daum.net/odin/CT9G"
 MAX_HTML_BYTES = 3 * 1024 * 1024
@@ -116,15 +117,15 @@ def canonical_article(href):
 
 
 def date_of(text, now):
-    text = text.strip()
-    match = re.search(r"(?<!\d)(\d{2}|\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})(?!\d)", text)
+    text = compact(text)
+    match = re.search(r"(?<!\d)(\d{4}|\d{2})(?:[.\-/]|년)(\d{1,2})(?:[.\-/]|월)(\d{1,2})(?:일)?(?!\d)", text)
     if match:
         year = int(match[1])
         try:
             return datetime(year + 2000 if year < 100 else year, int(match[2]), int(match[3]), tzinfo=KST).date().isoformat()
         except ValueError:
             return None
-    if text in {"오늘", "방금", "방금 전"} or re.fullmatch(r"\d{1,2}:\d{2}", text):
+    if text in {"오늘", "방금", "방금전"} or re.fullmatch(r"\d{1,2}:\d{2}", text):
         return now.date().isoformat()
     if text == "어제":
         return (now - timedelta(days=1)).date().isoformat()
@@ -136,7 +137,7 @@ def date_of(text, now):
 
 
 def category_for(title):
-    value = re.sub(r"\s+", "", title).lower()
+    value = compact(title).lower()
     if any([word in value for word in ("계정보호", "운영정책", "개인정보처리방침", "이용약관")]):
         return None
     if "런처" in value and any([word in value for word in ("오류", "해결", "pc이용")]):
@@ -195,12 +196,37 @@ def parse_article(html, listing, now):
     if not title:
         raise NoticeError("게시글 제목을 확인하지 못했습니다.")
     published = listing["published_date"]
+    # Only explicit article metadata is a publication date. Dates in the body,
+    # comments or view counters must never be used as publication evidence.
+    body_nodes = {id(node) for node in bodies[0].walk()}
     for node in root.walk():
-        if node.has_class("num_subject"):
-            candidate = date_of(text_of(node), now)
-            if candidate:
-                published = candidate
-                break
+        if node.attrs.get("id") in {"comments", "comment"} or any(
+                [node.has_class(name) for name in ("comments", "comment", "list_comment")]):
+            body_nodes.update(id(child) for child in node.walk())
+    for node in root.walk():
+        if id(node) in body_nodes:
+            continue
+        label = None
+        if node.tag == "meta" and (node.attrs.get("property") == "article:published_time"
+                                   or node.attrs.get("itemprop") == "datePublished"):
+            label = node.attrs.get("content", "")
+        elif node.tag == "time" and node.attrs.get("datetime"):
+            label = node.attrs["datetime"]
+        elif node.has_class("num_subject") or node.has_class("created_at"):
+            label = text_of(node)
+        if label is None:
+            continue
+        # ISO datetime metadata may carry UTC; convert before choosing its day.
+        candidate = date_of(label, now)
+        if node.tag in {"meta", "time"}:
+            try:
+                stamp = datetime.fromisoformat(normalized(label).strip().replace("Z", "+00:00"))
+                candidate = stamp.astimezone(KST).date().isoformat() if stamp.tzinfo else stamp.date().isoformat()
+            except ValueError:
+                pass
+        if candidate:
+            published = candidate
+            break
     images = [n.attrs.get("data-img-src") or n.attrs.get("src") for n in bodies[0].walk() if n.tag == "img"]
     images = [url for url in images if url and urllib.parse.urlsplit(url).scheme in {"https", "http"}]
     digest = hashlib.sha256((title + "\n" + body + "\n" + "\n".join(images)).encode("utf-8")).hexdigest()

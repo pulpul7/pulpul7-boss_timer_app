@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "retrieved_on": "2026-10-14",
+  "license": "CC0 1.0",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "processing": "Excerpt; mono 24kHz MP3 48kbps; loudness normalization; 0.6s browser loop crossfade",
+  "tracks": [
+    {
+      "kind": "gentle",
+      "title": "Light Rain",
+      "author": "soundrecorder7",
+      "page": "https://freesound.org/people/soundrecorder7/sounds/167034/",
+      "download": "https://cdn.freesound.org/previews/167/167034_2328971-hq.mp3",
+      "asset": "web_rain_gentle_v1.mp3",
+      "source_asset": "web_rain_gentle_source_v1.mp3",
+      "source_sha256": "e96de7229dd13c42798e8bdad265123d4e1d1377135c9c54c829fe4c7cd3ed55",
+      "sha256": "0d8f8fb163ebe2e4eea6c63795d8c5e51b899bc42982950457b0a7d2e04b4b20",
+      "excerpt_start_seconds": 1,
+      "requested_excerpt_seconds": 24,
+      "target_lufs": -25,
+      "filters": "loudnorm=I=-25:TP=-8:LRA=9"
+    },
+    {
+      "kind": "storm",
+      "title": "Rain and Thunder #2",
+      "author": "Joseph SARDIN - BigSoundBank",
+      "page": "https://bigsoundbank.com/rain-and-storm-2-s0740.html",
+      "download": "https://bigsoundbank.com/UPLOAD/mp3/0740.mp3",
+      "asset": "web_rain_storm_v2.mp3",
+      "source_asset": "web_rain_storm_source_v2.mp3",
+      "source_sha256": "056c5296303887b650e62a6dc3282f327f8a8560c061acbf577c5e0734acdb6e",
+      "sha256": "313ad2ce30c784d54b4526b2192f35812feb5a7049be1681c0fd8a2d33ea7d05",
+      "excerpt_start_seconds": 0,
+      "requested_excerpt_seconds": 38,
+      "target_lufs": -20,
+      "filters": "loudnorm=I=-20:TP=-8:LRA=9"
+    },
+    {
+      "kind": "spring",
+      "title": "Soft rain.WAV",
+      "author": "barkenov",
+      "page": "https://freesound.org/people/barkenov/sounds/640655/",
+      "download": "https://cdn.freesound.org/previews/640/640655_2414299-hq.mp3",
+      "asset": "web_rain_spring_v1.mp3",
+      "source_asset": "web_rain_spring_source_v1.mp3",
+      "source_sha256": "f5e4d1958e192762dc35e535e79afd30755986e18e7edabade998d84d446e6b9",
+      "sha256": "621f54b62a6dde8da78ae48c55de12ca0ee9ed1253f7358a348458f201a5b238",
+      "excerpt_start_seconds": 2,
+      "requested_excerpt_seconds": 26,
+      "target_lufs": -24
+    }
+  ]
+}

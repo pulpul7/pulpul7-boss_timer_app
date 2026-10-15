@@ -57,6 +57,7 @@ class PreparedSpeechPool:
         self.epoch = 0
         self.closed = False
         self.status = '사전 음성 준비 대기'
+        self.last_error = ''
 
     @staticmethod
     def _cleanup(synth):
@@ -92,6 +93,7 @@ class PreparedSpeechPool:
                 return
             self.wanted = set(desired)
             self.status = f'사전 음성 준비 중 · {len(desired)}문장'
+            self.last_error = ''
         self.prune()
         failed = 0
         for key, items in desired.items():
@@ -113,15 +115,19 @@ class PreparedSpeechPool:
                     synth = factory()
                     path = synth.synthesize(key[2])
                     if not path or not Path(path).is_file():
-                        raise RuntimeError('TTS 파일 생성 실패')
+                        detail = getattr(synth, 'last_error', '')
+                        raise RuntimeError(detail if isinstance(detail, str) and detail else 'TTS 파일 생성 실패')
                     with self.lock:
                         if self.closed or epoch != self.epoch or not valid():
                             return
                         entry = dict(path=path, synth=synth, leases=0)
                         self.cache[key] = entry
                         synth = None
-                except Exception:
+                except Exception as exc:
                     failed += 1
+                    with self.lock:
+                        if epoch == self.epoch and not self.closed:
+                            self.last_error = ' '.join(str(exc).split())[:300] or type(exc).__name__
                     continue
                 finally:
                     if synth is not None:
@@ -134,6 +140,8 @@ class PreparedSpeechPool:
         with self.lock:
             if epoch == self.epoch and not self.closed:
                 self.status = f'사전 음성 준비 완료 · {len(desired) - failed}문장 / 실패 {failed}'
+                if failed and self.last_error:
+                    self.status += f' · 마지막 오류: {self.last_error}'
         return failed
 
     def current(self, server_id, request):

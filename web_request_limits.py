@@ -3,7 +3,55 @@ import math
 import threading
 import time
 
-READ_PATHS = frozenset({"/", "/api/status", "/api/schedule", "/api/session"})
+READ_PATHS = frozenset({"/", "/api/status", "/api/schedule", "/api/session", "/api/push", "/api/boss-spectrum"})
+
+
+class CooldownLimiter:
+    """Fixed minimum intervals. Rejected attempts never extend the deadline."""
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.lock = threading.Lock()
+        self.deadlines = {}
+        self.next_cleanup = 0.0
+
+    def _cleanup(self, now):
+        if now >= self.next_cleanup:
+            self.deadlines = {key: until for key, until in self.deadlines.items() if until > now}
+            self.next_cleanup = now + 10
+
+    def _key(self, key):
+        if key not in self.deadlines and len(self.deadlines) >= 4092:
+            return ('overflow', key[0])
+        return key
+
+    def claim(self, keys, seconds):
+        now = self.clock()
+        with self.lock:
+            self._cleanup(now)
+            keys = [self._key(key) for key in keys]
+            remaining = max((self.deadlines.get(key, now) - now for key in keys), default=0)
+            if remaining > 0:
+                return math.ceil(remaining)
+            for key in keys:
+                self.deadlines[key] = now + seconds
+            return 0
+
+    def start(self, key, seconds):
+        now = self.clock()
+        with self.lock:
+            self._cleanup(now)
+            self.deadlines[self._key(key)] = now + seconds
+
+    def wait(self, key):
+        now = self.clock()
+        with self.lock:
+            self._cleanup(now)
+            return max(0, math.ceil(self.deadlines.get(self._key(key), now) - now))
+
+    def clear(self, keys):
+        with self.lock:
+            for key in keys:
+                self.deadlines.pop(key, None)
 
 
 class ReadLimiter:

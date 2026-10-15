@@ -87,7 +87,10 @@ class NoticeChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.tasks), 1)
 
     async def test_all_notice_kinds_use_same_publication_path(self):
-        texts = ['서버 오픈 안내', '이벤트 종료 안내', '서버 이전 안내', '직업 추가 안내', '보스 참여 안내']
+        texts = ['서버 오픈 안내', '이벤트 종료 안내', '서버 이전 안내', '직업 추가 안내', '보스 참여 안내',
+                 '정기점검 연장 공지가 올라왔습니다. 점검은 8시부터 12시까지입니다.',
+                 '정기점검 연장 공지가 올라왔습니다. 점검은 8시부터 13시까지입니다.',
+                 '정기점검 연장 공지가 올라왔습니다. 점검은 8시부터 14시 30분까지입니다.']
         for index, text in enumerate(texts):
             output = NS(scope_id=f'notice:{index}', state='playing', notice_text=text,
                 notice_text_generation=7, notice_text_announced=False)

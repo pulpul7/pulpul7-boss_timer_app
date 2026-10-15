@@ -112,6 +112,35 @@ class PreparationTests(unittest.TestCase):
         self.prepare([self.request()])
         self.assertFalse(self.pool.bindings)
         self.assertIn('실패 1', self.pool.status)
+        self.assertIn('offline', self.pool.status)
+
+    def test_speech_generation_error_is_preserved_without_creating_a_playable_binding(self):
+        synth = self.make_synth()
+        synth.synthesize.side_effect = None
+        synth.synthesize.return_value = None
+        synth.last_error = 'TTS 서버 연결 실패'
+        self.factory.side_effect = None
+        self.factory.return_value = synth
+        self.prepare([self.request()])
+        self.assertEqual(self.pool.last_error, 'TTS 서버 연결 실패')
+        self.assertIn('TTS 서버 연결 실패', self.pool.status)
+        self.assertIsNone(self.pool.acquire('odin9', self.request()))
+        synth.stop.assert_called_once()
+        self.factory.side_effect = self.make_synth
+        self.prepare([self.request()])
+        self.assertEqual(self.pool.last_error, '')
+        self.assertNotIn('마지막 오류', self.pool.status)
+
+    def test_preparation_error_details_are_bounded_and_do_not_stop_other_notices(self):
+        bad = self.make_synth()
+        bad.synthesize.side_effect = RuntimeError('bad\n' + 'x'*600)
+        good = self.make_synth()
+        self.factory.side_effect = [bad, good]
+        self.prepare([self.request(), self.request('b', '다른 안내')])
+        self.assertLessEqual(len(self.pool.last_error), 300)
+        self.assertNotIn('\n', self.pool.last_error)
+        self.assertIsNone(self.pool.acquire('odin9', self.request()))
+        self.pool.acquire('odin9', self.request('b', '다른 안내')).stop()
 
     def test_missing_cache_file_is_recreated_on_next_preparation(self):
         request = self.request()

@@ -1,0 +1,15 @@
+{
+  "kind": "gentle",
+  "title": "Light Rain",
+  "author": "soundrecorder7",
+  "page": "https://freesound.org/people/soundrecorder7/sounds/167034/",
+  "download": "https://cdn.freesound.org/previews/167/167034_2328971-hq.mp3",
+  "asset": "web_rain_gentle_v1.mp3",
+  "source_asset": "web_rain_gentle_source_v1.mp3",
+  "source_sha256": "e96de7229dd13c42798e8bdad265123d4e1d1377135c9c54c829fe4c7cd3ed55",
+  "sha256": "0d8f8fb163ebe2e4eea6c63795d8c5e51b899bc42982950457b0a7d2e04b4b20",
+  "excerpt_start_seconds": 1,
+  "requested_excerpt_seconds": 24,
+  "target_lufs": -25,
+  "filters": "loudnorm=I=-25:TP=-8:LRA=9"
+}

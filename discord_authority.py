@@ -306,6 +306,9 @@ class DiscordAuthority:
         threading.Thread(target=self._controller_watch, daemon=True, name="discord-local-controller").start()
 
     def _assert_profile(self):
+        if (getattr(self.app, "discord_bot_exit_requested", False)
+                or getattr(self.app, "discord_bot_shutdown_in_progress", False)):
+            raise AuthorityError("프로그램 또는 봇 종료 중이라 관리자 연결 요청을 취소했습니다.")
         if (not self.alive or self.app._get_discord_bot_config_storage_path() != self.profile
                 or str(self.app.discord_bot_server_id) != self.scope["guild"]):
             raise AuthorityError("Discord 설정이 변경되어 요청을 중단했습니다.")
@@ -334,7 +337,7 @@ class DiscordAuthority:
         return value
 
     def _drain(self):
-        if not self.alive:
+        if not self.alive or getattr(self.app, "discord_bot_exit_requested", False):
             return
         while True:
             try:
@@ -550,7 +553,7 @@ class DiscordAuthority:
         return result
 
     def _controller_watch(self):
-        while self.alive:
+        while self.alive and not getattr(self.app, "discord_bot_exit_requested", False):
             try:
                 self._poll()
             except AuthorityError:
@@ -833,15 +836,33 @@ class DiscordAuthority:
                     verified_kind = "local_process_stopped"
                 else:
                     absent = self._control("verify_absent", bot_user_id=bot_user_id).get("absent")
-                    if remote or not absent:
+                    if remote:
                         raise AuthorityError("이전 담당자의 종료를 확인하지 못해 승계하지 않았습니다. GUI에서 종료 확인 후 다시 요청하세요.")
                     if not self._ui(lambda: self.app._show_centered_messagebox("askyesno", "이전 담당자 종료 확인",
-                            "이전 담당자의 응답이 없고 해당 봇의 음성 입장이 확인되지 않습니다.\n"
+                            ("이전 담당자의 응답이 없지만 봇은 음성채널에 남아 있습니다.\n"
+                             if not absent else "이전 담당자의 응답과 봇의 음성 입장이 확인되지 않습니다.\n") +
                             "이전 PC의 프로그램과 봇을 완전히 종료했는지 직접 확인했나요?\n"
-                            "확인하면 현재 담당자 기록을 다시 검증한 새 요청으로 연결합니다.",
+                            "확인하면 현재 담당자를 다시 검증하고 남은 연결을 정리한 뒤 시작합니다.",
                             parent=self.app.schedule_window or self.app.root), timeout=None):
                         message = "봇 연결됨 · 권한 없음 (승계 취소 · 이전 담당자 종료 확인 필요)"
                         return
+                    if not absent:
+                        # Confirmation is not a grant. A real reply or a newer
+                        # durable owner after the dialog must cancel recovery.
+                        self._assert_profile()
+                        with self.lock:
+                            latest, _ = self.record.read()
+                        if self.record.owner_stamp(latest) != self.record.owner_stamp(existing):
+                            raise AuthorityError("종료 확인 중 담당자가 바뀌었습니다. 다시 연결하세요.")
+                        checked = self._live_data(latest)
+                        peer = checked['members'].get(existing.get('owner'), {})
+                        if peer.get('runtime') == existing.get('owner_runtime'):
+                            raise AuthorityError("이전 관리자가 다시 응답했습니다. 정상 승계로 다시 요청하세요.")
+                        reset = self._control("verify_absent", bot_user_id=bot_user_id, reset_orphan=True)
+                        if reset.get('absent') is not True:
+                            raise AuthorityError("남은 봇 연결의 종료를 확인하지 못했습니다. Discord에서 봇 퇴장 후 다시 요청하세요.")
+                        verified_kind = 'operator_confirmed_voice_reset'
+                        self.app._append_debug_log('authority_orphan_voice_reset_confirmed')
                 verified_previous = self.record.owner_stamp(existing)
             if owner:
                 self._progress("incoming", self.incoming_progress_token, "owner",
@@ -874,6 +895,7 @@ class DiscordAuthority:
                     except Exception as web_error:
                         self.app._append_debug_log(f"web_parallel_start_queue_failed type={type(web_error).__name__}")
             with self.lock:
+                self._assert_profile()
                 grant_checked_at = time.monotonic()
                 self.current = self.record.request(self.client, runtime, channel,
                     call_id=(call or {}).get("id", ""), expected_owner=expected_owner,
@@ -943,6 +965,7 @@ class DiscordAuthority:
                         f"wait_ms={round((time.monotonic()-join_started)*1000)}")
                     confirm_started = time.monotonic()
                     with self.lock:
+                        self._assert_profile()
                         grant_checked_at = time.monotonic()
                         self.current = self.record.change(request_id, self.client, phases={"joining"}, phase="active")
                         self._observe(self.current, status, grant_checked_at)

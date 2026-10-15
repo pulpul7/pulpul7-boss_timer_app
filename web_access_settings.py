@@ -148,6 +148,12 @@ class AccessSettings:
             write_json(self.path, self.data)
             self.saved = True
 
+    def require_member_pin(self):
+        if self.error is not None:
+            raise ValueError("웹 접속 설정을 읽지 못했습니다. 비밀번호 탭과 진단 로그를 확인해주세요.")
+        if not self.data["verifier"]:
+            raise ValueError("비밀번호 탭에서 회원용 웹 비밀번호를 먼저 저장해주세요. 공동 관리자는 기존 웹 비밀번호를 인계받아 사용합니다.")
+
     def change(self, operation, value=""):
         self.ensure_saved()
         data = deepcopy(self.data)

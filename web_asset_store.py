@@ -26,6 +26,16 @@ def version_id(hashes):
     return hashlib.sha256("\n".join(name + ":" + hashes[name] for name in FILES).encode()).hexdigest()
 
 
+def page_revision(files):
+    metadata = json.loads(files["metadata.json"])
+    if not isinstance(metadata, dict):
+        raise ValueError("웹 화면 개정 정보가 올바르지 않습니다.")
+    value = metadata.get("page_revision", 0)
+    if type(value) is not int or not 0 <= value <= 2147483647:
+        raise ValueError("웹 화면 개정 번호가 올바르지 않습니다.")
+    return value
+
+
 def validate_assets(files):
     if set(files) != set(FILES):
         raise ValueError("웹 업데이트에 필요한 파일이 빠졌습니다.")
@@ -38,6 +48,7 @@ def validate_assets(files):
         raise ValueError("현재 프로그램과 호환되지 않는 웹 업데이트입니다. GUI 업데이트가 필요합니다.")
     if meta.get("login_api", 1) != LOGIN_API:
         raise ValueError("구버전 입장 화면입니다. web_assets에 닉네임·게스트 비밀번호를 지원하는 새 웹 파일을 올려주세요.")
+    page_revision(files)
     for name, script in (("index.html", "/schedule.js"), ("login.html", "/login.js")):
         page = files[name].decode("utf-8-sig").lower()
         if "<html" not in page or "</html>" not in page or script not in page or "/style.css" not in page:
@@ -52,7 +63,7 @@ def bundled_assets():
         from web_service_page import PAGE, SCRIPT, STYLE
         from web_service_login import LOGIN_PAGE, LOGIN_SCRIPT
         files = dict(zip(FILES, (PAGE, STYLE, SCRIPT, LOGIN_PAGE, LOGIN_SCRIPT,
-            b'{"schema":1,"asset_api":1,"login_api":2}')))
+            b'{"schema":1,"asset_api":1,"login_api":2,"page_revision":94}')))
     validate_assets(files)
     return files
 
@@ -74,13 +85,8 @@ def read_version(root, version):
 
 
 def current_version(root):
-    try:
-        pointer = read_json(Path(root) / "pages" / "current.json")
-    except FileNotFoundError:
-        files = bundled_assets()
-        return version_id({name: git_hash(raw) for name, raw in files.items()})
-    read_version(root, pointer["version"])
-    return pointer["version"]
+    files = load_assets(root)
+    return version_id({name: git_hash(raw) for name, raw in files.items()})
 
 
 def stage_version(root, version, files):
@@ -112,6 +118,16 @@ def stage_version(root, version, files):
 
 
 def load_assets(root, logger=None):
+    bundled = bundled_assets()
+
+    def select(files):
+        if page_revision(files) < page_revision(bundled):
+            if logger:
+                diagnostic(logger, "web_pages_bundled_preferred",
+                           installed_revision=page_revision(files), bundled_revision=page_revision(bundled))
+            return bundled
+        return files
+
     try:
         pointer = read_json(Path(root) / "pages" / "current.json")
     except FileNotFoundError:
@@ -120,12 +136,12 @@ def load_assets(root, logger=None):
         pointer = {}
     if pointer is not None:
         try:
-            return read_version(root, pointer["version"])
+            return select(read_version(root, pointer["version"]))
         except (OSError, ValueError, KeyError, TypeError):
             if logger:
                 diagnostic(logger, "web_pages_load_failed")
             try:
-                return read_version(root, pointer["previous"])
+                return select(read_version(root, pointer["previous"]))
             except (OSError, ValueError, KeyError, TypeError):
                 pass
-    return bundled_assets()
+    return bundled

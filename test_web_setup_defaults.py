@@ -1,5 +1,6 @@
 """Offline setup checks: no workers, sockets, Windows crypto or user-data writes."""
 from pathlib import Path
+from copy import deepcopy
 from types import SimpleNamespace as NS
 import threading
 import unittest
@@ -8,9 +9,87 @@ from unittest.mock import Mock, patch
 from web_service_manager import WebServiceManager
 from web_ddns_service import DDNSService
 import web_ddns_service as ddns_module
+import web_access_settings as access_module
 
 
 class SetupTests(unittest.TestCase):
+    def new_access(self):
+        with patch.object(access_module, 'read_json', side_effect=FileNotFoundError):
+            return access_module.AccessSettings(Path('unused-offline-root'))
+
+    def initialize_access(self, access):
+        with patch.object(Path, 'mkdir'), patch.object(access_module, 'write_json') as write, \
+             patch.object(access_module, 'protect_secret', side_effect=lambda pin: 'protected-' + pin):
+            access.ensure_saved()
+        return deepcopy(write.call_args.args[1])
+
+    def test_new_policy_has_no_default_password_and_does_not_generate_one(self):
+        access = self.new_access()
+        before = deepcopy(access.data)
+        with patch.object(access_module.hashlib, 'pbkdf2_hmac', side_effect=AssertionError('password generated')):
+            stored = self.initialize_access(access)
+        self.assertEqual(stored, before)
+        self.assertFalse(access_module.pin_matches(stored, '', '1111'))
+        self.assertFalse(access_module.pin_matches(stored, 'guest_', '0000'))
+        self.assertEqual(before['key'], stored['key'])
+        self.assertEqual(before['epoch'], stored['epoch'])
+        self.assertEqual(before['guest_epoch'], stored['guest_epoch'])
+        with self.assertRaisesRegex(ValueError, '회원용'):
+            access.require_member_pin()
+        self.assertFalse(access.public_view()['member_configured'])
+        self.assertFalse(access.public_view()['guest_configured'])
+        self.assertEqual(access_module.readable_pins(stored)['member']['state'], 'unset')
+        self.assertEqual(access_module.readable_pins(stored)['guest']['state'], 'unset')
+        with patch.object(access_module, 'write_json') as write, \
+             patch.object(access_module.hashlib, 'pbkdf2_hmac', side_effect=AssertionError('defaults repeated')):
+            access.ensure_saved()
+        write.assert_not_called()
+
+    def test_saved_member_password_and_disabled_guest_are_preserved(self):
+        access = self.new_access()
+        self.initialize_access(access)
+        with patch.object(access_module, 'write_json'), patch.object(access_module, 'protect_secret', return_value='protected'):
+            access.change('pin', '2468')
+        stored = deepcopy(access.data)
+        with patch.object(access_module, 'read_json', return_value=stored):
+            restarted = access_module.AccessSettings(Path('unused-offline-root'))
+        with patch.object(access_module, 'write_json') as write:
+            restarted.ensure_saved()
+        self.assertEqual(stored, restarted.data)
+        write.assert_not_called()
+        restarted.require_member_pin()
+        self.assertFalse(restarted.public_view()['guest_configured'])
+
+    def test_existing_unset_policy_is_not_silently_reset_and_explains_missing_password(self):
+        empty = self.new_access().data
+        with patch.object(access_module, 'read_json', return_value=empty):
+            access = access_module.AccessSettings(Path('unused-offline-root'))
+        with patch.object(access_module, 'write_json') as write:
+            access.ensure_saved()
+        write.assert_not_called()
+        with self.assertRaisesRegex(ValueError, '회원용'):
+            access.require_member_pin()
+
+    def test_unreadable_policy_is_preserved_and_reports_access_error(self):
+        with patch.object(access_module, 'read_json', side_effect=ValueError('corrupt fixture')):
+            access = access_module.AccessSettings(Path('unused-offline-root'))
+        with patch.object(access_module, 'write_json') as write:
+            with self.assertRaises(ValueError):
+                access.ensure_saved()
+        write.assert_not_called()
+        with self.assertRaisesRegex(ValueError, '진단 로그'):
+            access.require_member_pin()
+
+    def test_failed_initial_write_does_not_mark_policy_saved(self):
+        access = self.new_access()
+        before = deepcopy(access.data)
+        with patch.object(Path, 'mkdir'), patch.object(access_module, 'write_json', side_effect=OSError('denied')), \
+             patch.object(access_module, 'protect_secret', return_value='protected'):
+            with self.assertRaises(OSError):
+                access.ensure_saved()
+        self.assertFalse(access.saved)
+        self.assertEqual(before, access.data)
+
     def test_voice_grant_immediately_refreshes_web_context_and_isolates_optional_errors(self):
         from discord_authority import DiscordAuthority
         node = object.__new__(DiscordAuthority)

@@ -24,7 +24,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                          standby=False, handover_hold=False, shutdown_requested=threading.Event())
         self.output = NS(scope_id='notice:req', released=False, state='ready',
                          play=AsyncMock(return_value=True), stop=AsyncMock(return_value=True))
-        self.bot = NS(notice_output=self.output)
+        self.bot = NS(notice_output=self.output, _send_allowed=Mock(return_value=True))
 
     def command(self, action, **extra):
         return dict(id='req', action=action, pid=12, sent_at=time.time(), guild_id='guild', **extra)
@@ -197,7 +197,8 @@ class TimedReceiptTests(unittest.IsolatedAsyncioTestCase):
             at = datetime.now()-timedelta(seconds=1)
             job = VoiceBridgeJob(id='timed', created_at=at, phase='PRE_ALERT_SEQUENCE',
                 category='general', lane='center', volume=1, clip_paths=(),
-                timed_clips=((at, 'a.mp3'), (at, 'b.mp3')), target_time=at.isoformat(), offset_sec=60)
+                timed_clips=((at, 'a.mp3'), (at, 'b.mp3')),
+                target_time=(at+timedelta(seconds=60)).isoformat(), offset_sec=60)
             with patch.object(bot_module, 'STATUS', status), patch.object(bot_module, 'log'):
                 await bot._play_timed_bridge_clips(job)
             self.assertEqual(len(status.notice_opportunities), expected)

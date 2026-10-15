@@ -7,19 +7,21 @@ from datetime import datetime, timedelta
 import re
 
 from .notice_management import KST, encode_time, parse_time
+from .notice_text import compact, normalized, maintenance_extended
 
-ANALYSIS_VERSION = 2
+ANALYSIS_VERSION = 4
 START_NOTICE_MINUTES = 15
 DISCOVERY_VALID_HOURS = 24  # Announcement lifetime, NOT the unknown event deadline.
-DATE = r"(?:(?:20\d{2})\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일|(?:20\d{2}[./-])?\d{1,2}[./-]\d{1,2}"
-TIME = r"(?:오전\s*|오후\s*)?\d{1,2}(?::\d{2}|\s*시(?:\s*\d{1,2}\s*분)?)"
-WEEKDAY = r"(?:\s*\([월화수목금토일](?:요일)?\))?"
-RANGE = re.compile(rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?P<start>{TIME})\s*[~～∼–—]\s*"
-                   rf"(?:(?P<end_date>{DATE}){WEEKDAY}\s*)?(?P<end>{TIME})(?![\d:])")
-POINT = re.compile(rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?P<time>{TIME})(?![\d:])")
+DATE = r"(?:(?:20\d{2})\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일|(?:20\d{2}\s*[./-]\s*)?\d{1,2}\s*[./-]\s*\d{1,2}"
+TIME = r"(?:오\s*전\s*|오\s*후\s*)?\d{1,2}(?:\s*:\s*\d{2}|\s*시(?:\s*\d{1,2}\s*분)?)"
+WEEKDAY = r"(?:\s*\(\s*[월화수목금토일]\s*(?:요\s*일\s*)?\))?"
+TIME_END = r"(?!\d|\s*:|\s*\d+\s*[분초])"
+RANGE = re.compile(rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?P<start>{TIME})\s*(?:[~∼–—-]|부터)\s*"
+                   rf"(?:(?P<end_date>{DATE}){WEEKDAY}\s*)?(?P<end>{TIME}){TIME_END}")
+POINT = re.compile(rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?P<time>{TIME}){TIME_END}")
 AFTER_MAINTENANCE = re.compile(
     rf"(?<![\d./-])(?P<date>{DATE}){WEEKDAY}\s*(?:정기\s*)?점검\s*(?:이후|후)\s*[~～∼–—]\s*"
-    rf"(?P<end_date>{DATE}){WEEKDAY}\s*(?P<end>{TIME})(?![\d:])")
+    rf"(?P<end_date>{DATE}){WEEKDAY}\s*(?P<end>{TIME}){TIME_END}")
 CLASS_SHARED_PERIOD = re.compile(r"클래스변경권(?:판매|구매)및클래스변경기간")
 KINDS = {"maintenance": "점검", "transfer_sale": "이전권 판매", "transfer_use": "서버 이전",
          "class_purchase": "클래스 변경권 구매/획득", "class_use": "클래스 변경권 사용",
@@ -27,13 +29,35 @@ KINDS = {"maintenance": "점검", "transfer_sale": "이전권 판매", "transfer
          "item_use": "아이템 사용", "item_delete": "아이템 삭제"}
 
 
-def _date(value, published):
+def maintenance_reference(article):
+    """Missing publication metadata: use the immutable first collection date."""
+    try:
+        value = parse_time(article.get("first_seen"))
+        return value.date() if value else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _date(value, published, *, maintenance_seen=None):
     numbers = [int(n) for n in re.findall(r"\d+", value)]
     explicit_year = len(numbers) == 3
     if explicit_year:
         year, month, day = numbers
     else:
         if not published:
+            if maintenance_seen:
+                month, day = numbers
+                candidates = []
+                for year in range(maintenance_seen.year - 1, maintenance_seen.year + 2):
+                    try:
+                        candidate = datetime(year, month, day, tzinfo=KST)
+                    except ValueError:
+                        continue
+                    if abs((candidate.date() - maintenance_seen).days) <= 31:
+                        candidates.append(candidate)
+                if len(candidates) == 1:
+                    return candidates[0]
+                raise ValueError("작성일이 없고 점검 날짜가 최초 수집일과 멀어 연도를 확정할 수 없습니다.")
             raise ValueError("연도를 확인할 작성일이 없습니다.")
         year = datetime.fromisoformat(published).year
         month, day = numbers
@@ -44,6 +68,7 @@ def _date(value, published):
 
 
 def _time(day, value):
+    value = compact(value)
     values = [int(n) for n in re.findall(r"\d+", value)]
     hour, minute = values[0], values[1] if len(values) > 1 else 0
     if "오전" in value or "오후" in value:
@@ -56,7 +81,12 @@ def _time(day, value):
 
 
 def _kind(line, category):
-    compact = re.sub(r"\s+", "", line)
+    compact = re.sub(r"\s+", "", normalized(line))
+    if category == "maintenance" and re.search(r"점검(?:내용|보상)", compact):
+        return None
+    if category == "maintenance" and ("점검연장" in compact or "연장점검" in compact
+            or compact.strip("【】[]■·-:.") in {"연장안내", "추가연장안내"}):
+        return "maintenance"
     if category == "transfer":
         if "이전권" in compact and any([word in compact for word in ("판매기간", "판매일정", "구매기간")]):
             return "transfer_sale"
@@ -92,9 +122,11 @@ def analyze_notice(article, *, related_articles=(), now=None):
     context_age = 0
     context_end_only = False
     class_scope = False
+    maintenance_seen = maintenance_reference(article) if category == "maintenance" else None
     for raw in (article.get("body") or "").splitlines():
-        line = raw.strip()
-        heading = bool(re.match(r"^(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.|\d+\)|■|【)", line))
+        line = re.sub(r"\s*([:./])\s*", r"\1", normalized(raw)).strip()
+        line = re.sub(r"(?<=\d)\s*-\s*(?=\d)", "-", line)
+        heading = bool(re.match(r"^(?:[IVX]+\.|\d+\)|■|【)", line))
         if category == "class_change":
             if "클래스변경권" in re.sub(r"\s+", "", line):
                 class_scope = True
@@ -106,32 +138,36 @@ def analyze_notice(article, *, related_articles=(), now=None):
         if selected:
             context, context_age = selected, 0
             context_end_only = category == "event" and (selected == "item_delete" or "기한" in line)
-        elif heading:
+        elif heading or (category == "maintenance" and re.search(r"점검(?:내용|보상)", compact(line))):
             context = None
         context_age += 1
         if not context or context_age > 12:
             continue
         # A date plus range delimiter signals a candidate even if its end is
         # "점검 전". Keep that case held instead of borrowing a different time.
-        has_range = bool(re.search(r"[~～∼–—]", line))
+        has_range = bool(re.search(r"[~∼–—]|부터", line) or re.search(rf"{TIME}\s*-\s*", line))
         point_deadline = category == "event" and (context_end_only or "기한" in line)
         if not re.search(DATE, line) or not (has_range or point_deadline):
             continue
         counters[context] = counters.get(context, 0) + 1
         ordinal = re.search(r"(\d+)\s*회차", line)
         key = f"{context}/{ordinal[1] if ordinal else counters[context]}"
-        fact = {"key": key, "kind": context, "label": KINDS[context], "evidence": line,
+        fact = {"key": key, "kind": context, "label": KINDS[context], "evidence": raw.strip(),
                 "start": None, "end": None, "issue": "날짜/시각을 끝까지 읽지 못했습니다."}
         matches = list(RANGE.finditer(line))
         if len(matches) == 1:
             try:
                 match = matches[0]
-                day = _date(match["date"], article.get("published_date"))
-                end_day = _date(match["end_date"], article.get("published_date")) if match["end_date"] else day
+                day = _date(match["date"], article.get("published_date"), maintenance_seen=maintenance_seen)
+                end_day = _date(match["end_date"], article.get("published_date"),
+                                maintenance_seen=maintenance_seen) if match["end_date"] else day
                 start, end = _time(day, match["start"]), _time(end_day, match["end"])
                 if end <= start:
                     raise ValueError("종료일이 빠르거나 자정 이후 날짜가 불명확합니다.")
                 fact.update(start=encode_time(start), end=encode_time(end), issue="")
+                if (maintenance_seen and not article.get("published_date")
+                        and len(re.findall(r"\d+", match["date"])) == 2):
+                    fact["date_reference"] = "게시일 미제공 · 최초 수집일 기준으로 점검 연도 확인"
             except ValueError as exc:
                 fact["issue"] = str(exc)
         elif category == 'class_change' and len(list(AFTER_MAINTENANCE.finditer(line))) == 1:
@@ -179,8 +215,16 @@ def analyze_notice(article, *, related_articles=(), now=None):
         seen[fact["key"]] = fact
     windows = list(seen.values())
     if category == "maintenance" and len(windows) > 1:
-        for fact in windows:
-            fact.update(start=None, end=None, issue="점검 기간이 여러 개입니다. 최종 적용 시간을 확인해 주세요.")
+        # A single maintenance can retain the original period above its updates.
+        # Only an explicit extension with one common start permits the latest end.
+        if (maintenance_extended(article) and all(not fact["issue"] for fact in windows)
+                and len({fact["start"] for fact in windows}) == 1):
+            latest = max(windows, key=lambda fact: parse_time(fact["end"]))
+            windows = [dict(latest, key="maintenance/1")]
+            seen = {"maintenance/1": windows[0]}
+        else:
+            for fact in windows:
+                fact.update(start=None, end=None, issue="점검 기간이 여러 개입니다. 최종 적용 시간을 확인해 주세요.")
     if category == "event":
         for fact in windows:
             if sum(other["kind"] == fact["kind"] for other in windows) > 1:
@@ -209,6 +253,7 @@ def notice_events(article, analysis):
         return events
     anchor = parse_time(article.get("first_seen"))
     prefix = article["id"] + "/time-v1/"
+    title_compact = compact(article.get("title", ""))
 
     def add(suffix, title, start, end, fact=None, trigger="immediate"):
         if start and end and start >= end:
@@ -259,8 +304,8 @@ def notice_events(article, analysis):
         if not start or not end:
             continue
         if fact["kind"] == "maintenance":
-            label = "정기점검" if "정기" in article["title"] else "임시점검" if "임시" in article["title"] else "점검"
-            extension = " 연장" if "연장" in article["title"] else ""
+            label = "정기점검" if "정기" in title_compact else "임시점검" if "임시" in title_compact else "점검"
+            extension = " 연장" if maintenance_extended(article) else ""
             add(fact["key"] + "/discovery", label + extension + " 안내", anchor, end, fact)
         elif fact["kind"] == "transfer_sale":
             title = f"이전권 {fact['key'].split('/')[-1]}회차 판매"
@@ -294,16 +339,16 @@ def notice_events(article, analysis):
     if not analysis["windows"] or any([fact["issue"] for fact in analysis["windows"]]):
         # One article, one discovery announcement, regardless of how many
         # ambiguous sale slots it contains. No claimed sale/event deadline.
-        compact = re.sub(r"\s+", "", article.get("title", "") + article.get("body", ""))
+        text_compact = compact(article.get("title", "") + article.get("body", ""))
         category = article["category"]
         if category == "transfer":
-            label = "이전권 판매" if "이전권" in compact else "서버이전"
+            label = "이전권 판매" if "이전권" in text_compact else "서버이전"
         elif category == "maintenance":
-            label = "정기점검" if "정기" in article["title"] else "임시점검" if "임시" in article["title"] else "점검"
-            if "연장" in article["title"]:
+            label = "정기점검" if "정기" in title_compact else "임시점검" if "임시" in title_compact else "점검"
+            if maintenance_extended(article):
                 label += " 연장"
         elif category == "class_change":
-            label = "클래스 변경권" if "클래스변경권" in compact else "신규 직업"
+            label = "클래스 변경권" if "클래스변경권" in text_compact else "신규 직업"
         else:
             label = "이벤트"
         discovered = parse_time(article.get("uncertain_first_seen")) or anchor

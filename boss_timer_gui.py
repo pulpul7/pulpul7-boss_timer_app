@@ -60,6 +60,7 @@ from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_a
 from discord_connection_policy import ConnectionPolicy, MAX_RETRIES, CONTROL_PROTOCOL
 from discord_authority_events import CONTROL_TRANSPORT
 from desktop_banner_service import DesktopBannerService
+from boss_view_labels import strip_last_hit_marker
 from web_service_manager import WebServiceManager
 from web_service_ui import WebServiceWindow
 from web_schedule_snapshot import collect_snapshot as collect_web_schedule_snapshot
@@ -2905,6 +2906,8 @@ class BossTimerApp:
         self.schedule_boss_respawn_var = tk.StringVar()
         self.schedule_boss_area_var = tk.StringVar(value=RECORD_BOOK_AREAS[0])
         self.schedule_boss_absolute_var = tk.BooleanVar(value=False)
+        self.schedule_boss_enabled_var = tk.BooleanVar(value=True)
+        self.schedule_boss_last_hit_var = tk.BooleanVar(value=False)
         self.schedule_boss_star_var = tk.BooleanVar(value=False)
         self.schedule_boss_text_color_var = tk.StringVar(value="")
         self.schedule_boss_bg_color_var = tk.StringVar(value="")
@@ -3198,6 +3201,8 @@ class BossTimerApp:
         self.schedule_boss_respawn_var.trace_add("write", self._on_schedule_boss_form_changed)
         self.schedule_boss_area_var.trace_add("write", self._on_schedule_boss_area_mode_changed)
         self.schedule_boss_absolute_var.trace_add("write", self._on_schedule_boss_area_mode_changed)
+        self.schedule_boss_enabled_var.trace_add("write", self._on_schedule_boss_form_changed)
+        self.schedule_boss_last_hit_var.trace_add("write", self._on_schedule_boss_form_changed)
         self.schedule_boss_text_color_var.trace_add("write", self._on_schedule_boss_form_changed)
         self.schedule_boss_bg_color_var.trace_add("write", self._on_schedule_boss_form_changed)
         self.schedule_area_text_color_var.trace_add("write", self._on_schedule_boss_form_changed)
@@ -3441,7 +3446,8 @@ class BossTimerApp:
                     manager.offer_snapshot(payload, origin="delegated")
             elif manager.status()["enabled"] or (relay is not None and relay.needs_local_snapshot()):
                 started = time.monotonic()
-                payload = collect_web_schedule_snapshot(self)
+                payload = collect_web_schedule_snapshot(self, boss_orders=RECORD_BOOK_BOSS_ORDER,
+                                                        slot_grid=SCHEDULE_OCR_SLOT_GRID)
                 if relay is not None:
                     relay.offer_local(payload)
                 manager.offer_snapshot(payload)
@@ -3633,7 +3639,8 @@ class BossTimerApp:
         settings = self.edge_tts_settings
         chime, ffmpeg, signature = notice_audio_resources(get_app_root(), get_resource_root())
         return dict(signature=settings.cache_signature() + "|" + signature, enabled=settings.enabled,
-                    factory=lambda: NoticeChimeSynthesizer(EdgeTtsCache(settings), chime, ffmpeg))
+                    factory=lambda: NoticeChimeSynthesizer(
+                        EdgeTtsCache(settings, logger=self._append_debug_log), chime, ffmpeg))
 
     def _get_notice_output_context(self):
         """Capture host identity on Tk; all output I/O runs in the module worker."""
@@ -6379,6 +6386,9 @@ class BossTimerApp:
         self.discord_bot_voice_bridge_heartbeat_last_sent_at = 0.0
 
     def _recover_discord_bot_runtime(self, reason: str) -> None:
+        if (getattr(self, "discord_bot_exit_requested", False)
+                or getattr(self, "discord_bot_shutdown_in_progress", False)):
+            return
         policy = ConnectionPolicy(self._get_discord_bot_config_storage_path())
         state = policy.snapshot()
         if state["error"] or state["retries"] >= MAX_RETRIES:
@@ -6415,6 +6425,9 @@ class BossTimerApp:
             )
 
     def _monitor_discord_bot_voice_bridge_health(self, payload: dict[str, object]) -> None:
+        if (getattr(self, "discord_bot_exit_requested", False)
+                or getattr(self, "discord_bot_shutdown_in_progress", False)):
+            return
         if (payload.get("configuration_error") or payload.get("standby") or payload.get("handover_hold")
                 or getattr(self, "discord_handover_busy", False)):
             # Invalid credentials/channel are not a transient network failure.
@@ -7283,6 +7296,8 @@ class BossTimerApp:
             except tk.TclError:
                 pass
         self.discord_bot_status_after_id = None
+        if getattr(self, "discord_bot_exit_requested", False):
+            return
         if not self._callbacks_available():
             return
         if (
@@ -7358,6 +7373,18 @@ class BossTimerApp:
             if (status_payload.get("ok") and not self._discord_bot_status_matches(status_payload)
                     and not self._owns_discord_bot_child(status_payload)):
                 return False
+            try:
+                # Stop the local lease before stopping its process. A late
+                # status poll or Discord callback must not re-enter voice.
+                stop_profile = (str(status_payload.get('config_path') or '') if status_payload.get('ok') else '')
+                stop_profile = stop_profile or getattr(self, 'discord_bot_process_profile', '') or self._get_discord_bot_config_storage_path()
+                stop_policy = ConnectionPolicy(stop_profile)
+                stop_state = stop_policy.snapshot(strict=True)
+                if stop_state.get('voice_requested') and stop_state.get('runtime_id') and stop_state.get('authority_request'):
+                    stop_policy.request_stop(stop_state['runtime_id'], stop_state['authority_request'])
+                stop_policy.pause()
+            except Exception as exc:
+                self._append_debug_log(f"discord_shutdown_policy_pause_failed type={type(exc).__name__}")
             process_alive = False
             if process is not None:
                 try:
@@ -7657,7 +7684,8 @@ class BossTimerApp:
 
     def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False, gateway_only: bool = False,
                                    _stale_recovery_attempted: bool = False) -> bool:
-        if getattr(self, "discord_bot_exit_requested", False):
+        if (getattr(self, "discord_bot_exit_requested", False)
+                or getattr(self, "discord_bot_shutdown_in_progress", False)):
             return False
         if getattr(self, "discord_bot_stale_recovery_in_progress", False):
             return True
@@ -7849,6 +7877,9 @@ class BossTimerApp:
         self,
         payload: dict[str, object],
     ) -> tuple[bool, str]:
+        if (getattr(self, "discord_bot_exit_requested", False)
+                or getattr(self, "discord_bot_shutdown_in_progress", False)):
+            return False, "프로그램 또는 봇 종료 중이라 재접속 요청을 취소했습니다."
         voice_channel_id = str(payload.get("voice_channel_id") or "").strip()
         requested_server_id = str(payload.get("server_id") or "").strip()
         configured_server_id = str(getattr(self, "discord_bot_server_id", "") or "").strip()
@@ -7908,7 +7939,8 @@ class BossTimerApp:
         reconnect_profile = self._get_discord_bot_config_storage_path()
         def restart_runtime() -> None:
             try:
-                if (self._get_discord_bot_config_storage_path() != reconnect_profile
+                if (getattr(self, "discord_bot_exit_requested", False)
+                        or self._get_discord_bot_config_storage_path() != reconnect_profile
                         or getattr(self, "discord_handover_busy", False)):
                     return
                 started = self._start_discord_bot_runtime(automatic=automatic_recovery, gateway_only=True)
@@ -9005,8 +9037,18 @@ class BossTimerApp:
         boss_payload = payload.get("payload") if str(payload.get("kind") or "").strip() == "boss_config" else payload
         if not isinstance(boss_payload, dict):
             return ""
+        definitions = boss_payload.get("boss_definitions", [])
+        if isinstance(definitions, list):
+            # Legacy configs omitted usage (= ON). Keep their content hashes
+            # compatible; an explicit OFF must still change the hash.
+            definitions = [
+                {key: value for key, value in row.items()
+                 if not (key == "enabled" and value is True) and not (key == "last_hit" and value is False)}
+                if isinstance(row, dict) else row
+                for row in definitions
+            ]
         content = {
-            "boss_definitions": boss_payload.get("boss_definitions", []),
+            "boss_definitions": definitions,
             "deleted_builtin_bosses": boss_payload.get("deleted_builtin_bosses", []),
             "fixed_bosses": boss_payload.get("fixed_bosses", []),
         }
@@ -9041,6 +9083,8 @@ class BossTimerApp:
                     "area": str(item.get("area") or "").strip(),
                     "absolute": bool(item.get("absolute", False)),
                     "star": bool(item.get("star", False)),
+                    "enabled": bool(item.get("enabled", True)),
+                    "last_hit": bool(item.get("last_hit", False)),
                     # 색은 보스 설정의 일부다. 이전에는 공유 설정으로 내보내지
                     # 않아, 다른 PC/프로필에서 불러온 뒤 색 정보가 빈 값으로
                     # 다시 저장될 수 있었다.
@@ -10138,7 +10182,7 @@ class BossTimerApp:
     ) -> dict[str, str | bool] | None:
         if not isinstance(raw_item, dict):
             return None
-        boss_name = str(raw_item.get("boss_name") or "").strip()
+        boss_name = strip_last_hit_marker(raw_item.get("boss_name"))
         if not boss_name or self._is_schedule_boss_header_name(boss_name):
             return None
         defaults = self._build_schedule_boss_definitions()
@@ -10157,11 +10201,17 @@ class BossTimerApp:
             bg_color = preserved_bg_color
         return {
             "boss_name": boss_name,
-            "alias": str(raw_item.get("alias") or "").strip(),
+            "alias": strip_last_hit_marker(raw_item.get("alias")),
             "respawn": str(raw_item.get("respawn") or "").strip(),
             "area": area,
             "absolute": bool(raw_item.get("absolute", bool(default_item.get("absolute", False)))),
             "star": bool(raw_item.get("star", bool(default_item.get("star", False)))),
+            "enabled": self._parse_schedule_definition_bool(
+                str(raw_item.get("enabled", self.schedule_boss_definitions.get(boss_name, {}).get("enabled", True))), True
+            ),
+            "last_hit": self._parse_schedule_definition_bool(
+                str(raw_item.get("last_hit", self.schedule_boss_definitions.get(boss_name, {}).get("last_hit", False))), False
+            ),
             "text_color": self._normalize_optional_hex_color(text_color),
             "bg_color": self._normalize_optional_hex_color(bg_color),
         }
@@ -11281,7 +11331,7 @@ class BossTimerApp:
         }
 
     def _normalize_boss_lookup_key(self, text: str) -> str:
-        return re.sub(r"\s+", "", (text or "").strip()).lower()
+        return re.sub(r"\s+", "", strip_last_hit_marker(text)).lower()
 
     def _rebuild_boss_name_resolution_maps(self) -> None:
         lookup: dict[str, str] = {}
@@ -11339,7 +11389,7 @@ class BossTimerApp:
         self.boss_alt_names_map = alt_names_map
 
     def _get_canonical_boss_name(self, raw_name: str) -> str:
-        cleaned = (raw_name or "").strip()
+        cleaned = strip_last_hit_marker(raw_name)
         if not cleaned:
             return ""
         return self.boss_name_lookup_map.get(self._normalize_boss_lookup_key(cleaned), cleaned)
@@ -17153,6 +17203,8 @@ class BossTimerApp:
             canonical = str(item.get("boss_name") or boss_name).strip()
             if not canonical:
                 continue
+            if not self._is_schedule_boss_input_enabled(canonical):
+                continue
             candidates.add(canonical)
             alias = str(item.get("alias") or "").strip()
             if alias:
@@ -17161,7 +17213,7 @@ class BossTimerApp:
             candidates.add(f"침공 {canonical}")
         for source_name in RECORD_BOOK_ABBREV_MAP.keys():
             source = str(source_name or "").strip()
-            if source:
+            if source and self._is_schedule_boss_input_enabled(RECORD_BOOK_ABBREV_MAP.get(source, source)):
                 candidates.add(source)
                 candidates.add(f"침공 {source}")
         return sorted(candidates, key=lambda value: len(self._normalize_schedule_boss_lookup_key(value)), reverse=True)
@@ -17207,6 +17259,7 @@ class BossTimerApp:
         parsed_items, ignored_count = self._parse_schedule_input_lines(
             normalized_text,
             reference_datetime=reference_datetime,
+            respect_boss_usage=True,
         )
         parsed_items = [
             item for item in parsed_items
@@ -17481,7 +17534,7 @@ class BossTimerApp:
                 continue
             if display_scheduled_at >= reference_now:
                 continue
-            previous_rows.append((display_scheduled_at, self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)))
+            previous_rows.append((display_scheduled_at, self._get_schedule_boss_view_name(item, prefer_alias=True, include_star=True)))
             if len(previous_rows) >= 4:
                 break
         future_scan_end = cutoff_datetime if isinstance(cutoff_datetime, datetime) else reference_now + timedelta(days=14)
@@ -17495,7 +17548,7 @@ class BossTimerApp:
                 continue
             if cutoff_datetime is not None and display_scheduled_at >= cutoff_datetime:
                 continue
-            future_rows.append((display_scheduled_at, self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)))
+            future_rows.append((display_scheduled_at, self._get_schedule_boss_view_name(item, prefer_alias=True, include_star=True)))
             if len(future_rows) >= 4:
                 break
         for scheduled_at, boss_name, *_rest in self._get_fixed_boss_schedule_rows():
@@ -17885,7 +17938,7 @@ class BossTimerApp:
                 "kind": "active",
                 "item": dict(item),
                 "identity": self._get_schedule_item_identity("active", item),
-                "label": f"{self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)}: 출현 중",
+                "label": f"{self._get_schedule_boss_view_name(item, prefer_alias=True, include_star=True)}: 출현 중",
                 "action_mode": "cut_pair" if cut_available else ("no_respawn" if not respawn_available else ""),
                 "action_cut_time_text": "",
                 "needs_retry": False,
@@ -17919,7 +17972,7 @@ class BossTimerApp:
                 "kind": "cut",
                 "item": dict(item),
                 "identity": resolved_identity,
-                "label": f"{self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)}: 컷 완료",
+                "label": f"{self._get_schedule_boss_view_name(item, prefer_alias=True, include_star=True)}: 컷 완료",
                 "action_mode": "cancel" if cancel_ready else "cooldown",
                 "action_cut_time_text": str(entry.get("cut_time_text") or "--:--:--"),
                 "remaining_seconds": remaining_seconds,
@@ -17972,7 +18025,7 @@ class BossTimerApp:
                 "kind": "long",
                 "item": dict(item),
                 "identity": self._get_schedule_item_identity("event", item),
-                "label": f"{self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)}: {info['remaining_text']}",
+                "label": f"{self._get_schedule_boss_view_name(item, prefer_alias=True, include_star=True)}: {info['remaining_text']}",
                 "action_mode": str(info.get("action_mode") or "cut_pair"),
                 "action_cut_time_text": "",
                 "remaining_seconds": int(info.get("remaining_seconds") or 0),
@@ -18212,7 +18265,7 @@ class BossTimerApp:
         ):
             return
         try:
-            label.config(text=f"{self._get_schedule_boss_display_name(item, prefer_alias=True, include_star=True)}: 컷 완료")
+            label.config(text=f"{self._get_schedule_boss_view_name(item, prefer_alias=True, include_star=True)}: 컷 완료")
         except tk.TclError:
             return
         for key in ("cut_widget", "cut_time_widget", "status_widget"):
@@ -20048,6 +20101,7 @@ class BossTimerApp:
                     "is_invasion": self._is_schedule_invasion_item(item),
                     "is_fixed": False,
                     "has_star": self._schedule_share_item_has_star(item),
+                    "last_hit": self._schedule_boss_is_last_hit(item),
                     "text_color": self._get_schedule_share_event_colors(item)[0] if use_boss_colors else "",
                     "bg_color": self._get_schedule_share_event_colors(item)[1] if use_boss_colors else "",
                 }
@@ -20296,6 +20350,7 @@ class BossTimerApp:
         self.schedule_status_var.set('TXT를 클립보드에 복사하고 스케쥴 입력창을 열었습니다.')
 
     def _copy_schedule_share_image_to_clipboard(self, selected_range: dict[str, object] | None = None) -> bool:
+        from boss_view_labels import row_label
         try:
             if selected_range is None:
                 selected_range = self._show_schedule_share_period_dialog()
@@ -20333,7 +20388,7 @@ class BossTimerApp:
                         "kind": str(entry.get("kind") or "event"),
                         "date_text": str(entry.get("date_text") or ""),
                         "time": str(entry.get("time_text") or ""),
-                        "boss": str(entry.get("boss_text") or ""),
+                        "boss": row_label(entry, "boss_text"),
                         "state": str(entry.get("state_text") or ""),
                         "break_display_text": str(entry.get("break_display_text") or ""),
                         "is_elapsed": bool(entry.get("is_elapsed")),
@@ -20985,9 +21040,10 @@ class BossTimerApp:
             reference_datetime=reference_datetime,
             treat_cut_text_as_seed=True,
             allow_past_clock_seeds=False,
+            respect_boss_usage=True,
         )
         if not parsed_items or ignored_count:
-            return False, f"입력 형식을 확인하세요. 파싱 {len(parsed_items)}건, 무시 {ignored_count}줄"
+            return False, f"입력 형식과 보스 설정의 사용 체크를 확인하세요. 파싱 {len(parsed_items)}건, 무시 {ignored_count}줄"
         normal_keys = {
             str(item.get("raw_key") or "").strip()
             for item in parsed_items
@@ -28555,6 +28611,8 @@ class BossTimerApp:
     def _should_include_schedule_input_ocr_render_entry(self, entry: dict[str, object]) -> bool:
         if not isinstance(entry, dict):
             return False
+        if not self._is_schedule_boss_input_enabled(entry):
+            return False
         if self._is_schedule_input_ocr_second_confirmed_filter_enabled():
             if str(entry.get("precision") or "").strip() != "second":
                 return False
@@ -28960,6 +29018,9 @@ class BossTimerApp:
             rects = self._get_schedule_ocr_slot_rects(final_area, width, height, window_rect=window_rect)
             for slot_index in range(1, expected_slot_count + 1):
                 boss_name = boss_order[slot_index - 1] if slot_index - 1 < len(boss_order) else f"{final_area}:{slot_index}"
+                if not self._is_schedule_boss_input_enabled(boss_name):
+                    scale_logs.append(f"slot {slot_index} {boss_name}: disabled_by_boss_settings")
+                    continue
                 rect = next((entry for entry in rects if int(entry.get("slot_index") or 0) == slot_index), None)
                 if rect is None:
                     continue
@@ -29101,6 +29162,9 @@ class BossTimerApp:
             boss_order = RECORD_BOOK_BOSS_ORDER.get(final_area, [])
             rects = self._get_schedule_ocr_slot_rects(final_area, width, height, window_rect=fixed_window_rect)
             for slot_index, boss_name in enumerate(boss_order, start=1):
+                if not self._is_schedule_boss_input_enabled(boss_name):
+                    scale_logs.append(f"slot {slot_index} {boss_name}: disabled_by_boss_settings")
+                    continue
                 rect = next((entry for entry in rects if int(entry.get("slot_index") or 0) == slot_index), None)
                 if rect is None:
                     continue
@@ -44728,7 +44792,7 @@ class BossTimerApp:
         self._save_schedule_state()
 
     def _normalize_schedule_boss_lookup_key(self, text: str) -> str:
-        return re.sub(r"\s+", "", (text or "").strip()).lower()
+        return re.sub(r"\s+", "", strip_last_hit_marker(text)).lower()
 
     def _normalize_schedule_presence_text(self, text: str) -> str | None:
         normalized = self._normalize_schedule_boss_lookup_key(text)
@@ -44796,7 +44860,7 @@ class BossTimerApp:
 
     def _normalize_schedule_input_boss_name(self, raw_name: str) -> dict[str, object]:
         lookup = self._get_schedule_boss_lookup_map()
-        cleaned = re.sub(r"\s+", " ", (raw_name or "").strip())
+        cleaned = re.sub(r"\s+", " ", strip_last_hit_marker(raw_name))
         invasion_match = re.match(r"^침공\s*(.+)$", cleaned)
         is_invasion = invasion_match is not None
         base_input = invasion_match.group(1).strip() if invasion_match else cleaned
@@ -44865,6 +44929,20 @@ class BossTimerApp:
             return False
         definition = self.schedule_boss_definitions.get(boss_name, {})
         return bool(definition.get("star", False))
+
+    def _schedule_boss_is_last_hit(self, item_or_name) -> bool:
+        name = self._get_schedule_boss_definition_name(item_or_name)
+        return bool(self.schedule_boss_definitions.get(name, {}).get("last_hit", False))
+
+    def _get_schedule_boss_view_name(self, item, *, prefer_alias=False, include_star=False) -> str:
+        from boss_view_labels import boss_label
+        name = self._get_schedule_boss_display_name(item, prefer_alias=prefer_alias)
+        label = boss_label(name, self._schedule_boss_is_last_hit(item))
+        return label + " ★" if include_star and self._schedule_boss_has_star(item) else label
+
+    def _is_schedule_boss_input_enabled(self, item_or_name) -> bool:
+        from schedule_boss_usage import input_enabled
+        return input_enabled(getattr(self, "schedule_boss_definitions", {}), item_or_name)
 
     def _get_schedule_cut_input_text(self, item: dict[str, object], cut_token: str | None = None) -> str:
         boss_text = self._get_schedule_boss_display_name(item, prefer_alias=True) or self._get_schedule_boss_display_name(item)
@@ -45221,7 +45299,7 @@ class BossTimerApp:
         *,
         treat_cut_text_as_seed: bool = True,
     ) -> dict[str, object] | None:
-        cleaned = re.sub(r"\s+", " ", (line or "").strip())
+        cleaned = re.sub(r"\s+", " ", strip_last_hit_marker(line))
         if not cleaned or self._should_ignore_schedule_input_line(cleaned):
             return None
         from schedule_precision import split_fractional_input
@@ -45866,11 +45944,13 @@ class BossTimerApp:
         reference_datetime: datetime | None = None,
         treat_cut_text_as_seed: bool = True,
         allow_past_clock_seeds: bool = False,
+        respect_boss_usage: bool = False,
     ) -> tuple[list[dict[str, object]], int]:
         parsed_items: list[dict[str, object]] = []
         ignored_count = 0
+        disabled_names: set[str] = set()
         from schedule_input_syntax import expand_schedule_boss_line
-        for raw_line in (line for source in raw_text.splitlines() for line in expand_schedule_boss_line(source)):
+        for raw_line in (line for source in raw_text.splitlines() for line in expand_schedule_boss_line(strip_last_hit_marker(source))):
             stripped_line = raw_line.strip()
             if stripped_line.startswith('#'):
                 continue
@@ -45882,7 +45962,12 @@ class BossTimerApp:
                 if stripped_line and not self._should_ignore_schedule_input_line(stripped_line):
                     ignored_count += 1
                 continue
+            if respect_boss_usage and not self._is_schedule_boss_input_enabled(parsed):
+                disabled_names.add(str(parsed.get("boss_name") or parsed.get("display_name") or ""))
+                continue
             parsed_items.append(parsed)
+        if disabled_names:
+            self._append_debug_log(f"schedule_input_disabled_bosses_skipped count={len(disabled_names)} names={','.join(sorted(disabled_names))}")
         self._normalize_schedule_clock_items(
             parsed_items,
             reference_datetime=reference_datetime,
@@ -46403,7 +46488,7 @@ class BossTimerApp:
         for item in self._get_schedule_boss_definition_items():
             boss_name = str(item.get("boss_name") or "").strip()
             area_name = str(item.get("area") or "").strip()
-            if not boss_name or not area_name:
+            if not boss_name or not area_name or not self._is_schedule_boss_input_enabled(boss_name):
                 continue
             area_bosses = grouped_names.setdefault(area_name, [])
             if boss_name not in area_bosses:
@@ -46731,7 +46816,7 @@ class BossTimerApp:
                     if state_text == "경과" and row_kind not in {"control", "maintenance"} and not recently_elapsed_blink:
                         elapsed_overlay_values = (
                             self._format_schedule_tree_clock_text(scheduled_at, row_item),
-                            boss_text,
+                            self._get_schedule_boss_view_name(row_item, prefer_alias=True, include_star=True) if row_kind == "event" else boss_text,
                             state_text,
                             alarm_text,
                         )
@@ -46772,7 +46857,7 @@ class BossTimerApp:
                         row_tags = ()
                     row_values = (
                         self._format_schedule_tree_clock_text(scheduled_at, row_item),
-                        boss_text,
+                        self._get_schedule_boss_view_name(row_item, prefer_alias=True, include_star=True) if row_kind == "event" else boss_text,
                         state_text,
                         alarm_text,
                         cut_now_text,
@@ -46869,7 +46954,7 @@ class BossTimerApp:
             elif self.schedule_input_add_mode:
                 enabled_bg = "#059669"
                 enabled_active_bg = "#047857"
-                base_text = "추가 모드: 입력한 보스만 현재 이후 스케쥴에 반영합니다."
+                base_text = "추가 모드: 사용이 켜진 입력 보스만 현재 이후 스케쥴에 반영합니다."
             else:
                 enabled_bg = "#0f766e"
                 enabled_active_bg = "#115e59"
@@ -47214,7 +47299,10 @@ class BossTimerApp:
 
     def _warn_schedule_input_duplicate_bosses(self, raw_text: str) -> bool:
         from schedule_input_display import find_duplicate_boss_lines, highlight_duplicate_boss_lines, clear_duplicate_highlights
-        groups = find_duplicate_boss_lines(raw_text, self._parse_schedule_input_line)
+        def enabled_input(line):
+            parsed = self._parse_schedule_input_line(line)
+            return parsed if parsed is not None and self._is_schedule_boss_input_enabled(parsed) else None
+        groups = find_duplicate_boss_lines(raw_text, enabled_input)
         target_widget = None
         # Same precedence as _get_schedule_input_raw_text: left input, then OCR1.
         for widget in (getattr(self, 'schedule_input_text', None), getattr(self, 'schedule_input_ocr1_text', None)):
@@ -47263,9 +47351,10 @@ class BossTimerApp:
             raw_text,
             reference_datetime=None if self.schedule_input_edit_mode else reference_datetime,
             allow_past_clock_seeds=False,
+            respect_boss_usage=not self.schedule_input_edit_mode,
         )
         if not parsed_items:
-            self.schedule_input_status_var.set("파싱 가능한 스케쥴 데이터가 없습니다.")
+            self.schedule_input_status_var.set("적용할 스케쥴 데이터가 없습니다. 입력 형식과 보스 설정의 사용 체크를 확인하세요.")
             return
         input_tts_cache_names: set[str] = set()
         for parsed_item in parsed_items:
@@ -47628,6 +47717,7 @@ class BossTimerApp:
                     "area": area,
                     "absolute": False,
                     "star": False,
+                    "enabled": True,
                     "text_color": "",
                     "bg_color": "",
                 }
@@ -47648,6 +47738,7 @@ class BossTimerApp:
                 "area": RECORD_BOOK_ABSOLUTE_SOURCE_AREAS.get(boss_name, RECORD_BOOK_AREAS[0]),
                 "absolute": True,
                 "star": False,
+                "enabled": True,
                 "text_color": "",
                 "bg_color": "",
             }
@@ -48064,6 +48155,10 @@ class BossTimerApp:
                     new_item["area"] = old_item["area"]
                 if not bool(new_item.get("absolute")) and bool(old_item.get("absolute")):
                     new_item["absolute"] = True
+                if old_item.get("enabled") is False:
+                    new_item["enabled"] = False
+                if old_item.get("last_hit"):
+                    new_item["last_hit"] = True
             del definitions[old_name]
             changed = True
         return changed
@@ -48098,6 +48193,10 @@ class BossTimerApp:
                         canonical_item[key] = merged_item[key]
                 if bool(merged_item.get("star")):
                     canonical_item["star"] = True
+                if merged_item.get("enabled") is False:
+                    canonical_item["enabled"] = False
+                if merged_item.get("last_hit"):
+                    canonical_item["last_hit"] = True
                 if str(merged_item.get("area") or "").strip():
                     canonical_item["area"] = merged_item["area"]
                 if bool(merged_item.get("absolute")):
@@ -48158,11 +48257,11 @@ class BossTimerApp:
                     parts = [part.strip() for part in line.split("|")]
                     if len(parts) < 5:
                         continue
-                    boss_name = parts[0]
+                    boss_name = strip_last_hit_marker(parts[0])
                     if not boss_name or self._is_schedule_boss_header_name(boss_name):
                         continue
                     parsed_boss_names.add(boss_name)
-                    alias = parts[1]
+                    alias = strip_last_hit_marker(parts[1])
                     respawn = parts[2]
                     area = parts[3] if parts[3] in self.schedule_area_definitions else defaults.get(boss_name, {}).get("area", RECORD_BOOK_AREAS[0])
                     absolute = self._parse_schedule_definition_bool(parts[4], bool(defaults.get(boss_name, {}).get("absolute", False)))
@@ -48175,6 +48274,8 @@ class BossTimerApp:
                         "area": area,
                         "absolute": absolute,
                         "star": self._parse_schedule_definition_bool(parts[7] if len(parts) >= 8 else None, bool(defaults.get(boss_name, {}).get("star", False))),
+                        "enabled": self._parse_schedule_definition_bool(parts[8] if len(parts) >= 9 else None, True),
+                        "last_hit": self._parse_schedule_definition_bool(parts[9] if len(parts) >= 10 else None, False),
                         "text_color": text_color,
                         "bg_color": bg_color,
                     }
@@ -48232,7 +48333,7 @@ class BossTimerApp:
         self._ensure_init_dir()
         boss_definitions_path = self._get_schedule_boss_definitions_storage_path()
         os.makedirs(os.path.dirname(boss_definitions_path), exist_ok=True)
-        lines = ["# 보스명|약칭|젠주기(HHH:MM)|지역이름|절대자여부(1/0)|글자색|배경색|별표여부(1/0)\n"]
+        lines = ["# 보스명|약칭|젠주기(HHH:MM)|지역이름|절대자여부(1/0)|글자색|배경색|별표여부(1/0)|사용여부(1/0)|막타여부(1/0)\n"]
         deleted_builtin_names = sorted(
             name
             for name in getattr(self, "schedule_boss_deleted_builtin_names", set())
@@ -48252,7 +48353,9 @@ class BossTimerApp:
                 f"{'1' if bool(item.get('absolute')) else '0'}|"
                 f"{self._normalize_optional_hex_color(str(item.get('text_color') or ''))}|"
                 f"{self._normalize_optional_hex_color(str(item.get('bg_color') or ''))}|"
-                f"{'1' if bool(item.get('star')) else '0'}\n"
+                f"{'1' if bool(item.get('star')) else '0'}|"
+                f"{'1' if bool(item.get('enabled', True)) else '0'}|"
+                f"{'1' if bool(item.get('last_hit', False)) else '0'}\n"
             )
         color_count = sum(
             1
@@ -48299,8 +48402,22 @@ class BossTimerApp:
             self._refresh_schedule_alarm_window()
         if self._widget_available(self.schedule_boss_metrics_window):
             self._populate_schedule_boss_metrics_tree()
+        self._refresh_schedule_boss_input_usage_views()
         if status_message:
             self.schedule_boss_config_status_var.set(status_message)
+
+    def _refresh_schedule_boss_input_usage_views(self) -> None:
+        if not self._widget_available(getattr(self, "schedule_input_window", None)):
+            return
+        rendered = getattr(self, "schedule_input_ocr_mode_render_texts", {})
+        # Never overwrite a user's manual edits while refreshing cached OCR.
+        for mode, expected in rendered.items():
+            widget = self._get_schedule_input_ocr_text_widget_for_mode(mode)
+            if self._get_schedule_input_ocr_text_widget_rendered_text(widget).strip() != str(expected or "").strip():
+                return
+        for mode in rendered:
+            if mode in getattr(self, "schedule_input_ocr_mode_results", {}):
+                self._render_schedule_input_ocr_text(mode)
 
     def _store_schedule_boss_draft(self, draft_key: str, definition: dict[str, str | bool]) -> None:
         boss_name = str(definition.get("boss_name") or "").strip()
@@ -48362,8 +48479,8 @@ class BossTimerApp:
             )
 
     def _get_schedule_boss_form_definition(self) -> dict[str, str | bool]:
-        boss_name = "" if self.schedule_boss_name_placeholder_active else (self.schedule_boss_name_var.get() or "").strip()
-        alias = (self.schedule_boss_alias_var.get() or "").strip()
+        boss_name = "" if self.schedule_boss_name_placeholder_active else strip_last_hit_marker(self.schedule_boss_name_var.get())
+        alias = strip_last_hit_marker(self.schedule_boss_alias_var.get())
         if alias == boss_name:
             alias = ""
         respawn = "" if self.schedule_boss_respawn_placeholder_active else (self.schedule_boss_respawn_var.get() or "").strip()
@@ -48378,6 +48495,8 @@ class BossTimerApp:
             "respawn": respawn,
             "area": area,
             "absolute": absolute,
+            "enabled": bool(self.schedule_boss_enabled_var.get()),
+            "last_hit": bool(self.schedule_boss_last_hit_var.get()),
         }
 
     def _get_schedule_area_effective_colors(self, area_name: str) -> tuple[str, str]:
@@ -48607,6 +48726,8 @@ class BossTimerApp:
                 "area": str(existing.get("area") or RECORD_BOOK_AREAS[0]),
                 "absolute": bool(existing.get("absolute", False)),
                 "star": bool(existing.get("star", False)),
+                "enabled": bool(existing.get("enabled", True)),
+                "last_hit": bool(existing.get("last_hit", False)),
                 "text_color": self._normalize_optional_hex_color(str(existing.get("text_color") or "")),
                 "bg_color": self._normalize_optional_hex_color(str(existing.get("bg_color") or "")),
             }
@@ -48842,7 +48963,7 @@ class BossTimerApp:
             return None
         row_id = self.schedule_boss_tree.identify_row(event.y)
         column_id = self.schedule_boss_tree.identify_column(event.x)
-        if not row_id or column_id != "#2":
+        if not row_id or column_id not in {"#2", "#3", "#4"}:
             return None
         try:
             self.schedule_boss_tree.selection_set(row_id)
@@ -48850,8 +48971,58 @@ class BossTimerApp:
             self.schedule_boss_tree.see(row_id)
         except tk.TclError:
             return "break"
-        self._toggle_schedule_boss_star(row_id)
+        if column_id == "#2":
+            self._toggle_schedule_boss_enabled(row_id)
+        elif column_id == "#3":
+            self._toggle_schedule_boss_last_hit(row_id)
+        else:
+            self._toggle_schedule_boss_star(row_id)
         return "break"
+
+    def _toggle_schedule_boss_last_hit(self, boss_name: str) -> None:
+        item = self.schedule_boss_definitions.get(boss_name)
+        if not isinstance(item, dict):
+            return
+        value = not bool(item.get("last_hit", False))
+        item["last_hit"] = value
+        draft = self.schedule_boss_draft_definitions.get(boss_name)
+        if isinstance(draft, dict):
+            draft["last_hit"] = value
+        if self.schedule_boss_selected_name == boss_name:
+            previous = self.schedule_boss_form_syncing
+            self.schedule_boss_form_syncing = True
+            try:
+                self.schedule_boss_last_hit_var.set(value)
+            finally:
+                self.schedule_boss_form_syncing = previous
+        self._save_schedule_definition_files(f"{boss_name} 막타 표시를 {'켰습니다' if value else '껐습니다'}.")
+        self._populate_schedule_boss_definition_tree()
+        self._refresh_schedule_view()
+        self._refresh_schedule_boss_config_aux_buttons()
+        self._append_debug_log(f"schedule_boss_last_hit_changed boss={boss_name} last_hit={int(value)}")
+
+    def _toggle_schedule_boss_enabled(self, boss_name: str) -> None:
+        item = self.schedule_boss_definitions.get(boss_name)
+        if not isinstance(item, dict):
+            return
+        enabled = not self._is_schedule_boss_input_enabled(boss_name)
+        item["enabled"] = enabled
+        draft = self.schedule_boss_draft_definitions.get(boss_name)
+        if isinstance(draft, dict):
+            draft["enabled"] = enabled
+        if self.schedule_boss_selected_name == boss_name:
+            previous_syncing = self.schedule_boss_form_syncing
+            self.schedule_boss_form_syncing = True
+            try:
+                self.schedule_boss_enabled_var.set(enabled)
+            finally:
+                self.schedule_boss_form_syncing = previous_syncing
+        status = f"{boss_name} 사용을 {'켰습니다' if enabled else '껐습니다'}. 기존 일정은 유지하며 새 입력·OCR에 적용합니다."
+        self._save_schedule_definition_files(status)
+        self._populate_schedule_boss_definition_tree()
+        self._refresh_schedule_view()
+        self._refresh_schedule_boss_config_aux_buttons()
+        self._append_debug_log(f"schedule_boss_usage_changed boss={boss_name} enabled={int(enabled)}")
 
     def _format_schedule_boss_area_text(self, item: dict[str, str | bool], area_definitions: dict[str, dict[str, str | bool]] | None = None) -> str:
         area = str(item.get("area", RECORD_BOOK_AREAS[0]))
@@ -49147,6 +49318,8 @@ class BossTimerApp:
                     iid=str(item_id),
                     values=(
                         boss_name_text,
+                        "☑" if bool(item.get("enabled", True)) else "☐",
+                        "☑" if bool(item.get("last_hit", False)) else "☐",
                         self._get_schedule_boss_config_tree_star_text(item),
                         alias if alias else "-",
                         respawn if respawn else "-",
@@ -49281,6 +49454,8 @@ class BossTimerApp:
             self._set_schedule_respawn_placeholder()
         self.schedule_boss_area_var.set(str(item.get("area", RECORD_BOOK_AREAS[0])))
         self.schedule_boss_absolute_var.set(bool(item.get("absolute", False)))
+        self.schedule_boss_enabled_var.set(bool(item.get("enabled", True)))
+        self.schedule_boss_last_hit_var.set(bool(item.get("last_hit", False)))
         self.schedule_boss_star_var.set(bool(item.get("star", False)))
         self._sync_schedule_boss_area_color_vars()
         self.schedule_boss_text_color_var.set(self._normalize_optional_hex_color(str(item.get("text_color") or "")))
@@ -49298,6 +49473,8 @@ class BossTimerApp:
         self._set_schedule_boss_name_placeholder()
         self.schedule_boss_alias_var.set("")
         self.schedule_boss_absolute_var.set(False)
+        self.schedule_boss_enabled_var.set(True)
+        self.schedule_boss_last_hit_var.set(False)
         self.schedule_boss_star_var.set(False)
         area_values = self._get_schedule_area_values()
         self.schedule_boss_area_var.set(area_values[0] if area_values else RECORD_BOOK_AREAS[0])
@@ -53366,6 +53543,8 @@ class BossTimerApp:
         self.schedule_input_hide_fraction_var.set(True)
         self.schedule_input_window_busy = True
         try:
+            if not self.schedule_input_window_open or not self._widget_available(self.schedule_input_window):
+                self.schedule_input_ocr_within_day_only_var.set(self._get_schedule_input_within_day_open_default())
             self._update_schedule_base_label()
             self._ensure_schedule_input_window()
             if self.schedule_input_window_open and self.schedule_input_window is not None and self.schedule_input_window.winfo_exists():
@@ -53491,6 +53670,15 @@ class BossTimerApp:
             self.root.after(120, self._auto_open_schedule_input_ocr_addon)
         except tk.TclError:
             pass
+
+    def _get_schedule_input_within_day_open_default(self) -> bool:
+        """Use 24-hour OCR input from the opening's next date until its reset."""
+        now = self._get_schedule_reference_datetime()
+        opened = self._get_schedule_input_server_open_datetime(now)
+        if not isinstance(opened, datetime) or now.date() <= opened.date():
+            return False
+        cutoff = self._get_schedule_next_reset_datetime_for_custom_server_open(opened)
+        return isinstance(cutoff, datetime) and opened < now < cutoff
 
     def _reset_schedule_input_ocr_view_filter_defaults(self, *, rerender: bool = False) -> None:
         self.schedule_input_ocr_sort_by_time_enabled = True
@@ -60926,17 +61114,21 @@ class BossTimerApp:
             )
         except tk.TclError:
             pass
-        self.schedule_boss_tree = ttk.Treeview(left_frame, columns=("boss", "star", "alias", "respawn", "area"), show="headings", selectmode="extended", style=self.schedule_boss_tree_style_name)
+        self.schedule_boss_tree = ttk.Treeview(left_frame, columns=("boss", "enabled", "last_hit", "star", "alias", "respawn", "area"), show="headings", selectmode="extended", style=self.schedule_boss_tree_style_name)
         self.schedule_boss_tree.heading("boss", text="보스명")
+        self.schedule_boss_tree.heading("enabled", text="사용")
+        self.schedule_boss_tree.heading("last_hit", text="막타")
         self.schedule_boss_tree.heading("star", text="별")
         self.schedule_boss_tree.heading("alias", text="약칭")
         self.schedule_boss_tree.heading("respawn", text="젠주기")
         self.schedule_boss_tree.heading("area", text="지역")
-        self.schedule_boss_tree.column("boss", width=102, anchor="center")
-        self.schedule_boss_tree.column("star", width=42, anchor="center")
-        self.schedule_boss_tree.column("alias", width=72, anchor="center")
-        self.schedule_boss_tree.column("respawn", width=78, anchor="center")
-        self.schedule_boss_tree.column("area", width=98, anchor="center")
+        self.schedule_boss_tree.column("boss", width=84, anchor="center")
+        self.schedule_boss_tree.column("enabled", width=34, anchor="center")
+        self.schedule_boss_tree.column("last_hit", width=38, anchor="center")
+        self.schedule_boss_tree.column("star", width=32, anchor="center")
+        self.schedule_boss_tree.column("alias", width=56, anchor="center")
+        self.schedule_boss_tree.column("respawn", width=70, anchor="center")
+        self.schedule_boss_tree.column("area", width=78, anchor="center")
         self.schedule_boss_tree.place(x=14, y=42, width=392, height=476)
         boss_scroll = ttk.Scrollbar(left_frame, orient="vertical", command=self._on_schedule_boss_tree_yview)
         self.schedule_boss_tree.configure(yscrollcommand=boss_scroll.set)
@@ -60997,6 +61189,16 @@ class BossTimerApp:
         self.schedule_boss_bg_color_button.place(x=352, y=48, width=64, height=28)
         tk.Label(right_frame, text="약칭", font=self.button_font, bg="#eff6ff", fg="#0f172a").place(x=16, y=88)
         tk.Entry(right_frame, textvariable=self.schedule_boss_alias_var, font=(self.current_font_family, 10, "bold"), bg="#f8fafc", fg="#0f172a").place(x=108, y=84, width=160, height=28)
+        tk.Checkbutton(
+            right_frame, text="사용", variable=self.schedule_boss_enabled_var,
+            font=self.button_font, bg="#eff6ff", fg="#0f172a", selectcolor="#ffffff",
+            activebackground="#eff6ff", activeforeground="#0f172a", bd=0, highlightthickness=0,
+        ).place(x=276, y=84, width=64, height=28)
+        tk.Checkbutton(
+            right_frame, text="막타", variable=self.schedule_boss_last_hit_var,
+            font=self.button_font, bg="#eff6ff", fg="#0f172a", selectcolor="#ffffff",
+            activebackground="#eff6ff", activeforeground="#0f172a", bd=0, highlightthickness=0,
+        ).place(x=344, y=84, width=72, height=28)
         tk.Label(right_frame, text="젠주기", font=self.button_font, bg="#eff6ff", fg="#0f172a").place(x=16, y=124)
         self.schedule_boss_respawn_entry = tk.Entry(right_frame, textvariable=self.schedule_boss_respawn_var, font=(self.current_font_family, 10, "bold"), bg="#f8fafc", fg="#0f172a")
         self.schedule_boss_respawn_entry.place(x=108, y=120, width=160, height=28)
@@ -68464,6 +68666,7 @@ class BossTimerApp:
         if getattr(self, "discord_handover_busy", False):
             return
         self.discord_bot_exit_requested = True
+        self.discord_bot_expected_running = False
         monitor = getattr(self, "ui_responsiveness", None)
         if monitor is not None:
             monitor.close()
@@ -68473,7 +68676,15 @@ class BossTimerApp:
             self.notice_runtime.close()
         self._reset_master_developer_author_clicks()
         if not bool(getattr(self, "scheduler_worker_mode", False)):
-            self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
+            stopped = self._stop_discord_bot_runtime_core(graceful_timeout=2.0, force_timeout=1.0)
+            coordinator = getattr(self, "discord_handover", None)
+            if stopped and coordinator is not None and coordinator.alive:
+                def release_exit_record():
+                    try:
+                        coordinator.release_after_stop()
+                    finally:
+                        coordinator.alive = False
+                threading.Thread(target=release_exit_record, name="discord-exit-release", daemon=True).start()
         self.running = False
         self._cancel_update()
         if self.main_clock_after_id is not None:

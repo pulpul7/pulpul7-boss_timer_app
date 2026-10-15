@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "asset": "botanical-atlas-v1.png",
+  "type": "AI-generated transparent photographic botanical sprite atlas",
+  "generator": "Built-in image_gen",
+  "sha256": "00341d7141cc4c82eb41f598b2b60c9166b1af1e5d25f698fce6ce185eda0338",
+  "prompt": "botanical-atlas-v1.prompt.txt",
+  "references": "Actual Pexels reference photos and their page/license records are retained in web_sakura_references/sources.json. Those original photos are design references, not the rendered transparent sprites."
+}

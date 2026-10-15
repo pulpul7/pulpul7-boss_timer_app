@@ -1,6 +1,6 @@
 """One-shot, server-local import of confirmed temporary maintenance."""
-import re
 from .notice_management import parse_time, encode_time
+from .notice_text import compact
 
 
 def import_temporary_maintenance(store, snapshot, apply):
@@ -12,7 +12,7 @@ def import_temporary_maintenance(store, snapshot, apply):
             return
         candidates = []
         for key, article in state.get('articles', {}).items():
-            title = re.sub(r'\s+', '', article.get('title', ''))
+            title = compact(article.get('title', ''))
             if (not article.get('pinned') or article.get('category') != 'maintenance' or article.get('body_error')
                     or '임시점검' not in title or any(word in title for word in ('연장', '완료', '취소'))):
                 continue

@@ -23,7 +23,9 @@ from web_service_common import close_logger, diagnostic, diagnostic_logger, read
 
 
 class PublicError(Exception):
-    pass
+    def __init__(self, message, *, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 class PublicCancelled(Exception):
@@ -52,7 +54,9 @@ def check_local_https(domain, port):
         if response.status != 200 or len(body) > 2048:
             raise PublicError("로컬 HTTPS 응답을 확인하지 못했습니다.")
         result = json.loads(body)
-        if result.get("available") is not True or result.get("configured") is not True:
+        if result.get("available") is not True:
+            raise PublicError("웹 접속 설정을 읽지 못했습니다. 비밀번호 탭과 진단 로그를 확인해주세요.")
+        if result.get("configured") is not True:
             raise PublicError("비밀번호 탭에서 웹 비밀번호를 먼저 설정해주세요.")
     finally:
         connection.close()
@@ -168,6 +172,7 @@ class DirectHostingService:
         if not resource:
             return
         failed = False
+        failure_code = None
         for key, operation in (("mapping", remove), ("firewall", lambda value: firewall_apply(value, "remove"))):
             if resource.get(key):
                 try:
@@ -175,11 +180,14 @@ class DirectHostingService:
                     resource[key] = None
                 except Exception as exc:
                     failed = True
-                    diagnostic(self.logger, "public_cleanup_failed", resource=key, error_type=type(exc).__name__)
+                    code = getattr(exc, "code", None) if isinstance(exc, (FirewallError, MappingError)) else None
+                    if isinstance(code, (int, str)):
+                        failure_code = code
+                    diagnostic(self.logger, "public_cleanup_failed", resource=key, error_type=type(exc).__name__, code=code)
                 write_json(self.resources_path, resource)
         if failed:
             self.resources = resource
-            raise PublicError("공개는 중지했지만 일부 규칙을 정리하지 못했습니다. 관리자 권한·공유기 연결을 확인하고 다시 시도해주세요.")
+            raise PublicError("공개는 중지했지만 일부 규칙을 정리하지 못했습니다. 관리자 권한·공유기 연결을 확인하고 다시 시도해주세요.", code=failure_code)
         self.resources_path.unlink(missing_ok=True)
         self.resources = None
         diagnostic(self.logger, "public_resources_removed")

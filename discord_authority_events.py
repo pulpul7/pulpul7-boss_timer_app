@@ -254,6 +254,22 @@ class AuthorityEvents:
             if not bot_user_id.isdigit():
                 raise ValueError("이전 담당자의 봇 ID를 확인할 수 없습니다.")
             guild = channel.guild
+            if command.get('reset_orphan'):
+                own_bot = str(getattr(self.status, 'bot_user_id', '') or self.status.application_id)
+                state = self.bot.connection_policy.snapshot(strict=True)
+                voice = getattr(self.bot, 'voice_client', None)
+                if (bot_user_id != own_bot or state.get('runtime_id') != self.status.runtime_id
+                        or state.get('voice_requested')
+                        or ConnectionPolicy.has_authority(state, self.status.runtime_id, allow_joining=True)
+                        or (voice is not None and voice.is_connected())):
+                    raise ValueError('현재 송출 중이거나 다른 계정의 봇은 남은 연결 정리 대상으로 사용할 수 없습니다.')
+                # Only this authenticated, standby bot's own voice state. Never
+                # kick another bot or reset a live controller's voice client.
+                await guild.change_voice_state(channel=None)
+                deadline = time.monotonic() + 3
+                while (getattr(getattr(getattr(guild, 'me', None), 'voice', None), 'channel', None) is not None
+                       and time.monotonic() < deadline):
+                    await asyncio.sleep(.1)
             try:
                 member = guild.get_member(int(bot_user_id)) or await guild.fetch_member(int(bot_user_id))
                 result["absent"] = getattr(getattr(member, "voice", None), "channel", None) is None

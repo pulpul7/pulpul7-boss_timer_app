@@ -192,6 +192,37 @@ class CollectorTests(unittest.TestCase):
         self.collector.collect_once(self.store, manual=True)
         self.assertEqual(self.store.snapshot()["articles"]["CT9G/100"]["revision"], 1)
 
+    def test_missing_publication_metadata_does_not_erase_known_date(self):
+        self.collector.collect_once(self.store)
+        self.html = listing(row(date=""))
+        self.body = article().replace('<span class="num_subject">26.09.13</span>', '')
+        self.collector.collect_once(self.store, manual=True)
+        self.assertEqual(self.store.snapshot()["articles"]["CT9G/100"]["published_date"], "2026-09-13")
+
+    def test_304_uses_new_listing_date_when_cached_date_was_missing(self):
+        self.html = listing(row(date=""))
+        self.body = article().replace('<span class="num_subject">26.09.13</span>', '')
+        self.collector.collect_once(self.store)
+        self.assertIsNone(self.store.snapshot()["articles"]["CT9G/100"]["published_date"])
+        self.html = listing(row())
+        self.collector.fetch = lambda url, cached=None: Page(self.html) if url == LIST_URL else Page(not_modified=True)
+        self.collector.collect_once(self.store, manual=True)
+        self.assertEqual(self.store.snapshot()["articles"]["CT9G/100"]["published_date"], "2026-09-13")
+
+    def test_initial_collection_without_publication_resolves_maintenance_and_preserves_settings(self):
+        self.now = datetime(2026, 10, 13, 18, tzinfo=KST)
+        self.html = listing(row("CT9G/1981", "10/14(수) 정기 점검 안내", date=""))
+        self.body = article('<p>Ⅰ. 점검 일정</p><p>- 10월 14일(수) 08:00 ~ 11:00</p>',
+                            title="10/14(수) 정기 점검 안내").replace('<span class="num_subject">26.09.13</span>', '')
+        self.collector.collect_once(self.store)
+        state = self.store.snapshot()
+        fact, = state["articles"]["CT9G/1981"]["analysis"]["windows"]
+        self.assertEqual(fact["end"], "2026-10-14T11:00:00+09:00")
+        event_id = "CT9G/1981/time-v1/maintenance/1/discovery"
+        self.store.set_enabled(event_id, False)
+        self.collector.collect_once(self.store, manual=True)
+        self.assertFalse(self.store.snapshot()["events"][event_id]["enabled"])
+
     def test_failed_list_does_not_remove_notices_or_alerts(self):
         self.collector.collect_once(self.store)
         self.store.register({"id": "test-alert", "title": "판매 안내", "source_key": "CT9G/100/open"})

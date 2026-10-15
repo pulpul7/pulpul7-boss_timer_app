@@ -7,6 +7,8 @@ Secrets are read from the per-user AppData config, never from source code.
 
 from __future__ import annotations
 
+from boss_view_labels import row_label, notice_label, strip_last_hit_marker
+
 import asyncio
 import configparser
 import hashlib
@@ -545,7 +547,7 @@ def is_second_confirmed(item: dict[str, Any]) -> bool:
 
 
 def event_name(item: dict[str, Any]) -> str:
-    return str(item.get("display_name") or item.get("boss_name") or item.get("raw_name") or "").strip()
+    return strip_last_hit_marker(item.get("display_name") or item.get("boss_name") or item.get("raw_name"))
 
 
 def compact_alert_names(names: tuple[str, ...]) -> tuple[str, int, bool]:
@@ -1195,8 +1197,8 @@ class ScheduleReader:
             parts = text.split("|")
             if not parts:
                 continue
-            boss_name = parts[0].strip()
-            alias = parts[1].strip() if len(parts) > 1 else ""
+            boss_name = strip_last_hit_marker(parts[0])
+            alias = strip_last_hit_marker(parts[1]) if len(parts) > 1 else ""
             area_name = parts[3].strip() if len(parts) > 3 else ""
             absolute = parts[4].strip() in {"1", "true", "True", "yes", "Y"} if len(parts) > 4 else False
             color_text = parts[6].strip() if len(parts) > 6 else ""
@@ -1205,6 +1207,7 @@ class ScheduleReader:
                 "color": color_value,
                 "area": area_name,
                 "absolute": absolute,
+                "last_hit": parts[9].strip().lower() in {"1", "true", "yes", "y"} if len(parts) > 9 else False,
             }
             if boss_name:
                 definitions[boss_name] = dict(definition)
@@ -1231,7 +1234,8 @@ class ScheduleReader:
                 if not isinstance(scheduled_at, datetime) or not name or scheduled_at < now - timedelta(seconds=2) or scheduled_at > end_at:
                     continue
                 invasion = bool(item.get("is_invasion"))
-                definition = boss_definitions.get(name, {})
+                source = re.sub(r"^침공\s*", "", strip_last_hit_marker(item.get("boss_name") or name)).strip()
+                definition = boss_definitions.get(source, boss_definitions.get(re.sub(r"^침공\s*", "", name).strip(), {}))
                 area_name = str(definition.get("area") or "")
                 absolute = bool(definition.get("absolute"))
                 niflheim_or_higher = area_name in {"니플하임", "바나하임"}
@@ -1241,6 +1245,7 @@ class ScheduleReader:
                     "name": name,
                     "kind": "침공" if invasion else "일반",
                     "tier": tier,
+                    "last_hit": bool(definition.get("last_hit", False)),
                     "color": 0xA855F7 if absolute else 0x06B6D4 if niflheim_or_higher else 0xDC2626 if invasion else int(definition.get("color") or 0x2563EB),
                     "text_color": "#FFFFFF",
                     "bg_color": "#DC2626" if invasion else "",
@@ -1410,11 +1415,15 @@ class DiscordScheduleBot:
             self.gateway_last_heartbeat_latency = latency
 
     def _connection_is_blocked(self):
+        if STATUS.shutdown_requested.is_set():
+            return True
         state = self._connection_state()
         return bool(not ConnectionPolicy.has_authority(state, STATUS.runtime_id, allow_joining=True)
                     or not state["voice_requested"] or state["voice_error"] or state["error"])
 
     def _send_allowed(self):
+        if STATUS.shutdown_requested.is_set():
+            return False
         state = self._connection_state()
         task = asyncio.current_task()
         expected = getattr(task, "boss_authority_generation", state["authority_generation"])
@@ -1489,7 +1498,7 @@ class DiscordScheduleBot:
                 async def guarded_connect(**kw):
                     if not await bot._wait_for_voice_leave(voice_self.guild.id):
                         raise RuntimeError("이전 음성 연결의 퇴장 확인을 기다리고 있습니다.")
-                    if not authorized():
+                    if STATUS.shutdown_requested.is_set() or not authorized():
                         raise RuntimeError("관리자 권한이 변경되어 음성 접속을 중단했습니다.")
                     voice_self.boss_leave_requested = False
                     await connect(**kw)
@@ -1540,7 +1549,7 @@ class DiscordScheduleBot:
                 # AudioPlayer runs on its own thread; fence every packet even
                 # when the asyncio loop stalls or an old clip is still alive.
                 local = bot.connection_policy.snapshot()
-                if (not STATUS.online or not ConnectionPolicy.has_authority(local, STATUS.runtime_id)
+                if (STATUS.shutdown_requested.is_set() or not STATUS.online or not ConnectionPolicy.has_authority(local, STATUS.runtime_id)
                         or not local["voice_requested"]
                         or local["authority_generation"] != voice_self.authority_generation):
                     return
@@ -1926,7 +1935,7 @@ class DiscordScheduleBot:
                 body = self._format_schedule_rows_as_ansi(rows, end_datetime=schedule_query_end(now, extra_days))
             else:
                 body = "\n".join(
-                    f"{scheduled_at.strftime('%H%M')} {str(row.get('name') or '')}"
+                    f"{scheduled_at.strftime('%H%M')} {row_label(row)}"
                     for row in rows
                     if isinstance((scheduled_at := row.get("scheduled_at")), datetime)
                 ) or "예정된 스케쥴이 없습니다."
@@ -3596,7 +3605,7 @@ class DiscordScheduleBot:
             if scheduled_at.date() != current_date:
                 current_date = scheduled_at.date()
                 lines.append(f"=== {scheduled_at.strftime('%Y-%m-%d (%a)')} ===")
-            lines.append(f"{scheduled_at.strftime('%H%M')} {str(row.get('name') or '')}")
+            lines.append(f"{scheduled_at.strftime('%H%M')} {row_label(row)}")
         return "\n".join(lines)
 
     @staticmethod
@@ -3624,7 +3633,7 @@ class DiscordScheduleBot:
                 lines.append(f"{escape}1;33m━━ {scheduled_at.strftime('%Y-%m-%d (%a)')} ━━{reset}")
             tier = str(row.get("tier") or "일반")
             code = tier_codes.get(tier, tier_codes["일반"])
-            lines.append(f"{escape}{code}m{scheduled_at.strftime('%H%M')}  {str(row.get('name') or '')}{reset}")
+            lines.append(f"{escape}{code}m{scheduled_at.strftime('%H%M')}  {row_label(row)}{reset}")
         lines.append(f"{escape}1;35m●절대자 {escape}1;34m●고정 {escape}1;36m●니플하임+ {escape}1;31m●침공{reset}")
         return "\n".join(lines)
 
@@ -3663,7 +3672,7 @@ class DiscordScheduleBot:
             return False
         """Post only HHMM and boss name so the result can be copied verbatim."""
         lines = [
-            f"{scheduled_at.strftime('%H%M')} {str(row.get('name') or '')}"
+            f"{scheduled_at.strftime('%H%M')} {row_label(row)}"
             for row in self.schedule_reader.upcoming_rows(limit=120)
             if isinstance((scheduled_at := row.get("scheduled_at")), datetime)
         ] or ["예정된 스케쥴이 없습니다."]
@@ -3871,17 +3880,19 @@ class DiscordScheduleBot:
                 old_entries = list(group.get('entries') or []) if group else []
                 if any(entry.get('stage_key') == stage_key for entry in old_entries):
                     return
-                colored_message = self._format_voice_notice_ansi(message)
+                view_definitions = ScheduleReader._load_boss_definition_map()
+                view_boss_names = notice_label(boss_names, view_definitions)
+                colored_message = self._format_voice_notice_ansi(notice_label(message, view_definitions))
                 if len(colored_message) > 1024:
                     colored_message = colored_message.removesuffix('\n```')[:990] + '…\x1b[0m\n```'
                 entries = old_entries + [dict(stage_key=stage_key, text=colored_message)]
                 color = int(group['color']) if group else self._find_notice_color(message)
-                embed = self._build_boss_notice_embed(entries, at=now, color=color, boss_names=boss_names)
+                embed = self._build_boss_notice_embed(entries, at=now, color=color, boss_names=view_boss_names)
                 # Start a continuation before Discord's per-embed/message limits.
                 if len(embed.description or '') > 4096 or len(embed) > 6000:
                     entries = entries[-1:]
                     group = None
-                    embed = self._build_boss_notice_embed(entries, at=now, color=color, boss_names=boss_names)
+                    embed = self._build_boss_notice_embed(entries, at=now, color=color, boss_names=view_boss_names)
                 signature = self._boss_notice_text_signature([embed.to_dict()])
                 sent_message = None
                 if completed and previous_group:
@@ -4715,6 +4726,17 @@ class DiscordScheduleBot:
         while not STATUS.shutdown_requested.is_set():
             await asyncio.sleep(0.25)
         log("shutdown_requested")
+        try:
+            stop_state = self.connection_policy.snapshot(strict=True)
+            if stop_state.get('runtime_id') == STATUS.runtime_id and stop_state.get('voice_requested'):
+                self.connection_policy.request_stop(STATUS.runtime_id, stop_state['authority_request'])
+                self.connection_policy.pause()
+        except Exception as exc:
+            log(f"shutdown_voice_fence_failed type={type(exc).__name__}")
+        pending_join = getattr(self, "authority_connect_task", None)
+        if pending_join is not None and not pending_join.done():
+            pending_join.cancel()
+            await asyncio.gather(pending_join, return_exceptions=True)
         notice_output = getattr(self, "notice_output", None)
         if notice_output is not None:
             try:
@@ -4722,8 +4744,10 @@ class DiscordScheduleBot:
             except Exception as exc:
                 log(f"notice_shutdown_stop_failed error={exc}")
         try:
-            if self.voice_client is not None and self.voice_client.is_connected():
-                await self.voice_client.disconnect(force=True)
+            if self.voice_client is not None:
+                # Keep the generation-aware leave barrier. A standby PC sharing
+                # the bot account must never disconnect the new voice owner.
+                await self._disconnect_authority_voice()
         except Exception:
             pass
         await self.client.close()

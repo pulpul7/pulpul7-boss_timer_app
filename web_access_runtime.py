@@ -13,13 +13,28 @@ import threading
 import time
 
 from web_access_settings import COOKIE_AGE, ITERATIONS, normalize_ip, valid_id, validate_settings
-from web_request_limits import ReadLimiter
+from web_request_limits import CooldownLimiter, ReadLimiter
 from web_service_common import (PROTOCOL, ACCESS_DISPLAY_DAYS, ACCESS_RETENTION_DAYS,
                                 access_state_path, diagnostic, read_json, timestamp, write_json)
 
 VISITOR_COOKIE = "bt_visitor"
 SESSION_COOKIE = "bt_session"
 MAX_VISITORS = 1000
+VISITOR_PATHS = frozenset({'/', '/api/login', '/api/logout', '/api/session', '/api/status', '/api/schedule', '/api/push'})
+
+
+def records_visit(method, path, ip, raw_cookie):
+    """Keep static assets, unknown paths and cookie-free local TLS probes out of visitor history."""
+    if method not in {'GET', 'POST'} or path not in VISITOR_PATHS:
+        return False
+    if method == 'GET' and path == '/api/session' and not raw_cookie:
+        import ipaddress
+        try:
+            if ipaddress.ip_address(ip).is_loopback:
+                return False
+        except ValueError:
+            pass
+    return True
 
 
 def _session_role(settings, epoch):
@@ -68,6 +83,7 @@ class AccessRuntime:
         self.policy_failed = False
         self.last_throttle_notice = 0.0
         self.read_limiter = ReadLimiter()
+        self.cooldowns = CooldownLimiter()
         self.last_read_throttle_notice = 0.0
         try:
             saved = read_json(root / "visitors.json")
@@ -162,7 +178,7 @@ class AccessRuntime:
         expected = self._sign(label, payload).rpartition(".")[2]
         return payload if hmac.compare_digest(mac, expected) else ""
 
-    def context(self, raw_cookie, ip, agent, secure=False):
+    def context(self, raw_cookie, ip, agent, secure=False, *, record_visit=True):
         """Authenticate every request from the socket IP; proxy headers are ignored."""
         with self.lock:
             result = dict(authenticated=False, configured=False, blocked=False,
@@ -184,7 +200,10 @@ class AccessRuntime:
                 return cookies[name].value if name in cookies else ""
             visitor = self._verify("visitor", value(VISITOR_COOKIE))
             new_visitor = not valid_id(visitor)
+            result["new_visitor"] = new_visitor
             if new_visitor:
+                if not record_visit:
+                    return result
                 visitor = secrets.token_hex(16)
                 result["cookies"].append(cookie_header(VISITOR_COOKIE, self._sign("visitor", visitor), secure))
             result["visitor"] = visitor
@@ -193,42 +212,58 @@ class AccessRuntime:
                 return result
             now = time.time()
             row = self.visitors.get(visitor)
-            if row is None:
+            new_record = row is None and record_visit
+            if new_record:
                 if len(self.visitors) >= MAX_VISITORS:
                     oldest = min(self.visitors, key=lambda key: self.visitors[key]["last_seen"])
                     del self.visitors[oldest]
                 row = dict(id=visitor, first_seen=now, last_seen=now, last_auth=0,
                            last_login=0, epoch="", failures=0, ip=ip, browser=_browser(agent), nickname="guest")
                 self.visitors[visitor] = row
-                diagnostic(self.logger, "visitor_connected", visitor=visitor[:8])
-            row.update(last_seen=now, ip=ip, browser=_browser(agent))
+            if record_visit:
+                row.update(last_seen=now, ip=ip, browser=_browser(agent))
             session = self._verify("session", value(SESSION_COOKIE))
             identity, separator, epoch = session.partition(":")
             role = _session_role(self.settings, epoch) if separator and identity == visitor else ""
-            result["authenticated"] = bool(role)
-            if result["authenticated"]:
+            result["authenticated"] = bool(role) and not self.logout_wait(result)
+            if result["authenticated"] and record_visit:
                 row.update(last_auth=now, epoch=epoch, role=role)
                 # Renew only daily; no Set-Cookie churn on 3-second polling.
                 if now - row["last_login"] >= 86400:
                     row["last_login"] = now
                     result["cookies"].extend((cookie_header(VISITOR_COOKIE, self._sign("visitor", visitor), secure),
                                               cookie_header(SESSION_COOKIE, self._sign("session", session), secure)))
-            elif value(SESSION_COOKIE):
+            elif not result["authenticated"] and value(SESSION_COOKIE):
                 # A changed PIN must not leave a stale remembered login behind.
                 result["reauth_required"] = True
-                row.update(last_auth=0, epoch="")
+                if record_visit:
+                    row.update(last_auth=0, epoch="")
                 result["cookies"].append(cookie_header(SESSION_COOKIE, "", secure, age=0))
-            self.dirty = True
+            if new_record:
+                diagnostic(self.logger, "visitor_connected", visitor=visitor[:8], ip=ip,
+                           browser=_browser(agent), authenticated=result["authenticated"])
+            if record_visit:
+                self.dirty = True
             return result
 
-    def read_wait(self, context, ip):
-        wait = self.read_limiter.wait(context["visitor"], normalize_ip(ip))
+    def read_wait(self, context, ip, *, path=None):
+        ip = normalize_ip(ip)
+        wait = self.read_limiter.wait(context["visitor"], ip)
+        if not wait and path == '/':
+            keys = [('reload', context['visitor'] or ip, bool(context['authenticated']))]
+            if context.get('new_visitor'):
+                keys.append(('reload-new-ip', ip))
+            wait = self.cooldowns.claim(keys, 5)
         if wait:
             with self.lock:
                 if time.monotonic() - self.last_read_throttle_notice >= 30:
-                    diagnostic(self.logger, "web_read_rate_limited", retry_after=wait)
+                    diagnostic(self.logger, "web_page_reload_limited" if path == '/' else "web_read_rate_limited",
+                               retry_after=wait)
                     self.last_read_throttle_notice = time.monotonic()
         return wait
+
+    def logout_wait(self, context):
+        return self.cooldowns.wait(('login', context.get('visitor', '')))
 
     def login(self, context, pin, ip, secure=False, *, nickname="guest"):
         ip = normalize_ip(ip)
@@ -241,6 +276,8 @@ class AccessRuntime:
                 return 503, "관리자가 프로그램에서 웹 비밀번호를 먼저 설정해야 합니다.", []
             if context["blocked"] or not context["visitor"]:
                 return 403, "접속이 차단되었습니다.", []
+            if self.logout_wait(context):
+                return 429, "로그아웃 후 최소 2초가 지난 뒤 접속할 수 있습니다.", []
             if context["authenticated"]:
                 return 200, "로그인되었습니다.", []
             now = time.time()
@@ -272,6 +309,8 @@ class AccessRuntime:
                 self.inflight -= 1
         with self.lock:
             visitor = context["visitor"]
+            if self.logout_wait(context):
+                return 429, "로그아웃 후 최소 2초가 지난 뒤 접속할 수 있습니다.", []
             if (not self.available or (role and _session_role(self.settings, epoch) != role)
                     or self.settings["key"] != settings["key"]
                     or visitor in self.settings["banned_visitors"] or ip in self.settings["banned_ips"]):
@@ -286,6 +325,7 @@ class AccessRuntime:
                 diagnostic(self.logger, "login_failed", visitor=visitor[:8])
                 return 401, "비밀번호가 맞지 않습니다.", []
             row.update(last_auth=time.time(), last_login=time.time(), epoch=epoch, nickname=nickname, role=role)
+            self.cooldowns.clear([('reload', visitor, False), ('reload', visitor, True)])
             self.dirty = True
             diagnostic(self.logger, "login_succeeded", visitor=visitor[:8], role=role)
             return 200, "로그인되었습니다.", [cookie_header(
@@ -293,6 +333,9 @@ class AccessRuntime:
 
     def logout(self, context, secure=False):
         with self.lock:
+            if context.get('visitor'):
+                self.cooldowns.start(('login', context['visitor']), 2)
+                self.cooldowns.clear([('reload', context['visitor'], False), ('reload', context['visitor'], True)])
             row = self.visitors.get(context["visitor"])
             if row:
                 row.update(last_auth=0, epoch="")
@@ -325,7 +368,7 @@ class AccessRuntime:
                 role = _session_role(policy, row["epoch"]) if policy else ""
                 online = not blocked and bool(role) and now - row["last_auth"] < 60
                 public.append(dict(id=row["id"], ip=row["ip"], browser=row["browser"],
-                                   nickname=row.get("nickname", "guest"), role=row.get("role", role),
+                                   nickname=row.get("nickname", "guest") if row["last_login"] else "미인증 방문", role=row.get("role", role),
                                    last_seen=row["last_seen"], failures=row["failures"],
                                    state="차단됨" if blocked else "조회 중" if online else
                                          "접속 중 · 로그인 필요" if now - row["last_seen"] < 60 else "최근 접속"))

@@ -12,12 +12,19 @@ SCHEMA = 1
 KINDS = {"boss", "fixed", "invasion", "break", "maintenance", "server_open"}
 HIDDEN_FIXED = {"방어전신청", "점령전신청", "방어전신청마감", "점령전신청마감",
                 "공성전공격대상선택", "공성전입찰시작"}
+# Registration deadlines are not selectable bosses. Keep their source schedules.
+HIDDEN_CUSTOM_FIXED = HIDDEN_FIXED | {"길드쟁탈전신청마감", "쟁탈전신청마감"}
 CONFIGURED_FIXED = {"월드보스", "닻", "공성전", "쟁탈전", "방어전", "점령전"}
 MAJOR_FIXED_PREFIXES = ("공성전", "쟁탈전", "길던", "길드던전", "트리니티리그", "점령전", "방어전")
 
 
 def _name_key(value):
     return re.sub(r"\s+", "", re.sub(r"\s*★\s*$", "", str(value or "")))
+
+
+def _last_hit(app, item):
+    name = app._get_schedule_boss_definition_name(item)
+    return bool(getattr(app, "schedule_boss_definitions", {}).get(name, {}).get("last_hit", False))
 
 
 def _major(kind, name, important, fixed_item=None):
@@ -36,7 +43,7 @@ def _web_colors(app, kind, name, text_color, bg_color, fixed_item=None):
         return _color(configured_text) or text_color, _color(configured_bg) or bg_color
     if kind == "fixed":
         key = _name_key((fixed_item or {}).get("boss_name") or name)
-        if key in CONFIGURED_FIXED:
+        if key in CONFIGURED_FIXED or (key.endswith("닻") and key.startswith(("니다벨", "알브", "무스펠"))):
             return text_color or "#87ceeb", bg_color
         if key in {"핏빛고블린", "빛빚고블린", "빛빛고블린", "황금고블린"}:
             return "#ffe066", ""
@@ -63,7 +70,99 @@ def _iso(value):
     return value.astimezone().isoformat(timespec="microseconds")
 
 
-def collect_snapshot(app):
+def _catalog_id(kind, name):
+    return hashlib.sha256((kind + "|" + _name_key(name)).encode("utf-8")).hexdigest()[:24]
+
+
+def _fixed_catalog_name(app, raw):
+    key = _name_key(raw)
+    # These entries may share the display alias "닻"; keep configured regions distinct.
+    if key.endswith("닻") and key.startswith(("니다벨", "알브", "무스펠")):
+        return key
+    return app._get_canonical_boss_name(raw) or raw
+
+
+def _special_category(name, kind, definition=""):
+    key = _name_key(name)
+    if key.startswith(("길던", "길드던전")):
+        return "길던"
+    if key.startswith("사용자이벤트") or (kind in {"boss", "invasion"} and not definition):
+        return "사용자이벤트"
+    return ""
+
+
+def _collect_catalog(app, *, boss_orders=None, slot_grid=None):
+    """Public boss settings only; no profile paths, credentials or file reads."""
+    defaults = {"요툰하임": "2챕", "니다벨리르": "3챕", "알브하임": "4챕", "무스펠하임": "5챕",
+                "아스가르드": "6챕", "니플하임": "7챕", "바나하임": "8챕", "던전": "던전"}
+    result = []
+    boss_orders, slot_grid = boss_orders or {}, slot_grid or {}
+    for order, item in enumerate(app._get_schedule_boss_definition_items()):
+        name = str(item.get("boss_name") or "").strip()
+        if not name or app._is_schedule_boss_header_name(name):
+            continue
+        if _special_category(name, "boss", name):
+            continue
+        area = str(item.get("area") or "")
+        label = str(getattr(app, "schedule_area_definitions", {}).get(area, {}).get("label") or defaults.get(area, area))
+        chapter = re.search(r"(\d+)\s*(?:챕|장|chapter)", label, re.I)
+        group = f"{int(chapter[1])}챕" if chapter else "던전" if area == "던전" else label or "기타"
+        group_order = int(chapter[1]) if chapter else 10000 if group == "던전" else 9000
+        names, grid = boss_orders.get(area, []), slot_grid.get(area, {})
+        top = int(grid.get("top") or 0)
+        bottom = int(grid.get("bottom") or 0)
+        columns = max(top, bottom)
+        slot = names.index(name) if name in names and columns else -1
+        if slot >= top + bottom:
+            slot = -1
+        grid_row = (1 if slot < top else 2) if slot >= 0 else 0
+        grid_column = (slot + 1 if slot < top else slot - top + 1) if slot >= 0 else 0
+        result.append(dict(id=_catalog_id("boss", name), kind="boss", name=name[:200],
+                           label=str(item.get("alias") or app._get_display_boss_name(name) or name)[:200],
+                           group=group[:100], group_order=group_order, order=order,
+                           grid_columns=columns, grid_row=grid_row, grid_column=grid_column,
+                           absolute=bool(item.get("absolute")), important=bool(item.get("star")),
+                           major=bool(item.get("star")), last_hit=bool(item.get("last_hit"))))
+    fixed = {}
+    for order, item in enumerate(getattr(app, "fixed_boss_entries", [])):
+        if not isinstance(item, dict) or not item.get("enabled", True):
+            continue
+        raw = str(item.get("boss_name") or "").strip()
+        name = _fixed_catalog_name(app, raw)
+        if not name or any(_name_key(value) in HIDDEN_CUSTOM_FIXED for value in (raw, name)):
+            continue
+        if _special_category(raw, "fixed"):
+            continue
+        identity = _catalog_id("fixed", name)
+        important = bool(app._schedule_boss_has_star(name))
+        major = _major("fixed", name, important, item)
+        row = dict(id=identity, kind="fixed", name=name[:200],
+                   label=(name[:-1] + " 닻" if name.endswith("닻") and name != "닻"
+                          else str(app._get_display_boss_name(name) or name))[:200], group="고정보스",
+                   group_order=11000, order=order, absolute=False, important=important, major=major)
+        if identity in fixed:
+            fixed[identity]["major"] |= major
+        else:
+            fixed[identity] = row
+        if name.endswith("닻"):
+            time_text = str(item.get("time_text") or "00:00:00")
+            fixed[identity]["_anchor_time"] = min(fixed[identity].get("_anchor_time", time_text), time_text)
+    anchors = [row for row in fixed.values() if "_anchor_time" in row]
+    for order, row in zip(sorted(row["order"] for row in anchors), sorted(anchors, key=lambda row: row["_anchor_time"])):
+        row["order"] = order
+    for row in fixed.values():
+        row.pop("_anchor_time", None)
+    result.extend(fixed.values())
+    for order, name in enumerate(("길던", "사용자이벤트", "침공")):
+        result.append(dict(id=_catalog_id("boss", name), kind="boss", name=name, label=name,
+                           group="특수 이벤트", group_order=10500, order=order, absolute=False,
+                           important=False, major=name == "길던"))
+    return sorted(result, key=lambda row: (row["group_order"], not row["major"] if row["kind"] == "fixed" else False,
+                                           0 if row.get("grid_row") else 1, row.get("grid_row", 0),
+                                           row.get("grid_column", 0), row["order"]))
+
+
+def collect_snapshot(app, *, boss_orders=None, slot_grid=None):
     """Call only on the Tk thread. No refresh, save, OCR or network operations."""
     now = app._get_schedule_reference_datetime()
     start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -112,6 +211,10 @@ def collect_snapshot(app):
                     break
             if _name_key((fixed_item or {}).get("boss_name") or name) in HIDDEN_FIXED:
                 continue
+            if fixed_item:
+                anchor = _fixed_catalog_name(app, str(fixed_item.get("boss_name") or ""))
+                if anchor.endswith("닻") and anchor != "닻":
+                    name = anchor[:-1] + " 닻"
         text_color, bg_color = _web_colors(app, kind, name, text_color, bg_color, fixed_item)
         # The GUI resolver strips the invasion prefix and resolves configured aliases.
         # Use the current home-server star setting instead of a carried-over row flag.
@@ -119,11 +222,17 @@ def collect_snapshot(app):
         event = dict(kind=kind, name=name[:200],
                            scheduled_at=_iso(when),
                            end_at=_iso(finish if isinstance(finish, datetime) and finish >= when else when),
-                           important=important,
+                           important=important, last_hit=_last_hit(app, name) if kind in {"boss", "invasion"} else False,
                            major=_major(kind, name, important, fixed_item),
                            text_color=text_color,
                            bg_color=bg_color,
                            note=str(row.get("break_display_text") or "")[:200])
+        if kind in {"boss", "fixed", "invasion"}:
+            raw = str((fixed_item or {}).get("boss_name") or name)
+            definition = app._get_schedule_boss_definition_name(name)
+            special = _special_category(raw, kind, definition)
+            canonical = _fixed_catalog_name(app, raw) if kind == "fixed" else definition or name
+            event["catalog_id"] = _catalog_id("boss", special) if special else _catalog_id("fixed" if kind == "fixed" else "boss", canonical)
         if kind == "break":
             event["row_scale"] = float(row.get("row_scale") or 1.0)
         events.append(event)
@@ -155,13 +264,22 @@ def collect_snapshot(app):
             continue
         if name:
             important = app._schedule_boss_has_star(item)
-            active.append(dict(name=name[:200], status="출현 중" if item.get("state") == "active" else "시간 미확정",
-                               important=important, major=_major("fixed" if item.get("is_fixed") else "boss", name, important)))
+            invasion = bool(getattr(app, '_is_schedule_invasion_item', lambda row: row.get('is_invasion', False))(item))
+            kind = "fixed" if item.get("is_fixed") else "invasion" if invasion else "boss"
+            raw = str(item.get("boss_name") or name)
+            definition = app._get_schedule_boss_definition_name(item)
+            special = _special_category(raw, kind, definition)
+            canonical = _fixed_catalog_name(app, raw) if kind == "fixed" else definition or name
+            if kind == "fixed" and canonical.endswith("닻") and canonical != "닻":
+                name = canonical[:-1] + " 닻"
+            active.append(dict(kind=kind, catalog_id=_catalog_id("boss", special) if special else _catalog_id("boss" if kind == "invasion" else kind, canonical), name=name[:200], status="출현 중" if item.get("state") == "active" else "시간 미확정",
+                               important=important, last_hit=_last_hit(app, item) if kind != "fixed" else False,
+                               major=_major("fixed" if item.get("is_fixed") else "boss", name, important)))
     season_entry = getattr(app, "season_history_map", {}).get(str(app.current_season_no or ""), {})
     guild_name = str(season_entry.get("guild_name") or "").strip()[:200] if isinstance(season_entry, dict) else ""
     return dict(schema=SCHEMA, server_name=app._get_schedule_share_server_name()[:200], guild_name=guild_name,
                 season=str(app.current_season_no or "")[:20], window_start=_iso(start), window_end=_iso(end),
-                events=events, active=active, captured_at=timestamp())
+                events=events, active=active, boss_catalog=_collect_catalog(app, boss_orders=boss_orders, slot_grid=slot_grid), captured_at=timestamp())
 
 
 def _color(value):
@@ -201,6 +319,40 @@ def validate_snapshot(data):
     if type(revision) is not int or revision < 1:
         raise ValueError("invalid schedule revision")
     result.update(schema=SCHEMA, revision=revision, events=[], active=[])
+    if "boss_catalog" in data:
+        catalog = data["boss_catalog"]
+        if not isinstance(catalog, list) or len(catalog) > 4000:
+            raise ValueError("invalid boss catalog")
+        result["boss_catalog"] = []
+        seen = set()
+        for entry in catalog:
+            if not isinstance(entry, dict) or entry.get("kind") not in {"boss", "fixed"}:
+                raise ValueError("invalid boss catalog entry")
+            identity = entry.get("id")
+            if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{24}", identity) or identity in seen:
+                raise ValueError("invalid boss catalog identity")
+            seen.add(identity)
+            clean = dict(id=identity, kind=entry["kind"])
+            for key, limit in (("name", 200), ("label", 200), ("group", 100)):
+                if not isinstance(entry.get(key), str) or not 0 < len(entry[key]) <= limit:
+                    raise ValueError("invalid boss catalog text")
+                clean[key] = entry[key]
+            for key in ("group_order", "order"):
+                if type(entry.get(key)) is not int or not 0 <= entry[key] <= 100000:
+                    raise ValueError("invalid boss catalog order")
+                clean[key] = entry[key]
+            for key in ("absolute", "important", "major", "last_hit"):
+                clean[key] = entry.get(key) is True
+            for key in ("grid_columns", "grid_row", "grid_column"):
+                value = entry.get(key, 0)
+                if type(value) is not int or not 0 <= value <= 32:
+                    raise ValueError("invalid boss catalog grid")
+                clean[key] = value
+            if ((clean["grid_row"] > 0 or clean["grid_column"] > 0)
+                    and not (clean["grid_columns"] > 0 and clean["grid_row"] > 0
+                             and 0 < clean["grid_column"] <= clean["grid_columns"])):
+                raise ValueError("invalid boss catalog grid slot")
+            result["boss_catalog"].append(clean)
     for event in events:
         if not isinstance(event, dict) or event.get("kind") not in KINDS:
             raise ValueError("invalid schedule event")
@@ -209,8 +361,12 @@ def validate_snapshot(data):
             raise ValueError("invalid schedule range")
         row = dict(kind=event["kind"], scheduled_at=event["scheduled_at"], end_at=event["end_at"],
                    text_color=_color(event.get("text_color")), bg_color=_color(event.get("bg_color")),
-                   important=event.get("important") is True)
+                   important=event.get("important") is True, last_hit=event.get("last_hit") is True)
         row["major"] = event.get("major", _major(event["kind"], event.get("name"), row["important"])) is True
+        identity = event.get("catalog_id", "")
+        if not isinstance(identity, str) or (identity and not re.fullmatch(r"[0-9a-f]{24}", identity)):
+            raise ValueError("invalid event catalog identity")
+        row["catalog_id"] = identity
         if event["kind"] == "break":
             scale = event.get("row_scale", 1.0)
             if type(scale) not in {int, float} or not math.isfinite(scale) or not 0.5 <= scale <= 12.0:
@@ -227,7 +383,12 @@ def validate_snapshot(data):
         if (not isinstance(item, dict) or not isinstance(item.get("name"), str)
                 or len(item["name"]) > 200 or item.get("status") not in {"출현 중", "시간 미확정"}):
             raise ValueError("invalid active row")
-        result["active"].append(dict(name=item["name"], status=item["status"], important=item.get("important") is True,
+        identity = item.get("catalog_id", "")
+        if not isinstance(identity, str) or (identity and not re.fullmatch(r"[0-9a-f]{24}", identity)):
+            raise ValueError("invalid active catalog identity")
+        result["active"].append(dict(kind=item.get("kind") if item.get("kind") in {"fixed", "invasion"} else "boss", catalog_id=identity,
+                                     name=item["name"], status=item["status"], important=item.get("important") is True,
+                                     last_hit=item.get("last_hit") is True,
                                      major=item.get("major", item.get("important", False)) is True))
     return result
 

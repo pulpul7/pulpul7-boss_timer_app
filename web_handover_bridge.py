@@ -275,6 +275,8 @@ class WebHandoverBridge:
         root = self.manager.root
         signature = tuple((path.stat().st_mtime_ns, path.stat().st_size) for path in
                           (root / "access_settings.json", root / "https" / "current.json", self.manager.settings_path))
+        push_path = root / "push_subscriptions.json"
+        signature += ((push_path.stat().st_mtime_ns, push_path.stat().st_size) if push_path.exists() else None,)
         if signature == self.shared_signature:
             return
         payload = export_state(self.manager, key)

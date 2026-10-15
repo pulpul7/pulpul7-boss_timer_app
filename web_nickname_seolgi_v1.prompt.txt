@@ -1,0 +1,6 @@
+Use case: text-localization.
+Asset type: transparent Korean nickname illustration for a compact website profile header.
+Edit target: attached local PNG is the finished "백설기" wordmark. Create the matching "설기" version.
+Primary request: Change the Korean nickname text from "백설기" to exactly "설기" (two syllables: 설 / 기). Remove the first syllable 백 and compose the remaining two syllables as one balanced wide horizontal name graphic. Preserve the illustration style of the reference closely: predominantly pearlescent snow-white soft flowing brush lettering, plump smooth strokes, very pale icy-blue and lavender edge shading, faint blush pink highlights, small pale-blue snowflakes and sparkles, one or two pale pink hearts and an elegant sweeping underline.
+Make the Korean text precise and clearly legible, "설기" only. Keep all decorations secondary to the nickname, fully inside the frame, and rebalance the layout for two syllables with close transparent margins.
+Preserve true transparent alpha background and smoothly antialiased semi-transparent edges. No solid background, no painted checkerboard, no white rectangle, no frame, no additional words. Do not change the white-dominant color identity or substitute another font/style. A single finished profile wordmark, not multiple alternatives.

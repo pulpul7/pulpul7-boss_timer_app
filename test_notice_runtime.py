@@ -32,6 +32,7 @@ class NoticeRuntimeTests(unittest.TestCase):
         self.host = NoticeHost(root=Mock(), data_root=self.root / "notice_data", get_server=Mock(return_value=("odin9", "오9")),
             get_parent=Mock(), message_box=Mock(), log=Mock(), call_later=Mock(return_value="timer"), cancel_later=Mock())
         self.runtime = NoticeRuntime(self.host, self.root, Path(__file__).resolve().parent, "5.0.0")
+        self.bundled_version = json.loads((self.runtime.bundle / "metadata.json").read_text(encoding="utf-8"))["version"]
         self.addCleanup(self.runtime.close)
 
     def install(self, version="1.1.0", code=PLUGIN):
@@ -47,7 +48,7 @@ class NoticeRuntimeTests(unittest.TestCase):
     def test_bundled_module_is_loaded_dynamically_without_data_writes(self):
         before = list(sys.path)
         self.runtime.start()
-        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.assertEqual(self.runtime.session.version, self.bundled_version)
         self.assertTrue(type(self.runtime.session.plugin).__module__.startswith("_boss_notice_"))
         self.assertEqual(sys.path, before)
         self.assertFalse(self.host.data_root.exists())
@@ -58,6 +59,7 @@ class NoticeRuntimeTests(unittest.TestCase):
         self.assertTrue(data.startswith(b"PK"))
         self.assertIn("payload/notice_management_ui.py", manifest["files"])
         self.assertIn("payload/notice_analysis.py", manifest["files"])
+        self.assertIn("payload/notice_text.py", manifest["files"])
         self.assertIn("payload/notice_polling.py", manifest["files"])
         self.assertIn("payload/notice_opportunities.py", manifest["files"])
         self.assertIn("payload/notice_schedule.py", manifest["files"])
@@ -80,7 +82,7 @@ class NoticeRuntimeTests(unittest.TestCase):
     def test_hotfix_host_can_load_bundled_and_updated_module(self):
         self.runtime.updater.app_version = "v5.3.1.fix"
         self.runtime.start()
-        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.assertEqual(self.runtime.session.version, self.bundled_version)
         self.install()
         self.restart()
         self.assertEqual(self.runtime.session.plugin.open_management(), "1.1.0")
@@ -88,13 +90,13 @@ class NoticeRuntimeTests(unittest.TestCase):
     def test_same_as_bundled_version_cannot_install(self):
         self.runtime.start()
         with self.assertRaises(UpdateError):
-            self.install("1.0.0")
+            self.install(self.bundled_version)
 
     def test_installed_module_starts_only_next_session(self):
         self.runtime.start()
         self.install()
         self.runtime.start()
-        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.assertEqual(self.runtime.session.version, self.bundled_version)
         self.restart()
         self.assertEqual(self.runtime.session.plugin.open_management(), "1.1.0")
         self.assertEqual(self.runtime.updater.snapshot()["active"], "1.1.0")
@@ -127,7 +129,7 @@ class NoticeRuntimeTests(unittest.TestCase):
         self.runtime.start()
         self.install(code=b"raise SystemExit('bad plugin')\n")
         self.restart()
-        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.assertEqual(self.runtime.session.version, self.bundled_version)
         self.assertIn("1.1.0", self.runtime.updater.snapshot()["failed_versions"])
 
     def test_corrupt_active_version_falls_back_to_previous(self):
@@ -149,7 +151,7 @@ class NoticeRuntimeTests(unittest.TestCase):
             state["runtime_trial"] = {"version": "1.1.0", "source": "installed"}
             self.runtime.updater._save(state)
         self.restart()
-        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.assertEqual(self.runtime.session.version, self.bundled_version)
         self.assertIn("1.1.0", self.runtime.updater.snapshot()["failed_versions"])
 
     def test_manual_reinstall_allows_retry_after_failed_start(self):
@@ -165,7 +167,7 @@ class NoticeRuntimeTests(unittest.TestCase):
         self.runtime.start()
         self.install(code=PLUGIN + b"from .missing import secret\n")
         self.restart()
-        self.assertEqual(self.runtime.session.version, "1.0.0")
+        self.assertEqual(self.runtime.session.version, self.bundled_version)
 
     def test_update_preserves_existing_notice_data(self):
         self.host.data_root.mkdir()

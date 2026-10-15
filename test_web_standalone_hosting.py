@@ -82,6 +82,39 @@ class StandaloneTests(unittest.TestCase):
         manager.set_enabled.assert_not_called()
         self.assertEqual(manual.stage, 'starting')
 
+    def test_missing_pin_explanation_reaches_ui_and_diagnostic_without_stopping_peer(self):
+        from web_direct_hosting import PublicError
+        manual, manager, coordinator, _ = self.node()
+        message = '비밀번호 탭에서 웹 비밀번호를 먼저 설정해주세요.'
+        with patch('web_direct_hosting.check_local_https', side_effect=PublicError(message)):
+            manual._start_worker(force=False, approved=True)
+        self.assertEqual(manual.stage, 'error')
+        self.assertEqual(manual.message, message)
+        manager.set_authority.assert_called_once_with((), message=message)
+        manager._log.assert_any_call('web_standalone_start_failed', error_type='PublicError', reason=message)
+        coordinator.web_control.request.assert_not_called()
+        manager.public.configure.assert_not_called()
+        self.assertNotIn('web_operation', self.repo.data)
+
+    def test_unexpected_local_check_failure_does_not_expose_exception_text(self):
+        manual, manager, coordinator, _ = self.node()
+        with patch('web_direct_hosting.check_local_https', side_effect=RuntimeError('private fixture token')):
+            manual._start_worker(force=False, approved=True)
+        self.assertNotIn('private fixture token', manual.message)
+        manager._log.assert_any_call('web_standalone_start_failed', error_type='RuntimeError', reason='')
+        coordinator.web_control.request.assert_not_called()
+
+    def test_missing_member_password_blocks_handover_before_old_web_is_stopped(self):
+        manual, manager, coordinator, _ = self.node()
+        message = '비밀번호 탭에서 회원용 웹 비밀번호를 먼저 저장해주세요. 공동 관리자는 기존 웹 비밀번호를 인계받아 사용합니다.'
+        manager.access = NS(require_member_pin=Mock(side_effect=ValueError(message)))
+        self.run_start(manual)
+        self.assertEqual(manual.stage, 'error')
+        self.assertEqual(manual.message, message)
+        coordinator.web_control.request.assert_not_called()
+        manager.public.configure.assert_not_called()
+        self.assertNotIn('web_operation', self.repo.data)
+
     def test_failed_peer_stop_never_activates_new_web(self):
         manual, manager, coordinator, _ = self.node()
         coordinator.web_control.request.side_effect = lambda _, done: done(False, 'peer did not stop')

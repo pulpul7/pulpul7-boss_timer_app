@@ -3,6 +3,7 @@ from string import Formatter
 from datetime import date, timedelta
 import re
 from .notice_seasons import CHEERS
+from .notice_text import compact, maintenance_extended
 
 TEMPLATES = {}
 EXAMPLES = {"공지제목": "이벤트 아이템 이용 안내", "알림제목": "길드던전",
@@ -308,8 +309,9 @@ def render_template(state, key, values, *, now=None):
     return result
 
 
-def maintenance_key(title):
-    return ("regular" if "정기" in title else "temporary" if "임시" in title else "other") + (".extension" if "연장" in title else "")
+def maintenance_key(title, article=None):
+    value = compact(title)
+    return ("regular" if "정기" in value else "temporary" if "임시" in value else "other") + (".extension" if maintenance_extended(article or {"title": title}) else "")
 
 
 def event_template_key(article, suffix, fact=None):
@@ -320,7 +322,7 @@ def event_template_key(article, suffix, fact=None):
     if suffix == "unknown-discovery":
         compact = re.sub(r"\s+", "", title + article.get("body", ""))
         if category == "maintenance":
-            return "unknown.maintenance." + maintenance_key(title)
+            return "unknown.maintenance." + maintenance_key(title, article)
         if category == "transfer":
             return "unknown.transfer_sale" if "이전권" in compact else "unknown.transfer_use"
         if category == "class_change":
@@ -328,7 +330,7 @@ def event_template_key(article, suffix, fact=None):
         return "unknown.event"
     kind = (fact or {}).get("kind")
     if kind == "maintenance":
-        return "maintenance." + maintenance_key(title)
+        return "maintenance." + maintenance_key(title, article)
     if kind == "transfer_sale":
         return "transfer." + suffix.rsplit("/", 1)[-1]
     if kind in {"class_purchase", "class_use"}:

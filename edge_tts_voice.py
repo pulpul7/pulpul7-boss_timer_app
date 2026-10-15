@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from edge_tts_module import get_default_edge_tts_module_dir, get_edge_tts_module_status
 
@@ -51,6 +52,36 @@ def _bounded_int(value: object, fallback: int, minimum: int, maximum: int) -> in
 
 def _signed(value: int, suffix: str) -> str:
     return f"{int(value):+d}{suffix}"
+
+
+def _apply_edge_tts_endpoint_compat(engine) -> bool:
+    """Apply upstream PR #491's synthesis endpoint change to legacy engines.
+
+    Runtime only: installed files, voices, TLS verification and DRM processing
+    stay intact. A module that already ships another endpoint is left alone.
+    """
+    communicate = getattr(engine, "communicate", None)
+    endpoint = getattr(communicate, "WSS_URL", None)
+    if not isinstance(endpoint, str):
+        return False
+    parsed = urlsplit(endpoint)
+    if (parsed.scheme != "wss" or parsed.netloc != "speech.platform.bing.com"
+            or parsed.path != "/consumer/speech/synthesize/readaloud/edge/v1"
+            or parsed.fragment):
+        return False
+    query = parse_qs(parsed.query)
+    tokens = query.get("TrustedClientToken", [])
+    if len(tokens) != 1 or len(tokens[0]) != 32 or any(char not in "0123456789abcdefABCDEF" for char in tokens[0]):
+        return False
+    replacement = ("wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?"
+                   + urlencode({"Ocp-Apim-Subscription-Key": tokens[0]}))
+    # communicate uses `from .constants import WSS_URL`, so updating only
+    # constants would leave the actual synthesis requests on the old host.
+    communicate.WSS_URL = replacement
+    constants = getattr(engine, "constants", None)
+    if getattr(constants, "WSS_URL", None) == endpoint:
+        constants.WSS_URL = replacement
+    return True
 
 
 def _replace_file_with_retry(source_path: str, target_path: str, *, attempts: int = 40) -> None:
@@ -141,6 +172,7 @@ def _configure_edge_tts_module(module_dir, *, allow_development_fallback, force_
            fingerprint(os.path.join(status.module_dir, "module.json")),
            fingerprint(os.path.join(package_root, "edge_tts", "__init__.py")) if package_root else None)
     if not force_reload and _edge_tts is not None and key == _edge_tts_module_key:
+        _apply_edge_tts_endpoint_compat(_edge_tts)
         return True
     _edge_tts = None
     _edge_tts_module_dir = ""
@@ -160,6 +192,7 @@ def _configure_edge_tts_module(module_dir, *, allow_development_fallback, force_
                 sys.modules.pop(module_name, None)
         try:
             _edge_tts = importlib.import_module("edge_tts")
+            _apply_edge_tts_endpoint_compat(_edge_tts)
             _edge_tts_module_dir = status.module_dir
             _edge_tts_module_error = ""
             _edge_tts_module_key = key
@@ -170,6 +203,7 @@ def _configure_edge_tts_module(module_dir, *, allow_development_fallback, force_
     if allow_development_fallback:
         try:
             _edge_tts = importlib.import_module("edge_tts")
+            _apply_edge_tts_endpoint_compat(_edge_tts)
             _edge_tts_module_dir = "개발 환경"
             _edge_tts_module_error = ""
             _edge_tts_module_key = key

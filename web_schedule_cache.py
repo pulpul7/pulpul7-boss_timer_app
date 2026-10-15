@@ -25,6 +25,7 @@ class ScheduleCache:
         self.structure_hash = ""
         self.major_hash = ""
         self.major_rows = {}
+        self.catalog_hash = ""
 
     def refresh(self):
         try:
@@ -43,7 +44,7 @@ class ScheduleCache:
                     raise ValueError("invalid schedule session")
                 data = validate_snapshot(envelope)
                 structure = {key: value for key, value in data.items() if key not in
-                             {"events", "active", "revision", "captured_at", "updated_at"}}
+                             {"events", "active", "boss_catalog", "revision", "captured_at", "updated_at"}}
                 for kind in ("events", "active"):
                     structure[kind] = [{key: value for key, value in row.items() if key not in {"important", "major"}}
                                        for row in data[kind]]
@@ -51,10 +52,12 @@ class ScheduleCache:
                 encode = lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
                 structure_hash = hashlib.sha256(encode(structure)).hexdigest()
                 major_hash = hashlib.sha256(encode(dict(events=major_rows, active=data["active"]))).hexdigest()
+                catalog_hash = hashlib.sha256(encode(data.get("boss_catalog", []))).hexdigest()
                 with self.lock:
                     changed = self.data is None or self.data["revision"] != data["revision"]
                     self.data = data
                     self.structure_hash, self.major_hash, self.major_rows = structure_hash, major_hash, major_rows
+                    self.catalog_hash = catalog_hash
                     if self.last_capture != data["captured_at"]:
                         self.last_capture = data["captured_at"]
                         self.last_capture_at = time.monotonic()
@@ -82,17 +85,20 @@ class ScheduleCache:
         return (self.read_failed or time.monotonic() - self.last_capture_at > 15
                 or (now - datetime.fromisoformat(self.data["captured_at"])).total_seconds() > 15)
 
-    def status(self, known_major_version=None):
+    def status(self, known_major_version=None, known_catalog_version=None):
         with self.lock:
             status = dict(schedule_state="waiting" if self.data is None else
                         "stale" if self._stale(datetime.now(timezone.utc)) else "ready",
                         schedule_count=len(self.data["events"]) if self.data else 0,
                         schedule_version=self._version(),
                         major_version=self._major_version(),
+                        catalog_version=self._catalog_version(),
                         schedule_updated_at=self.data["updated_at"] if self.data else None)
             if self.data and known_major_version is not None and known_major_version != status["major_version"]:
                 status["major_updates"] = self.major_rows
                 status["major_active"] = self.data["active"]
+            if self.data and known_catalog_version is not None and known_catalog_version != status["catalog_version"]:
+                status["boss_catalog"] = self.data.get("boss_catalog", [])
             return status
 
     def _version(self):
@@ -102,17 +108,21 @@ class ScheduleCache:
     def _major_version(self):
         return hashlib.sha256(f"{self.run_id}:{self.major_hash}".encode()).hexdigest()[:24] if self.data else ""
 
+    def _catalog_version(self):
+        return hashlib.sha256(f"{self.run_id}:{self.catalog_hash}".encode()).hexdigest()[:24] if self.data else ""
+
     def payload(self):
         now = datetime.now(timezone.utc)
         with self.lock:
             if self.data is None:
                 return 503, dict(online=True, server_time=timestamp(), schedule_ready=False,
                                  schedule_stale=False, message="프로그램에서 스케줄을 준비하고 있습니다.")
-            data, stale, version, major_version = self.data, self._stale(now), self._version(), self._major_version()
+            data, stale, version, major_version, catalog_version = self.data, self._stale(now), self._version(), self._major_version(), self._catalog_version()
         # Validated nested values are immutable after publication.
         return 200, dict(data, online=True, server_time=now.isoformat(timespec="milliseconds"),
                          schedule_ready=True, schedule_stale=stale,
                          schedule_version=version,
                          major_version=major_version,
+                         catalog_version=catalog_version,
                          summary=schedule_summary(data, now),
                          message="스케줄 갱신이 지연되었습니다. 마지막으로 받은 자료입니다." if stale else "")

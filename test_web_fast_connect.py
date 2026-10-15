@@ -1,5 +1,6 @@
 """Offline fast-publication checks: every socket, router, file write and firewall is mocked."""
 from copy import deepcopy
+import json
 from pathlib import Path
 from types import SimpleNamespace as NS
 import threading
@@ -10,6 +11,30 @@ import web_direct_hosting as hosting
 
 
 class FastConnectTests(unittest.TestCase):
+    def test_local_https_distinguishes_unset_pin_from_unreadable_access_policy(self):
+        for data, expected in (
+                (dict(available=True, configured=False), '웹 비밀번호를 먼저 설정'),
+                (dict(available=False, configured=False), '웹 접속 설정을 읽지 못했습니다'),
+                (dict(available=True, configured=True), None)):
+            with self.subTest(data=data):
+                response = NS(status=200, read=Mock(return_value=json.dumps(data).encode()))
+                class Connection:
+                    def __init__(self, *args, **kwargs):
+                        pass
+                    request = Mock()
+                    getresponse = Mock(return_value=response)
+                    close = Mock()
+                with patch.object(hosting.http.client, 'HTTPSConnection', Connection), \
+                     patch.object(hosting, 'create_verified_ssl_context'), \
+                     patch.object(hosting.socket, 'create_connection') as connect:
+                    if expected:
+                        with self.assertRaisesRegex(hosting.PublicError, expected):
+                            hosting.check_local_https('example.duckdns.org', 8766)
+                    else:
+                        hosting.check_local_https('example.duckdns.org', 8766)
+                connect.assert_not_called()
+                Connection.close.assert_called_once()
+
     def service(self):
         self.domain = 'example.duckdns.org'
         self.context = dict(https_state='running', run_id='local-run', preferred_external_port=443)

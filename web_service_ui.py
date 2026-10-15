@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
+from tkinter import filedialog
 import secrets
 import tkinter as tk
 from tkinter import ttk
@@ -53,12 +54,14 @@ class WebServiceWindow:
         self.buttons, self.frames = {}, {}
         self.content = tk.Frame(outer, bg="#1e3a8a", bd=0)
         self.content.pack(fill="both", expand=True)
-        for name in ("서비스", "공동 운영", "비밀번호", "접속 관리", "네트워크", "무료 주소", "HTTPS", "외부 공개", "진단 로그"):
+        for name in ("서비스", "공동 운영", "비밀번호", "접속 관리", "네트워크", "무료 주소", "HTTPS", "외부 공개", "폰트", "진단 로그"):
             self.buttons[name] = tk.Button(tabs, text=name, font=self.font, cursor="hand2",
                 command=lambda tab=name: self._select(tab), highlightthickness=0)
             self.buttons[name].pack(side="left", padx=(0, 3), ipadx=4, ipady=4)
             self.frames[name] = tk.Frame(self.content, bg="#f8fafc")
         self._build_service(self.frames["서비스"])
+        from web_font_ui import WebFontPanel
+        self.font_panel = WebFontPanel(self, self.frames['폰트'])
         self._build_joint(self.frames["공동 운영"])
         self.operation_buttons = []
         self.access_message = tk.StringVar(value="")
@@ -143,7 +146,7 @@ class WebServiceWindow:
         tk.Checkbutton(frame, text="웹서비스 사용", variable=self.enabled, command=self._toggle,
             font=("맑은 고딕", 11, "bold"), bg="#f8fafc", fg="#1e3a8a",
             activebackground="#f8fafc", selectcolor="white").pack(anchor="w", padx=18, pady=(16, 8))
-        self._label(frame, "켜면 웹서버를 시작합니다. 처음에는 '비밀번호'에서 네 자리만 설정하세요.",
+        self._label(frame, "최초 운영자는 '비밀번호'에서 네 자리 비밀번호를 설정하세요. 공동 관리자는 인계받아 사용합니다.",
                     anchor="w").pack(fill="x", padx=22)
         status = tk.Frame(frame, bg="#f8fafc")
         status.pack(fill="x", padx=22, pady=14)
@@ -193,6 +196,11 @@ class WebServiceWindow:
         tk.Spinbox(controls, from_=0, to=59, width=3, textvariable=self.page_update_minute,
                    format="%02.0f", font=self.font).pack(side="left", padx=(2, 8))
         self._button(controls, "설정 저장", self._save_page_update).pack(side="left")
+        local_controls = tk.Frame(updates, bg="#f8fafc")
+        local_controls.pack(fill="x", pady=(6, 0))
+        self.page_local_button = self._button(local_controls, "로컬 웹 적용", self._update_local_pages)
+        self.page_local_button.pack(side="left", padx=(0, 8))
+        self._label(local_controls, "web_assets 수정 후 적용 · 화면 파일은 컴파일 불필요", anchor="w").pack(side="left")
         self.page_update_message = tk.StringVar(value=data["message"])
         tk.Label(updates, textvariable=self.page_update_message, font=self.font, bg="#f8fafc", fg="#475569",
                  anchor="w", justify="left", wraplength=630).pack(fill="x", pady=(6, 0))
@@ -218,9 +226,21 @@ class WebServiceWindow:
                 "시간을 00:00~23:59 사이 숫자로 입력해주세요." if isinstance(exc, ValueError) else
                 "설정을 저장하지 못했습니다. 진단 로그를 확인해주세요.", parent=self.window)
 
+    def _update_local_pages(self):
+        try:
+            folder = self.manager.page_updater.local_folder()
+            if not folder:
+                folder = filedialog.askdirectory(parent=self.window, title="수정한 web_assets 폴더 선택", mustexist=True)
+            if folder:
+                self.manager.page_updater.request_local(folder)
+        except Exception as exc:
+            self.messagebox("showerror", "로컬 웹 적용", str(exc), parent=self.window)
+        self._refresh_page_update()
+
     def _refresh_page_update(self):
         data = self.manager.page_updater.status()
         self.page_update_button.configure(state="disabled" if data["busy"] else "normal")
+        self.page_local_button.configure(state="disabled" if data["busy"] else "normal")
         detail = data["message"]
         if data["checked_at"]:
             detail += "\n최근 확인: " + self._local_timestamp(data["checked_at"])
@@ -237,7 +257,8 @@ class WebServiceWindow:
         self.pin_status = tk.StringVar()
         tk.Label(frame, textvariable=self.pin_status, font=("맑은 고딕", 11, "bold"),
                  bg="#f8fafc", fg="#1e3a8a", anchor="w").pack(fill="x", padx=22, pady=(20, 10))
-        self._label(frame, "길드원에게 알려줄 네 자리 비밀번호를 설정하세요. 별도 계정은 필요하지 않습니다.",
+        self._label(frame, "비밀번호는 자동으로 설정하지 않습니다. 공동 관리 시 기존 웹 비밀번호를 인계받습니다.\n"
+                    "길드원에게 알려줄 네 자리 비밀번호를 여기서 변경할 수 있습니다. 별도 계정은 필요하지 않습니다.",
                     anchor="w", wraplength=630, justify="left").pack(fill="x", padx=22)
         self.current_pin = tk.StringVar()
         tk.Label(frame, textvariable=self.current_pin, font=self.font, bg="#f8fafc", fg="#1e3a8a",
@@ -407,7 +428,8 @@ class WebServiceWindow:
             }[item["state"]]
             variable.set("현재 비밀번호: " + value)
         self.pin_status.set("접속 설정 읽기 오류 · 진단 로그 확인" if data["settings_error"] else
-                            "일반 비밀번호 설정됨" if data.get("member_configured", data["configured"]) else "일반 비밀번호 미설정")
+                            "일반 비밀번호 설정됨" if data.get("member_configured", data["configured"]) else
+                            "회원 비밀번호 미설정 · 최초 운영자는 아래에서 저장하고, 공동 관리자는 웹 승계로 인계받으세요")
         self.guest_pin_status.set("게스트 입장 허용 · 전용 비밀번호 설정됨" if data.get("guest_configured") else
                                   "게스트 입장 중지 · 비밀번호를 저장하면 허용됩니다")
         if self.pending_job:

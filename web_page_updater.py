@@ -5,13 +5,15 @@ import base64
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
 
 from https_transport import urlopen_verified
-from web_asset_store import FILES, MAX_FILE, current_version, git_hash, stage_version, version_id
+from web_asset_store import FILES, MAX_FILE, current_version, git_hash, stage_version, version_id, load_assets, page_revision, validate_assets
 from web_service_common import read_json, timestamp, write_json
 
 REPOSITORY = "pulpul7/pulpul7-boss_timer_app"
@@ -60,6 +62,7 @@ class WebPageUpdater:
         self.wake, self.closed = threading.Event(), threading.Event()
         self.thread = None
         self.manual = False
+        self.local_source = None
         self.settings = dict(schema=1, enabled=True, hour=3, minute=0, last_auto_date="")
         self.view = dict(busy=False, state="idle", message="웹 업데이트 확인 전", checked_at="", applied_at="",
                          version="", source=f"github.com/{REPOSITORY}/tree/main/{SOURCE}")
@@ -79,7 +82,8 @@ class WebPageUpdater:
         if (not isinstance(data, dict) or data.get("schema") != 1 or type(data.get("enabled")) is not bool
                 or type(data.get("hour")) is not int or not 0 <= data["hour"] < 24
                 or type(data.get("minute")) is not int or not 0 <= data["minute"] < 60
-                or not isinstance(data.get("last_auto_date", ""), str)):
+                or not isinstance(data.get("last_auto_date", ""), str)
+                or not isinstance(data.get("local_folder", ""), str)):
             raise ValueError("자동 업데이트 시간을 확인해주세요. (00:00~23:59)")
 
     def status(self):
@@ -105,13 +109,30 @@ class WebPageUpdater:
                 self.thread.start()
 
     def request(self):
+        self._request_update()
+
+    def local_folder(self):
+        with self.lock:
+            saved = self.settings.get("local_folder", "")
+        candidates = [Path(saved)] if saved else []
+        candidates.append((Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+                           else Path(__file__).resolve().parent) / SOURCE)
+        return next((str(path) for path in candidates if path.is_dir()), "")
+
+    def request_local(self, folder):
+        if not isinstance(folder, str) or not folder.strip():
+            raise ValueError("수정한 web_assets 폴더를 선택해주세요.")
+        self._request_update(str(Path(folder).resolve()))
+
+    def _request_update(self, folder=None):
         with self.lock:
             if self.closed.is_set() or self.manager.closed.is_set():
                 raise ValueError("웹서비스가 종료 중입니다.")
             if self.view["busy"] or self.manual:
                 raise ValueError("웹 업데이트가 진행 중입니다. 잠시 기다려주세요.")
             self.manual = True
-            self.view.update(busy=True, state="checking", message="웹 업데이트를 확인합니다…")
+            self.local_source = folder
+            self.view.update(busy=True, state="checking", message="로컬 웹 파일을 확인합니다…" if folder else "웹 업데이트를 확인합니다…")
         self.start()
         self.wake.set()
 
@@ -124,6 +145,50 @@ class WebPageUpdater:
     def _check_cancelled(self):
         if self.closed.is_set() or self.manager.closed.is_set():
             raise ValueError("프로그램 종료로 웹 업데이트를 취소했습니다.")
+
+    def _update_local(self, folder):
+        self._check_cancelled()
+        self.manager._log("web_page_local_update_begin")
+        files = {}
+        for name in FILES:
+            self._check_cancelled()
+            try:
+                with (Path(folder) / name).open("rb") as stream:
+                    files[name] = stream.read(MAX_FILE + 1)
+            except OSError as exc:
+                raise ValueError(f"web_assets 폴더의 {name} 파일을 읽지 못했습니다.") from exc
+        validate_assets(files)
+        if page_revision(files) < page_revision(load_assets(self.root)):
+            raise ValueError("선택한 웹 파일이 현재 화면보다 오래된 개정입니다. 수정한 web_assets 폴더를 선택해주세요.")
+        version = version_id({name: git_hash(raw) for name, raw in files.items()})
+        status = self.manager.status()
+        if current_version(self.root) == version and (not status["enabled"] or status.get("web_page_version") == version):
+            with self.lock:
+                self.view.update(state="current", version=version[:12], message="로컬 웹 파일이 이미 적용되어 있습니다.")
+            return
+        self._check_cancelled()
+        with self.lock:
+            self.view.update(state="copying", message="로컬 웹 파일을 복사하고 검증합니다…")
+        stage_version(self.root, version, files)
+        self._check_cancelled()
+        with self.lock:
+            self.view.update(state="restarting", message="복사 완료 · 웹서비스만 다시 시작합니다…")
+        self.manager.apply_page_update(version)
+        remember_failed = False
+        with self.lock:
+            saved = dict(self.settings, local_folder=folder)
+            try:
+                write_json(self.path, saved)
+            except OSError:
+                remember_failed = True
+            else:
+                self.settings = saved
+            self.view.update(state="applied", version=version[:12], applied_at=timestamp(),
+                             message="로컬 웹 적용 완료 · 브라우저를 새로고침해주세요." +
+                             (" 폴더 기억은 저장하지 못했습니다." if remember_failed else ""))
+        if remember_failed:
+            self.manager._log("web_page_local_folder_save_failed")
+        self.manager._log("web_page_local_update_applied", version=version[:12])
 
     def _update(self):
         self._check_cancelled()
@@ -140,7 +205,10 @@ class WebPageUpdater:
             self.manager._log("web_page_update_unchanged", version=version[:12])
             return
         files = {}
-        for name in FILES:
+        installed_revision = page_revision(load_assets(self.root))
+        # Read the tiny metadata first, so an obsolete repository page does not
+        # cause six downloads or a service restart on every daily check.
+        for name in ("metadata.json", *[name for name in FILES if name != "metadata.json"]):
             self._check_cancelled()
             row = rows[name]
             blob = fetch_json(API + "/git/blobs/" + row["sha"])
@@ -151,7 +219,14 @@ class WebPageUpdater:
             if len(raw) != row["size"] or git_hash(raw) != row["sha"]:
                 raise ValueError("다운로드한 웹 파일이 저장소 내용과 일치하지 않습니다.")
             files[name] = raw
+            if name == "metadata.json" and page_revision(files) < installed_revision:
+                with self.lock:
+                    self.view.update(state="current", version=installed[:12],
+                                     message="현재 웹 화면이 저장소 파일보다 최신입니다. 오래된 웹 업데이트는 적용하지 않았습니다.")
+                self.manager._log("web_page_update_older_revision_ignored", revision=page_revision(files))
+                return
         self._check_cancelled()
+        validate_assets(files)
         with self.lock:
             self.view.update(state="copying", message="웹 파일을 복사하고 검증합니다…")
         stage_version(self.root, version, files)
@@ -171,6 +246,7 @@ class WebPageUpdater:
                 now = datetime.now(KST)
                 with self.lock:
                     manual, self.manual = self.manual, False
+                    local_source, self.local_source = self.local_source, None
                 automatic = not manual and self.due(now)
                 if manual or automatic:
                     with self.lock:
@@ -180,7 +256,10 @@ class WebPageUpdater:
                             write_json(self.path, saved)
                             self.settings = saved  # One daily attempt, including failures.
                         self.view.update(busy=True, state="checking", checked_at=timestamp(), message="웹 업데이트를 확인합니다…")
-                    self._update()
+                    if local_source:
+                        self._update_local(local_source)
+                    else:
+                        self._update()
             except Exception as exc:
                 if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
                     message = "공식 저장소 main 브랜치의 web_assets 폴더에 웹 파일을 먼저 올려주세요."
