@@ -1184,8 +1184,7 @@ let selectedTheme=document.documentElement.getAttribute('data-theme') || 'defaul
 let winterBackgroundUrl='', winterBackgroundAttempted=false, rainBackgroundAttempted=false;
 function themeEligible() {return true;}
 function themeAvailable(value) {
-  return (value==='default' || Object.hasOwn(WebBossSpectrum.palettes,value)) &&
-    (value!=='spring' || nicknameValue==='나츠' || THEME_EGG_NAMES.includes(nicknameValue));
+  return value==='default' || Object.hasOwn(WebBossSpectrum.palettes,value);
 }
 function themeStorageKey() {return 'BossTimer.webTheme.v1:'+nicknameValue;}
 function themeBaselineKey() {return 'BossTimer.webTheme.base.v1:'+nicknameValue;}
