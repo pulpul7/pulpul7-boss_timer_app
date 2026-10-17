@@ -142,6 +142,9 @@ class NoticeRuntime:
     def start(self):
         if self.session is not None:
             return
+        from program_update_guard import active
+        if active(self.updater.root.parent):
+            return  # Do not load an AppData-selected module before update commit.
         manifest = json.loads((self.bundle / "metadata.json").read_text(encoding="utf-8"))
         # Shipped source belongs to the executable's resources. A release ZIP
         # carries its own complete, hash-verified module.json instead.
@@ -151,7 +154,8 @@ class NoticeRuntime:
         validate_manifest(manifest, manifest["version"], self.updater.app_version)
         self.session = self.updater.start_runtime(self.bundle, manifest,
             lambda path, info: launch_module(path, info, self.host))
-        self.host.log(f"notice_module_started version={self.session.version}")
+        loaded=self.updater.snapshot().get('runtime_loaded',{})
+        self.host.log(f"notice_module_started version={self.session.version} source={loaded.get('source','unknown')}")
 
     def open_management(self):
         self.start()

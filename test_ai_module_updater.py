@@ -284,6 +284,7 @@ class UpdaterTests(unittest.TestCase):
         ui = object.__new__(AiUpdateCenter)
         ui.app = Mock(root=root, schedule_window=None)
         ui.root = root
+        ui.app_version = "5.0.0"
         ui.window = None
         ui.prompt = None
         ui.rows = []

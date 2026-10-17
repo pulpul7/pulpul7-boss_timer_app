@@ -71,12 +71,14 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_zip_name_uses_completed_build_metadata_without_building(self):
         with patch.object(Path, "is_file", return_value=True), patch.object(Path, "mkdir"), \
+                patch("distribution_defaults.read_declaration", return_value=None) as declaration, \
                 patch.object(Path, "read_text", return_value=json.dumps(dict(version="v5.5.5"))), \
                 patch.object(build_release, "run_pyinstaller") as build, \
                 patch.object(build_release, "create_release_zip", return_value=Path("unused.zip")) as archive, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(build_release.main(), 0)
         self.assertEqual(build.call_count, 2)
+        declaration.assert_called_once_with(build_release.ROOT)
         archive.assert_called_once_with("v5.5.5")
 
 

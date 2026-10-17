@@ -109,16 +109,18 @@ class StandaloneHosting:
         self.resume_stopped_key = None
         self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         self.stage, self.message = 'idle', '단독 실행은 이 PC의 현재 스케줄을 사용합니다.'
+        self.operation = 'start'
 
     def status(self):
         with self.lock:
             info = standalone_info(self.record)
             coordinator = getattr(self.app, 'discord_handover', None)
-            return dict(busy=self.busy or self.stopping, stage=self.stage, message=self.message,
+            return dict(busy=self.busy or self.stopping, stage=self.stage, message=self.message, operation=self.operation,
                         owner=info['owner'] if info else '',
                         owner_name=((self.record.get('members', {}).get(info['owner'], {}).get('name')
                                     or info['owner'][:8]) if info else '—'),
-                        local=bool(info and coordinator and info['owner'] == coordinator.client and info['runtime'] == coordinator.runtime),
+                        local=bool(info and coordinator and info['owner'] == coordinator.client and
+                            (info['runtime'] == coordinator.runtime or getattr(self.manager,'background_protected',False))),
                         state=info['state'] if info else '')
 
     def observe(self, data, coordinator):
@@ -216,13 +218,15 @@ class StandaloneHosting:
                           elapsed_ms=elapsed_ms)
 
     def start(self, *, force=True, approved=False):
+        from program_update_guard import launch_gate
         if not self.manager.ddns_status()['configured']:
             raise ValueError('무료 주소에서 DuckDNS 주소와 Token을 먼저 저장해주세요.')
-        with self.lock:
+        with launch_gate(self.manager.root.parent, allow_trial=False), self.lock:
             if self.busy or self.stopping:
                 raise ValueError('웹 단독 실행 또는 종료를 처리 중입니다.')
             self.busy = True
             self.cancelled.clear()
+            self.operation = 'start'
         threading.Thread(target=self._start_worker, kwargs=dict(force=force, approved=approved), name='web-standalone-start', daemon=True).start()
 
     def _start_worker(self, *, force=True, approved=False):
@@ -255,10 +259,13 @@ class StandaloneHosting:
                     self._progress('idle', '기존 PC의 웹을 유지합니다.')
                     return
             existing_info = standalone_info(existing)
-            if (existing_info and existing_info['state'] == 'active' and existing_info['runtime'] == coordinator.runtime
+            if (existing_info and existing_info['state'] == 'active' and (existing_info['runtime'] == coordinator.runtime
+                    or (getattr(self.manager,'background_protected',False) and getattr(self.manager,'background_web_id','')==existing_info['id']))
                     and existing_host == coordinator.client and self.manager.publication_allowed()
                     and self.manager.public.status()['state'] == 'prepared'):
                 self._progress('running', '이 PC의 웹이 이미 공개 중입니다.')
+                self.manager._log('web_existing_public_reused', run_id=getattr(self.manager,'run_id',''),
+                                  request=existing_info['id'])
                 return
             self._progress('preparing', '이 PC HTTPS 준비 확인 · 기존 웹은 유지합니다.')
             def reserve(data):
@@ -437,9 +444,41 @@ class StandaloneHosting:
             return data
         member = data.get('members', {}).get(stamp[0], {})
         closed_proof = member.get('web_closed_runtime') == stamp[1]
-        offline = member.get('runtime') == stamp[1] and member.get('online') is False
+        background = data.get('web_background') or {}
+        persistent = ((background.get('owner'),background.get('runtime'),background.get('id')) == stamp
+                      and background.get('protocol')==1)
+        offline = (member.get('runtime') == stamp[1] or persistent) and member.get('online') is False
         if not closed_proof and not offline:
             return data  # Slow connection or a missing probe reply is never shutdown proof.
+        if (not closed_proof and background.get('protocol') == 1
+                and (background.get('owner'),background.get('runtime'),background.get('id')) == stamp):
+            # Bot exit is no longer proof of web exit. Ask the persistent worker,
+            # then wait for its router/DDNS cleanup acknowledgement.
+            request_id = uuid.uuid4().hex
+            def request_stop(current):
+                if web_host_stamp(current) != stamp:
+                    raise ValueError('웹 담당자가 변경되어 백그라운드 종료 요청을 취소했습니다.')
+                current.setdefault('web_background',dict(background))['stop_requested'] = request_id
+            with coordinator.lock:
+                data = coordinator.record.mutate(request_stop)
+            deadline = time.monotonic()+50
+            while time.monotonic()<deadline:
+                if self.cancelled.is_set() or self.manager.closed.wait(2):
+                    raise ValueError('백그라운드 웹 종료 확인을 취소했습니다.')
+                with coordinator.lock:
+                    data,_ = coordinator.record.read()
+                if web_host_stamp(data) is None:
+                    return data
+                if web_host_stamp(data) != stamp:
+                    raise ValueError('백그라운드 종료 확인 중 웹 담당자가 변경되었습니다.')
+                if data.get('members',{}).get(stamp[0],{}).get('web_closed_runtime') == stamp[1]:
+                    closed_proof = True
+                    break
+                marker = data.get('web_background') or {}
+                if time.time() > marker.get('valid_until',float('inf'))+20:
+                    break  # Its bounded shared lease and local lease have both drained.
+            else:
+                raise ValueError('백그라운드 웹 종료를 확인하지 못했습니다. 기존 PC의 웹 상태를 확인해주세요.')
         self._progress('verifying_peer', '이전 웹 담당자의 종료 기록을 확인하고 있습니다.')
         if not closed_proof:
             # Older GUIs recorded bot exit but did not clear the web owner.
@@ -462,7 +501,9 @@ class StandaloneHosting:
                 raise ValueError('종료 확인 중 웹 담당자가 바뀌었습니다. 다시 웹실행을 눌러주세요.')
             peer = current.get('members', {}).get(stamp[0], {})
             if not (peer.get('web_closed_runtime') == stamp[1]
-                    or (peer.get('runtime') == stamp[1] and peer.get('online') is False)):
+                    or (peer.get('runtime') == stamp[1] and peer.get('online') is False)
+                    or (persistent and peer.get('online') is False and
+                        time.time()>(current.get('web_background') or {}).get('valid_until',float('inf'))+20)):
                 raise ValueError('이전 관리자의 종료 상태가 바뀌어 웹 공개를 중단했습니다.')
             pending = current.get('web_operation') or {}
             if pending.get('owner') == stamp[0] and pending.get('runtime') == stamp[1]:
@@ -633,7 +674,8 @@ class StandaloneHosting:
             generation = int(self.record.get('web_generation', self.record.get('generation', 0)))
         coordinator = getattr(self.app, 'discord_handover', None)
         if (self.busy or self.stopping or not info or info['state'] != 'active' or coordinator is None
-                or info['owner'] != coordinator.client or info['runtime'] != coordinator.runtime
+                or info['owner'] != coordinator.client or (info['runtime'] != coordinator.runtime
+                    and not getattr(self.manager,'background_protected',False))
                 or not self.manager.publication_allowed()
                 or self.manager.public.status()['state'] != 'prepared'
                 or time.monotonic() < self.next_shared_check):
@@ -675,7 +717,8 @@ class StandaloneHosting:
             self._progress(stage, message)
 
     def stop(self):
-        with self.lock:
+        from program_update_guard import launch_gate
+        with launch_gate(self.manager.root.parent, allow_trial=False), self.lock:
             if self.busy or self.stopping:
                 raise ValueError('웹 실행을 처리 중입니다. 완료 후 종료해주세요.')
             self.busy = True
@@ -689,12 +732,18 @@ class StandaloneHosting:
         threading.Thread(target=worker, name='web-standalone-stop', daemon=True).start()
 
     def stop_sync(self, *, for_handover=False, record_stop=True):
+        from program_update_guard import web_change
+        with web_change(self.manager):
+            return self._stop_sync_idle(for_handover=for_handover, record_stop=record_stop)
+
+    def _stop_sync_idle(self, *, for_handover=False, record_stop=True):
         # A remote stop also runs outside stop()'s wrapper. Prevent the lease
         # loop from renewing/relabeling the host during its shutdown.
         with self.lock:
             if self.stopping:
                 raise ValueError('웹 종료 확인을 이미 진행 중입니다.')
             self.stopping = True
+            self.operation = 'stop'
         try:
             return self._stop_sync_core(for_handover=for_handover, record_stop=record_stop)
         finally:
@@ -716,6 +765,7 @@ class StandaloneHosting:
             raise ValueError('웹 외부 접근 차단을 확인하지 못했습니다.')
         deadline = time.monotonic()+35
         while ((not for_handover and self.manager.status()['state'] != 'stopped') or self.manager.ddns.status().get('busy')
+               or getattr(self.manager,'background_busy',lambda:False)()
                or self.manager.public.status().get('busy') or self.manager.public.status()['state'] != 'off'):
             if self.manager.closed.is_set() or time.monotonic() >= deadline:
                 raise ValueError('웹 프로세스·외부 연결·주소 갱신 종료를 확인하지 못했습니다.')

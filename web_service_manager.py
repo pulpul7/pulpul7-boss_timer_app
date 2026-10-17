@@ -22,6 +22,8 @@ from web_certificate_service import CertificateService
 from web_direct_hosting import DirectHostingService
 from web_page_updater import WebPageUpdater
 from web_asset_store import read_version
+from web_persistent_runtime import (RemotePublicService, AttachedProcess, discover,
+                                    runtime_version, independent_worker_spawn)
 
 MESSAGES = {
     "port_in_use": "웹 포트를 다른 프로그램이 사용 중입니다. 다른 포트로 재시도할 수 있습니다.",
@@ -69,6 +71,14 @@ class WebServiceManager:
         self.authority_retry = None
         self.last_authority_write = 0.0
         self.previous_mapping_owner = ""
+        self.background_protected = False
+        self.background_scope_verified = False
+        self.background_web_id = ''
+        self.background_binding = None
+        self.discovery_pending = True
+        self.preserve_worker = False
+        self.process_port = None
+        self.restart_requested = False
         self.page_update_job = None
         self.access = AccessSettings(self.root)
         self.access_view = dict(self.access.public_view(), visitors=[], failures=[], live=False)
@@ -80,7 +90,7 @@ class WebServiceManager:
         self.network = NetworkDiagnostics(self.root)
         self.ddns = DDNSService(self.root, on_saved=self._on_ddns_saved)
         self.https = CertificateService(self.root)
-        self.public = DirectHostingService(self.root, self._public_context)
+        self.public = RemotePublicService(self)
         self.public_preference_touched = self.public.path.exists()
         self.view = dict(state="stopped", enabled=True, port=DEFAULT_PORT,
                          address="", phase=PHASE, message="웹서비스가 꺼져 있습니다.", request_count=0,
@@ -117,13 +127,18 @@ class WebServiceManager:
                 return
             self.view.update(values)
             active = self.view["state"] == "running" and self.view["enabled"]
+        if self.discovery_pending or self.background_protected:
+            return
         owns = self.has_web_authority()
-        self.ddns.set_active(active and self.publication_allowed() and self.public.status()["state"] == "prepared")
+        # Automatic DDNS and port-rule maintenance live in the persistent worker.
+        self.ddns.set_active(False)
         self.https.set_active(active and owns and (self.authority_ready or getattr(self, "local_https_preparing", False)))
         self.public.set_active(active and self.publication_allowed())
 
     def has_web_authority(self):
         with self.lock:
+            if self.background_protected:
+                return True
             return bool(self.authority_key and self.authority_until > time.monotonic() and not self.public_paused)
 
     def publication_allowed(self):
@@ -135,6 +150,8 @@ class WebServiceManager:
 
     def set_authority(self, key, *, ready=False, message="", remaining=10):
         with self.lock:
+            if self.background_protected:
+                return  # The worker fences its previous shared owner until reattachment is verified.
             if not key or ready:
                 self.local_https_preparing = False
             changed = tuple(key) != self.authority_key
@@ -153,6 +170,8 @@ class WebServiceManager:
         self.wake.set()
 
     def _flush_authority(self, *, force=False):
+        if self.discovery_pending or self.background_protected or (self.closed.is_set() and self.preserve_worker):
+            return
         if not force and time.monotonic() - self.last_authority_write < 1:
             return
         with self.lock:
@@ -187,6 +206,12 @@ class WebServiceManager:
         self._log("web_public_retry_requested")
 
     def emergency_stop(self, *, standby=False):
+        from program_update_guard import web_change
+        with web_change(self):
+            self._emergency_stop_idle(standby=standby)
+
+    def _emergency_stop_idle(self, *, standby=False):
+        self.background_protected = False
         self.public_paused = True
         self.authority_ready = False
         self.authority_message = ("웹 대기 · 다른 PC에서 공개합니다." if standby else
@@ -238,6 +263,8 @@ class WebServiceManager:
         if state["enabled"] and not self.publication_allowed():
             state.update(state="standby" if not self.has_web_authority() else "waiting",
                          address="", message=self.view["message"] if self.view["state"] == "error" else self.authority_message)
+        if self.view.get('runtime_update_pending'):
+            state['message'] += ' · 웹 코드 업데이트 대기 (웹 업데이트·재시작 시 반영)'
         return state
 
     def configure_public(self, enabled):
@@ -299,7 +326,17 @@ class WebServiceManager:
         return self.network.status()
 
     def ddns_status(self):
+        if self.process is not None:
+            state = self._read_worker_state() or {}
+            if state.get('ddns_status',{}).get('configured'):
+                return state['ddns_status']
         return self.ddns.status()
+
+    def background_busy(self):
+        if self.process is None:
+            return False
+        data=self._read_worker_state() or {}
+        return bool(data.get('ddns_status',{}).get('busy'))
 
     def configure_ddns(self, enabled, domain, token):
         return self.ddns.configure(enabled, domain, token)
@@ -451,6 +488,8 @@ class WebServiceManager:
         return version
 
     def _flush_snapshot(self):
+        if self.background_protected and not self.background_scope_verified:
+            return
         if self.process is None or self.process.poll() is not None:
             return
         with self.lock:
@@ -476,6 +515,9 @@ class WebServiceManager:
             self._log("schedule_snapshot_write_failed", error_type=type(exc).__name__)
 
     def start_saved(self):
+        from program_update_guard import active
+        if active(self.root.parent):
+            return
         self.page_updater.start()
         if self.generation == 0 and self.settings["enabled"] and not self.closed.is_set():
             self._request(True)
@@ -500,8 +542,9 @@ class WebServiceManager:
         self.page_updater.start()
 
     def apply_page_update(self, version):
+        from program_update_guard import launch_gate
         job = dict(version=version, done=threading.Event(), cancelled=threading.Event(), error=None)
-        with self.lock:
+        with launch_gate(self.root.parent, allow_trial=False), self.lock:
             if self.closed.is_set() or self.page_update_job is not None:
                 raise ValueError("웹 업데이트를 적용할 수 없습니다. 종료 또는 진행 중인 작업을 확인해주세요.")
             self.page_update_job = job
@@ -511,9 +554,78 @@ class WebServiceManager:
         while not job["done"].wait(0.25):
             if self.closed.is_set() or time.monotonic() > deadline:
                 job["cancelled"].set()
-                raise ValueError("웹 업데이트 재시작 확인 시간이 초과됐습니다. 웹 상태와 진단 로그를 확인해주세요.")
+                raise ValueError("웹 업데이트 적용 확인 시간이 초과됐습니다. 웹 상태와 진단 로그를 확인해주세요.")
         if job["error"]:
             raise ValueError(job["error"])
+        return job.get('mode', 'restart')
+
+    def _apply_live_page_assets(self, job, worker, before, pointer_path, generation):
+        """Wait for this worker's swap receipt; keep listeners and authority alive."""
+        from web_live_assets import asset_request_path
+        run_id, process = self.run_id, self.process
+        path = asset_request_path(self.root, run_id)
+        previous = worker['web_page_version']
+        committed = False
+        pause = threading.Event()
+
+        def exchange(version, action):
+            request_id = uuid.uuid4().hex
+            write_json(path, dict(schema=1, id=request_id, run_id=run_id,
+                                  version=version, action=action, until=time.time()+15))
+            deadline = time.monotonic() + (3 if action == 'rollback' else 5)
+            while time.monotonic() < deadline:
+                if self.run_id != run_id or self.process is not process or process.poll() is not None:
+                    raise ValueError('웹 파일 반영 중 실행 프로세스가 변경되었습니다.')
+                if action != 'rollback' and (self.closed.is_set() or job['cancelled'].is_set()
+                                             or generation != self.generation or not self.desired):
+                    raise ValueError('웹 파일 반영을 취소했습니다.')
+                receipt = self._read_worker_state()
+                if receipt and receipt.get('asset_job_id') == request_id:
+                    if receipt.get('asset_job_state') == 'error':
+                        raise ValueError('웹 파일을 검증·반영하지 못했습니다. 기존 웹은 유지합니다.')
+                    if receipt.get('asset_job_state') == 'applied' and receipt.get('web_page_version') == version:
+                        return
+                self.public.send()  # Do not let the controller lease expire while waiting.
+                pause.wait(.05)
+            raise ValueError('웹 파일 반영 응답을 확인하지 못했습니다. 진단 로그를 확인해주세요.')
+
+        try:
+            exchange(job['version'], 'apply')
+            if self.closed.is_set() or job['cancelled'].is_set() or generation != self.generation or not self.desired:
+                raise ValueError('웹 파일 반영을 취소했습니다.')
+            write_json(pointer_path, dict(schema=1, version=job['version'],
+                       previous=before.get('version', '') if isinstance(before, dict) else '', applied_at=timestamp()))
+            committed = True
+            job['mode'] = 'hot'
+            self._monitor()
+            self._log('web_page_live_update_ready', run_id=run_id, version=job['version'][:12])
+        except Exception:
+            pointer_error = None
+            if committed:
+                try:
+                    if before is None:
+                        pointer_path.unlink(missing_ok=True)
+                    else:
+                        write_json(pointer_path, before)
+                except OSError as exc:
+                    pointer_error = exc
+                    self._log('web_page_live_pointer_restore_failed', error_type=type(exc).__name__)
+            try:
+                exchange(previous, 'rollback')
+                self._log('web_page_live_update_rolled_back', run_id=run_id)
+            except Exception as exc:
+                self._log('web_page_live_rollback_failed', error_type=type(exc).__name__)
+                # Do not restart a serving worker just because a receipt was lost.
+                raise ValueError('웹 파일 복구 응답을 확인하지 못했습니다. 웹은 강제 재시작하지 않았습니다. 진단 로그를 확인해주세요.') from exc
+            if pointer_error is not None:
+                raise ValueError('기존 웹 화면은 복구했지만 파일 적용 기록을 복원하지 못했습니다. 진단 로그를 확인해주세요.') from pointer_error
+            raise
+        finally:
+            # Revoke even an unacknowledged request so it cannot apply later.
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _wait_page_start(self, generation, expected_version=None):
         deadline = time.monotonic() + 20
@@ -534,6 +646,18 @@ class WebServiceManager:
         raise ValueError("새 웹서비스의 시작을 확인하지 못했습니다.")
 
     def _page_update_jobs(self):
+        from program_update_guard import web_change
+        try:
+            with web_change(self):
+                self._page_update_jobs_locked()
+        except (ValueError, TimeoutError) as exc:
+            with self.lock:
+                job, self.page_update_job = self.page_update_job, None
+            if job is not None:
+                job['error'] = str(exc)
+                job['done'].set()
+
+    def _page_update_jobs_locked(self):
         with self.lock:
             job, self.page_update_job = self.page_update_job, None
             generation, desired, port = self.generation, self.desired, self.settings["port"]
@@ -551,6 +675,14 @@ class WebServiceManager:
                 before = read_json(pointer_path)
             except FileNotFoundError:
                 pass
+            worker = self._read_worker_state() if self.process is not None and self.process.poll() is None else None
+            if (desired and worker and worker.get('state') == 'running'
+                    and worker.get('web_asset_reload') == 1):
+                from web_asset_store import ASSET_API, LOGIN_API
+                if worker.get('web_asset_api') != ASSET_API or worker.get('web_login_api') != LOGIN_API:
+                    raise ValueError('실행 중 웹의 파일/API 형식이 다릅니다. 기존 웹을 유지합니다. 프로그램 업데이트가 필요합니다.')
+                self._apply_live_page_assets(job, worker, before, pointer_path, generation)
+                return
             self._update(state="updating", address="", message="웹 파일 적용 · 웹서비스를 다시 시작합니다.")
             self._flush_authority(force=True)
             if not self._stop_owned():
@@ -567,8 +699,10 @@ class WebServiceManager:
             if restart:
                 self._start(port, generation)
                 self._wait_page_start(generation, job["version"])
+                job['mode'] = 'restart'
             elif not self.desired:
                 self._update(state="stopped", address="", message="웹 파일 적용 완료 · 웹서비스는 꺼져 있습니다.")
+                job['mode'] = 'offline'
         except Exception as exc:
             job["error"] = str(exc) if isinstance(exc, ValueError) else "웹 파일 적용에 실패했습니다. 진단 로그를 확인해주세요."
             if stopped:
@@ -596,16 +730,27 @@ class WebServiceManager:
             job["done"].set()
 
     def _request(self, enabled):
+        from program_update_guard import launch_gate
+        with launch_gate(self.root.parent, allow_trial=False):
+            self._request_idle(enabled)
+
+    def _request_idle(self, enabled):
+        if not enabled:
+            self.background_protected = False
         with self.lock:
+            self.restart_requested = bool(enabled and self.view.get('state')=='error')
+            if enabled and self.process is None:
+                self.discovery_pending = True
             self.desired = bool(enabled)
             self.generation += 1
             self.view.update(enabled=self.desired, state="starting" if enabled else "stopping",
                              message="웹서버를 시작합니다." if enabled else "웹서버를 종료합니다.",
                              port=self.settings["port"], address="", request_count=0)
         self._log("start_requested" if enabled else "stop_requested", port=self.settings["port"])
-        self.ddns.set_active(False)
-        self.https.set_active(False)
-        self.public.set_active(False)
+        if not self.discovery_pending and not self.background_protected:
+            self.ddns.set_active(False)
+            self.https.set_active(False)
+            self.public.set_active(False)
         self._ensure_coordinator()
         self.wake.set()
 
@@ -619,6 +764,12 @@ class WebServiceManager:
         seen = -1
         try:
             while not self.closed.is_set():
+                from program_update_guard import active
+                if active(self.root.parent):
+                    self.closed.wait(.25)
+                    continue  # Keep the live worker untouched; no restart or page job during full update.
+                if self.discovery_pending:
+                    self._discover_existing()
                 self._access_jobs()
                 self._refresh_desktop_pins()
                 self._flush_authority()
@@ -627,16 +778,20 @@ class WebServiceManager:
                     generation, desired, port = self.generation, self.desired, self.settings["port"]
                 if generation != seen:
                     seen = generation
-                    if not self._stop_owned():
+                    reuse = (desired and self.process is not None and self.process.poll() is None
+                             and self.process_port==port and not self.restart_requested)
+                    if reuse:
+                        self.process_generation = generation
+                    elif not self._stop_owned():
                         self.wake.wait(0.25)
                         self.wake.clear()
                         continue
                     with self.lock:
                         current = generation == self.generation and not self.closed.is_set()
                     if current:
-                        if desired:
+                        if desired and not reuse:
                             self._start(port, generation)
-                        else:
+                        elif not desired:
                             self._update(_generation=generation, state="stopped", address="", message="웹서비스가 꺼져 있습니다.")
                 self._page_update_jobs()
                 self._flush_snapshot()
@@ -648,9 +803,78 @@ class WebServiceManager:
             self._log("manager_failed", error_type=type(exc).__name__)
             self._update(state="error", address="", message=MESSAGES["worker_failed"])
         finally:
-            self._stop_owned()
+            if not self.preserve_worker:
+                self._stop_owned()
+
+    def _discover_existing(self):
+        self.discovery_pending = False
+        state = discover(self.root)
+        if state is None:
+            return
+        process = AttachedProcess(state['pid'])
+        if process.poll() is not None:
+            process.close(); return
+        try:
+            self.process, self.run_id = process, state['run_id']
+            self.process_port = state['port']
+            self.desired = self.settings['enabled']
+            try:
+                from web_persistent_runtime import control_path
+                saved_control = read_json(control_path(self.root, self.run_id))
+            except (OSError, ValueError):
+                saved_control = {}
+            retained = (state.get('background') is True
+                and saved_control.get('schema') == 1 and saved_control.get('run_id') == self.run_id
+                and saved_control.get('keep_background') is True
+                and saved_control.get('public_enabled') is True)
+            self.background_protected = bool(self.desired and not self.public_paused and
+                (state.get('public_status',{}).get('state')=='prepared' or retained))
+            self.public.view.update(state.get('public_status',{}))
+            self.view.update(state='starting',port=state['port'])
+            self.settings['port'] = state['port']
+            self.public.send(force=True)
+            deadline = time.monotonic()+6
+            while not self.closed.is_set():
+                answer = self._read_worker_state()
+                if answer and answer.get('controller_id')==self.public.controller_id:
+                    break
+                if process.poll() is not None or time.monotonic()>=deadline:
+                    raise ValueError('기존 웹 프로세스의 연결 응답을 확인하지 못했습니다. 다른 프로그램의 연결 상태를 확인해주세요.')
+                self.closed.wait(.1)
+            if self.closed.is_set():
+                raise ValueError('프로그램 종료로 기존 웹 연결 확인을 취소했습니다.')
+            self.started_at=self.last_heartbeat_at=time.monotonic()
+            self.last_heartbeat=None
+            self.process_generation=self.generation
+            self.view.update(runtime_update_pending=state.get('runtime_version')!=runtime_version(),
+                persistent=True,runtime_message='기존 웹 연결 유지 · 웹 코드 업데이트 대기' if state.get('runtime_version')!=runtime_version() else '기존 웹에 다시 연결했습니다.')
+            try:
+                envelope=read_json(schedule_path(self.root,self.run_id))
+                if self.pending_snapshot is None:
+                    self.pending_snapshot=envelope
+                self.snapshot_version=max(1,self.snapshot_version)
+                self.written_snapshot_version=self.snapshot_version
+                self.snapshot_revision=envelope.get('revision',0)
+                self.snapshot_updated_at=envelope.get('updated_at')
+                self.authority_ready=self.background_protected
+                self.authority_snapshot_version=self.snapshot_version
+                config=read_json(self.root/('background.'+self.run_id+'.json'))
+                self.background_web_id=config.get('web_id','')
+            except (OSError,ValueError):
+                pass
+            self._monitor()
+            self._log('web_worker_reattached',run_id=self.run_id,pid=process.pid,
+                      update_pending=self.view.get('runtime_update_pending',False))
+        except Exception:
+            # Do not kill an unverified PID or stop a website just because adoption failed.
+            process.close(); self.process=None; self.background_protected=False
+            raise
 
     def _start(self, port, generation):
+        from program_update_guard import require_idle, launch_gate
+        require_idle(self.root.parent)
+        self.background_protected = False
+        self.background_scope_verified = False
         # A missing/unreadable policy must never publish an unprotected schedule.
         try:
             with self.lock:
@@ -661,6 +885,8 @@ class WebServiceManager:
             self._update(_generation=generation, state="error", message="웹 접속 설정을 읽지 못했습니다. 진단 로그를 확인해주세요.")
             return
         self.process_generation = generation
+        self.process_port = port
+        self.restart_requested = False
         self.run_id = uuid.uuid4().hex
         self.started_at = self.last_heartbeat_at = time.monotonic()
         self.last_heartbeat = None
@@ -670,22 +896,25 @@ class WebServiceManager:
         self.snapshot_updated_at = None
         self.access_signature = None
         self._update(_generation=generation, state="starting", address="", message="웹서버를 시작합니다.",
+                     runtime_update_pending=False,runtime_message='',
                      schedule_state="waiting", schedule_count=0, schedule_updated_at=None)
         args = ["--root", str(self.root), "--run-id", self.run_id,
-                "--parent-pid", str(os.getpid()), "--port", str(port)]
+                "--parent-pid", str(os.getpid()), "--port", str(port), "--persistent"]
         if getattr(sys, "frozen", False):
             command = [sys.executable, WORKER_FLAG, *args]
         else:
             command = [sys.executable, "-B", str(Path(__file__).with_name("web_service_worker.py")), *args]
         environment = os.environ.copy()
         environment["PYINSTALLER_SUPPRESS_SPLASH_SCREEN"] = "1"
-        # This worker ends with the GUI and may reuse its extracted bundle.
-        environment.pop("PYINSTALLER_RESET_ENVIRONMENT", None)
+        # A persistent frozen child must own its extraction, not the GUI's temp bundle.
+        environment['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
         try:
-            self.process = subprocess.Popen(command, env=environment,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), close_fds=True)
-            self._log("worker_spawned", run_id=self.run_id, pid=self.process.pid, port=port)
+            with launch_gate(self.root.parent, allow_trial=False), independent_worker_spawn() as flags:
+                self.process = subprocess.Popen(command, env=environment,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=flags, close_fds=True)
+            self._log("worker_spawned", run_id=self.run_id, pid=self.process.pid, port=port,
+                      debugger_detached=bool(flags & 0x01000000))
         except OSError as exc:
             self.process = None
             self._log("worker_spawn_failed", error_type=type(exc).__name__, errno=exc.errno)
@@ -715,6 +944,9 @@ class WebServiceManager:
         elif exit_code is not None:
             self._fail("worker_exited", exit_code=exit_code)
         elif data and data.get("state") == "running":
+            if data.get('public_status'):
+                self.public.view.update(data['public_status'])
+            self.public.send()
             heartbeat = data.get("heartbeat")
             if heartbeat != self.last_heartbeat:
                 self.last_heartbeat, self.last_heartbeat_at = heartbeat, time.monotonic()
@@ -735,19 +967,28 @@ class WebServiceManager:
             self._fail("worker_timeout" if self.last_heartbeat is None else "worker_unresponsive")
 
     def _fail(self, code, **fields):
+        self.background_protected = False
         self._log(code, run_id=self.run_id, **fields)
         self._update(_generation=self.process_generation, state="error", address="", message=MESSAGES.get(code, MESSAGES["worker_failed"]))
         self._flush_authority(force=True)
         self._stop_owned()
 
     def _stop_owned(self):
+        from program_update_guard import web_change
+        try:
+            with web_change(self):
+                return self._stop_owned_idle()
+        except (ValueError, TimeoutError):
+            return False  # Maintenance preserves the already running web worker.
+
+    def _stop_owned_idle(self):
         process = self.process
         if process is None:
             return True
         status_path, stop_path = worker_paths(self.root, self.run_id)
         try:
             stop_path.touch()
-            process.wait(timeout=2)
+            process.wait(timeout=35)  # The worker drains owned router/DDNS jobs before exit.
         except (OSError, subprocess.TimeoutExpired):
             try:
                 process.terminate()
@@ -764,9 +1005,18 @@ class WebServiceManager:
             self._update(state="error", address="", message=MESSAGES["worker_stop_failed"])
             return False
         self._log("worker_stopped", run_id=self.run_id, exit_code=exit_code)
+        # The last heartbeat may predate cleanup. No more heartbeat arrives after
+        # exit, so reconcile the facade before deleting the worker's final state.
+        self.public.worker_stopped(process)
         self.process = None
+        self.background_protected = False
+        self.background_scope_verified = False
+        self.background_binding = None
+        if isinstance(process, AttachedProcess):
+            process.close()
         with self.lock:
             self.access_view["live"] = False
+            self.view.update(persistent=False, runtime_update_pending=False, runtime_message='')
         for path in (status_path, stop_path, schedule_path(self.root, self.run_id), access_state_path(self.root, self.run_id)):
             try:
                 path.unlink(missing_ok=True)
@@ -789,11 +1039,20 @@ class WebServiceManager:
                 lines = list(self.recent)
         return "\n".join(lines) or "웹서비스를 사용하면 단계별 진단 로그가 기록됩니다."
 
-    def close(self, *, wait=False):
+    def close(self, *, wait=False, preserve_web=False):
+        if self.closed.is_set():
+            return
+        self.preserve_worker = bool(preserve_web and self.process is not None and self.process.poll() is None)
+        if self.preserve_worker:
+            self._flush_snapshot()
+            self._flush_authority(force=True)
+            self.public.send(force=True,detach=True)
+            self._log('web_gui_detached',run_id=self.run_id)
         self.closed.set()
         self.page_updater.close()
         try:
-            self._flush_authority(force=True)
+            if not self.preserve_worker:
+                self._flush_authority(force=True)
         except OSError:
             pass
         self.network.close()

@@ -11,6 +11,7 @@ from pathlib import Path
 import hashlib
 from web_https_app import HTTPSApplication
 from web_service_worker import LocalHandler
+from web_reload_wait import SCRIPT as RELOAD_SCRIPT, SCRIPT_SOURCE as RELOAD_SCRIPT_SOURCE, render_reload_wait
 
 
 class ReadLimitTests(unittest.TestCase):
@@ -210,6 +211,20 @@ class ReadEndpointTests(unittest.TestCase):
         self.assertEqual(reply['status'], 429)
         self.assertIn(b'<html', reply['body'])
         self.assertIn(('Retry-After', '2'), reply['headers'])
+        self.assertEqual(reply['body'],render_reload_wait(2))
+        self.assertIn(RELOAD_SCRIPT_SOURCE,dict(reply['headers'])['Content-Security-Policy'])
+        self.assertNotIn('unsafe-inline',dict(reply['headers'])['Content-Security-Policy'])
+
+    def test_loopback_reload_uses_the_same_automatic_wait_page(self):
+        handler=LocalHandler.__new__(LocalHandler)
+        handler.path='/';handler.client_address=('127.0.0.1',10000)
+        handler._context=Mock(return_value=self.context);handler._send=Mock()
+        self.access.read_wait.return_value=5
+        handler.server=NS(assets=self.assets,access=self.access,schedule=self.schedule)
+        handler.do_GET()
+        self.assertEqual(handler._send.call_args.args[0],429)
+        self.assertEqual(handler._send.call_args.args[1],render_reload_wait(5))
+        self.assertEqual(handler._send.call_args.args[-1],(('Retry-After','5'),))
 
     def test_https_assets_revalidate_without_redownload_or_duplicate_cache_header(self):
         reply = self.request('/schedule.js')
@@ -220,9 +235,9 @@ class ReadEndpointTests(unittest.TestCase):
         self.assertEqual(reply['body'], b'')
         self.assertNotIn('Content-Length', dict(reply['headers']))
         self.access.read_wait.assert_not_called()
-        self.app.assets['schedule.js'] = b'new asset'
-        # A new application owns the next validated web asset version.
-        other = HTTPSApplication('test.duckdns.org', 8766, self.schedule, self.access, None, assets=self.app.assets)
+        files = dict(self.app.assets, **{'schedule.js': b'new asset'})
+        # Immutable snapshots keep the old response/body and ETag consistent.
+        other = HTTPSApplication('test.duckdns.org', 8766, self.schedule, self.access, None, assets=files)
         self.assertNotEqual(other.asset_etags['/schedule.js'], etag)
 
     def test_loopback_asset_headers_and_304(self):
@@ -234,6 +249,8 @@ class ReadEndpointTests(unittest.TestCase):
         handler.end_headers = Mock()
         handler.wfile = BytesIO()
         handler._send(200, b'css', 'text/css')
+        policy=next(call.args[1] for call in handler.send_header.call_args_list if call.args[0]=='Content-Security-Policy')
+        self.assertIn(RELOAD_SCRIPT_SOURCE,policy)
         etag = next(call.args[1] for call in handler.send_header.call_args_list if call.args[0] == 'ETag')
         handler.headers['If-None-Match'] = etag
         handler.wfile = BytesIO()
@@ -255,6 +272,25 @@ class ReadEndpointTests(unittest.TestCase):
         self.assertEqual(handler._send.call_args.args[0], 429)
         self.assertEqual(handler._send.call_args.args[-1], (('Retry-After', '2'),))
         self.schedule.payload.assert_not_called()
+
+
+class ReloadWaitPageTests(unittest.TestCase):
+    def test_script_hash_and_countdown_are_shared_without_manual_link(self):
+        import base64
+        expected="'sha256-"+base64.b64encode(hashlib.sha256(RELOAD_SCRIPT).digest()).decode()+"'"
+        self.assertEqual(RELOAD_SCRIPT_SOURCE,expected)
+        for wait in (1,2,5,300):
+            page=render_reload_wait(wait)
+            self.assertIn(f'data-retry-seconds="{wait}"'.encode(),page)
+            self.assertIn(RELOAD_SCRIPT,page)
+            self.assertLess(page.index(b'<script>'),page.index(b'<link rel="stylesheet"'))
+            self.assertIn('남은 대기 시간'.encode(),page)
+            self.assertNotIn(b'<a ',page);self.assertNotIn(b'<button',page)
+            self.assertIn(f'<noscript><meta http-equiv="refresh" content="{wait};url=/"></noscript>'.encode(),page)
+
+    def test_wait_value_cannot_inject_markup_or_invalid_deadline(self):
+        for wait in (0,-1,301,True,'5',1.5,'</body>'):
+            with self.assertRaises(ValueError):render_reload_wait(wait)
 
 
 if __name__ == '__main__':

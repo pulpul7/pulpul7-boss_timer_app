@@ -148,6 +148,9 @@ class WebServiceWindow:
             activebackground="#f8fafc", selectcolor="white").pack(anchor="w", padx=18, pady=(16, 8))
         self._label(frame, "최초 운영자는 '비밀번호'에서 네 자리 비밀번호를 설정하세요. 공동 관리자는 인계받아 사용합니다.",
                     anchor="w").pack(fill="x", padx=22)
+        self._label(frame, "프로그램 창을 닫아도 웹·푸시는 계속 동작합니다. 종료하려면 공동 운영의 ‘웹 종료’를 누르세요.\n"
+                    "PC 전원과 인터넷 연결은 유지해야 합니다. 재실행하면 기존 웹에 다시 연결합니다.",
+                    anchor="w", justify="left", wraplength=660).pack(fill="x", padx=22, pady=(6,0))
         status = tk.Frame(frame, bg="#f8fafc")
         status.pack(fill="x", padx=22, pady=14)
         self.state_text, self.address, self.detail, self.count, self.schedule_text = (tk.StringVar() for _ in range(5))
@@ -204,7 +207,7 @@ class WebServiceWindow:
         self.page_update_message = tk.StringVar(value=data["message"])
         tk.Label(updates, textvariable=self.page_update_message, font=self.font, bg="#f8fafc", fg="#475569",
                  anchor="w", justify="left", wraplength=630).pack(fill="x", pady=(6, 0))
-        self._label(updates, "한국시간 · 파일 복사 후 웹만 재시작합니다. Discord 송출은 유지합니다.",
+        self._label(updates, "한국시간 · 화면 파일은 연결을 유지한 채 반영합니다. 구형 웹 등 필요한 경우에만 웹을 재시작합니다.",
                     anchor="w").pack(fill="x", pady=(3, 0))
 
     def _update_pages(self):
@@ -922,7 +925,8 @@ class WebServiceWindow:
             schedule_names = dict(waiting="자료 준비 중", ready="연결됨", stale="갱신 지연 · 마지막 자료")
             self.schedule_text.set("웹서비스 꺼짐" if not state["enabled"] else
                 f"{schedule_names.get(state['schedule_state'], '확인 중')} · {state['schedule_count']}개 일정")
-            self.detail.set(state["message"] + "\n" + state["authority_message"])
+            self.detail.set(state["message"] + "\n" + state["authority_message"] +
+                            ('\n'+state['runtime_message'] if state.get('runtime_message') else ''))
             for button in (self.copy_button, self.open_button):
                 button.configure(state="normal" if state["state"] == "running" else "disabled")
             for button in (self.retry_button, self.port_button):

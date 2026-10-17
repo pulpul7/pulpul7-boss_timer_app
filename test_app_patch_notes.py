@@ -20,9 +20,11 @@ class PatchNotesTests(unittest.TestCase):
         text = patch_history_text("v5.5.1")
         self.assertIn("프로그램 v5.5.1 · 배포 준비 중", text)
         self.assertIn("프로그램 v5.3.1.fix · 마지막 배포 버전", text)
-        self.assertNotIn("버전 미확정", text)
+        confirmed = next(section for section in text.split("─" * 44)
+                         if section.strip().startswith("프로그램 v5.5.1 ·"))
+        self.assertNotIn("버전 미확정", confirmed)
         for note in V551_NOTES:
-            self.assertIn(note, text)
+            self.assertIn(note, confirmed)
         self.assertIn("현재 프로그램: v5.5.1", text)
 
     def test_cached_releases_show_their_own_versions_and_descriptions(self):

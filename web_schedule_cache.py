@@ -26,6 +26,7 @@ class ScheduleCache:
         self.major_hash = ""
         self.major_rows = {}
         self.catalog_hash = ""
+        self.detached = False
 
     def refresh(self):
         try:
@@ -82,8 +83,9 @@ class ScheduleCache:
             self.last_state = state
 
     def _stale(self, now):
-        return (self.read_failed or time.monotonic() - self.last_capture_at > 15
-                or (now - datetime.fromisoformat(self.data["captured_at"])).total_seconds() > 15)
+        return (self.read_failed or (not self.detached and (time.monotonic() - self.last_capture_at > 15
+                or (now - datetime.fromisoformat(self.data["captured_at"])).total_seconds() > 15))
+                or (self.detached and now >= datetime.fromisoformat(self.data['window_end'])))
 
     def status(self, known_major_version=None, known_catalog_version=None):
         with self.lock:
@@ -94,6 +96,7 @@ class ScheduleCache:
                         major_version=self._major_version(),
                         catalog_version=self._catalog_version(),
                         schedule_updated_at=self.data["updated_at"] if self.data else None)
+            status['schedule_background'] = self.detached
             if self.data and known_major_version is not None and known_major_version != status["major_version"]:
                 status["major_updates"] = self.major_rows
                 status["major_active"] = self.data["active"]
@@ -120,6 +123,7 @@ class ScheduleCache:
             data, stale, version, major_version, catalog_version = self.data, self._stale(now), self._version(), self._major_version(), self._catalog_version()
         # Validated nested values are immutable after publication.
         return 200, dict(data, online=True, server_time=now.isoformat(timespec="milliseconds"),
+                         schedule_background=self.detached,
                          schedule_ready=True, schedule_stale=stale,
                          schedule_version=version,
                          major_version=major_version,

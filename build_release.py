@@ -54,14 +54,20 @@ def run_pyinstaller(spec_path: Path, work_name: str) -> None:
 
 
 def create_release_zip(version: str) -> Path:
-    archive_path = DIST_DIR / f"BossTimer-{version}.zip"
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    from program_update_package import FILES, MANIFEST, filename, digest_file
+    archive_path = DIST_DIR / filename(version)
+    manifest = dict(schema=1, product='boss_timer_full', updater_protocol=1, version=version,
+                    files={name: digest_file(DIST_DIR / name) for name in FILES})
+    with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(GUI_EXE, GUI_EXE.name)
         archive.write(BOT_EXE, BOT_EXE.name)
+        archive.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False))
     return archive_path
 
 
 def main() -> int:
+    from distribution_defaults import read_declaration
+    read_declaration(ROOT)
     if not (ROOT / "ffmpeg.exe").is_file():
         raise FileNotFoundError("ffmpeg.exe가 프로젝트 루트에 필요합니다.")
     DIST_DIR.mkdir(parents=True, exist_ok=True)

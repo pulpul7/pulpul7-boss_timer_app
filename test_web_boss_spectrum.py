@@ -65,6 +65,18 @@ class BossSpectrumTests(unittest.TestCase):
         self.assertEqual(BossSpectrumStore(self.root).numbers(), {self.b: 8})
         self.assertEqual(self.store.numbers(), {self.b: 8})
 
+    def test_renamed_fixed_color_is_migrated_without_read_writes_and_reset_sticks(self):
+        from fixed_boss_aliases import catalog_id
+        from test_fixed_boss_aliases import old_id
+        identity, old = catalog_id('fixed', '알브 닻'), old_id('fixed', '알브하임 닻')
+        write_json(self.store.path, dict(schema=2, numbers={old: 29, self.a: 4}))
+        before = self.store.path.read_bytes()
+        self.assertEqual(self.store.numbers(), {identity: 29, self.a: 4})
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.store.save('spring', [identity], 0, [dict(id=identity)])
+        self.assertEqual(BossSpectrumStore(self.root).numbers(), {self.a: 4})
+        self.assertNotIn(old, json.loads(self.store.path.read_text())['numbers'])
+
     def test_invalid_requests_do_not_write(self):
         for theme, bosses, number in [('unknown', [self.a], 1), ('default', [self.a], 1), ('spring', [self.a], True),
                                       ('spring', [self.a], 31), ('spring', [], 2),

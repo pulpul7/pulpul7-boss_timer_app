@@ -54,7 +54,8 @@ def requires_opportunity(event):
 def group_of(event):
     policy = event.get("policy", "once")
     if policy == 'participation_slot':
-        return {'siege_noon': 'siege_noon', 'overnight_once': 'participation_dawn'}.get(
+        return {'siege_noon': 'siege_noon', 'overnight_once': 'participation_dawn',
+                'evening_third': 'participation_remaining'}.get(
             event.get('tts_values', {}).get('_slot'), 'participation_evening')
     if policy in {"participation", "transfer_repeat"}:
         return policy  # shared across all targets/articles on this server
@@ -110,7 +111,7 @@ def playback_description(event):
     """Earliest planned time/condition, not a promise of immediate audio output."""
     if (event.get('id', '').startswith('manual-') and event.get('category') == 'participation'
             and event.get('tts_template', '') in {'', 'participation.general'}):
-        return '대상 선정용 · 1차/2차 알림 참조'
+        return '대상 선정용 · 1·2·3차 알림 참조'
     try:
         beginning = parse_time(event.get('valid_from'))
         ending = parse_time(event.get('valid_until'))
@@ -124,6 +125,8 @@ def playback_description(event):
             if not at:
                 return '미정 · 재생 계획 확인 필요'
             if plan.get('kind') == 'timer':
+                if event.get('tts_values', {}).get('_slot') == 'evening_third':
+                    return f'{label(at)} · 1·2차 대표 일정 시작 직후'
                 return f'{label(at)} 이후 · 대기열'
             if plan.get('kind') in {'world_boss', 'boss', 'dawn_boss'}:
                 name = '월드보스' if plan['kind'] == 'world_boss' else plan.get('boss_name') or '선정 보스'
@@ -149,7 +152,8 @@ def policy_description(event):
         slot = event.get('tts_values', {}).get('_slot')
         return {'evening_first': '1차 · 18~19시 선택된 5챕 이상 보스 안내 뒤 / 없으면 18시 · 하루 1회',
                 'evening_second': '2차 · 20시 월드보스 1분 전 안내 완료 후 · 하루 1회',
-                'overnight_once': '22~24시 주요·연타임 보스 1분 전 안내 완료 후 / 해당 보스가 없으면 23시 대기열 · 별도 하루 1회',
+                'evening_third': '3차 · 1·2차 실제 안내 대표 일정 시작 직후 · 다음 날 01:30까지 남은 주요보스 · 별도 1회',
+                'overnight_once': '21:30~24시 주요·연타임 보스 1분 전 안내 완료 후 / 해당 보스가 없으면 23시 대기열 · 별도 하루 1회',
                 'siege_noon': '공성전 당일 12시 월드보스 1분 전 안내 완료 후 · 별도 1회'}.get(slot, '참여 독려 시간대 확인 필요')
     if policy == "transfer_repeat":
         return "판매 중 주요 보스 안내 직후 · 횟수 상한 없음 · 최소 30분 간격"

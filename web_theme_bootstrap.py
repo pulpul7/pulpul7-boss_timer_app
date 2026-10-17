@@ -9,10 +9,7 @@ SCRIPT = r"""(()=>{'use strict';
   try {
     const root=document.documentElement;
     const name=(localStorage.getItem('bt_nickname') || 'guest').replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,40) || 'guest';
-    const egg=name==='수비수'?'BossTimer.webEgg.defender.v1':'BossTimer.webEgg.theme.v1:'+name;
-    const eligible=root.getAttribute('data-theme-master')==='true' || name==='나츠' ||
-      localStorage.getItem('BossTimer.hiddenMenu.unlocked.v1:'+name)==='true' ||
-      (['수비수','설기','백설기'].includes(name) && localStorage.getItem(egg)==='true');
+    const eligible=true;
     const value=localStorage.getItem('BossTimer.webTheme.v1:'+name);
     const solids=['sky','wood','green','blue','magenta','ivory','canary','forsythia','purple','gray'];
     const theme=eligible && ['sakura','spring','winter','rain',...solids].includes(value) &&
@@ -25,7 +22,7 @@ SCRIPT = r"""(()=>{'use strict';
       if(solids.includes(theme)) root.setAttribute('data-theme-solid','true');
     }
     const meta=document.querySelector('meta[name="theme-color"]');
-    const colors={sky:'#f2faff',wood:'#faf5ed',green:'#f4faf1',blue:'#f1f5ff',magenta:'#fff1fb',ivory:'#fffdf3',canary:'#fffaf0',forsythia:'#fffbe8',purple:'#f7f2ff',gray:'#f5f6f7'};
+    const colors={sky:'#f2faff',wood:'#faf5ed',green:'#f4faf1',blue:'#f1f5ff',magenta:'#fff1fb',ivory:'#fffdf3',canary:'#fffaf0',forsythia:'#fffef2',purple:'#f7f2ff',gray:'#f5f6f7'};
     if(meta) meta.setAttribute('content',colors[theme] || (theme==='rain'?'#edf3ed':theme==='winter'?'#fff7e8':theme==='spring'?'#fff0f6':theme==='sakura'?'#fff4f9':'#151b24'));
   } catch(_) { /* Storage blocked: retain the normal default, never block entry. */ }
 })();""".encode('utf-8')

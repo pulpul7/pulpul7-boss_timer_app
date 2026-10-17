@@ -94,6 +94,7 @@ class SeasonScheduleTests(unittest.TestCase):
                     return True
                 app._show_season_setup_dialog.side_effect = dialog
                 app._archive_preseason_records_for_season.return_value = 0
+                app._get_existing_archive_season_numbers.return_value = []
                 gui.BossTimerApp._open_new_season_dialog(app)
                 app._reset_schedule_for_new_season.assert_not_called()
                 app._archive_current_schedule_for_season.assert_not_called()

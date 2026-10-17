@@ -48,6 +48,52 @@ class UpdateTabTests(unittest.TestCase):
         self.assertEqual(self.center.selected_update_tab, 1)
         self.assertEqual(self.center.update_tab_buttons[1].configure.call_args.kwargs["bg"], "#1e3a8a")
 
+    def test_scope_tabs_switch_without_starting_a_check_or_install(self):
+        self.center.scope_titles = ("전체 업데이트", "웹서버 업데이트", "알림 모듈")
+        self.center.scope_buttons = [Mock(), Mock(), Mock()]
+        self.center.scope_pages = [Mock(), Mock(), Mock()]
+        self.center.updater = Mock()
+        for index in (2, 0):
+            self.center._select_scope(index)
+            self.center.scope_pages[index].tkraise.assert_called_once()
+            options = self.center.scope_buttons[index].configure.call_args.kwargs
+            self.assertEqual(options["bg"], "#1e3a8a")
+            self.assertEqual(options["fg"], "#ffffff")
+        self.center.updater.assert_not_called()
+        self.assertFalse(self.center.updater.method_calls)
+
+    def test_full_panel_enables_check_but_requires_a_new_release_before_install(self):
+        self.center.app_version = "5.0.0"
+        with patch.object(module.tk, "Frame", side_effect=lambda *a, **k: Mock()), \
+             patch.object(module.tk, "Label", side_effect=lambda *a, **k: Mock()), \
+             patch.object(module.ttk, "Frame", side_effect=lambda *a, **k: Mock()), \
+             patch.object(module.ttk, "Button", side_effect=lambda *a, **k: Mock()) as buttons, \
+             patch.object(module.tk, "StringVar", side_effect=lambda *a, **k: Mock()):
+            self.center._build_full_panel(Mock())
+        self.assertEqual(buttons.call_count, 2)
+        self.assertEqual(buttons.call_args_list[0].kwargs['state'], 'normal')
+        self.assertEqual(buttons.call_args_list[1].kwargs['state'], 'disabled')
+        for call in buttons.call_args_list:
+            self.assertTrue(callable(call.kwargs["command"]))
+
+    def test_web_action_uses_existing_nonblocking_request(self):
+        updater = Mock()
+        self.center.app = Mock(web_service_manager=Mock(page_updater=updater))
+        self.center._refresh_web_panel = Mock()
+        self.center._request_web_update()
+        updater.request.assert_called_once_with()
+        updater.request_and_wait.assert_not_called()
+        self.center._refresh_web_panel.assert_called_once_with()
+        self.center.app._show_centered_messagebox.assert_not_called()
+
+    def test_unavailable_web_module_is_disabled(self):
+        self.center.app = Mock(web_service_manager=None)
+        self.center.web_summary = Mock(get=Mock(return_value=""))
+        self.center.web_update_button = Mock()
+        self.center._refresh_web_panel()
+        self.assertIn("준비되지", self.center.web_summary.set.call_args.args[0])
+        self.center.web_update_button.configure.assert_called_once_with(state="disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

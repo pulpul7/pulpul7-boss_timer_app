@@ -1,0 +1,578 @@
+{
+  "schema": 1,
+  "purpose": "debugging_evidence_and_resolution_log_not_code_navigation_tree",
+  "updated_on": "2026-10-18",
+  "rules": [
+    "Record only investigated facts; user reports, hypotheses, confirmed causes and resolutions are distinct.",
+    "No credentials, private user data or raw production logs. Reference code symbols/tests and sanitized event names.",
+    "Do not mark resolved merely because code was edited. Record validation and remaining limits.",
+    "Keep CODEMAP.json current; retain historical records here with date/context. Revalidate historical findings against current code.",
+    "Entries below document source inspection; no live service reproduction or runtime correction was performed in this mapping task.",
+    "After debugging review route coverage: extend an existing route first, add a distinct route only when needed, merge duplicates and remove stale current-code claims from CODEMAP.json. Historical entries here retain their original context and must not be used as current dependencies without revalidation."
+  ],
+  "entries": [
+    {
+      "id": "delegated_web_sync_90s",
+      "recorded_on": "2026-10-17",
+      "status": "confirmed_existing_behavior",
+      "symptom": "During policy review, 90-second web transfer was initially said to be unimplemented.",
+      "cause": "Inspection initially missed the delegated-hosting source-upload branch; this was an investigation error, not a proven code defect.",
+      "evidence": [
+        "web_delegated_hosting.py#DelegatedHosting._source_upload",
+        "web_delegated_hosting.py:SYNC_DELAY=90"
+      ],
+      "resolution": "Corrected UPDATE_POLICY.md to describe last-edit debounce, force/recovery bypass and distinction from local snapshot publication. Runtime code unchanged.",
+      "validation": "Source condition inspected; test_web_delegated_hosting passed as part of 75 related policy-task tests. No live remote timing test."
+    },
+    {
+      "id": "web_source_selection_and_mirrors",
+      "recorded_on": "2026-10-17",
+      "status": "confirmed_structure_risk_not_reproduced_defect",
+      "symptom": "Potential investigation trap: editing one web source does not by itself identify the page being served.",
+      "cause": "Bundled web_assets, installed pages/current.json selection and Python fallback strings coexist. Download revision and validity affect source selection.",
+      "evidence": [
+        "web_asset_store.py#load_assets",
+        "web_asset_store.py#bundled_assets",
+        "sync_web_sakura.py#embed",
+        "test_web_asset_selection.py"
+      ],
+      "resolution": "No runtime fix made. Current source/derived relationships recorded in CODEMAP.json.",
+      "next": "For a page mismatch inspect effective page version and selected assets, then verify mirrors and asset hashes; do not presume cache is the cause.",
+      "validation": "Read-only source inspection; no browser reproduction in this task."
+    },
+    {
+      "id": "program_rollback_operational_data_scope",
+      "recorded_on": "2026-10-17",
+      "status": "open_policy_gap",
+      "symptom": "Program rollback must not overwrite newer operational schedule changes.",
+      "cause": "Current backup selection uses config suffixes and directory exclusions; some operational schedule TXT/JSON can be included. Concurrent overwrite has not been reproduced here.",
+      "evidence": [
+        "program_update_helper.py#config_files",
+        "program_update_helper.py#restore_settings",
+        "UPDATE_POLICY.md"
+      ],
+      "resolution": null,
+      "next": "Separate rollback-managed settings from operational data and validate revisions/concurrent changes before restoring. Do not broaden automatic rollback from this note alone.",
+      "validation": "Source/policy comparison only. Existing fake-file rollback tests do not prove concurrent multi-admin data protection."
+    },
+    {
+      "id": "gui_module_concentration",
+      "recorded_on": "2026-10-17",
+      "status": "structural_observation",
+      "symptom": "Locating related handlers requires searching a large application module.",
+      "cause": "boss_timer_gui.py currently combines UI, persistence, schedule, GitHub requests and subprocess orchestration in roughly 69000 lines. This alone is not evidence of a runtime failure.",
+      "evidence": [
+        "boss_timer_gui.py#BossTimerApp"
+      ],
+      "resolution": "Added feature-to-file/symbol routing; did not refactor runtime code.",
+      "next": "When a related behavior change is authorized, prefer existing extracted modules and verify callers before considering extraction.",
+      "validation": "AST and bounded source inspection."
+    },
+    {
+      "id": "notice_module_full_update_selection",
+      "recorded_on": "2026-10-17",
+      "status": "confirmed_behavior_documentation_corrected",
+      "symptom": "Clarify whether full updates carry notice code and why an old/custom module can continue running.",
+      "cause": "Bundled notice payload is inside the GUI EXE, but valid installed pending/active/previous versions above the bundled baseline can override it. Existing documentation also described an obsolete portable install path and unimplemented features.",
+      "evidence": [
+        "notice_runtime.py#NoticeRuntime.start",
+        "ai_module_updater.py#AiModuleUpdater.start_runtime",
+        "distribution_defaults.py#apply_declared_defaults",
+        "boss_timer_gui.spec",
+        "program_update_service.py#ProgramUpdateService._resume_notice"
+      ],
+      "resolution": "Updated docs/ai_module_updates.md and UPDATE_POLICY.md: distinguish full vs notice-only delivery, module code vs personal settings, one-time bundled selection declaration, AppData paths and post-commit module-start limitations. Runtime behavior unchanged.",
+      "validation": "58 tests in test_ai_module_updater, test_notice_runtime and test_distribution_selection: 57 passed, 1 environment skip. No build or live update executed.",
+      "remaining": "Full-update success is committed before notice runtime startup. Installed-module fallback exists; a bundled notice startup failure is not currently part of the full-update readiness acknowledgement."
+    },
+    {
+      "id": "equal_spawn_input_order",
+      "recorded_on": "2026-10-17",
+      "status": "implemented_offline_verified",
+      "symptom": "GUI and Discord multi-boss input at the same time reverted to name order during normalization/display/refresh; web had independent name tie-breakers.",
+      "cause": "Parser retained text order, but GUI event normalization and several later sorts used scheduled_at plus display_name. Share rows, Discord ScheduleReader, web snapshot validation and browser view sorting applied their own name tie-breakers.",
+      "evidence": [
+        "schedule_order.py#assign_input_order",
+        "schedule_order.py#event_sort_key",
+        "boss_timer_gui.py#BossTimerApp._apply_schedule_parsed_batch",
+        "boss_timer_gui.py#BossTimerApp._normalize_schedule_event_items",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_visible_row_sort_key",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_share_row_sort_key",
+        "boss_timer_discord_bot.py#ScheduleReader.upcoming_rows",
+        "web_schedule_snapshot.py#validate_snapshot",
+        "web_assets/schedule.js"
+      ],
+      "resolution": "Persist input_order on parsed rows before recurring generation. Use time then input_order for events, retaining general-before-fixed display priority. Carry rank through share rows and validated web events; browser view/copy sorting uses the rank. Replace name tie-breakers in event rebuild/restore/precision-adjust paths. Increment page_revision to 126 in source and bundled metadata. Notification grouping policy unchanged.",
+      "validation": "156 related Python tests passed, including 8 new end-to-end/offline order tests. Browser view fixture passed 56 checks for each of served source and embedded fallback; covers all/major/custom tabs, refresh, copy and fractional chronological precedence. 73 additional profile/usage/last-hit/asset checks passed (some overlap with the 156-test group).",
+      "limits": "No build, live application restart, actual browser session or Discord send executed. Legacy rows without input_order retain their stored tie order; original input order already lost to prior sorting cannot be reconstructed. New batches append behind existing same-time rows; re-entered bosses follow their new batch order. Live independent old web workers need the updated worker code to preserve the optional field through validation."
+    },
+    {
+      "id": "release_preflight_index_and_test_fixtures",
+      "recorded_on": "2026-10-17",
+      "status": "documentation_and_test_fixture_fix",
+      "symptom": "Prepare repeatable build-finalization navigation. Prior handoff text still described a two-file ZIP and overwrite behavior; preflight exposed test-fixture mismatches.",
+      "cause": "Full release now includes program_update.json and creates ZIP with exclusive mode. test_release_version mocked every Path.read_text as build metadata, affecting the newer distribution-declaration guard. test_app_patch_notes incorrectly banned the unconfirmed-version phrase from all sections instead of only confirmed-version notes.",
+      "evidence": [
+        "BUILD_HANDOFF.md",
+        "build_release.py#create_release_zip",
+        "build_release.py#main",
+        "test_release_version.py#ReleaseVersionTests.test_zip_name_uses_completed_build_metadata_without_building",
+        "test_app_patch_notes.py#PatchNotesTests.test_confirmed_version_is_prepared_not_claimed_distributed"
+      ],
+      "resolution": "Added release_preflight route referencing existing feature routes. Updated handoff gates and post-build checks; separated source checks from build and frozen runtime acceptance. Isolated declaration dependency in the build-driver test and limited the patch-note assertion to its confirmed version section. No application behavior changed.",
+      "validation": "Navigation: 40 existing paths and 9 AST symbols verified; referenced feature routes valid. 46 tests passed: test_release_preflight, test_release_version, test_build_metadata_display, test_app_patch_notes, test_distribution_selection and test_ai_update_tabs. Diff whitespace checks passed.",
+      "environment_snapshot": {
+        "scope": "read-only current interpreter, not a future build guarantee",
+        "resolved_program_version": "v6.2.1",
+        "full_zip_name": "bosstimer_update_6.2.1.zip",
+        "distribution_groups": [
+          "boss",
+          "fixed",
+          "spectrum"
+        ],
+        "notice_module_selection_declared": false,
+        "ffmpeg_present": true,
+        "tcl_tk_files_present": true,
+        "package_metadata_found": [
+          "pyinstaller",
+          "truststore",
+          "discord.py",
+          "PyNaCl",
+          "acme",
+          "josepy",
+          "cryptography",
+          "dnspython",
+          "cheroot",
+          "pywebpush"
+        ]
+      },
+      "limits": "No spec/build/generator/EXE/ZIP/live update executed. Installed package metadata and resource existence do not prove frozen runtime operation. Policy section 8 gaps, real multi-admin handover and frozen update/rollback remain separate acceptance work. user_voice is collected by the GUI spec; content inclusion requires release review, not only filename checks."
+    },
+    {
+      "id": "filtered_tab_rest_recalculation",
+      "recorded_on": "2026-10-17",
+      "status": "implemented_offline_verified",
+      "symptom": "Major/custom web tabs showed incorrect rest durations after rest ON or fixed-boss ON/OFF. User requested recalculation instead of reusing received rests.",
+      "cause": "filteredViewEvents retained whole-schedule break rows after filtering bosses. Custom visibleRows then joined those source intervals and summed rest_ms, so hiding a boss or fixed event did not calculate the newly available continuous gap.",
+      "evidence": [
+        "web_assets/schedule.js",
+        "web_schedule_frontend.py",
+        "web_schedule_snapshot.py#collect_snapshot",
+        "web_schedule_snapshot.py#validate_snapshot",
+        "web_schedule_snapshot.py#_rest_rules",
+        "test_web_schedule_views.js",
+        "test_web_filtered_rest_rules.py"
+      ],
+      "resolution": "Major/custom tabs discard source breaks and derive rests from currently included/selected boss effective end to the next included boss, using the latest end across overlaps. Fixed/rest preferences and selections participate in the cached view key. Source rest rules publish only enabled min/max gap and height fields through the snapshot allowlist; rule edits invalidate schedule version. Maintenance/server-open barriers stop cross-boundary rest. No synthetic leading/trailing rest without real boss anchors. Removed custom source-interval joining; all-tab and independent copy-option paths still use their received source intervals. Web revision is 127.",
+      "validation": "134 related Python checks passed. Production JS view fixture passed 79 checks for both served source and embedded fallback, covering fixed/rest toggles, custom selection, reload, administrator thresholds, overlap, midnight, maintenance and existing input order. Python/JS syntax, source mirror parity and revision match passed.",
+      "limits": "No build or live service/browser session was run. The browser falls back to a 40-minute minimum when an older worker omits rest_rules; explicit empty rules disable derived rests. Administrator rule transport requires the updated worker. Results are cached on data/preferences changes, not recomputed on each countdown tick.",
+      "followup": {
+        "recorded_on": "2026-10-17",
+        "status": "adjacency_confirmed_by_user_not_reproduced_with_current_local_script",
+        "report": "User confirmed that 45-minute and 42-minute rests are directly adjacent, with no boss between them.",
+        "observed": "Current local worker page version matches selected installed page; installed revision 127 includes recalculatedRests, excludes legacy joinedRests and matches current source. The latest public snapshot includes source breaks rounding to 45 and 42 minutes and omits rest_rules. Replaying this snapshot through current major-tab view with fixed OFF/ON produced different derived intervals and no adjacent breaks.",
+        "hypothesis": "Phone may retain earlier JavaScript in an already-open document, or may be viewing a different host/tab/context. Not established as the cause; do not label the current client as stale without confirmation.",
+        "next": "Reload the affected phone document once to load the installed recalculation script. If still reproduced, identify the actual host/page version and rendered rows before changing interval arithmetic; stale client remains a hypothesis.",
+        "changes": "No runtime source change in this follow-up; read-only inspection and offline replay only.",
+        "verification": "Added explicit 45/42 source-rest regression for major/custom views, with fixed ON/OFF and a switch from all tab. Current served-source and embedded fallback each pass 87 view checks; reported source intervals become one 129.5-minute derived gap in the synthetic case. No runtime source changes in this follow-up."
+      }
+    },
+    {
+      "id": "post_open_web_schedule_notice",
+      "recorded_on": "2026-10-17",
+      "status": "source_implemented_offline_verified",
+      "request": "After any maintenance opening, announce the web schedule update once after all enabled bosses are entered, then retire the notice.",
+      "evidence": [
+        "Existing missing-boss catalog already excludes input-disabled definitions; recurrence rows retain original created_at.",
+        "NoticeStore already retires retire_after_delivery notices only on a successful complete_delivery token.",
+        "Local worker exposes consumed schedule_updated_at; delegated source records sent_hash only after host ACK."
+      ],
+      "changes": [
+        "GUI snapshot exports canonical enabled input names, original input creation times including active rows, opening/control facts and a cached publication receipt.",
+        "notice_schedule_update resolves regular/temporary/emergency analysis and explicit control openings without using notice fetch time; incomplete/newer unknown maintenance blocks old input.",
+        "One maintenance-category immediate/once event per server-local season/maintenance identity; missing input or a future extension holds pending playback; successful EOF retires and suppresses regeneration.",
+        "notice_web_publication confirms local worker consumption or a matching delegated ACK for a snapshot captured after the latest import; cached receipt avoids repeatedly resetting the five-second preparation debounce.",
+        "Extended existing notice navigation route; no new duplicate route."
+      ],
+      "verification": [
+        "Targeted schedule/publication/bundled dynamic-loading checks: 21 passed after final control/extension fix.",
+        "Schedule/maintenance format/extension/delegated-hosting regression set: 89 passed before final localized control/extension fix; targeted new regression covers that fix.",
+        "Audio/preparation/chat/opportunity/server-open tests passed in broader checks; one invocation also named a nonexistent test_notice_maintenance_import module and failed test discovery for that name, not a product assertion.",
+        "Python AST syntax checked; git whitespace checks passed for tracked notice/doc/test changes."
+      ],
+      "limits": [
+        "No EXE/release ZIP generated, no live Discord playback, no running worker restart and no user data edited.",
+        "Notification history remains per client. No cross-admin shared delivery ledger was introduced.",
+        "Existing collection/output/category/authority controls remain effective; no false update announcement without proven input completion/publication.",
+        "New GUI facts and updateable notice-module rule both required; an older installed notice module can still take precedence under existing selection rules."
+      ],
+      "files": [
+        "boss_timer_gui.py",
+        "notice_web_publication.py",
+        "notice_module/payload/notice_schedule_update.py",
+        "notice_module/payload/notice_schedule.py",
+        "test_notice_schedule_update.py",
+        "test_notice_web_publication.py",
+        "test_notice_schedule.py",
+        "docs/notice_implementation_steps.md"
+      ]
+    },
+    {
+      "id": "third_participation_remaining_targets",
+      "recorded_on": "2026-10-17",
+      "status": "source_implemented_offline_verified",
+      "request": "Add a third announcement after the first/second announced representative begins; include all remaining major targets through next-day 01:30 with class-aware speech; move dawn target start to 01:30:01.",
+      "clarification": "User selected the actual first/second representative start. User cancelled expanded weekday morning notices; existing pre-maintenance morning behavior is retained.",
+      "evidence": [
+        "Existing first/second speech intentionally limits names to a representative-anchored 30-minute window, so later major bosses can be omitted.",
+        "Existing playback is serialized through NoticeAudioController and completion quota is recorded only after confirmed successful audio EOF.",
+        "Calendar-only preparation quota checks would let a previous evening midnight third completion incorrectly block the next evening; third preparation now checks event identity."
+      ],
+      "changes": [
+        "notice_remaining groups absolute before chapter; one distinct name is spoken directly, two or more names use the class label; four or more classes speak two groups plus the many-target phrase.",
+        "First/second successful completion receipts retain the representative name/time. The third uses the most recent actual completed representative, never the next future candidate after that target starts.",
+        "Third includes eligible existing-major targets after representative/current time through 01:30:00 including fractional seconds; it has a separate completion group and one-shot retirement, a two-minute start window, and previous-cycle midnight handling.",
+        "New participation.remaining template and UI descriptions; existing customization and flags remain intact. Full target rows stay in the notice body; speech does not apply the old 30-minute slice.",
+        "Dawn targets now start at next-day 01:30:01 inclusive and end before 06:00. Weekday morning expansion was not implemented."
+      ],
+      "verification": [
+        "124 schedule/daily-slot/third/classification/template/morning/recovery/opportunity/display checks passed.",
+        "111 third/classification/store/defaults/audio/preparation/chat/bot bridge/bundled dynamic-loading checks passed after final changes.",
+        "Added representative-drift, legacy receipt, 01:30 fractional boundary, midnight/new-cycle preparation, independent quotas, EOF retirement/restart and no-new-weekday-morning regressions.",
+        "Python AST and affected navigation paths/anchors validated; tracked changed source/test whitespace checks passed."
+      ],
+      "limits": [
+        "No EXE/release ZIP/test deployment built, no live Discord broadcast and no user settings or schedules edited.",
+        "Completion receipts remain per client under the existing notice architecture.",
+        "No completed first/second announcement or no remaining eligible major targets means no third; missed start windows are not replayed after a late restart.",
+        "Old ledgers without representative facts can only use the retained source entry matching its representative time; immutable historical details cannot be reconstructed if already lost."
+      ],
+      "files": [
+        "notice_module/payload/notice_remaining.py",
+        "notice_module/payload/notice_participation.py",
+        "notice_module/payload/notice_schedule.py",
+        "notice_module/payload/notice_management.py",
+        "notice_module/payload/notice_templates.py",
+        "notice_module/payload/notice_opportunities.py",
+        "test_notice_remaining.py",
+        "test_notice_third_slot.py",
+        "test_notice_schedule.py",
+        "test_notice_templates.py",
+        "test_notice_playback_display.py",
+        "docs/notice_implementation_steps.md"
+      ]
+    },
+    {
+      "id": "mobile_theme_resource_budget_128",
+      "recorded_on": "2026-10-17",
+      "status": "source_implemented_offline_verified",
+      "report": "Phone remains warm while viewing schedules; reduce winter snow count by 30 percent and inspect further theme/page resource use.",
+      "confirmed": [
+        "Winter and spring drawing was capped at 24/30fps but their RAF chains still woke on every 60/120Hz display frame.",
+        "Normal schedule timing rows were all described/updated every second, including offscreen rows.",
+        "The global one-second interval still woke on hidden documents even though tick returned early."
+      ],
+      "changes": [
+        "Winter count is nearest-integer 70 percent of the previous clamped count; image, movement speed and DPR retained.",
+        "Winter and spring cancel both RAF and delay timers on hide/theme exit, sleeping between useful frame requests instead of spinning skipped display frames.",
+        "IntersectionObserver gates normal-row timing/state updates with a 160px margin; returning rows paint immediately. Initial render and unsupported-browser full-update fallback retained.",
+        "Clock uses one cancellable timeout chain with visibility/page lifecycle handling; no hidden-page interval wakeups or resume burst.",
+        "Served and fallback scripts match; readable spring embedded with current compactor; page revision 128. Existing 1MiB asset bound retained via safe indentation trimming of existing code modules without literal/image changes."
+      ],
+      "verification": [
+        "90 Python web artwork/asset/theme/snapshot/font/push checks passed.",
+        "Each served/fallback JS passed performance19, visible-update12, views87, first-use11, settings-visibility21, idle21 and session11 checks.",
+        "Readable and embedded spring each passed178 checks; unchanged butterfly passed75; JS syntax and served/fallback parity verified.",
+        "Deterministic 120Hz interval: snow41 callbacks instead of240 with phone snow32 rather than45; desktop fixture69 rather than98.",
+        "One-minute 1000-row fixture with10 visible:600 time descriptions rather than60000; reentry catches up immediately; ten hidden minutes produced0 clock callbacks.",
+        "Initial asset-bound failure was corrected by preserving the 1MiB limit and stripping only safe external code indentation; compact-module fixture inspection and test argument mistakes were corrected before passing verification."
+      ],
+      "limits": [
+        "No actual phone temperature, battery, browser profiler or power measurements; reduction is demonstrated by code paths and deterministic work counts.",
+        "No EXE/ZIP/test deployment generated, live web update/restart performed or AppData/assets from existing deployments edited.",
+        "Rain audio remains audible when intentionally playing; native decoded-audio/GPU/browser costs are not eliminated.",
+        "All initial schedule rows still exist in DOM; this is visibility-based periodic work reduction rather than virtualized schedule rendering."
+      ],
+      "files": [
+        "web_assets/schedule.js",
+        "web_schedule_frontend.py",
+        "web_limited_sakura.js",
+        "sync_web_sakura.py",
+        "web_assets/metadata.json",
+        "web_asset_store.py",
+        "test_web_theme_performance.js",
+        "test_web_visible_updates.js",
+        "test_web_limited_sakura.js",
+        "test_web_limited_sakura.py",
+        "docs/web_service.md"
+      ]
+    },
+    {
+      "id": "web_theme_tab_forsythia_129",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested a pinned rightmost theme tab for all formerly folded settings and a brighter, 30%-transparent forsythia theme.",
+      "confirmed_facts": [
+        "Existing schedule reorder restoration appended all schedule tabs and would move them after a newly added settings tab without an explicit pinned append.",
+        "The shipped forsythia palette already had pale custom luminance levels; the readable spectrum module lacked that previous tuning. It now matches the shipped module.",
+        "Applying opacity to a parent would fade text as well as backgrounds; the implementation uses alpha background colors instead."
+      ],
+      "resolution": [
+        "Moved theme/font/notice timing/sound settings and help to a separate theme-panel, kept schedule filters and their saved ordering independent, and included the pinned tab in keyboard navigation.",
+        "Retained initial schedule view and 60-second idle return, restored the previous schedule filter on exit, and skipped hidden schedule row/clock painting while settings are open.",
+        "Changed only forsythia to brighter yellow fills with approximately 30% transparency, preserving 30 spectrum indices and dark contrasting text. Updated prepaint metadata color and source/fallback assets to revision 129."
+      ],
+      "verification": [
+        "63 Python unit tests passed across custom layout, theme bootstrap, asset selection, spectrum, fonts, limited artwork and filtered rests.",
+        "213 JavaScript checks passed on each served and fallback script, including tab order, idle return, schedule views, custom first use, notification defaults, sessions and performance.",
+        "HTML/CSS/JS source-fallback equality and readable-embedded spectrum equality verified. JS is 1046457 bytes, within existing 1MiB asset limit."
+      ],
+      "remaining_limits": [
+        "No live web update, executable/ZIP build or physical-phone visual/temperature measurement performed."
+      ]
+    },
+    {
+      "id": "web_connection_status_130",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested concise connection labels without change timestamps or operational explanations.",
+      "cause": "updateConnection included schedule change time and background-operation descriptions.",
+      "resolution": "Show only connected/offline/waiting-for-update states, shorten initial connecting and first-load failure text, and mirror assets at revision 130. Background server operation still counts as connected.",
+      "verification": [
+        "Five isolated production-function cases passed: normal/background connection, stale schedule, disconnected and expired contact. JavaScript syntax and HTML/CSS/JS source-fallback parity passed."
+      ],
+      "remaining_limits": [
+        "No executable build or live web update performed."
+      ]
+    },
+    {
+      "id": "local_web_apply_restart_explanation",
+      "recorded_on": "2026-10-18",
+      "status": "confirmed_existing_behavior",
+      "symptom": "User observed reconnection during local web apply and asked whether it is conditional or an error.",
+      "confirmed_facts": [
+        "WebPageUpdater._update_local skips apply only when selected file hashes match current assets and, if enabled, the running worker reports the same web_page_version.",
+        "Otherwise WebServiceManager._page_update_jobs_locked stops the owned worker, commits the selected asset version, starts it again if still desired and waits for matching readiness.",
+        "Worker assets are loaded into memory at worker startup. Static-only hot replacement is explicitly listed as follow-up work in UPDATE_POLICY.md section 8."
+      ],
+      "resolution": "Explained the intentional current restart path and distinction from future restart-free static replacement. Runtime code and policy unchanged.",
+      "verification": [
+        "Three existing unit tests passed: local apply uses restart path, changed debug-worker assets restart, matching active version skips restart."
+      ],
+      "remaining_limits": [
+        "No live connection trace supplied; source behavior explains a transient reconnect, not an independently verified production incident."
+      ]
+    },
+    {
+      "id": "web_connection_next_to_season_131",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested connection status immediately to the right of the season number in the top header.",
+      "confirmed_facts": [
+        "Connection previously belonged to the live-bar containing schedule tabs. fitHeader removed season text when the title overflowed."
+      ],
+      "resolution": "Moved the single status element into a header-context group after a dedicated season span. Long server/guild text can shrink while season and concise status stay adjacent. Copy/export contextTitle remains unchanged. Removed obsolete live-bar status layout and mirrored revision 131 assets.",
+      "verification": [
+        "15 existing layout/asset unit tests passed. Four isolated production header cases passed for season 18, season 19, empty and null season.",
+        "JavaScript syntax, unique element IDs, header ancestry, source/fallback parity and 1MiB script limit verified."
+      ],
+      "remaining_limits": [
+        "No executable build, live web apply or physical-device layout measurement performed."
+      ]
+    },
+    {
+      "id": "web_fixed_tab_width_right_theme_132",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "Tabs became wider when the screen narrowed; user requested stable widths and theme flush to the right.",
+      "cause": "The <=600px media rule switched to four equally expanding grid columns across the full row. This could make tabs wider than the desktop content-sized row.",
+      "resolution": "Removed the expanding mobile grid and redundant wrapping rule. Tab buttons now use the same non-growing width basis, shrinking together only when necessary to fit. Theme uses automatic leading margin to occupy the far-right edge. Existing schedule-only reorder persistence remains unchanged. Source/fallback CSS and metadata synchronized at revision 132.",
+      "verification": [
+        "15 Python layout/asset tests passed; 15 existing JavaScript tab/navigation/palette checks passed.",
+        "CSS source/fallback equality and removal of the expanding four-column rule verified. Existing CODEMAP web UI route already covers the modified files."
+      ],
+      "remaining_limits": [
+        "No browser/device visual measurement, build or live web update performed."
+      ]
+    },
+    {
+      "id": "static_web_hot_apply",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested web restart only when necessary because local apply reconnection/startup checks took too long.",
+      "cause": "Both local and repository apply routed every changed static bundle through worker stop/start and startup confirmation, even with compatible HTML/CSS/JS changes.",
+      "resolution": [
+        "LiveWebAssets owns immutable current/previous file and ETag snapshots shared by local HTTP and HTTPS; each request captures one snapshot.",
+        "Worker advertises reload and asset/login API support. Manager sends an expiring private run-bound job, waits for matching job ID and actual version receipt, then commits the active pointer. Existing serving state, listeners, sessions, push objects, authority and schedule remain in place.",
+        "Normal confirmation completes on receipt without a fixed delay or public-network/certificate startup checks. Failure boundaries are five seconds for apply and three for compensating rollback; cancellation revokes pending requests.",
+        "Unsupported legacy worker retains the one-time restart/readiness path. A reload-capable worker with incompatible asset/login API is kept alive and reports a program-update requirement.",
+        "Failure before or after pointer commit restores previous memory assets and applicable pointer state; missing receipts alone never trigger a forced restart. Updater/UI messages and policy implementation boundaries reflect hot/legacy/offline results."
+      ],
+      "verification": [
+        "183 unit tests passed across live swaps, local/repository selection, completion receipts, HTTP/HTTPS caching/request limits, theme CSP, full-update fences, fonts/spectrum/audio/push, persistent worker and visitor tracking, and update UI.",
+        "New tests cover same listener/access session, body/ETag atomic snapshot, local HTTP shared source, superseded/expired/invalid commands, disk failure before/after commit, missing receipts with rollback, legacy restart and API incompatibility.",
+        "Seven changed runtime files parsed; targeted git diff whitespace check passed. No executable, ZIP or test deployment created."
+      ],
+      "remaining_limits": [
+        "This is desktop/worker Python code, not a static-only page patch. The changed main program must be run; a currently running legacy worker requires one restart on its first apply.",
+        "No live production restart/update, physical-client timing measurement or external TLS connectivity measurement performed.",
+        "Full Python server-code hot replacement and broader cross-version runtime negotiation remain outside this static API capability."
+      ]
+    },
+    {
+      "id": "color_tab_contrast_remove_pink_hero_art_133",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "Solid color themes blended tab backgrounds into the surrounding page; the pink next-boss card showed unwanted translucent shapes on the right.",
+      "confirmed_facts": [
+        "Solid theme tabs used the page background with transparent unselected borders. The global button rule already sets font-weight:800!important.",
+        "The pink hero::after generated three translucent radial gradients and rotation; these match the reported decorative shapes."
+      ],
+      "resolution": "Added near-white/theme-tinted tab fills with visible theme-color outlines and a stronger selected fill. Kept existing bold text and fixed tab dimensions/right-pinned theme layout. Removed the radial-gradient hero pseudo-element at its source. Preserved forsythia translucent fills and existing limited blossom decorations. Mirrored CSS and bumped page metadata/fallback to revision 133.",
+      "verification": [
+        "31 existing asset/layout/limited-artwork unit tests passed.",
+        "Source/fallback HTML/CSS/JS equality, absence of hero pseudo-element content, existing bold weight and tab boundary styling verified. Targeted diff whitespace check passed."
+      ],
+      "remaining_limits": [
+        "No physical-browser visual measurement, build or live web apply performed. Existing CODEMAP web_ui_themes_copy route covers the affected paths; no new navigation route needed."
+      ]
+    },
+    {
+      "id": "theme_gradient_surround_borderless_tabs_134",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User preferred themed gradient surroundings and light tab backgrounds over the outlines added in revision 133.",
+      "confirmed_facts": [
+        "Solid themes had a body gradient but the fixed theme-paper layer covered it with a flat --bg fill. The pink theme paints its gradient on the visible paper layer."
+      ],
+      "resolution": "Painted static radial/linear gradients using each solid theme’s palette on the actual theme-paper layer. Removed added regular/selected tab outlines and inset edge shadows; retained light tab fills, tinted selected fills, existing bold weight, fixed dimensions and rightmost theme position. Forsythia keeps translucent tab fills. Mirrored CSS at revision 134.",
+      "verification": [
+        "15 existing asset/layout unit tests passed.",
+        "Verified actual paper-layer gradient, transparent normal/selected tab borders, no hero pseudo-element content, source/fallback equality and targeted whitespace check."
+      ],
+      "remaining_limits": [
+        "No browser/device visual measurement, executable build or live web apply performed. Existing CODEMAP web UI route remains sufficient."
+      ]
+    },
+    {
+      "id": "selected_tabs_follow_pink_style_135",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested selected-tab borders restored and clarified gradients are allowed when styled like the existing pink theme.",
+      "resolution": "Selected solid-color tabs now use their own light-to-tinted palette gradient, themed border and white top highlight, matching the pink visual treatment. Unselected tabs remain without added outlines; surrounding theme-paper gradients, bold weight, fixed dimensions and right-pinned theme are preserved. Forsythia retains approximately 30% transparency. CSS source/fallback and metadata synchronized at revision 135.",
+      "verification": [
+        "15 existing asset/layout tests passed. Source/fallback stylesheet equality, surrounding gradient retention and targeted whitespace check verified."
+      ],
+      "remaining_limits": [
+        "No live browser visual measurement, build or web apply performed. Existing CODEMAP web UI route still covers this CSS-only change."
+      ]
+    },
+    {
+      "id": "tinted_unselected_and_stronger_selected_tabs_136",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested theme-colored gradients inside unselected tabs as well, with selected tabs slightly stronger as if coated twice.",
+      "resolution": "Unselected light-theme tabs now have visible palette-tinted gradients. Selected solid-color tabs use less white dilution, giving approximately a second coat of the same tint; pink/blossom/winter/rain follow matching normal/strong gradient pairs. Selected borders and bold text remain, unselected outlines are not added, surrounding gradients and fixed/right-pinned layout remain. Forsythia uses 30%-transparent gradient stops. Source/fallback and metadata synchronized at revision 136.",
+      "verification": [
+        "31 existing asset/layout/limited-artwork tests passed.",
+        "Confirmed normal light-theme tab rules all use gradients, source/fallback equality, retained pinned theme placement/bold weight and absent obsolete hero decoration."
+      ],
+      "remaining_limits": [
+        "No browser/device visual measurement, build or live web apply performed. Existing CODEMAP web UI route remains sufficient."
+      ]
+    },
+    {
+      "id": "tab_fill_rim_and_touch_hover_137",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User reported white space inside the selected tab outline and a mobile selected tint that brightened until touching schedule content.",
+      "confirmed_facts": [
+        "Selected pink and solid tabs included a two-pixel white inset shadow. The common keyboard focus ring used a three-pixel external offset.",
+        "The common button:hover filter brightens buttons by 15%; pink has a separate hover brightness filter. Both can remain matched after a mobile tap."
+      ],
+      "inference": "The reported touch-to-other-content tint reset is consistent with sticky mobile hover. Exact device rendering was not reproduced.",
+      "resolution": "Removed white inset shadows at their definitions. Tab backgrounds fill from/to the border box and use explicit native appearance/tap-highlight settings. Scoped tab hover overrides stop brightness filtering; keyboard focus remains visible directly over the existing border without an external gap. Existing gradients, selected borders, tab size/order and artwork remain. CSS mirrors and metadata updated to revision 137.",
+      "verification": [
+        "31 existing asset/layout/limited-artwork tests passed.",
+        "Verified source/fallback equality, removal of selected white inset shadows, retained gradient fills, scoped hover override and inward focus offset."
+      ],
+      "remaining_limits": [
+        "No physical phone/browser reproduction, executable build or live web apply performed. Existing CODEMAP route covers the CSS-only change."
+      ]
+    },
+    {
+      "id": "partial_alarm_on_off_gradient_138",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User requested a half-ON/half-OFF gradient for the partial alarm state.",
+      "confirmed_facts": [
+        "refreshAlarms sets aria-pressed=mixed when some but not all applicable bosses are enabled. Existing mixed styling mostly reused the OFF fill."
+      ],
+      "resolution": "Only the shared master button mixed state now uses a left ON/right OFF split with a short symmetric center blend. Palette tokens follow dark/pink/blossom/winter/rain/solid/forsythia ON/OFF colors; contrasting label inks follow each half. Existing selection, lock, push and alarm behavior remains unchanged. CSS source/fallback and metadata synchronized at revision 138.",
+      "verification": [
+        "15 existing asset/layout tests passed.",
+        "Verified source/fallback equality, mixed-only state selector, symmetric 44/56 center blend and per-theme color mappings."
+      ],
+      "remaining_limits": [
+        "No physical browser visual measurement, build or live web apply performed. Existing CODEMAP web UI route covers affected files."
+      ]
+    },
+    {
+      "id": "reload_wait_countdown_auto_open",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "Repeated refresh displayed a static seconds label and manual reopen link. User requested countdown and automatic reopening instead.",
+      "cause": "Both local HTTP and public HTTPS rendered a plain 429 HTML response with the Retry-After number and an anchor, without countdown or navigation code.",
+      "resolution": "Shared web_reload_wait renderer removes the manual link. A fixed hash-approved script counts down actual remaining Retry-After time using a wall-clock deadline and navigates to / once. Hidden-page timers are paused, restoration recalculates elapsed time, and duplicate lifecycle events cannot issue repeated navigation. A noscript-only meta refresh supplies automatic navigation when JavaScript is disabled without a competing normal-page refresh timer. HTTP/HTTPS retain Retry-After, no-store, cookies, existing limiter and API JSON behavior; CSP adds only the exact fixed script hash, never unsafe-inline.",
+      "verification": [
+        "65 Python tests passed across request limits/rendering/CSP, theme bootstrap, live assets and persistent runtime.",
+        "11 deterministic countdown/lifecycle JavaScript checks and 11 existing session-recovery JavaScript checks passed.",
+        "Three changed server modules parsed and targeted diff whitespace check passed."
+      ],
+      "remaining_limits": [
+        "No physical browser/device timing measurement, build or live service restart performed.",
+        "This changes Python server responses, not only static assets. Updated main/server code must be loaded and the existing worker restarted once for this renderer/CSP to take effect."
+      ]
+    },
+    {
+      "id": "reload_wait_display_timing_alignment",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "User reported countdown sometimes starting at two while apparent reload waiting seemed five seconds.",
+      "confirmed_facts": [
+        "Rejected reload attempts do not extend the original five-second cooldown; a Retry-After of two is a legitimate remaining duration.",
+        "The previous renderer placed its deadline-initializing classic script after a stylesheet and body, so late script execution could add rendering/loading delay to the intended wait.",
+        "Lifecycle events could reschedule a full second from a fractional point, delaying a displayed second boundary even though final navigation retained its deadline."
+      ],
+      "resolution": "Moved the fixed approved countdown script ahead of the stylesheet in the head; seconds are read from the root element and the countdown does not require the body to exist. DOMContentLoaded paints already-elapsed remaining time instead of resetting the deadline. Timer delays align to the next actual remaining-second boundary. Wording explicitly says remaining wait time. The server cooldown and automatic one-time navigation are unchanged.",
+      "verification": [
+        "65 Python request-limit/rendering/CSP/live-asset/persistent-runtime tests passed.",
+        "15 JavaScript countdown/lifecycle checks passed, including 3.4-second delayed DOM rendering, exact next-second alignment and completion before content is ready.",
+        "Verified script-before-stylesheet ordering, fixed script hash and targeted whitespace check."
+      ],
+      "remaining_limits": [
+        "No physical phone/browser timing trace, build or live restart performed. Backend renderer/script/CSP changes require the changed server code to be loaded once. Existing CODEMAP helper route remains current."
+      ]
+    },
+    {
+      "id": "schedule_blank_after_mobile_refresh_retry_sequence",
+      "recorded_on": "2026-10-18",
+      "status": "confirmed_existing_retry_sequence_cause_unresolved",
+      "symptom": "User reported an initially blank all-tab schedule after mobile refresh, then confirmed it reappeared after several seconds and asked whether automatic recovery exists.",
+      "confirmed_facts": [
+        "poll automatically retries failures after the regular 15-second interval plus less than one second of jitter; repeated failures back off to 30, 60 and 120 seconds. Each fetch has its own five-second abort bound.",
+        "Successful requests reset the failure counter and resume normal status checks. This is separate from the five-second manual document reload limit.",
+        "If there is no previously received in-memory data, initial request failure leaves the schedule template without rows until a successful payload arrives.",
+        "Recent local worker metadata showed ready state with 311 events and no empty loaded snapshot in the inspected tail. This is not proof of what the phone received at the failure time."
+      ],
+      "resolution": "Explained the existing automatic retry sequence. No runtime changes or retry-interval adjustment made in response to the clarification question.",
+      "verification": [
+        "Read actual request/poll/accept execution and retry-delay formula; inspected sanitized schedule event-count/state logs only. No new tests or live network requests performed."
+      ],
+      "remaining_limits": [
+        "Exact initial mobile failure remains unconfirmed without the matching response status/browser error or timestamped trace.",
+        "A later automatic recovery is consistent with existing retries but was not independently traced on the phone."
+      ]
+    }
+  ]
+}

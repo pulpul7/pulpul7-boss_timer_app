@@ -75,7 +75,11 @@ _add("participation.general", "참여 독려", "보스 / 길던 참여 독려",
      ("알림제목", "시작시간", "보스목록", "참여안내"))
 _add('participation.siege_noon', '참여 독려', '공성전 당일 정오 추가 안내',
      '오늘은 공성전이 있는 날입니다. 많은 참여 부탁드립니다.',
-     '공성전 당일 12시 월드보스 1분 전 안내 완료 후 1회 · 저녁 두 번과 별도')
+     '공성전 당일 12시 월드보스 1분 전 안내 완료 후 1회 · 저녁 1·2·3차와 별도')
+_add('participation.remaining', '참여 독려', '3차 · 남은 주요보스 안내',
+     '{남은주요안내}',
+     '1·2차 대표 일정 시작 직후 · 다음 날 01:30까지 남은 주요보스 · 같은 분류 2개 이상 요약 · 4분류 이상은 2분류와 외 다수 · 1회',
+     ('남은주요안내',))
 _add("manual.general", "직접 등록", "수동 일반 안내", "{알림제목} 안내입니다.",
      "수동 알림의 유효기간 내 1회 · 개별 문장 입력 시 개별 문장 우선", ("알림제목",))
 
@@ -84,11 +88,12 @@ for key, name in (
     ('morning', '점검 전 아침 보스 안내')):
     _add('participation.' + key, '자동 참여 독려', name,
          '{보스목록} 일정이 있습니다. 많은 참여 부탁드립니다.',
-         ('분/초 확정 새벽 보스 · 22~24시 주요·연타임 보스 1분 전 안내 뒤 / 없으면 23시 대기열 · 별도 하루 1회'
+         ('다음 날 01:30:01~06:00 미만 주요 보스 · 21:30~24시 주요·연타임 보스 1분 전 안내 뒤 / 없으면 23시 대기열 · 별도 하루 1회'
           if key == 'dawn' else '분/초 확정 스케줄에서 자동 등록 · 기존 참여 독려와 합계 하루 2회'),
          ('알림제목', '시작시간', '보스목록'))
 EXAMPLES['보스목록'] = '내일 새벽 2시 30분 최하층 강글'
 EXAMPLES['참여안내'] = '오늘 저녁 22시 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.'
+EXAMPLES['남은주요안내'] = '오늘 남은 주요보스 7챕보스, 티르가 남았습니다.'
 
 
 def migrate_participation_templates(state):
@@ -242,6 +247,13 @@ def date_time_values(values, now=None):
         result['참여안내'] = values.get('_manual_participation') or automatic
     elif not result.get('참여안내') and result.get('보스목록'):
         result['참여안내'] = result['보스목록'] + ' 일정이 있습니다. 많은 참여 부탁드립니다.'
+    if '_remaining_entries' in values:
+        from .notice_remaining import remaining_message
+        from .notice_management import parse_time
+        rows = values['_remaining_entries']
+        if now is not None:
+            rows = [row for row in rows if parse_time(row['scheduled_at']) > parse_time(now)]
+        result['남은주요안내'] = remaining_message(rows)
     return result
 
 

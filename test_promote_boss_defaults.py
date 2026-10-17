@@ -83,6 +83,23 @@ class BossDefaultsTests(unittest.TestCase):
             promote(self.root, self.data, apply=True)
         self.assertEqual(self.snapshot(), before)
 
+    def test_optional_spectrum_promotes_alias_colors_and_backs_up_originals(self):
+        from fixed_boss_aliases import catalog_id
+        from test_fixed_boss_aliases import old_id
+        current = self.data / 'web_service/boss_spectrum.json'
+        seed = self.root / 'web_assets/boss_spectrum.json'
+        old = old_id('fixed', '니다 닻')
+        self.write(current, json.dumps(dict(schema=2, numbers={old: 29, 'a'*24: 17})))
+        self.write(seed, json.dumps(dict(schema=2, numbers={'b'*24: 4})))
+        before = current.read_bytes()
+        self.assertEqual(promote(self.root, self.data, include_spectrum=True)['updated_files'], 15)
+        self.assertEqual(current.read_bytes(), before)
+        result = promote(self.root, self.data, apply=True, include_spectrum=True)
+        self.assertEqual(current.read_bytes(), seed.read_bytes())
+        self.assertEqual(json.loads(seed.read_bytes())['numbers'],
+                         {catalog_id('fixed', '니다벨 닻'): 29, 'a'*24: 17})
+        self.assertEqual((Path(result['backup']) / 'appdata/web_service/boss_spectrum.json').read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 """Offline push scheduling, isolation and subscription checks. Never send a push."""
 from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 from io import BytesIO
 import json
 from pathlib import Path
@@ -124,6 +125,89 @@ class PushRuntimeTests(unittest.TestCase):
         self.assertEqual(self.sender.call_count, 1)
         self.runtime.tick(self.now.timestamp() + 300)
         self.assertEqual(self.sender.call_count, 1, "no spawn-time notification without a spawn slot")
+
+    def test_all_bosses_off_keeps_registration_and_allows_test_only(self):
+        self.payload['prefs'].update(defaultOn=False, overrides={})
+        self.runtime.update(self.context, self.payload)
+        self.runtime.tick(self.now.timestamp())
+        self.sender.assert_not_called()
+        self.assertTrue(self.runtime.registered(self.context))
+        self.assertTrue(self.runtime.test(self.context)['ok'])
+        self.assertEqual(self.sender.call_count, 1)
+        self.runtime.tick(self.now.timestamp() + 1)
+        self.assertEqual(self.sender.call_count, 1)
+        saved = read_push_state(self.root, self.policy)['subscribers'][self.visitor]
+        self.assertFalse(saved['prefs']['defaultOn'])
+        self.assertEqual(saved['prefs']['overrides'], {})
+        self.assertFalse(self.runtime.sent)
+
+    def test_new_login_replaces_old_on_registration_for_the_same_endpoint(self):
+        self.runtime.update(self.context,self.payload)
+        other='b'*32
+        self.access.visitors[other]=dict(self.access.visitors[self.visitor])
+        payload=deepcopy(self.payload);payload['prefs'].update(defaultOn=False,overrides={})
+        self.runtime.update(dict(authenticated=True,visitor=other),payload)
+        self.runtime.tick(self.now.timestamp())
+        self.sender.assert_not_called()
+        stored=read_push_state(self.root,self.policy)['subscribers']
+        self.assertEqual(set(stored),{other})
+        self.assertFalse(stored[other]['prefs']['defaultOn'])
+
+    def test_device_registration_survives_login_and_endpoint_changes_without_affecting_other_devices(self):
+        self.payload['device']='c'*32
+        self.runtime.update(self.context,self.payload)
+        unrelated='d'*32
+        self.access.visitors[unrelated]=dict(self.access.visitors[self.visitor])
+        separate=deepcopy(self.payload);separate['device']='e'*32
+        separate['subscription']['endpoint']+='-other-phone'
+        self.runtime.update(dict(authenticated=True,visitor=unrelated),separate)
+        untouched=deepcopy(self.runtime.state['subscribers'][unrelated])
+        current='f'*32
+        self.access.visitors[current]=dict(self.access.visitors[self.visitor])
+        replacement=deepcopy(self.payload);replacement['subscription']['endpoint']+='-renewed'
+        replacement['prefs'].update(defaultOn=False,overrides={})
+        self.runtime.update(dict(authenticated=True,visitor=current),replacement)
+        stored=read_push_state(self.root,self.policy)['subscribers']
+        self.assertEqual(set(stored),{unrelated,current})
+        self.assertEqual(stored[unrelated],untouched)
+        self.assertEqual(stored[current]['device'],'c'*32)
+        self.assertFalse(stored[current]['prefs']['defaultOn'])
+
+    def test_invalid_device_identifier_does_not_change_saved_preferences(self):
+        self.runtime.update(self.context,self.payload)
+        previous=(self.root/'push_subscriptions.json').read_bytes()
+        self.payload['device']='not-a-device'
+        with self.assertRaises(ValueError):self.runtime.update(self.context,self.payload)
+        self.assertEqual((self.root/'push_subscriptions.json').read_bytes(),previous)
+
+    def test_old_login_queued_notice_is_cancelled_after_endpoint_reassignment_to_off(self):
+        self.runtime.update(self.context,self.payload)
+        queued=[];self.runtime.pool=Mock()
+        self.runtime.pool.submit.side_effect=lambda fn,*args:queued.append((fn,args))
+        self.runtime.tick(self.now.timestamp())
+        self.assertEqual(len(queued),1)
+        other='b'*32;self.access.visitors[other]=dict(self.access.visitors[self.visitor])
+        payload=deepcopy(self.payload);payload['prefs'].update(defaultOn=False,overrides={})
+        self.runtime.update(dict(authenticated=True,visitor=other),payload)
+        fn,args=queued.pop();fn(*args)
+        self.sender.assert_not_called()
+
+    def test_queued_notice_is_cancelled_if_bosses_are_switched_off(self):
+        self.runtime.update(self.context, self.payload)
+        queued = []
+        self.runtime.pool = Mock()
+        self.runtime.pool.submit.side_effect = lambda fn, *args: queued.append((fn, args))
+        self.runtime.tick(self.now.timestamp())
+        self.assertEqual(len(queued), 1)
+        self.payload['prefs'].update(defaultOn=False, overrides={})
+        self.runtime.update(self.context, self.payload)
+        fn, args = queued.pop()
+        fn(*args)
+        self.sender.assert_not_called()
+        self.assertFalse(self.runtime.pending)
+        self.assertTrue(self.runtime.registered(self.context))
+        self.runtime.tick(self.now.timestamp() + 1)
+        self.assertFalse(queued)
 
     def test_three_custom_times_each_send_once_and_survive_restart(self):
         self.payload['prefs']['noticeTimes'] = [10, 1, 0]

@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "groups": [
+    "areas",
+    "boss_definition",
+    "fixed",
+    "spectrum"
+  ],
+  "hashes": {
+    "init/default_settings.ini": "ccbf10a57bbf855386336c0efdbf96459771265aae1b9c13f11ba734cc0cbe0f",
+    "init/schedule_area_definitions.txt": "1c216102733cfcd3abe077afb1edf96b129646385e34ac3e325b4c493760dcb1",
+    "init/schedule_boss_definitions.txt": "79bf907525c03d14c9b59d98745fb02eaeeb9b2604fd1357f591cf29b7a136df",
+    "init/schedule_fixed_bosses.txt": "c001a5ce7ad73f06d212b5f7cb749bbb130c3856ae7ec376ce7fd6a119a254b0",
+    "web_assets/boss_spectrum.json": "9febb891967e33160acd1adf9b307623fe123c14f2d623b138ff41fde98c9bcd"
+  },
+  "revision": "20261017T160039_c61c238a",
+  "schema": 1,
+  "sequence": 1792252839739957100
+}

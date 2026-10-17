@@ -15,7 +15,7 @@ from web_asset_store import load_assets
 
 
 class HTTPSListener:
-    def __init__(self, root, schedule, access, logger, http_port, run_id="", push=None):
+    def __init__(self, root, schedule, access, logger, http_port, run_id="", push=None, asset_source=None):
         self.root, self.schedule, self.access, self.logger, self.http_port = root, schedule, access, logger, http_port
         self.lock = threading.RLock()
         self.closed = threading.Event()
@@ -26,7 +26,8 @@ class HTTPSListener:
         self.view = dict(https_state="stopped", https_port=0, https_domain="", https_message="HTTPS 설정 전")
         self.run_id = run_id
         self.push = push
-        self.assets = load_assets(root, logger)
+        self.asset_source = asset_source
+        self.assets = asset_source.snapshot.files if asset_source is not None else load_assets(root, logger)
 
     def _public_policy(self):
         if not external_allowed(self.root, self.run_id):
@@ -136,7 +137,8 @@ class HTTPSListener:
                 connection.sni = name
             adapter.context.set_servername_callback(sni)
             app = HTTPSApplication(domain, port, self.schedule, self.access, self.logger, external_port=external_port,
-                                   authority_check=lambda: external_allowed(self.root, self.run_id), assets=self.assets, push=self.push)
+                                   authority_check=lambda: external_allowed(self.root, self.run_id), assets=self.assets,
+                                   push=self.push, asset_source=self.asset_source)
             server = ExclusiveServer((bind_host, port), app, numthreads=8, max=8, request_queue_size=32,
                             timeout=5, shutdown_timeout=0.5, accepted_queue_size=32, accepted_queue_timeout=0.1)
             server.ssl_adapter = adapter

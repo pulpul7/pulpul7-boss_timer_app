@@ -1,0 +1,885 @@
+{
+  "schema": 1,
+  "purpose": "agent_navigation_index_not_exhaustive_dependency_graph",
+  "verified_on": "2026-10-18",
+  "usage": {
+    "start": [
+      "AGENTS.md",
+      "CODEMAP.json"
+    ],
+    "route": "Match issue terms to routes; read only that route's files and symbol bodies first. Follow real callers before editing.",
+    "symbols": "file.py#Class.method or file.py#function; search these names, not saved line numbers.",
+    "flow": "Navigation index, not an exhaustive dependency graph. Async/IPC boundaries are in process_tree.",
+    "maintenance": "Manage this as an AI code-navigation index. After debugging decide whether a new route is necessary; merge overlapping routes rather than duplicating entries. Keep only verified current code locations, symbols and dependencies. Remove stale information, update affected paths/tests and verified_on. Store causes, fixes and validation history separately in DEBUG_NOTES.json.",
+    "reading": "Do not print entire GUI or giant HTML/JS lines. Use rg -n --max-columns 220 --max-columns-preview or AST to find a symbol, then read its bounded body. Embedded image/audio data can occupy a single huge line.",
+    "safety": "Read-only navigation. No build, helper invocation, migration, live update, resource synchronization or user-data mutation merely to inspect structure.",
+    "debug_records": "DEBUG_NOTES.json (separate, not a dependency source)"
+  },
+  "process_tree": {
+    "gui": {
+      "entry": "boss_timer_gui.py#main",
+      "owns": [
+        "Tk main thread",
+        "schedule state",
+        "settings/profile orchestration",
+        "notice host",
+        "Discord/web controllers"
+      ],
+      "launches": {
+        "discord_bot": {
+          "entry": "boss_timer_discord_bot.py#main",
+          "boundary": "subprocess; local status HTTP + request files + voice bridge; remote authority through Discord control events"
+        },
+        "web_worker": {
+          "entry": "web_service_worker.py#main",
+          "boundary": "--boss-timer-web-worker; standalone background lifetime; snapshot/authority files + local HTTP/HTTPS"
+        },
+        "update_helper": {
+          "entry": "program_update_helper.py#main",
+          "boundary": "--boss-timer-apply-program-update; transaction journal + maintenance fence + process identities"
+        }
+      },
+      "startup_dispatch": "Helper/web flags bypass ordinary GUI startup; normal entry routes active program version before GUI bootstrap."
+    },
+    "browser": {
+      "entry": "web_assets/index.html",
+      "logic": "web_assets/schedule.js",
+      "boundary": "HTTP snapshot/settings/push APIs; per-browser storage; never assume nickname shares device settings"
+    },
+    "notice_plugin": {
+      "entry": "notice_module/payload/main.py#create_plugin",
+      "boundary": "loaded inside GUI via NoticeHost; installed module may override bundled payload"
+    }
+  },
+  "routes": {
+    "startup_shutdown": {
+      "match": [
+        "startup",
+        "시작",
+        "종료",
+        "중복 실행",
+        "로딩",
+        "재시작"
+      ],
+      "read": [
+        "startup_runtime.py",
+        "boss_timer_gui.py",
+        "ui_responsiveness.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#main",
+        "boss_timer_gui.py#BossTimerApp.on_close",
+        "program_updater.py#route_startup"
+      ],
+      "tests": [
+        "test_schedule_startup_safety.py",
+        "test_discord_shutdown.py",
+        "test_ui_responsiveness.py"
+      ]
+    },
+    "storage_profiles": {
+      "match": [
+        "AppData",
+        "설정 사라짐",
+        "설정 덮어쓰기",
+        "서버",
+        "시즌",
+        "이어하기",
+        "롤백 기준"
+      ],
+      "read": [
+        "runtime_storage.py",
+        "schedule_profile_migration.py",
+        "season_storage.py",
+        "profile_access.py",
+        "settings_rollback_snapshot.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#get_user_config_dir",
+        "boss_timer_gui.py#BossTimerApp._activate_schedule_server_profile",
+        "boss_timer_gui.py#BossTimerApp._load_settings",
+        "boss_timer_gui.py#BossTimerApp._save_settings"
+      ],
+      "tests": [
+        "test_runtime_storage.py",
+        "test_schedule_server_profile_switch.py",
+        "test_new_season_schedule.py",
+        "test_settings_rollback_snapshot.py"
+      ],
+      "docs": [
+        "docs/persistent_user_data.md",
+        "docs/season_profile_access.md"
+      ]
+    },
+    "schedule_input_ocr": {
+      "match": [
+        "스케줄 입력",
+        "다중 보스",
+        "OCR",
+        "인식",
+        "소수점",
+        "24시간 이내"
+      ],
+      "read": [
+        "schedule_input_syntax.py",
+        "schedule_input_display.py",
+        "schedule_boss_usage.py",
+        "schedule_ocr1_regions.py",
+        "schedule_ocr_region_preview.py",
+        "schedule_precision.py",
+        "schedule_order.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp.open_schedule_input_window",
+        "boss_timer_gui.py#BossTimerApp._parse_schedule_input_lines",
+        "boss_timer_gui.py#BossTimerApp._apply_schedule_input_batch",
+        "boss_timer_gui.py#BossTimerApp._apply_schedule_parsed_batch",
+        "schedule_order.py#assign_input_order"
+      ],
+      "tests": [
+        "test_schedule_multi_boss_input.py",
+        "test_schedule_fractional_time.py",
+        "test_schedule_boss_usage.py",
+        "test_schedule_ocr1_regions.py",
+        "test_schedule_input_day_default.py",
+        "test_schedule_input_order.py"
+      ]
+    },
+    "boss_definitions_schedule": {
+      "match": [
+        "보스설정",
+        "고정보스",
+        "약칭",
+        "막타",
+        "휴식",
+        "스케줄 저장",
+        "복사",
+        "TXT"
+      ],
+      "read": [
+        "fixed_boss_aliases.py",
+        "boss_view_labels.py",
+        "schedule_boss_usage.py",
+        "schedule_share_text.py",
+        "schedule_query_period.py",
+        "schedule_order.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp.open_schedule_boss_config_window",
+        "boss_timer_gui.py#BossTimerApp._save_schedule_boss_config_changes",
+        "boss_timer_gui.py#BossTimerApp._load_schedule_state",
+        "boss_timer_gui.py#BossTimerApp._save_schedule_state",
+        "boss_timer_gui.py#BossTimerApp._normalize_schedule_event_items",
+        "schedule_order.py#event_sort_key"
+      ],
+      "tests": [
+        "test_fixed_boss_aliases.py",
+        "test_boss_last_hit.py",
+        "test_schedule_share_text.py",
+        "test_schedule_break_rules.py",
+        "test_schedule_input_order.py"
+      ],
+      "docs": [
+        "docs/fixed_boss_identity.md",
+        "docs/boss_last_hit.md"
+      ]
+    },
+    "github_data": {
+      "match": [
+        "업로드",
+        "다운로드",
+        "수동 동기화",
+        "GitHub",
+        "버전 충돌",
+        "네트워크 요청"
+      ],
+      "read": [
+        "github_request_policy.py",
+        "https_transport.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp._github_get_json_file",
+        "boss_timer_gui.py#BossTimerApp._github_put_json_file",
+        "boss_timer_gui.py#BossTimerApp._build_github_schedule_payload"
+      ],
+      "tests": [
+        "test_github_schedule_safety.py",
+        "test_github_write_efficiency.py"
+      ]
+    },
+    "discord_connect_authority": {
+      "match": [
+        "디코 연결",
+        "송출권",
+        "관리자 입장중",
+        "승계",
+        "봇 잔류",
+        "재접속",
+        "팝업 지연"
+      ],
+      "read": [
+        "discord_authority.py",
+        "discord_authority_events.py",
+        "discord_connection_policy.py",
+        "discord_bot_process_recovery.py",
+        "discord_connection_progress.py",
+        "discord_connection_visual.py",
+        "boss_timer_discord_bot.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp._start_discord_bot_runtime",
+        "boss_timer_gui.py#BossTimerApp._ensure_discord_authority",
+        "discord_authority.py#DiscordAuthority.start",
+        "discord_authority.py#DiscordAuthority._incoming",
+        "discord_authority.py#DiscordAuthority._outgoing"
+      ],
+      "tests": [
+        "test_discord_authority_events.py",
+        "test_discord_join_completion.py",
+        "test_discord_bot_process_recovery.py",
+        "test_discord_connection_progress.py"
+      ]
+    },
+    "discord_commands_output": {
+      "match": [
+        "슬래시 명령",
+        "/보탐",
+        "/웹서버",
+        "채팅 안내",
+        "명령 응답",
+        "음성 전달"
+      ],
+      "read": [
+        "boss_timer_discord_bot.py",
+        "discord_query_routing.py",
+        "discord_notice_output.py",
+        "discord_command_help.py",
+        "web_discord_control.py",
+        "schedule_order.py"
+      ],
+      "at": [
+        "discord_authority.py#DiscordAuthority.command",
+        "boss_timer_discord_bot.py#VoiceBridgeReader",
+        "boss_timer_discord_bot.py#ScheduleReader"
+      ],
+      "tests": [
+        "test_discord_notice_output.py",
+        "test_discord_schedule_reader.py",
+        "test_web_discord_control.py",
+        "test_schedule_input_order.py"
+      ]
+    },
+    "web_lifecycle_handover": {
+      "match": [
+        "웹실행",
+        "웹 승계 실패",
+        "웹 준비중",
+        "공개중",
+        "별도 PC",
+        "프로그램 종료 후 웹"
+      ],
+      "read": [
+        "web_service_manager.py",
+        "web_independent_controller.py",
+        "web_handover_bridge.py",
+        "web_standalone_hosting.py",
+        "web_persistent_runtime.py",
+        "web_return_recovery.py",
+        "web_authority_gate.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp._start_web_runtime",
+        "web_service_manager.py#WebServiceManager.start_saved",
+        "web_service_manager.py#WebServiceManager._discover_existing",
+        "web_service_manager.py#WebServiceManager.close"
+      ],
+      "tests": [
+        "test_web_independent.py",
+        "test_web_persistent_runtime.py",
+        "test_web_standalone_hosting.py",
+        "test_web_return_recovery.py",
+        "test_web_departed_host.py"
+      ]
+    },
+    "web_snapshot_remote_sync": {
+      "match": [
+        "웹 스케줄 누락",
+        "90초",
+        "위임 호스팅",
+        "다른 관리자 웹",
+        "보스 목록",
+        "사용자 선택 초기화"
+      ],
+      "read": [
+        "web_schedule_snapshot.py",
+        "web_schedule_cache.py",
+        "web_delegated_hosting.py",
+        "web_shared_state.py",
+        "fixed_boss_aliases.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp._publish_web_schedule_snapshot",
+        "web_service_manager.py#WebServiceManager.offer_snapshot",
+        "web_delegated_hosting.py#DelegatedHosting._source_upload",
+        "web_schedule_snapshot.py#_rest_rules"
+      ],
+      "tests": [
+        "test_web_delegated_hosting.py",
+        "test_web_boss_catalog.py",
+        "test_web_fixed_aliases.js",
+        "test_web_filtered_rest_rules.py"
+      ]
+    },
+    "web_server_network_auth": {
+      "match": [
+        "접속 불가",
+        "공유기",
+        "HTTPS",
+        "인증서",
+        "포트",
+        "비밀번호",
+        "로그아웃",
+        "게스트",
+        "로그",
+        "새로고침",
+        "5초 제한",
+        "자동 다시 열기",
+        "??? ??",
+        "?? ???"
+      ],
+      "read": [
+        "web_service_worker.py",
+        "web_https_app.py",
+        "web_https_server.py",
+        "web_access_runtime.py",
+        "web_access_settings.py",
+        "web_request_limits.py",
+        "web_direct_hosting.py",
+        "web_network_diagnostics.py",
+        "web_port_mapping.py",
+        "web_certificate_service.py",
+        "web_ddns_service.py",
+        "web_reload_wait.py",
+        "web_assets/schedule.js"
+      ],
+      "at": [
+        "web_service_manager.py#WebServiceManager.diagnostics",
+        "web_service_worker.py#main",
+        "web_reload_wait.py#render_reload_wait"
+      ],
+      "tests": [
+        "test_web_access_handover.py",
+        "test_web_session_recovery.js",
+        "test_web_request_limits.py",
+        "test_web_visitor_tracking.py",
+        "test_web_reload_wait.js"
+      ],
+      "js_symbols": [
+        "request",
+        "poll",
+        "accept"
+      ]
+    },
+    "web_ui_themes_copy": {
+      "match": [
+        "웹 UI",
+        "테마",
+        "폰트",
+        "사용자 탭",
+        "스펙트럼",
+        "복사",
+        "TXT",
+        "모바일 레이아웃",
+        "다크모드",
+        "설정 펼치기",
+        "테마 탭",
+        "개나리"
+      ],
+      "read": [
+        "web_assets/schedule.js",
+        "web_assets/style.css",
+        "web_assets/index.html",
+        "web_theme_bootstrap.py",
+        "web_boss_spectrum_frontend.js",
+        "web_boss_spectrum.py",
+        "web_font_frontend.js",
+        "web_font_library.py",
+        "schedule_order.py",
+        "web_schedule_snapshot.py"
+      ],
+      "tests": [
+        "test_web_schedule_views.js",
+        "test_web_custom_first_use.js",
+        "test_web_distribution_defaults.js",
+        "test_web_fonts.py",
+        "test_web_theme_bootstrap.py",
+        "test_web_settings_visibility.js",
+        "test_schedule_input_order.py",
+        "test_web_filtered_rest_rules.py",
+        "test_web_visible_updates.js",
+        "test_web_theme_tab.js",
+        "test_web_settings_idle.js",
+        "test_web_custom_layout.py"
+      ],
+      "js_symbols": [
+        "recalculatedRests",
+        "filteredViewEvents",
+        "viewRows",
+        "visibleRows",
+        "refreshHiddenMenuFold",
+        "selectFilter",
+        "restoreTabOrder",
+        "updateConnection",
+        "fitHeader"
+      ]
+    },
+    "web_animation_performance": {
+      "match": [
+        "벚꽃",
+        "벛꽃",
+        "나비",
+        "겨울",
+        "눈",
+        "빗소리",
+        "물방울",
+        "발열",
+        "스크롤 끊김",
+        "애니메이션"
+      ],
+      "read": [
+        "web_limited_sakura.js",
+        "web_assets/limited_sakura/butterfly.js",
+        "web_limited_sakura.py",
+        "web_assets/schedule.js",
+        "web_assets/style.css",
+        "sync_web_sakura.py",
+        "web_schedule_frontend.py"
+      ],
+      "tests": [
+        "test_web_limited_sakura.py",
+        "test_web_limited_sakura.js",
+        "test_web_sakura_butterfly.js",
+        "test_web_theme_performance.js",
+        "test_web_visible_updates.js"
+      ],
+      "js_symbols": [
+        "drawWinterSnow",
+        "stopWinterSnow",
+        "observeTimingRows",
+        "paintTimingRow",
+        "startScheduleClock",
+        "stopScheduleClock"
+      ],
+      "docs": [
+        "docs/web_service.md"
+      ]
+    },
+    "web_alert_push": {
+      "match": [
+        "푸시",
+        "아이폰 알림",
+        "전체 알람 OFF",
+        "알림 테스트",
+        "웹 배너",
+        "브라우저 알림",
+        "알림음"
+      ],
+      "read": [
+        "web_push.py",
+        "web_notice_frontend.js",
+        "web_notice_sound_frontend.js",
+        "web_notice_audio.py",
+        "web_assets/schedule.js",
+        "web_https_app.py"
+      ],
+      "tests": [
+        "test_web_push.py",
+        "test_web_unified_notifications.js",
+        "test_web_notice_audio.py"
+      ]
+    },
+    "notice_collection_messages": {
+      "match": [
+        "알리미",
+        "정기점검",
+        "점검 연장",
+        "서버오픈",
+        "참여 독려",
+        "공지 수정",
+        "안내 누락",
+        "post-opening schedule completion",
+        "web schedule updated announcement",
+        "third participation announcement",
+        "remaining major bosses",
+        "0130 dawn boundary"
+      ],
+      "read": [
+        "notice_runtime.py",
+        "notice_module/payload/main.py",
+        "notice_module/payload/notice_collector.py",
+        "notice_module/payload/notice_analysis.py",
+        "notice_module/payload/notice_schedule.py",
+        "notice_module/payload/notice_opportunities.py",
+        "notice_module/payload/notice_participation.py",
+        "notice_output_bridge.py",
+        "notice_module/payload/notice_schedule_update.py",
+        "notice_web_publication.py",
+        "notice_module/payload/notice_remaining.py",
+        "notice_module/payload/notice_management.py",
+        "notice_module/payload/notice_templates.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp._ensure_notice_runtime",
+        "notice_runtime.py#NoticeRuntime.start",
+        "notice_module/payload/main.py#create_plugin",
+        "boss_timer_gui.py#BossTimerApp._get_notice_schedule_snapshot",
+        "notice_module/payload/notice_schedule.py#synchronize_schedule",
+        "notice_module/payload/notice_schedule_update.py#opening_cycle",
+        "notice_module/payload/notice_schedule_update.py#synchronize_web_schedule_notice",
+        "notice_web_publication.py#schedule_published",
+        "notice_module/payload/notice_remaining.py#third_notices",
+        "notice_module/payload/notice_remaining.py#remaining_message",
+        "notice_module/payload/notice_participation.py#slot_allowed",
+        "notice_module/payload/notice_management.py#NoticeStore.complete_delivery"
+      ],
+      "tests": [
+        "test_notice_maintenance_extensions.py",
+        "test_notice_maintenance_formats.py",
+        "test_notice_opportunities.py",
+        "test_notice_chat_output.py",
+        "test_notice_runtime.py",
+        "test_notice_schedule_update.py",
+        "test_notice_web_publication.py",
+        "test_notice_schedule.py",
+        "test_notice_remaining.py",
+        "test_notice_third_slot.py",
+        "test_notice_daily_slots.py",
+        "test_notice_morning_groups.py",
+        "test_notice_templates.py",
+        "test_notice_playback_display.py"
+      ],
+      "docs": [
+        "docs/ai_module_updates.md",
+        "docs/distribution_defaults.md",
+        "docs/notice_implementation_steps.md"
+      ]
+    },
+    "audio_alarm_preview": {
+      "match": [
+        "미리듣기",
+        "TTS",
+        "403",
+        "초읽기",
+        "음소거",
+        "알람 음성",
+        "차임벨"
+      ],
+      "read": [
+        "audio_pipeline.py",
+        "edge_tts_voice.py",
+        "edge_tts_module.py",
+        "notice_chime.py",
+        "notice_module/payload/notice_preview.py",
+        "notice_module/payload/notice_audio.py",
+        "notice_output_bridge.py",
+        "alarm_settings_storage.py"
+      ],
+      "at": [
+        "boss_timer_gui.py#BossTimerApp._save_schedule_alarm_settings_async",
+        "boss_timer_gui.py#BossTimerApp._append_discord_voice_bridge_request"
+      ],
+      "tests": [
+        "test_audio_pipeline.py",
+        "test_notice_preview.py",
+        "test_edge_tts_endpoint.py",
+        "test_edge_tts_tls.py",
+        "test_alarm_settings_storage.py"
+      ]
+    },
+    "capture_precision": {
+      "match": [
+        "초정밀",
+        "캡처",
+        "영역 선택",
+        "게임창",
+        "자동적용"
+      ],
+      "read": [
+        "precision_capture_ui.py",
+        "precision_capture_session.py",
+        "precision_capture_layout.py",
+        "precision_screen_capture.py",
+        "precision_time_tracker.py",
+        "capture_window_visibility.py"
+      ],
+      "tests": [
+        "test_precision_capture.py",
+        "test_precision_auto_apply.py",
+        "test_capture_window_visibility.py"
+      ],
+      "docs": [
+        "PRECISION_CAPTURE.md",
+        "docs/precision_auto_apply.md"
+      ]
+    },
+    "updates_distribution": {
+      "match": [
+        "전체 업데이트",
+        "웹 업데이트",
+        "배포설정",
+        "AppData 덮어쓰기",
+        "버전 복구",
+        "배포 ZIP",
+        "패치내역"
+      ],
+      "read": [
+        "UPDATE_POLICY.md",
+        "ai_update_center.py",
+        "program_updater.py",
+        "program_update_service.py",
+        "program_update_helper.py",
+        "program_update_guard.py",
+        "program_update_process.py",
+        "program_update_package.py",
+        "web_page_updater.py",
+        "distribution_defaults.py",
+        "distribution_settings_ui.py",
+        "distribution_catalog.py",
+        "ai_module_updater.py",
+        "notice_runtime.py",
+        "build_ai_update.py",
+        "notice_module/metadata.json",
+        "web_service_manager.py",
+        "web_live_assets.py",
+        "web_service_worker.py",
+        "web_https_server.py",
+        "web_https_app.py"
+      ],
+      "at": [
+        "ai_update_center.py#AiUpdateCenter._open_update_policy",
+        "program_update_service.py#ProgramUpdateService.begin",
+        "program_update_service.py#ProgramUpdateService.resume",
+        "program_update_helper.py#apply",
+        "distribution_defaults.py#apply_declared_defaults",
+        "ai_module_updater.py#AiModuleUpdater.start_runtime",
+        "web_page_updater.py#WebPageUpdater._update_local",
+        "web_service_manager.py#WebServiceManager.apply_page_update",
+        "web_service_manager.py#WebServiceManager._apply_live_page_assets",
+        "web_live_assets.py#LiveWebAssets.poll"
+      ],
+      "tests": [
+        "test_program_update_sequence.py",
+        "test_distribution_selection.py",
+        "test_distribution_defaults.py",
+        "test_ai_update_tabs.py",
+        "test_web_asset_selection.py",
+        "test_web_page_update_completion.py",
+        "test_ai_module_updater.py",
+        "test_notice_runtime.py",
+        "test_web_live_assets.py",
+        "test_web_request_limits.py",
+        "test_web_persistent_runtime.py"
+      ],
+      "docs": [
+        "docs/update_management.md",
+        "docs/distribution_defaults.md",
+        "docs/ai_module_updates.md"
+      ]
+    },
+    "release_preflight": {
+      "match": [
+        "빌드 전",
+        "빌드 확정",
+        "배포 확정",
+        "release preflight",
+        "패키징",
+        "빌드 점검"
+      ],
+      "read": [
+        "BUILD_HANDOFF.md",
+        "UPDATE_POLICY.md",
+        "build_release.py",
+        "boss_timer_gui.spec",
+        "boss_timer_discord_bot.spec",
+        "requirements-gui.txt"
+      ],
+      "at": [
+        "build_release.py#build_version",
+        "build_release.py#main",
+        "build_release.py#create_release_zip",
+        "release_version.py#resolve_release_version",
+        "distribution_defaults.py#read_declaration",
+        "program_update_package.py#version_key"
+      ],
+      "tests": [
+        "test_release_preflight.py",
+        "test_release_version.py",
+        "test_build_metadata_display.py",
+        "test_app_patch_notes.py"
+      ],
+      "branches": {
+        "version_metadata": {
+          "read": [
+            "release_version.py",
+            "build_metadata.json",
+            "init/.seed_version",
+            "assets/.seed_version",
+            "app_patch_notes.py"
+          ],
+          "tests": [
+            "test_release_version.py",
+            "test_build_metadata_display.py",
+            "test_app_patch_notes.py"
+          ]
+        },
+        "distribution_defaults_and_notice": {
+          "uses_routes": [
+            "updates_distribution",
+            "storage_profiles",
+            "notice_collection_messages"
+          ],
+          "read": [
+            "init/distribution_defaults.json",
+            "notice_module/metadata.json"
+          ],
+          "tests": [
+            "test_distribution_selection.py",
+            "test_distribution_defaults.py",
+            "test_notice_runtime.py"
+          ]
+        },
+        "resources_and_private_file_exclusions": {
+          "at": [
+            "boss_timer_gui.spec#collect_tree",
+            "boss_timer_gui.spec#assert_distribution_has_no_private_runtime_data",
+            "boss_timer_discord_bot.spec#collect_tree"
+          ],
+          "tests": [
+            "test_release_preflight.py"
+          ]
+        },
+        "web_source_and_effective_pages": {
+          "uses_routes": [
+            "web_ui_themes_copy",
+            "web_animation_performance"
+          ],
+          "read": [
+            "web_assets/metadata.json",
+            "web_asset_store.py",
+            "sync_web_sakura.py"
+          ],
+          "tests": [
+            "test_web_asset_selection.py",
+            "test_web_limited_sakura.py",
+            "test_web_schedule_views.js"
+          ]
+        },
+        "schedule_order_and_data_preservation": {
+          "uses_routes": [
+            "schedule_input_ocr",
+            "boss_definitions_schedule",
+            "storage_profiles"
+          ],
+          "tests": [
+            "test_schedule_input_order.py",
+            "test_schedule_fractional_time.py",
+            "test_schedule_server_profile_switch.py",
+            "test_new_season_schedule.py"
+          ]
+        },
+        "discord_and_web_lifecycle": {
+          "uses_routes": [
+            "discord_connect_authority",
+            "discord_commands_output",
+            "web_lifecycle_handover",
+            "web_snapshot_remote_sync"
+          ],
+          "tests": [
+            "test_discord_launch_command.py",
+            "test_discord_shutdown.py",
+            "test_discord_authority_events.py",
+            "test_web_persistent_runtime.py",
+            "test_web_delegated_hosting.py"
+          ]
+        },
+        "update_recovery": {
+          "uses_routes": [
+            "updates_distribution"
+          ],
+          "tests": [
+            "test_program_update_sequence.py",
+            "test_web_discord_control.py",
+            "test_web_page_update_completion.py"
+          ]
+        }
+      }
+    }
+  },
+  "cross_cutting": {
+    "popup": "boss_timer_gui.py#BossTimerApp._show_centered_messagebox",
+    "data_path": "boss_timer_gui.py#get_user_config_dir",
+    "resource_path": "boss_timer_gui.py#get_resource_root",
+    "write_primitive": "runtime_storage.py#atomic_write",
+    "http_tls": "https_transport.py#urlopen_verified",
+    "gui_thread": "Tk main thread <-> after/queues <-> network/audio/process workers; inspect queue producer and consumer.",
+    "desktop_vs_web_banner": [
+      "desktop_banner_service.py",
+      "desktop_banner_ui.py",
+      "web_notice_frontend.js"
+    ],
+    "build_read_only": [
+      "build_release.py",
+      "boss_timer_gui.spec",
+      "boss_timer_discord_bot.spec",
+      "release_version.py"
+    ],
+    "protected": [
+      "Existing AppData",
+      "server/season schedules",
+      "tokens/passwords/certificates",
+      "voice/user_voice",
+      "existing deployment/backups"
+    ],
+    "runtime_locations": {
+      "user_root": "%APPDATA%/BossTimer (resolve through get_user_config_dir; do not hardcode for writes)",
+      "profiles": "server_profiles/season_*/<server>/ under user root",
+      "notice": "notice_data/ and update_ai/ under user root",
+      "web": "web_service/ under user root; pages/current.json selects installed page version",
+      "full_update": "update_program/ under user root; program_versions/ and program_active.json under installation",
+      "browser": "localStorage/IndexedDB/device subscription; separate from desktop AppData"
+    }
+  },
+  "derived_and_legacy": [
+    {
+      "source": [
+        "web_assets/index.html",
+        "web_assets/style.css",
+        "web_assets/schedule.js"
+      ],
+      "derived": [
+        "web_service_page.py",
+        "web_schedule_frontend.py"
+      ],
+      "tool": "sync_web_sakura.py#embed",
+      "selection": "web_asset_store.py#load_assets"
+    },
+    {
+      "source": [
+        "web_limited_sakura.js"
+      ],
+      "derived": [
+        "web_assets/schedule.js"
+      ],
+      "tool": "sync_web_sakura.py#compact_module"
+    },
+    {
+      "legacy": "discord_handover.py",
+      "current": "discord_authority.py"
+    },
+    {
+      "source": "notice_module/payload/main.py",
+      "runtime_override": "update_ai/versions in AppData",
+      "selection": "notice_runtime.py#NoticeRuntime.start"
+    }
+  ]
+}

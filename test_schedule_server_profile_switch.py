@@ -35,7 +35,7 @@ class ScheduleServerProfileSwitchTests(unittest.TestCase):
                  patch.object(Path, 'open', denied):
                 with self.assertRaises(PermissionError):
                     gui.BossTimerApp._prepare_schedule_profile_for_new_season(app, '19', '오9', 'guild')
-                seed.assert_called_once_with(root / 'server_profiles', 'season_19', '9', preferred_season_key='season_18')
+                seed.assert_called_once_with(root / 'server_profiles', 'season_19', '9', access_checks=set(), preferred_season_key='season_18')
             self.assertEqual(target.read_text(), 'preserve boss data')
             app._save_settings.assert_not_called()
             app._stop_discord_bot_runtime_core.assert_not_called()

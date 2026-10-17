@@ -22,10 +22,10 @@ const banner=new Function('document','window','localStorage','WebNoticeSound','d
   notices+'\nreturn WebNotices;')(document,window,localStorage,{refresh:async()=>{},stop(){}},data,()=>({pc:true}),()=>{},{now:()=>100});
 banner.refresh('fresh',true);
 check(JSON.stringify(banner.times())==='[2,null,null]','new shared timing is one alert at two minutes');
-check(elements.get('push-toggle')['aria-pressed']==='true','new desktop alert preference is ON');
+check(elements.get('push-toggle').hidden&&elements.get('push-test').textContent==='알림 테스트','desktop delivery is controlled by boss selections with one test button');
 values.set('BossTimer.webNotice.v1:'+JSON.stringify(['saved','test','guild','18']),JSON.stringify({times:[10,1,0],banner:false}));
 banner.refresh('saved',true);
-check(JSON.stringify(banner.times())==='[10,1,0]'&&elements.get('push-toggle')['aria-pressed']==='false','saved alert OFF and custom times are preserved');
+check(JSON.stringify(banner.times())==='[10,1,0]'&&elements.get('push-toggle').hidden,'saved custom times are preserved while legacy separate delivery OFF is removed');
 const state=schedule.slice(schedule.indexOf('const REST_TABS_KEY='),schedule.indexOf("let viewKey=''"));
 const read=schedule.slice(schedule.indexOf('function readRestPreferences('),schedule.indexOf('function refreshFixedFilter('));
 const prefs=new Function('localStorage',`let selectedFilter='all';${state}\n${read}
@@ -43,23 +43,4 @@ const readAlarm=new Function('localStorage',`let alarmPrefs,alarmScope='alarm';$
 check(readAlarm(localStorage).defaultOn===true,'all boss alarms default ON');
 values.set('alarm',JSON.stringify({defaultOn:false,overrides:{}}));
 check(readAlarm(localStorage).defaultOn===false,'saved master alarm OFF is preserved');
-const push=schedule.slice(schedule.indexOf('async function initPush('),schedule.indexOf('async function togglePush('));
-async function init(permission,saved){
-  let requests=0,prepared=0,noted='';const storage={getItem:()=>saved};
-  const api=new Function('localStorage','Notification','deviceProfile','WebNotices','data',`
-    let pushInitialized=false,pushInitBusy=false,pushEnabled=false;
-    const PUSH_ENABLED_KEY='key',paintPush=message=>{if(message)noted=message;},pushUnavailableReason=()=>'';
-    let requests=0,prepared=0,noted='';
-    const pushRequest=async()=>{requests++;return {ready:true,subscribed:false};};
-    const preparePushSubscription=async()=>{prepared++;},syncPush=async()=>{};
-    ${push}\nreturn async()=>{await initPush();return {requests,prepared,enabled:pushEnabled,noted};};
-  `)(storage,{permission},()=>({pc:false}),{},{});
-  return api();
-}
-let phone=await init('granted',null);
-check(phone.enabled&&phone.prepared===1,'already-authorized phones connect with default ON');
-phone=await init('default',null);
-check(!phone.enabled&&phone.requests===0&&phone.noted.includes('허용'),'new phones require permission without unsolicited requests');
-phone=await init('granted','false');
-check(!phone.enabled&&phone.requests===0,'saved phone push OFF remains OFF');
 return checks;

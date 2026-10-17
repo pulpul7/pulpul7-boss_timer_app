@@ -27,6 +27,9 @@ class IndependentWebController:
         return False
 
     def refresh_context(self):
+        from program_update_guard import active
+        if active(self.manager.root.parent):
+            return
         if self.closed.is_set() or self.manager.closed.is_set():
             return
         self.standalone.tick()
@@ -45,17 +48,29 @@ class IndependentWebController:
 
     def _loop(self):
         while not self.closed.is_set() and not self.manager.closed.is_set():
+            from program_update_guard import active
+            if active(self.manager.root.parent):
+                self.closed.wait(.5)
+                continue
             try:
                 self.refresh_context()
                 self.standalone.publish_shared()
+                from web_persistent_runtime import save_background_context
+                save_background_context(self.manager,self)
             except Exception as exc:
                 self.manager._log('web_independent_controller_failed', error_type=type(exc).__name__)
             self.wake.wait(5)
             self.wake.clear()
 
-    def close(self):
+    def close(self, *, preserve_web=False):
         if self.closed.is_set():
             return
+        if preserve_web:
+            try:
+                from web_persistent_runtime import save_background_context
+                save_background_context(self.manager,self)
+            except Exception as exc:
+                self.manager._log('web_background_exit_prepare_failed',error_type=type(exc).__name__)
         try:
             self.standalone._save_settings_before_stop()
         except Exception as exc:
@@ -64,10 +79,11 @@ class IndependentWebController:
         self.standalone.cancelled.set()
         self.delegation.close()
         self.wake.set()
-        try:
-            self.manager.set_authority((), message='웹서비스 종료 중')
-        except OSError:
-            pass
+        if not preserve_web:
+            try:
+                self.manager.set_authority((), message='웹서비스 종료 중')
+            except OSError:
+                pass
         if self.after_id is not None:
             try:
                 self.app.root.after_cancel(self.after_id)

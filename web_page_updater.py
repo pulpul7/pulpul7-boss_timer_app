@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -62,6 +63,7 @@ class WebPageUpdater:
         self.wake, self.closed = threading.Event(), threading.Event()
         self.thread = None
         self.manual = False
+        self.manual_completion = None
         self.local_source = None
         self.settings = dict(schema=1, enabled=True, hour=3, minute=0, last_auto_date="")
         self.view = dict(busy=False, state="idle", message="웹 업데이트 확인 전", checked_at="", applied_at="",
@@ -111,6 +113,20 @@ class WebPageUpdater:
     def request(self):
         self._request_update()
 
+    def request_and_wait(self, timeout=240):
+        """Run the same manual update and wait off the GUI thread for its own result."""
+        completion = dict(done=threading.Event(), result=None)
+        self._request_update(completion=completion)
+        deadline = time.monotonic() + timeout
+        while not completion['done'].wait(.25):
+            self._check_cancelled()
+            if time.monotonic() >= deadline:
+                raise ValueError('웹 업데이트 완료 대기 시간이 지났습니다. 대상 PC의 진행 상태를 확인해주세요. 자동 재시도하지 않습니다.')
+        result = completion['result']
+        if result['state'] not in {'applied', 'current'}:
+            raise ValueError(result.get('message') or '웹 업데이트를 적용하지 못했습니다.')
+        return result
+
     def local_folder(self):
         with self.lock:
             saved = self.settings.get("local_folder", "")
@@ -124,13 +140,19 @@ class WebPageUpdater:
             raise ValueError("수정한 web_assets 폴더를 선택해주세요.")
         self._request_update(str(Path(folder).resolve()))
 
-    def _request_update(self, folder=None):
+    def _request_update(self, folder=None, *, completion=None):
+        from program_update_guard import launch_gate
+        with launch_gate(self.root.parent, allow_trial=False):
+            self._request_update_idle(folder, completion=completion)
+
+    def _request_update_idle(self, folder=None, *, completion=None):
         with self.lock:
             if self.closed.is_set() or self.manager.closed.is_set():
                 raise ValueError("웹서비스가 종료 중입니다.")
             if self.view["busy"] or self.manual:
                 raise ValueError("웹 업데이트가 진행 중입니다. 잠시 기다려주세요.")
             self.manual = True
+            self.manual_completion = completion
             self.local_source = folder
             self.view.update(busy=True, state="checking", message="로컬 웹 파일을 확인합니다…" if folder else "웹 업데이트를 확인합니다…")
         self.start()
@@ -143,6 +165,9 @@ class WebPageUpdater:
                 and (now.hour, now.minute) >= (self.settings["hour"], self.settings["minute"]))
 
     def _check_cancelled(self):
+        from program_update_guard import active
+        if active(self.root.parent):
+            raise ValueError('전체 업데이트가 시작되어 웹 업데이트를 취소했습니다.')
         if self.closed.is_set() or self.manager.closed.is_set():
             raise ValueError("프로그램 종료로 웹 업데이트를 취소했습니다.")
 
@@ -172,8 +197,8 @@ class WebPageUpdater:
         stage_version(self.root, version, files)
         self._check_cancelled()
         with self.lock:
-            self.view.update(state="restarting", message="복사 완료 · 웹서비스만 다시 시작합니다…")
-        self.manager.apply_page_update(version)
+            self.view.update(state="applying", message="복사 완료 · 실행 중인 웹에 반영합니다…")
+        mode = self.manager.apply_page_update(version)
         remember_failed = False
         with self.lock:
             saved = dict(self.settings, local_folder=folder)
@@ -184,7 +209,8 @@ class WebPageUpdater:
             else:
                 self.settings = saved
             self.view.update(state="applied", version=version[:12], applied_at=timestamp(),
-                             message="로컬 웹 적용 완료 · 브라우저를 새로고침해주세요." +
+                             message=("로컬 웹 적용 완료 · 재시작 없이 반영했습니다. 브라우저를 새로고침해주세요." if mode == 'hot' else
+                                      "로컬 웹 적용 완료 · 브라우저를 새로고침해주세요.") +
                              (" 폴더 기억은 저장하지 못했습니다." if remember_failed else ""))
         if remember_failed:
             self.manager._log("web_page_local_folder_save_failed")
@@ -199,7 +225,8 @@ class WebPageUpdater:
             installed = current_version(self.root)
         except (OSError, ValueError, KeyError, TypeError):
             installed = ""  # A manual update can repair a damaged installed page.
-        if installed == version:
+        state = self.manager.status()
+        if installed == version and (not state['enabled'] or state.get('web_page_version') == version):
             with self.lock:
                 self.view.update(state="current", version=version[:12], message="최신 웹 파일입니다. 복사·재시작을 생략했습니다.")
             self.manager._log("web_page_update_unchanged", version=version[:12])
@@ -232,21 +259,29 @@ class WebPageUpdater:
         stage_version(self.root, version, files)
         self._check_cancelled()
         with self.lock:
-            self.view.update(state="restarting", message="복사 완료 · 웹서비스를 다시 시작합니다…")
-        self.manager.apply_page_update(version)
+            self.view.update(state="applying", message="복사 완료 · 실행 중인 웹에 반영합니다…")
+        mode = self.manager.apply_page_update(version)
         with self.lock:
             self.view.update(state="applied", version=version[:12], applied_at=timestamp(),
-                message="웹 업데이트 적용 완료 · 웹서비스 재시작 완료" if self.manager.status()["enabled"] else
-                "웹 파일 적용 완료 · 웹서비스를 켜면 새 화면을 사용합니다.")
+                message=("웹 업데이트 적용 완료 · 재시작 없이 반영했습니다. 새로고침해주세요." if mode == 'hot' else
+                         "웹 업데이트 적용 완료 · 웹서비스 재시작 완료" if mode == 'restart' else
+                         "웹 파일 적용 완료 · 웹서비스를 켜면 새 화면을 사용합니다." if mode == 'offline' else
+                         "웹 업데이트 적용 완료 · 새로고침해주세요."))
         self.manager._log("web_page_update_applied", version=version[:12])
 
     def _loop(self):
         while not self.closed.is_set() and not self.manager.closed.is_set():
+            from program_update_guard import active
+            if active(self.root.parent):
+                self.closed.wait(1)
+                continue
+            completion = None
             try:
                 now = datetime.now(KST)
                 with self.lock:
                     manual, self.manual = self.manual, False
                     local_source, self.local_source = self.local_source, None
+                    completion, self.manual_completion = self.manual_completion, None
                 automatic = not manual and self.due(now)
                 if manual or automatic:
                     with self.lock:
@@ -273,6 +308,9 @@ class WebPageUpdater:
             finally:
                 with self.lock:
                     self.view["busy"] = bool(self.manual)
+                    if completion is not None:
+                        completion['result'] = deepcopy(self.view)
+                        completion['done'].set()
             self.wake.wait(15)
             self.wake.clear()
 

@@ -20,9 +20,10 @@ from urllib.parse import urlsplit, parse_qs
 from web_service_common import (PHASE, PROTOCOL, close_logger, diagnostic,
                                 diagnostic_logger, timestamp, worker_paths, write_json)
 from web_schedule_cache import ScheduleCache
-from web_asset_store import load_assets, git_hash, version_id
 from web_access_runtime import AccessRuntime, records_visit
 from web_https_server import HTTPSListener
+from web_live_assets import LiveWebAssets
+from web_reload_wait import SCRIPT_SOURCE as RELOAD_SCRIPT_SOURCE, render_reload_wait
 
 
 
@@ -130,7 +131,7 @@ class LocalHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         from web_theme_bootstrap import SCRIPT_SOURCE
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'self' " + SCRIPT_SOURCE + "; "
+        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'self' " + SCRIPT_SOURCE + " " + RELOAD_SCRIPT_SOURCE + "; "
                          "style-src 'self'; connect-src 'self'; img-src 'self' blob:; font-src 'self' blob:; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'")
         for value in cookies:
             self.send_header("Set-Cookie", value)
@@ -155,7 +156,7 @@ class LocalHandler(BaseHTTPRequestHandler):
                     self.client_address[0], self.headers.get("User-Agent", ""),
                     record_visit=self._record_visit)
         if context["blocked"]:
-            self._json(403, dict(message="관리자가 이 접속을 차단했습니다."), context["cookies"])
+            self._json(403, dict(message="관리자가 이 접속을 차단했습니다.", access_blocked=True), context["cookies"])
             return None
         return context
 
@@ -172,16 +173,15 @@ class LocalHandler(BaseHTTPRequestHandler):
         if context is None:
             return
         cookies = context["cookies"]
-        assets = self.server.assets
+        source = getattr(self.server, 'asset_source', None)
+        assets = source.snapshot.files if source is not None else self.server.assets
         path = urlsplit(self.path).path
         from web_request_limits import READ_PATHS
-        if path in READ_PATHS and (getattr(self, '_record_visit', True) or path == '/api/boss-spectrum'):
+        if path in READ_PATHS and (getattr(self, '_record_visit', True) or path in {'/', '/api/boss-spectrum'}):
             wait = self.server.access.read_wait(context, self.client_address[0], path=path)
             if wait:
-                message = "새로고침은 5초에 한 번 가능합니다. 잠시 뒤 다시 열어주세요." if path == '/' else "요청이 너무 많습니다. 잠시 뒤 다시 시도해주세요."
-                content = (("<!doctype html><html lang='ko'><meta charset='utf-8'>"
-                    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                    f"<p>{message} ({wait}초)</p><a href='/'>다시 열기</a></html>").encode("utf-8") if path == "/"
+                message = "요청이 너무 많습니다. 잠시 뒤 다시 시도해주세요."
+                content = (render_reload_wait(wait) if path == "/"
                     else json.dumps(dict(message=message), ensure_ascii=False).encode("utf-8"))
                 self._send(429, content, "text/html; charset=utf-8" if path == "/" else
                            "application/json; charset=utf-8", cookies, (("Retry-After", str(wait)),))
@@ -368,18 +368,24 @@ def main(argv=None):
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--parent-pid", required=True, type=int)
     parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--persistent", action="store_true")
     args = parser.parse_args(argv)
     if not 1024 <= args.port <= 65535:
         return 2
     root = Path(args.root)
     status_path, stop_path = worker_paths(root, args.run_id)
     logger = diagnostic_logger(root, "worker")
-    server = parent = access = https = push = None
+    server = parent = access = https = push = runtime = guard = None
     state = dict(run_id=args.run_id, pid=os.getpid(), protocol=PROTOCOL,
                  port=args.port, state="starting", heartbeat=0, request_count=0)
     try:
-        parent = ParentWatch(args.parent_pid)
-        if not parent.alive() or stop_path.exists():
+        if args.persistent:
+            from web_service_common import file_transaction
+            guard = file_transaction(root / 'persistent_runtime.guard')
+            guard.__enter__()
+        else:
+            parent = ParentWatch(args.parent_pid)
+        if (parent is not None and not parent.alive()) or stop_path.exists():
             return 0
         diagnostic(logger, "worker_start", run_id=args.run_id, port=args.port)
         schedule = ScheduleCache(root, args.run_id, logger)
@@ -392,17 +398,36 @@ def main(argv=None):
         except Exception as exc:
             diagnostic(logger, "push_start_failed", error_type=type(exc).__name__)
         server = LocalWebServer(args.port, logger, schedule, access)
-        server.assets = load_assets(root, logger)
-        state["web_page_version"] = version_id({name: git_hash(raw) for name, raw in server.assets.items()})
-        https = HTTPSListener(root, schedule, access, logger, args.port, args.run_id, push=push)
+        assets = LiveWebAssets(root, args.run_id, logger)
+        server.assets = assets.snapshot.files
+        server.asset_source = assets
+        state.update(assets.status())
+        https = HTTPSListener(root, schedule, access, logger, args.port, args.run_id, push=push, asset_source=assets)
+        if args.persistent:
+            from web_persistent_runtime import WorkerRuntime
+            runtime = WorkerRuntime(root,args.run_id,logger,
+                lambda: dict(state,run_id=args.run_id,preferred_external_port=runtime.control.get('external_port')))
+            state.update(runtime.status())
+            write_json(root/'persistent_worker.json',dict(run_id=args.run_id,pid=os.getpid(),
+                port=args.port,runtime_protocol=state['runtime_protocol']))
         server.timeout = 0.25
         state["state"] = "running"
         diagnostic(logger, "local_listener_ready", run_id=args.run_id, port=args.port)
         next_heartbeat = 0.0
+        next_asset_read = 0.0
         next_schedule_read = 0.0
         heartbeat_write_failed = False
-        while parent.alive() and not stop_path.exists():
+        while (parent is None or parent.alive()) and not stop_path.exists():
+            if time.monotonic() >= next_asset_read:
+                if assets.poll():
+                    next_heartbeat = 0  # Acknowledge real swaps immediately, not at the periodic heartbeat.
+                next_asset_read = time.monotonic() + .1
             if time.monotonic() >= next_schedule_read:
+                if runtime:
+                    runtime.refresh()
+                    schedule.detached = runtime.detached and runtime.status()['background_authorized']
+                    if runtime.stop_requested:
+                        break
                 schedule.refresh()
                 access.refresh()
                 https.refresh()
@@ -415,6 +440,9 @@ def main(argv=None):
                 state.update(schedule.status())
                 state.update(access.summary())
                 state.update(https.status())
+                state.update(assets.status())
+                if runtime:
+                    state.update(runtime.status())
                 state["request_count"] += state.get("https_request_count", 0)
                 try:
                     write_json(status_path, state)
@@ -434,7 +462,8 @@ def main(argv=None):
             server.handle_request()
         state["state"] = "stopped"
         diagnostic(logger, "worker_stop", run_id=args.run_id,
-                   reason="stop_requested" if stop_path.exists() else "parent_exited")
+                   reason="stop_requested" if stop_path.exists() else
+                       "background_stop_requested" if runtime and runtime.stop_requested else "parent_exited")
         return 0
     except Exception as exc:
         state.update(state="error", error_code="port_in_use" if isinstance(exc, OSError)
@@ -443,6 +472,8 @@ def main(argv=None):
                    errno=getattr(exc, "errno", None), winerror=getattr(exc, "winerror", None))
         return 1
     finally:
+        if runtime:
+            runtime.close()
         if push:
             push.close()
         if https:
@@ -458,6 +489,8 @@ def main(argv=None):
         except OSError:
             pass
         close_logger(logger)
+        if guard:
+            guard.__exit__(None,None,None)
 
 
 if __name__ == "__main__":

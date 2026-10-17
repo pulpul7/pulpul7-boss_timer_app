@@ -1,6 +1,8 @@
 """Independent web/voice ownership and consent tests, entirely in memory."""
 from copy import deepcopy
+import ast
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace as NS
 import threading
 import time
@@ -68,6 +70,25 @@ class IndependentTests(unittest.TestCase):
         self.assertEqual(standalone_info(fixture.repo.data)['owner'], SOURCE)
         manager.public.configure.assert_called_once()
 
+    def test_voice_start_reuses_background_web_without_preparation_or_shared_changes(self):
+        fixture, manual, manager, coordinator, _ = self.web_node()
+        existing = fixture.repo.data['web_standalone']
+        existing.update(owner=coordinator.client, runtime='9'*32)
+        manager.background_protected=True;manager.background_web_id=existing['id']
+        manager.background_scope_verified=True
+        manual.observe(fixture.repo.data,coordinator)
+        before=deepcopy(fixture.repo.data)
+        self.run_web(manual,approved=True)
+        self.assertEqual(manual.stage,'running');self.assertFalse(manual.busy)
+        self.assertEqual(fixture.repo.data,before)
+        manager.public.configure.assert_not_called()
+        manager.prepare_local_https.assert_not_called()
+        manager.set_enabled.assert_not_called()
+        manager.offer_snapshot.assert_not_called()
+        coordinator.web_control.request.assert_not_called()
+        fixture.repo.put.assert_not_called()
+        manager._log.assert_any_call('web_existing_public_reused',run_id='',request=existing['id'])
+
     def test_voice_handover_and_release_preserve_independent_web_and_pending_operation(self):
         fixture, manual, _, coordinator, _ = self.web_node()
         web = deepcopy(fixture.repo.data['web_standalone'])
@@ -133,7 +154,7 @@ class IndependentTests(unittest.TestCase):
     def test_independent_controller_never_uses_voice_authority_to_publish(self):
         controller = object.__new__(IndependentWebController)
         controller.closed = threading.Event()
-        controller.manager = NS(closed=threading.Event(), _log=Mock())
+        controller.manager = NS(root=Path('unused-offline-web-root'), closed=threading.Event(), _log=Mock())
         controller.standalone = NS(tick=Mock(), suppresses_normal=lambda: True, publish_shared=Mock())
         controller.delegation = NS(tick=Mock(), take_over_when_configured=Mock())
         controller.wake = NS(wait=lambda _: controller.closed.set(), clear=Mock())
@@ -165,6 +186,8 @@ class IndependentTests(unittest.TestCase):
         node = object.__new__(DiscordAuthority)
         node.client, node.runtime, node.scope = SOURCE, SOURCE_SESSION, SCOPE
         node.lock = threading.RLock()
+        node.alive = True
+        node._assert_profile = Mock()
         node.incoming_progress_token = 'local-request'
         node._status = lambda: dict(online=True, runtime_id=SOURCE_SESSION)
         node._control = node._progress = node._metadata = node._finish = Mock()
@@ -209,6 +232,45 @@ class IndependentTests(unittest.TestCase):
         node._incoming(False, None, '777', None, None)
         node.record.request.assert_called_once()
         node.app._append_debug_log.assert_any_call('web_parallel_start_failed type=ValueError')
+
+
+class ExistingWebStatusTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tree=ast.parse(Path('boss_timer_gui.py').read_text(encoding='utf-8-sig'))
+        method=next(node for node in ast.walk(tree)
+                    if isinstance(node,ast.FunctionDef) and node.name=='_refresh_schedule_web_status')
+        namespace=dict(tk=NS(TclError=RuntimeError))
+        exec(compile(ast.Module(body=[method],type_ignores=[]),'<web-status-test>','exec'),namespace)
+        cls.paint=staticmethod(namespace[method.name])
+
+    def test_existing_public_web_is_not_labeled_as_handover_during_owner_check(self):
+        cases=[('idle',True,'prepared','웹 공개 중'),('running',True,'prepared','웹 공개 중'),
+               ('preparing',True,'prepared','웹 승계 중'),('stopping',True,'prepared','웹 중지 중'),
+               ('verifying_peer',True,'prepared','이전 웹 종료 확인'),
+               ('idle',False,'prepared','웹 승계 중'),('idle',True,'off','웹 승계 중')]
+        for stage,ready,public_state,expected in cases:
+            with self.subTest(stage=stage,ready=ready,public_state=public_state):
+                label=NS(configure=Mock())
+                manager=NS(closed=threading.Event(),delegation=NS(status=lambda:{}),
+                    standalone=NS(status=lambda:dict(busy=True,stage=stage)),
+                    status=lambda:dict(web_ready=ready),
+                    public_status=lambda:dict(state=public_state,address='https://example.invalid'))
+                app=NS(web_service_manager=manager,schedule_web_status_label=label,
+                       _widget_available=lambda widget:widget is not None)
+                self.paint(app)
+                self.assertEqual(label.configure.call_args.kwargs['text'],expected)
+
+    def test_stop_completion_and_failure_are_not_labeled_as_handover_failure(self):
+        for stage,operation,expected in [('stopped','stop','웹 대기'),('error','stop','웹 종료 실패'),('error','start','웹 승계 실패')]:
+            with self.subTest(stage=stage,operation=operation):
+                label=NS(configure=Mock())
+                manager=NS(closed=threading.Event(),delegation=NS(status=lambda:{}),
+                    standalone=NS(status=lambda:dict(busy=False,stage=stage,operation=operation)))
+                app=NS(web_service_manager=manager,schedule_web_status_label=label,
+                       _widget_available=lambda widget:widget is not None)
+                self.paint(app)
+                self.assertEqual(label.configure.call_args.kwargs['text'],expected)
 
 
 if __name__ == '__main__':

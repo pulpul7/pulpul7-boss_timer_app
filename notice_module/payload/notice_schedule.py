@@ -7,6 +7,7 @@ from copy import deepcopy
 
 from .notice_management import KST, parse_time, encode_time
 from .notice_participation import important, evening_notices, dawn_opportunity
+from .notice_remaining import third_notices
 
 CHAPTERS = {'요툰하임': 2, '니다벨리르': 3, '알브하임': 4, '무스펠하임': 5,
             '아스가르드': 6, '니플하임': 7, '바나하임': 8}
@@ -55,7 +56,7 @@ def schedule_notices(snapshot, state, now):
         compact = ''.join(name.split())
         overnight = major
         period = None
-        if overnight and midnight + timedelta(seconds=1) <= when < midnight + timedelta(hours=6):
+        if overnight and midnight + timedelta(hours=1, minutes=30, seconds=1) <= when < midnight + timedelta(hours=6):
             group, period = 'overnight', '새벽'
         elif (overnight and cutoff and midnight.date().weekday() == 2
               and max(midnight, cutoff - timedelta(hours=2)) <= when < cutoff):
@@ -68,7 +69,7 @@ def schedule_notices(snapshot, state, now):
         seen.add(identity)
         groups[group].append({'name': DEPTH_NAMES.get(compact, item.get('display_name') or name),
                               'at': when.isoformat(), 'period': period})
-    result = evening_notices(snapshot, state, now)
+    result = evening_notices(snapshot, state, now) + third_notices(snapshot, state, now)
     for group, entries in groups.items():
         if not entries:
             continue
@@ -101,9 +102,9 @@ def schedule_notices(snapshot, state, now):
             event_from=start.isoformat(), event_until=(end + timedelta(seconds=1)).isoformat(),
             policy=policy, trigger=trigger,
             body='\n'.join(f"{e['at']} {e['name']} ({e['period'] or '저녁'})" for e in entries),
-            analysis_evidence='스케줄 분/초 확정 · 저녁 21:00~24:00 / 새벽 00:00:01~05:59:59 · '
+            analysis_evidence='스케줄 분/초 확정 · 저녁 21:00~24:00 / 새벽 01:30:01~05:59:59 · '
                               + (f'정기점검 {cutoff.isoformat()} 직전 2시간' if cutoff else '점검 전 추가 구간 없음')
-                              + (' · 새벽 안내 별도 하루 1회: 22~24시 주요·연타임 보스 안내 후 / 없으면 23시 대기열'
+                              + (' · 새벽 안내 별도 하루 1회: 21:30~24시 주요·연타임 보스 안내 후 / 없으면 23시 대기열'
                                  if group == 'overnight' else '')))
     return result
 
@@ -143,11 +144,12 @@ def synchronize_schedule(store, snapshot):
     if not isinstance(snapshot.get('events'), list) or not snapshot.get('season'):
         return False
     with store._transaction() as state:
+        from .notice_schedule_update import synchronize_web_schedule_notice
+        changed = synchronize_web_schedule_notice(store, snapshot, state)
         if not state['settings']['collection_enabled'] or not state['settings']['categories']['participation']:
-            return False
+            return changed
         wanted = schedule_notices(snapshot, state, store.clock())
         keys = {event['id'] for event in wanted}
-        changed = False
         # Capture before updating the dawn row, which removes its morning entries.
         legacy_groups = {key: deepcopy(item) for key, item in state['events'].items()
                          if key.endswith('/overnight') and any(row.get('period') == '아침'

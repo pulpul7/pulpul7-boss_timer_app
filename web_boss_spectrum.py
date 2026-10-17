@@ -9,6 +9,7 @@ import sys
 
 from web_font_library import font_developer_allowed
 from web_service_common import file_transaction, read_json, write_json
+from fixed_boss_aliases import migrate_spectrum_numbers
 
 THEMES = {'sakura', 'spring', 'winter', 'rain', 'sky', 'wood', 'green', 'blue', 'magenta', 'ivory', 'canary', 'forsythia', 'purple', 'gray'}
 MAX_BOSSES = 4000
@@ -66,7 +67,7 @@ class BossSpectrumStore:
 
     def numbers(self):
         # Runtime data fully overrides the bundle, including explicit removals.
-        return read_numbers(self.path if self.path.exists() else self.bundled)
+        return migrate_spectrum_numbers(read_numbers(self.path if self.path.exists() else self.bundled))
 
     def public(self, allowed=False):
         numbers = self.numbers()
@@ -74,6 +75,9 @@ class BossSpectrumStore:
         return dict(schema=2, target='background', numbers=numbers, version=version, can_save=bool(allowed))
 
     def save(self, theme, bosses, number, catalog):
+        from program_update_guard import active
+        if active(self.path.parent.parent):
+            raise ValueError('전체 업데이트 중에는 배포 색상 저장을 잠시 중지합니다.')
         if (not isinstance(theme, str) or theme not in THEMES or type(number) is not int
                 or not 0 <= number <= MAX_COLOR or not isinstance(bosses, list)
                 or not 1 <= len(bosses) <= MAX_BOSSES):

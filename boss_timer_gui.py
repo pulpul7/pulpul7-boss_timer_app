@@ -1,13 +1,23 @@
 ﻿import configparser
 import sys
+if __name__ == "__main__" and "--boss-timer-apply-program-update" in sys.argv[1:]:
+    from program_update_helper import main as _program_update_main
+    raise SystemExit(_program_update_main(sys.argv[sys.argv.index("--boss-timer-apply-program-update") + 1:]))
 if __name__ == "__main__" and "--boss-timer-web-worker" in sys.argv[1:]:
     # Web children must bypass the GUI guard, splash, and heavy audio imports.
     from web_service_worker import main as _web_worker_main
     raise SystemExit(_web_worker_main(sys.argv[sys.argv.index("--boss-timer-web-worker") + 1:]))
 
 _startup_runtime = None
+_startup_route_error = ''
 if __name__ == "__main__":
     # Acquire the GUI guard and show loading before optional/heavy imports.
+    from program_updater import route_startup
+    try:
+        if not route_startup():
+            raise SystemExit(0)
+    except Exception as exc:
+        _startup_route_error = str(exc)
     from startup_runtime import bootstrap
     _startup_runtime = bootstrap()
 
@@ -54,6 +64,7 @@ from tkinter import colorchooser, filedialog
 from tkinter import font as tkfont
 from tkinter import ttk
 from schedule_precision import DEFAULT_CAPTURE_RATE
+from schedule_order import assign_input_order, event_sort_key, input_order
 from ai_update_center import AiUpdateCenter
 from notice_runtime import NoticeHost, NoticeRuntime
 from notice_chime import NOTICE_CHIME_FILENAME, NoticeChimeSynthesizer, notice_audio_resources
@@ -1590,7 +1601,7 @@ class BossTimerApp:
         return self._get_schedule_server_profile_path(SCHEDULE_BREAK_RULES_FILENAME, SCHEDULE_BREAK_RULES_PATH, init_file=True)
 
     def _get_settings_rollback_root_dir(self) -> str:
-        """Return the immutable rollback storage for the active server/season."""
+        """Return the explicitly managed rollback storage for this server/season."""
         profile_dir = self._get_schedule_server_profile_dir()
         if profile_dir:
             return os.path.join(profile_dir, SETTINGS_ROLLBACK_DIRNAME)
@@ -1671,6 +1682,37 @@ class BossTimerApp:
             return True, manifest_path
         except (OSError, ValueError) as exc:
             return False, str(exc)
+
+    def _refresh_settings_rollback_baseline(self) -> tuple[bool, str]:
+        """Explicit master action: keep today's settings as the next season's baseline."""
+        if not self._is_master_developer_mode_enabled():
+            return False, "마스터 관리자 전용 기능입니다."
+        if not str(getattr(self, 'schedule_server_profile_id', '') or '').strip():
+            return False, "롤백값을 저장할 서버를 먼저 선택해주세요."
+        from settings_rollback_snapshot import refresh_baseline
+        from schedule_profile_migration import distribution_source
+        try:
+            self._save_settings()
+            if self._save_schedule_alarm_settings() is False:
+                raise OSError("현재 알람 설정을 저장하지 못했습니다.")
+            groups = self._get_settings_rollback_group_files()
+            # Unmodified voice preferences may still be using shipped defaults.
+            groups = {group: [(source if os.path.isfile(source) or not relative.replace('\\', '/').startswith('global/')
+                               else str(distribution_source(os.path.join(get_resource_root(), 'init'), relative)), relative)
+                              for source, relative in entries] for group, entries in groups.items()}
+            notice = self._get_distribution_settings_sources().get('notice')
+            result = refresh_baseline(
+                self._get_settings_rollback_baseline_dir(), groups, CONFIG_PATH,
+                self._is_settings_rollback_config_key,
+                server_id=str(self.schedule_server_profile_id or ''),
+                season_key=self._get_active_schedule_server_profile_season_key(),
+                notice=notice if notice and os.path.isfile(notice) else None,
+            )
+            self._append_debug_log(f"settings_rollback_baseline_refreshed groups={','.join(result['groups'])} backup={result['backup']}")
+            return True, "롤백값 갱신 완료 · 새 시즌 시작 → 설정롤백에서 현재 기준점으로 복원할 수 있습니다."
+        except Exception as exc:
+            self._append_debug_log(f"settings_rollback_baseline_refresh_failed {type(exc).__name__}: {exc}")
+            return False, "롤백값을 갱신하지 못했습니다: " + str(exc)
 
     def _load_settings_rollback_manifest(self) -> tuple[dict[str, object] | None, str]:
         baseline_dir = self._get_settings_rollback_baseline_dir()
@@ -1929,6 +1971,7 @@ class BossTimerApp:
             self._migrate_flat_server_profile_to_season_profile(
                 profile_id, preferred_season_key=active_season_key if previous_profile_id == profile_id else None,
             )
+            self._apply_declared_distribution_defaults()
         except Exception:
             self.schedule_server_profile_id = previous_profile_id
             self.schedule_server_profile_name = previous_profile_name
@@ -2250,6 +2293,7 @@ class BossTimerApp:
         self._migrate_flat_server_profile_to_season_profile(
             self.schedule_server_profile_id, preferred_season_key=selected_season_key,
         )
+        self._apply_declared_distribution_defaults()
         self.root.title(
             f"보스전 타이머 스케쥴러{' [관리자]' if self.is_admin_process else ' [일반]'}"
             if self.scheduler_worker_mode
@@ -3427,7 +3471,7 @@ class BossTimerApp:
             from web_independent_controller import IndependentWebController
             self.web_handover_bridge = IndependentWebController(self, self.web_service_manager)
             self.web_service_window = WebServiceWindow(self.root, self.web_service_manager, self._show_centered_messagebox)
-            atexit.register(self.web_service_manager.close, wait=True)
+            atexit.register(self.web_service_manager.close, wait=True, preserve_web=True)
             self.root.after(1500, self.web_service_manager.start_saved)
             self.web_schedule_after_id = self.root.after(1000, self._publish_web_schedule_snapshot)
         except Exception as exc:
@@ -3516,11 +3560,22 @@ class BossTimerApp:
                 manual = getattr(manager, "standalone", None)
                 manual_state = manual.status() if manual is not None else {}
                 if manual_state.get("busy"):
-                    text = ("웹 중지 중" if manual_state.get("stage") == "stopping" else
-                            "이전 웹 종료 확인" if manual_state.get("stage") == "verifying_peer" else "웹 승계 중")
-                    bg, hover, status_fg = "#b45309", "#92400e", "#b45309"
+                    worker, public = manager.status(), manager.public_status()
+                    if (manual_state.get('stage') in {'idle', 'running'}
+                            and worker.get('web_ready') and public.get('state') == 'prepared'
+                            and public.get('address')):
+                        # A no-op request still checks the shared owner. That
+                        # validation does not interrupt the published site.
+                        text, bg, hover, status_fg = "웹 공개 중", "#15803d", "#166534", "#15803d"
+                    else:
+                        text = ("웹 중지 중" if manual_state.get("stage") == "stopping" else
+                                "이전 웹 종료 확인" if manual_state.get("stage") == "verifying_peer" else "웹 승계 중")
+                        bg, hover, status_fg = "#b45309", "#92400e", "#b45309"
                 elif manual_state.get('stage') == 'error':
-                    text, bg, hover, status_fg = '웹 승계 실패', '#b91c1c', '#991b1b', '#b91c1c'
+                    text = '웹 종료 실패' if manual_state.get('operation') == 'stop' else '웹 승계 실패'
+                    bg, hover, status_fg = '#b91c1c', '#991b1b', '#b91c1c'
+                elif manual_state.get('stage') == 'stopped':
+                    text, status_fg = '웹 대기', '#64748b'
                 elif relay_state.get("role") == "source":
                     text, status_fg = "웹 별도 PC", "#7c3aed"
                     publication_requested = bool(manager.status()["enabled"] and manager.public.status()["enabled"])
@@ -3584,7 +3639,7 @@ class BossTimerApp:
         try:
             bridge = getattr(self, "web_handover_bridge", None)
             if bridge is not None:
-                bridge.close()
+                bridge.close(preserve_web=True)
             after_id = getattr(self, "web_schedule_after_id", None)
             if after_id is not None:
                 try:
@@ -3595,7 +3650,7 @@ class BossTimerApp:
             if getattr(self, "web_service_window", None) is not None:
                 self.web_service_window.close()
             if getattr(self, "web_service_manager", None) is not None:
-                self.web_service_manager.close()
+                self.web_service_manager.close(preserve_web=True)
         except Exception as exc:
             self._append_debug_log(f"web_service_close_failed type={type(exc).__name__}")
 
@@ -3612,6 +3667,7 @@ class BossTimerApp:
         self._ensure_ai_update_center().open()
 
     def _ensure_notice_runtime(self):
+        # Full-update startup loads deployment defaults before starting modules.
         if not hasattr(self, "notice_runtime"):
             def cancel_later(token):
                 try:
@@ -3634,6 +3690,12 @@ class BossTimerApp:
             self.notice_runtime = NoticeRuntime(host, get_user_config_dir(), get_resource_root(), APP_VERSION)
         self.notice_runtime.start()
         return self.notice_runtime
+
+    def _get_program_update_service(self):
+        if not hasattr(self, 'program_update_service'):
+            from program_update_service import ProgramUpdateService
+            self.program_update_service = ProgramUpdateService(self, get_user_config_dir(), APP_VERSION)
+        return self.program_update_service
 
     def _get_notice_preparation_profile(self):
         settings = self.edge_tts_settings
@@ -3698,8 +3760,35 @@ class BossTimerApp:
                 rows.append(dict(boss_name=row[1], display_name=row[1], scheduled_at=row[0].isoformat(),
                                  precision='minute', area='고정보스', star=False, fixed=True))
         maintenance = self._get_schedule_maintenance_cutoff_datetime(now)
+        # Separate input facts include active bosses and original creation times;
+        # recurring future occurrences alone do not prove post-maintenance input.
+        catalog = getattr(self, '_get_schedule_missing_boss_catalog', None)
+        input_names = [name for _area, _label, names in catalog() for name in names] if callable(catalog) else []
+        input_entries = []
+        for item in [*self.schedule_events, *getattr(self, 'schedule_active_entries', [])]:
+            created = item.get('created_at')
+            input_entries.append(dict(boss_name=self._get_schedule_boss_definition_name(item),
+                                      created_at=created.isoformat() if isinstance(created, datetime) else None,
+                                      state=item.get('state', ''), is_invasion=self._is_schedule_invasion_item(item)))
+        opening = getattr(self, '_get_schedule_default_server_open_datetime', None)
+        previous = getattr(self, '_get_schedule_previous_maintenance_datetime', None)
+        opened = opening(now) if callable(opening) else None
+        custom = getattr(self, 'schedule_input_custom_server_open_datetime', None)
+        expires = getattr(self, 'schedule_input_custom_server_open_expires_at', None)
+        if isinstance(custom, datetime) and isinstance(expires, datetime) and now < expires:
+            opened = custom
+        started = previous(now) if callable(previous) else None
+        from notice_web_publication import schedule_published
+        controls = [dict(control_type=item.get('control_type'), scheduled_at=item['scheduled_at'].isoformat())
+                    for item in getattr(self, 'schedule_control_events', [])
+                    if not item.get('historical_only') and isinstance(item.get('scheduled_at'), datetime)
+                    and item.get('control_type') in {'temporary_maintenance', 'server_open'}]
         return dict(server_id=str(getattr(self, 'schedule_server_profile_id', '') or ''),
                     season=str(self.current_season_no), events=rows,
+                    server_open=opened.isoformat() if isinstance(opened, datetime) else None,
+                    maintenance_start=started.isoformat() if isinstance(started, datetime) else None,
+                    control_events=controls, input_boss_names=input_names, input_entries=input_entries,
+                    web_schedule_published=schedule_published(self),
                     important_names=[name for name, item in self.schedule_boss_definitions.items() if item.get('star')],
                     regular_maintenance=maintenance.isoformat() if maintenance else None)
 
@@ -4546,12 +4635,18 @@ class BossTimerApp:
             payload["fixed_boss_overrides"][canonical_name] = normalized_entry
         return payload
 
-    def _write_schedule_alarm_settings_payload(self, payload: dict[str, object], *, settings_path=None, save_ticket=None) -> bool:
+    def _write_schedule_alarm_settings_payload(self, payload: dict[str, object], *, settings_path=None, save_ticket=None, distribution_token=None) -> bool:
         from alarm_settings_storage import reserve_save, write_settings
         settings_path = settings_path or self._get_schedule_alarm_settings_storage_path()
         save_ticket = save_ticket or reserve_save(settings_path)
         try:
-            saved = write_settings(settings_path, payload, save_ticket)
+            token = distribution_token if distribution_token is not None else getattr(self, '_distribution_settings_revision', None)
+            if token is None:
+                saved = write_settings(settings_path, payload, save_ticket)
+            else:
+                from distribution_defaults import save_if_current
+                saved = save_if_current(get_user_config_dir(), token,
+                    lambda: write_settings(settings_path, payload, save_ticket))
         except OSError as exc:
             self._append_debug_log(f'alarm_settings_save_failed {type(exc).__name__} path={settings_path}')
             return False
@@ -4567,9 +4662,11 @@ class BossTimerApp:
         payload = self._build_schedule_alarm_settings_payload()
         settings_path = self._get_schedule_alarm_settings_storage_path()
         save_ticket = reserve_save(settings_path)
+        distribution_token = getattr(self, '_distribution_settings_revision', None)
 
         def worker() -> None:
-            self._write_schedule_alarm_settings_payload(payload, settings_path=settings_path, save_ticket=save_ticket)
+            self._write_schedule_alarm_settings_payload(payload, settings_path=settings_path, save_ticket=save_ticket,
+                                                        distribution_token=distribution_token)
 
         try:
             threading.Thread(target=worker, name="schedule-alarm-settings-save", daemon=True).start()
@@ -6386,6 +6483,9 @@ class BossTimerApp:
         self.discord_bot_voice_bridge_heartbeat_last_sent_at = 0.0
 
     def _recover_discord_bot_runtime(self, reason: str) -> None:
+        from program_update_guard import active
+        if active():
+            return
         if (getattr(self, "discord_bot_exit_requested", False)
                 or getattr(self, "discord_bot_shutdown_in_progress", False)):
             return
@@ -7338,6 +7438,10 @@ class BossTimerApp:
 
     def _terminate_discord_bot_status_process(self, payload: dict[str, object] | None = None) -> bool:
         payload = payload or getattr(self, "discord_bot_last_status_payload", {}) or {}
+        service = getattr(self, 'program_update_service', None)
+        if service is not None and getattr(service, 'active', False):
+            # During an update never fall back to a PID-only taskkill.
+            return False  # The sequencer reaps its captured path/creation-time identities.
         pid_value = payload.get("pid")
         try:
             pid = int(pid_value)
@@ -7523,6 +7627,9 @@ class BossTimerApp:
         return True  # Recovery is deferred until configured bot connection begins.
 
     def _queue_discord_bot_stale_recovery(self, payload, *, automatic=False, orphan_only=False) -> bool:
+        from program_update_guard import active
+        if active():
+            return False
         """Replace an identifiable leftover bot once, without blocking Tk."""
         if getattr(self, "discord_bot_stale_recovery_in_progress", False):
             return True
@@ -7676,6 +7783,9 @@ class BossTimerApp:
         return coordinator
 
     def _connect_discord_gateway_at_startup(self) -> None:
+        from program_update_guard import active
+        if active() or getattr(self, '_program_update_startup_owned', False):
+            return  # The update sequencer starts the verified bot after GUI initialization.
         if self._is_discord_bot_process_alive():
             return
         self._apply_discord_bot_settings_to_runtime(self._load_discord_bot_settings())
@@ -7683,7 +7793,10 @@ class BossTimerApp:
             self._start_discord_bot_runtime(gateway_only=True)
 
     def _start_discord_bot_runtime(self, *, automatic: bool = False, handover_approved: bool = False, gateway_only: bool = False,
-                                   _stale_recovery_attempted: bool = False) -> bool:
+                                   _stale_recovery_attempted: bool = False, update_resume: bool = False) -> bool:
+        from program_update_guard import blocked, active, launch_gate
+        if blocked() or (active() and not update_resume):
+            return False
         if (getattr(self, "discord_bot_exit_requested", False)
                 or getattr(self, "discord_bot_shutdown_in_progress", False)):
             return False
@@ -7782,14 +7895,17 @@ class BossTimerApp:
             self.notice_output_secret = uuid.uuid4().hex
             env['BOSS_TIMER_NOTICE_SECRET'] = self.notice_output_secret
             Path(self._get_discord_bot_config_storage_path() + '.notice.secret').write_text(self.notice_output_secret, encoding='utf-8')
-            self.discord_bot_process = subprocess.Popen(
-                command,
-                cwd=get_app_root(),
-                env=env,
-                creationflags=creationflags,
-            )
+            with launch_gate():
+                self.discord_bot_process = subprocess.Popen(
+                    command,
+                    cwd=get_app_root(),
+                    env=env,
+                    creationflags=creationflags,
+                )
             self.discord_bot_process_profile = self._get_discord_bot_config_storage_path()
-        except OSError as exc:
+        except (OSError, ValueError, TimeoutError) as exc:
+            if blocked():
+                return False
             self.discord_bot_process = None
             self.discord_bot_running = False
             self._refresh_discord_bot_status_ui()
@@ -7877,6 +7993,9 @@ class BossTimerApp:
         self,
         payload: dict[str, object],
     ) -> tuple[bool, str]:
+        from program_update_guard import active
+        if active():
+            return False, '전체 업데이트 중에는 봇 재접속이 차단됩니다.'
         if (getattr(self, "discord_bot_exit_requested", False)
                 or getattr(self, "discord_bot_shutdown_in_progress", False)):
             return False, "프로그램 또는 봇 종료 중이라 재접속 요청을 취소했습니다."
@@ -8443,6 +8562,7 @@ class BossTimerApp:
 
     def _refresh_schedule_window_title(self) -> None:
         title_text = self._get_schedule_window_title_text()
+        self._refresh_distribution_settings_button()
         if self.schedule_window is not None and self.schedule_window.winfo_exists():
             try:
                 self.schedule_window.title(title_text)
@@ -9095,6 +9215,7 @@ class BossTimerApp:
         return items
 
     def _build_github_fixed_boss_items(self) -> list[dict[str, object]]:
+        from fixed_boss_aliases import fixed_entry_id
         items: list[dict[str, object]] = []
         for item in getattr(self, "fixed_boss_entries", []):
             boss_name = str(item.get("boss_name") or "").strip()
@@ -9107,6 +9228,7 @@ class BossTimerApp:
             items.append(
                 {
                     "boss_name": boss_name,
+                    "web_identity": fixed_entry_id(item, getattr(self, "_get_canonical_boss_name", None)),
                     "time_text": self._normalize_fixed_boss_time_text(str(item.get("time_text") or "00:00:00")),
                     "days": days,
                     "repeat_mode": repeat_mode,
@@ -10246,6 +10368,7 @@ class BossTimerApp:
         preserved_by_identity: dict[tuple[str, str, str, str, str], tuple[str, str]],
         preserved_by_name: dict[str, tuple[str, str]],
     ) -> dict[str, object] | None:
+        from fixed_boss_aliases import fixed_entry_id
         if not isinstance(raw_item, dict):
             return None
         boss_name = str(raw_item.get("boss_name") or "").strip()
@@ -10272,6 +10395,7 @@ class BossTimerApp:
             bg_color = preserved_bg_color
         return {
             "boss_name": boss_name,
+            "web_identity": fixed_entry_id(raw_item, getattr(self, "_get_canonical_boss_name", None)),
             "time_text": time_text,
             "days": days,
             "repeat_mode": repeat_mode,
@@ -12717,7 +12841,7 @@ class BossTimerApp:
             deduped[dedupe_key] = normalized
         return sorted(
             deduped.values(),
-            key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")),
+            key=event_sort_key,
         )
 
     def _normalize_schedule_active_items(self, items: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -15550,21 +15674,23 @@ class BossTimerApp:
     def _get_schedule_visible_row_sort_key(
         self,
         row: tuple[datetime, str, str, str, str, str, str, str, str, dict[str, object], dict[str, object]],
-    ) -> tuple[datetime, int, str]:
+    ) -> tuple[datetime, int, datetime, int]:
         return (
             self._get_schedule_display_second_sort_datetime(row[0]),
             self._get_schedule_break_row_sort_priority(str(row[8] or "")),
-            str(row[1] or ""),
+            row[0],
+            input_order(row[9]) if isinstance(row[9], dict) else 0,
         )
 
-    def _get_schedule_share_row_sort_key(self, entry: dict[str, object]) -> tuple[datetime, int, str]:
+    def _get_schedule_share_row_sort_key(self, entry: dict[str, object]) -> tuple[datetime, int, datetime, int]:
         scheduled_at = entry.get("scheduled_at")
         if not isinstance(scheduled_at, datetime):
             scheduled_at = datetime.max
         return (
             self._get_schedule_display_second_sort_datetime(scheduled_at),
             self._get_schedule_break_row_sort_priority(str(entry.get("kind") or "")),
-            str(entry.get("boss_text") or ""),
+            scheduled_at,
+            input_order(entry),
         )
 
     def _insert_schedule_break_rows_into_visible_rows(
@@ -17558,13 +17684,13 @@ class BossTimerApp:
             if cutoff_datetime is not None and scheduled_at >= cutoff_datetime:
                 continue
             future_rows.append((scheduled_at, boss_name))
-        previous_rows.sort(key=lambda row: (row[0], row[1]))
+        previous_rows.sort(key=lambda row: row[0])
         if previous_rows:
             previous_time, previous_boss = previous_rows[-1]
             self.schedule_previous_boss_var.set(f"[{previous_time.strftime('%H:%M:%S')}] {previous_boss}")
         else:
             self.schedule_previous_boss_var.set("지나간 보스 없음")
-        future_rows.sort(key=lambda row: (row[0], row[1]))
+        future_rows.sort(key=lambda row: row[0])
         maintenance_row = (
             (next_maintenance_datetime, "정기점검")
             if isinstance(next_maintenance_datetime, datetime) and next_maintenance_datetime >= reference_now
@@ -17832,6 +17958,7 @@ class BossTimerApp:
         return (
             2,
             time_sort,
+            input_order(item) if isinstance(item, dict) else 0,
             chapter_order,
             boss_order,
             boss_name,
@@ -19387,7 +19514,7 @@ class BossTimerApp:
         self.schedule_second_precision_offset_var.set(0.0)
         self.schedule_second_precision_offset_value_var.set(self._format_schedule_second_precision_offset_text(0.0))
         self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
-        self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+        self.schedule_events.sort(key=event_sort_key)
         self._save_schedule_state(mark_github_dirty=True)
         self._refresh_schedule_tree_scope()
         self.schedule_second_precision_offset_target_key = raw_key
@@ -19442,7 +19569,7 @@ class BossTimerApp:
                 restored_identity = previous_identity
         cleared_count = self._clear_schedule_second_precision_offsets_for_raw_keys({raw_key})
         self.schedule_events = self._normalize_schedule_event_items(self.schedule_events)
-        self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+        self.schedule_events.sort(key=event_sort_key)
         self._save_schedule_state(mark_github_dirty=True)
         self._refresh_schedule_tree_scope()
         self.schedule_second_precision_offset_target_key = raw_key
@@ -20092,6 +20219,7 @@ class BossTimerApp:
                     "kind": "event",
                     "scheduled_at": scheduled_at,
                     "effective_end_at": self._get_schedule_item_effective_end_datetime(item),
+                    "input_order": input_order(item),
                     "time_text": scheduled_at.strftime("%H:%M:%S"),
                     "input_clock_text": self._format_schedule_clock_text_for_input(
                         scheduled_at, "second" if scheduled_at.second else item),
@@ -33262,6 +33390,7 @@ class BossTimerApp:
         item: dict[str, object] | None = None,
         boss_name: object | None = None,
     ) -> list[str]:
+        from fixed_boss_aliases import voice_name_candidates
         seen: set[str] = set()
         candidates: list[str] = []
 
@@ -33274,12 +33403,18 @@ class BossTimerApp:
             candidates.append(cleaned)
 
         if isinstance(item, dict):
+            if item.get("is_fixed"):
+                for name in voice_name_candidates(item.get("boss_name")):
+                    add_candidate(name)
             add_candidate(self._get_schedule_boss_display_name(item, prefer_alias=True))
             add_candidate(self._get_schedule_boss_display_name(item, prefer_alias=False))
             for key in ("boss_name", "display_name", "raw_name"):
                 add_candidate(item.get(key))
         add_candidate(boss_name)
 
+        for base_name in list(candidates):
+            for alias in voice_name_candidates(base_name):
+                add_candidate(alias)
         for base_name in list(candidates):
             canonical_name = self._get_canonical_boss_name(base_name) or base_name
             add_candidate(canonical_name)
@@ -40866,7 +41001,7 @@ class BossTimerApp:
                         break
         except tk.TclError:
             return []
-        items.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+        items.sort(key=event_sort_key)
         return items
 
     def _is_schedule_input_compact_mode(self) -> bool:
@@ -43352,7 +43487,7 @@ class BossTimerApp:
                 except (TypeError, ValueError):
                     continue
             self.schedule_second_precision_offsets = self._normalize_schedule_second_precision_offsets(self.schedule_second_precision_offsets)
-        self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+        self.schedule_events.sort(key=event_sort_key)
         self.schedule_control_events.sort(key=lambda item: item.get("scheduled_at") or datetime.max)
         self.schedule_tree_deleted_backup = None
         self.schedule_status_var.set(f"{len(self.schedule_tree_pending_restore_identities)}건의 스케쥴을 복구했습니다.")
@@ -44769,7 +44904,7 @@ class BossTimerApp:
                 next_time += timedelta(seconds=respawn_seconds)
         if appended_events:
             self.schedule_events.extend(appended_events)
-            self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+            self.schedule_events.sort(key=event_sort_key)
 
     def _on_schedule_view_date_changed(self, _event=None) -> None:
         view_datetime = self._get_schedule_view_datetime()
@@ -46464,7 +46599,7 @@ class BossTimerApp:
             preserved_active_entries.append(item)
         self.schedule_events = preserved_schedule_events + schedule_entries
         self.schedule_active_entries = preserved_active_entries + active_entries
-        self.schedule_events.sort(key=lambda item: (item.get("scheduled_at") or datetime.max, str(item.get("display_name") or item.get("boss_name") or "")))
+        self.schedule_events.sort(key=event_sort_key)
         self.schedule_active_entries.sort(key=lambda item: str(item.get("display_name") or item.get("boss_name") or ""))
         return overwritten_count
 
@@ -47061,6 +47196,7 @@ class BossTimerApp:
         overwrite_cutoff_by_raw_key: dict[str, datetime] | None = None,
     ) -> bool:
         generation_reference_datetime = reference_datetime
+        parsed_items = assign_input_order(parsed_items, [*self.schedule_events, *self.schedule_active_entries])
         control_generation_reference_datetime = start_datetime if isinstance(start_datetime, datetime) else reference_datetime
         normalized_overwrite_cutoff_by_raw_key = {
             str(raw_key or "").strip(): cutoff
@@ -47788,6 +47924,20 @@ class BossTimerApp:
         profile_init_dir = self._get_schedule_server_profile_init_dir()
         if profile_init_dir:
             os.makedirs(profile_init_dir, exist_ok=True)
+
+    def _apply_declared_distribution_defaults(self) -> None:
+        # Only a shipped executable consumes a deployment declaration.
+        if not bool(getattr(sys, "frozen", False)):
+            return
+        from distribution_defaults import apply_declared_defaults, DistributionDefaultsError
+        try:
+            apply_declared_defaults(get_resource_root(), get_user_config_dir(),
+                                    season=self._get_active_schedule_server_profile_season_key() if self.schedule_server_profile_id else '',
+                                    server=str(self.schedule_server_profile_id or ''))
+            from distribution_defaults import revision_token
+            self._distribution_settings_revision = revision_token(get_user_config_dir())
+        except Exception as exc:
+            raise DistributionDefaultsError(str(exc)) from exc
 
     def _seed_init_directory_from_resources(self) -> None:
         self._ensure_init_dir()
@@ -51479,8 +51629,12 @@ class BossTimerApp:
         from runtime_storage import atomic_write
         output = StringIO()
         config.write(output)
-        atomic_write(CONFIG_PATH, output.getvalue().encode("utf-8"))
-        self._save_default_settings_seed(config["settings"])
+        def persist():
+            atomic_write(CONFIG_PATH, output.getvalue().encode("utf-8"))
+            self._save_default_settings_seed(config["settings"])
+        from distribution_defaults import save_if_current
+        if not save_if_current(get_user_config_dir(), getattr(self, '_distribution_settings_revision', None), persist):
+            self._append_debug_log('settings_save_skipped_newer_distribution')
 
     def _save_default_settings_seed(self, runtime_settings: configparser.SectionProxy | dict[str, str]) -> None:
         seed_config = configparser.ConfigParser()
@@ -53488,6 +53642,56 @@ class BossTimerApp:
     def _schedule_tutorial_is_running(self) -> bool:
         controller = getattr(self, "schedule_tutorial_controller", None)
         return bool(controller is not None and controller.running)
+
+    def _refresh_distribution_settings_button(self) -> None:
+        if not self._widget_available(getattr(self, 'schedule_window', None)):
+            return
+        button = getattr(self, 'schedule_distribution_settings_button', None)
+        master = self._is_master_developer_mode_enabled()
+        if master and not self._widget_available(button):
+            button = tk.Button(self.schedule_window, text='배포설정', font=self.percent_font,
+                               bg='#0f766e', fg='white', activebackground='#115e59', activeforeground='white',
+                               relief='raised', bd=1, highlightthickness=0, cursor='hand2',
+                               command=self._open_distribution_settings)
+            self.schedule_distribution_settings_button = button
+            self._bind_hover_button(button, '#0f766e', '#115e59', 'white', 'white')
+        if self._widget_available(button):
+            if master:
+                button.place(x=SCHEDULE_WINDOW_WIDTH-218, y=SCHEDULE_WINDOW_HEIGHT-46, width=96, height=26)
+            else:
+                button.place_forget()
+        banner = getattr(self, 'schedule_banner_check', None)
+        if self._widget_available(banner):
+            banner.place(x=SCHEDULE_WINDOW_WIDTH-(322 if master else 218), y=SCHEDULE_WINDOW_HEIGHT-46, width=96, height=26)
+
+    def _get_distribution_settings_sources(self) -> dict:
+        import hashlib
+        data = Path(get_user_config_dir())
+        server = str(self.schedule_server_profile_id or '')
+        return dict(settings=CONFIG_PATH,
+                    boss_definition=self._get_schedule_boss_definitions_storage_path(),
+                    areas=self._get_schedule_area_definitions_storage_path(),
+                    fixed=self._get_schedule_fixed_bosses_storage_path(),
+                    metrics=self._get_schedule_boss_metrics_storage_path(),
+                    breaks=self._get_schedule_break_rules_storage_path(),
+                    alarm=self._get_schedule_alarm_settings_storage_path(),
+                    voice=EDGE_TTS_CONFIG_PATH, music=BACKGROUND_MUSIC_SETTINGS_PATH,
+                    notice=data/'notice_data'/(hashlib.sha256(server.encode('utf-8')).hexdigest()+'.json') if server else None,
+                    spectrum=data/'web_service/boss_spectrum.json',
+                    font_sizes=data/'web_service/font_settings.json')
+
+    def _open_distribution_settings(self) -> None:
+        if not self._is_master_developer_mode_enabled():
+            return
+        existing = getattr(self, 'distribution_settings_window', None)
+        if existing is not None and self._widget_available(existing.window):
+            existing.window.lift();existing.window.focus_force();return
+        try:
+            from distribution_settings_ui import DistributionSettingsWindow
+            self.distribution_settings_window = DistributionSettingsWindow(self, get_user_config_dir(), get_app_root())
+        except Exception as exc:
+            self._show_centered_messagebox('showerror', '배포설정',
+                                           '배포설정 창을 열지 못했습니다.\n'+str(exc), parent=self.schedule_window)
 
     def _open_schedule_tutorial(self) -> None:
         controller = getattr(self, "schedule_tutorial_controller", None)
@@ -56525,6 +56729,7 @@ class BossTimerApp:
         operation, so an existing non-empty file must never be replaced by
         that temporary list.
         """
+        from fixed_boss_aliases import fixed_entry_id
         self._ensure_init_dir()
         fixed_bosses_path = self._get_schedule_fixed_bosses_storage_path()
         os.makedirs(os.path.dirname(fixed_bosses_path), exist_ok=True)
@@ -56558,8 +56763,12 @@ class BossTimerApp:
             )
             return False
 
-        lines = ["# 보스명|시간(HH:MM:SS)|요일(월,화,...)|반복(weekly/biweekly_current/biweekly_next)|기준일(YYYY-MM-DD)|사용여부(1/0)|글자색(#RRGGBB)|배경색(#RRGGBB)\n"]
+        lines = ["# 보스명|시간(HH:MM:SS)|요일(월,화,...)|반복(weekly/biweekly_current/biweekly_next)|기준일(YYYY-MM-DD)|사용여부(1/0)|글자색(#RRGGBB)|배경색(#RRGGBB)|웹연결ID\n"]
         for item in normalized_entries:
+            # Initial date repair can run before the name lookup is initialized.
+            # Defer new IDs then, so existing display aliases keep their identity.
+            resolve_name = getattr(self, "_get_canonical_boss_name", None) if hasattr(self, "boss_name_lookup_map") else None
+            web_identity = fixed_entry_id(item, resolve_name) if resolve_name or item.get("web_identity") else ""
             lines.append(
                 f"{str(item.get('boss_name') or '').strip()}|"
                 f"{self._normalize_fixed_boss_time_text(str(item.get('time_text') or '00:00:00'))}|"
@@ -56568,7 +56777,8 @@ class BossTimerApp:
                 f"{self._normalize_fixed_boss_anchor_date_text(item.get('anchor_date'))}|"
                 f"{'1' if bool(item.get('enabled', True)) else '0'}|"
                 f"{self._normalize_hex_color(str(item.get('text_color') or DEFAULT_FIXED_BOSS_TEXT_COLOR), DEFAULT_FIXED_BOSS_TEXT_COLOR)}|"
-                f"{self._normalize_hex_color(str(item.get('bg_color') or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR)}\n"
+                f"{self._normalize_hex_color(str(item.get('bg_color') or DEFAULT_FIXED_BOSS_BG_COLOR), DEFAULT_FIXED_BOSS_BG_COLOR)}"
+                f"{'|' + web_identity if web_identity else ''}\n"
             )
         temporary_path = ""
         try:
@@ -56593,6 +56803,7 @@ class BossTimerApp:
             return False
 
     def _load_fixed_boss_definitions(self) -> list[dict[str, object]]:
+        from fixed_boss_aliases import fixed_entry_id
         self._ensure_init_dir()
         fixed_bosses_path = self._get_schedule_fixed_bosses_storage_path()
         if not os.path.exists(fixed_bosses_path):
@@ -56633,6 +56844,8 @@ class BossTimerApp:
                     entries.append(
                         {
                             "boss_name": boss_name,
+                            **({"web_identity": fixed_entry_id(dict(boss_name=boss_name, web_identity=parts[8]))}
+                               if len(parts) > 8 and re.fullmatch(r"[0-9a-f]{24}", parts[8]) else {}),
                             "time_text": self._normalize_fixed_boss_time_text(parts[1]),
                             "days": days,
                             "repeat_mode": repeat_mode,
@@ -57677,6 +57890,7 @@ class BossTimerApp:
         self._bind_fixed_boss_scroll_recursive(self.fixed_boss_rows_frame)
 
     def _apply_fixed_boss_update(self) -> None:
+        from fixed_boss_aliases import fixed_entry_id
         if self.fixed_boss_selected_index is None or not (0 <= self.fixed_boss_selected_index < len(self.fixed_boss_entries)):
             self.fixed_boss_inline_status_var.set("수정할 고정보스를 목록에서 먼저 선택하세요.")
             self.fixed_boss_status_var.set("수정할 고정보스를 먼저 선택하세요.")
@@ -57686,6 +57900,7 @@ class BossTimerApp:
         if entry is None:
             return
         selected_index = self.fixed_boss_selected_index
+        entry["web_identity"] = fixed_entry_id(self.fixed_boss_entries[selected_index], self._get_canonical_boss_name)
         if self.fixed_boss_entries[selected_index] == entry:
             self.fixed_boss_status_var.set("변경된 고정보스 설정이 없습니다.")
             self._set_fixed_boss_add_button_active(False)
@@ -59510,7 +59725,7 @@ class BossTimerApp:
             ("목록", "#e0f2fe", "#075985", self._refresh_github_server_list, 228, 46, 46),
             ("동기화", "#0ea5e9", "#ffffff", self._sync_selected_github_schedule, 280, 46, 58),
             ("서버 업로드", "#0284c7", "#ffffff", self._open_github_data_upload_dialog, 344, 46, 118),
-            ("업데이트 확인", "#475569", "#ffffff", self.open_ai_update_center, 468, 46, 118),
+            ("업데이트 관리", "#475569", "#ffffff", self.open_ai_update_center, 468, 46, 118),
             ("임시점검", "#dc2626", "#ffffff", self._open_temporary_maintenance_dialog, 638, 87, 70),
             ("통계", "#0f766e", "#ffffff", self.open_log_stats_window, 794, 80, 110),
             ("정기점검", "#2563eb", "#ffffff", self._open_regular_maintenance_dialog, 714, 87, 70),
@@ -60316,6 +60531,7 @@ class BossTimerApp:
         )
         self.schedule_banner_check.place(x=SCHEDULE_WINDOW_WIDTH - 218,
                                         y=SCHEDULE_WINDOW_HEIGHT - 46, width=96, height=26)
+        self._refresh_distribution_settings_button()
         self._ensure_schedule_web_button()
 
     def _initialize_desktop_banner(self) -> None:
@@ -68663,6 +68879,10 @@ class BossTimerApp:
         self.load_current_boss_log()
 
     def on_close(self) -> None:
+        if ((getattr(getattr(self, 'program_update_service', None), 'active', False)
+                or getattr(self, '_program_update_restoring', False))
+                and not getattr(self, '_program_update_close_ready', False)):
+            return
         if getattr(self, "discord_handover_busy", False):
             return
         self.discord_bot_exit_requested = True
@@ -68772,6 +68992,7 @@ class BossTimerApp:
 
 
 def main() -> None:
+    from distribution_defaults import DistributionDefaultsError
     configure_windows_dpi()
     scheduler_worker_requested = (
         SCHEDULE_STANDALONE_SCHEDULER_ARG in sys.argv[1:]
@@ -68790,8 +69011,38 @@ def main() -> None:
     configure_tk_scaling(root)
     if _startup_runtime is not None:
         _startup_runtime.attach(root)
+    if _startup_route_error:
+        error_view = BossTimerApp.__new__(BossTimerApp)
+        error_view.root = root
+        if _startup_runtime is not None:
+            _startup_runtime.finish()
+        root.title('전체 업데이트 · 복구 확인 필요')
+        root.geometry('560x180')
+        root.deiconify()
+        error_view._show_centered_messagebox('showerror', '업데이트 실행 중단',
+            '업데이트 기록 또는 실행파일을 확인하지 못해 설정을 읽기 전에 실행을 중단했습니다.\n'
+            '기존 버전과 설정 백업을 보존한 상태입니다.\n\n' + _startup_route_error, parent=root)
+        root.destroy()
+        return
     try:
         app = BossTimerApp(root, scheduler_worker=scheduler_worker)
+        if not scheduler_worker and os.environ.get('BOSS_TIMER_UPDATE_JOB'):
+            app._get_program_update_service().resume()
+    except DistributionDefaultsError as exc:
+        error_view = BossTimerApp.__new__(BossTimerApp)
+        error_view.root = root
+        if _startup_runtime is not None:
+            _startup_runtime.finish()
+        root.title("보스전 타이머 · 배포 기본설정 적용 오류")
+        root.geometry("560x180")
+        root.deiconify()
+        error_view._show_centered_messagebox(
+            "showerror", "배포 기본설정 적용 실패",
+            "배포 기본설정을 적용하지 못해 실행을 중단했습니다.\n"
+            "아래 오류 내용을 확인한 뒤 다시 실행해주세요.\n"
+            "기존 설정과 적용 전 백업은 삭제하지 마세요.\n\n" + str(exc), parent=root)
+        root.destroy()
+        return
     except PermissionError as exc:
         # Initialization stopped before any inaccessible settings were loaded.
         # Reuse the normal centered popup with startup-safe default fonts.

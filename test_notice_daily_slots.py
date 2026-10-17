@@ -185,6 +185,32 @@ class DailySlotTests(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.event('overnight_once')['tts_values']['_slot_plan']['kind'], 'timer')
 
+    def test_dawn_opportunity_starts_at_2130_and_requires_completed_boss_notice(self):
+        self.snapshot['events'] = [self.dawn_row(), self.row('경계 전', 21, 29, star=True),
+                                   self.row('경계 보스', 21, 30, star=True), self.row('늦은 보스', 22, star=True)]
+        self.refresh()
+        event = self.event('overnight_once')
+        self.assertEqual(event['tts_values']['_slot_plan']['boss_name'], '경계 보스')
+        self.assertEqual(event['valid_from'], self.now.replace(hour=21, minute=29).isoformat())
+        self.now = self.now.replace(hour=21, minute=29)
+        context = self.context(21, kind='boss', boss_name='경계 보스',
+                               scheduled_at=self.now.replace(minute=30))
+        self.assertIsNone(self.store.delivery_token(event['id']))
+        self.assertTrue(self.store.complete_delivery(self.store.delivery_token(event['id'], opportunity=context)))
+        self.refresh()
+        self.assertIsNone(self.store.delivery_token(event['id'], opportunity=dict(context, id='retry')))
+
+    def test_dawn_2130_chain_and_earlier_only_fallback(self):
+        self.snapshot['events'] = [self.dawn_row(), self.row('연타1', 21, 30, area='무스펠하임'),
+                                   self.row('연타2', 21, 31, area='무스펠하임')]
+        self.refresh()
+        self.assertEqual(self.event('overnight_once')['tts_values']['_slot_plan']['boss_name'], '연타1')
+        self.snapshot['events'] = [self.dawn_row(), self.row('경계 이전', 21, 29, star=True)]
+        self.refresh()
+        plan = self.event('overnight_once')['tts_values']['_slot_plan']
+        self.assertEqual(plan['kind'], 'timer')
+        self.assertEqual(plan['at'], self.now.replace(hour=23).isoformat())
+
     def test_dawn_midnight_boss_uses_2359_on_previous_date(self):
         midnight = (self.now + timedelta(days=1)).replace(hour=0)
         self.snapshot['events'] = [self.dawn_row(), dict(self.row('자정 보스', 23, star=True), scheduled_at=midnight.isoformat())]

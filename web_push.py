@@ -132,8 +132,13 @@ def validate_push_state(data):
         scope = row.get("scope")
         if not isinstance(scope, list) or len(scope) != 3 or any(not isinstance(s, str) or len(s) > 200 for s in scope):
             raise ValueError("invalid push scope")
+        device = row.get('device', '')
+        if not isinstance(device,str) or (device and not re.fullmatch(r'[a-f0-9]{32}',device)):
+            raise ValueError('invalid push device')
         result["subscribers"][visitor] = dict(subscription=validate_subscription(row.get("subscription")),
             prefs=validate_preferences(row.get("prefs")), epoch=row["epoch"], role=row["role"], ip=row["ip"], scope=scope)
+        if device:
+            result['subscribers'][visitor]['device'] = device
     return result
 
 
@@ -323,16 +328,33 @@ class PushRuntime:
                 if not client.get("epoch") or client.get("role") not in {"member", "guest"}:
                     raise ValueError("다시 로그인해주세요.")
                 scope = payload.get("scope")
-                data["subscribers"][visitor] = dict(subscription=validate_subscription(payload.get("subscription")),
+                subscription = validate_subscription(payload.get('subscription'))
+                device = payload.get('device', '')
+                if not isinstance(device,str) or (device and not re.fullmatch(r'[a-f0-9]{32}',device)):
+                    raise ValueError('푸시 기기 정보를 확인해주세요.')
+                # Cookies identify a login; the browser installation and push
+                # endpoint identify delivery. A new login must not leave its
+                # previous ON registration sending alongside the new OFF one.
+                for old, record in list(data['subscribers'].items()):
+                    if (old != visitor and (record['subscription']['endpoint'] == subscription['endpoint']
+                            or device and record.get('device') == device)):
+                        del data['subscribers'][old]
+                data["subscribers"][visitor] = dict(subscription=subscription,
                     prefs=validate_preferences(payload.get("prefs")), scope=scope,
                     epoch=client["epoch"], role=client["role"], ip=client["ip"])
+                if device:
+                    data['subscribers'][visitor]['device'] = device
             validate_push_state(data)
             if data != self.state:
                 write_push_state(self.root, policy, data)
                 self.state = data
                 self.signature = None
+                prefs = data['subscribers'].get(visitor, {}).get('prefs', {})
                 diagnostic(self.logger, "push_subscription_changed", enabled=payload.get("enabled") is not False,
-                           visitor=visitor[:8], subscriber_count=len(data["subscribers"]))
+                           visitor=visitor[:8], subscriber_count=len(data["subscribers"]),
+                           alarm_default_on=prefs.get('defaultOn'),
+                           alarm_overrides_on=sum(value is True for value in prefs.get('overrides', {}).values()),
+                           alarm_overrides_off=sum(value is False for value in prefs.get('overrides', {}).values()))
 
     def disable(self, context):
         if context.get("authenticated"):

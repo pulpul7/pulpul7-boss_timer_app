@@ -87,6 +87,36 @@ class NoticeRuntimeTests(unittest.TestCase):
         self.restart()
         self.assertEqual(self.runtime.session.plugin.open_management(), "1.1.0")
 
+    def test_declared_distribution_selects_bundled_once_and_keeps_personal_data(self):
+        from distribution_defaults import declare,apply_declared_defaults,json_bytes,DECLARATION
+        self.install('1.1.0');self.runtime.start();self.runtime.close()
+        before=self.runtime.updater.snapshot()
+        packages_before={p.relative_to(self.root).as_posix():p.read_bytes()
+            for p in (self.root/'update_ai/versions').rglob('*') if p.is_file()}
+        personal=self.root/'notice_data/personal.json';personal.parent.mkdir(exist_ok=True)
+        personal.write_bytes(b'{"settings":{"output_enabled":false},"events":{"kept":true},"history":[1]}')
+        original=personal.read_bytes()
+        resource=self.root/'bundle-fixture';(resource/'init').mkdir(parents=True)
+        (resource/'init/default_notice_module.json').write_bytes(json_bytes(dict(schema=1,use_bundled_once=True)))
+        (resource/DECLARATION).write_bytes(json_bytes(declare(resource,['notice_module'])))
+        result=apply_declared_defaults(resource,self.root)
+        self.assertTrue(result['applied'])
+        self.runtime.start()
+        self.assertEqual(self.runtime.session.version,self.bundled_version)
+        state=self.runtime.updater.snapshot()
+        self.assertEqual(state['runtime_loaded']['source'],'bundled')
+        self.assertEqual(state['packages'],before['packages'])
+        self.assertEqual(state['auto_enabled'],before['auto_enabled'])
+        self.assertEqual(personal.read_bytes(),original)
+        self.assertEqual(packages_before,{p.relative_to(self.root).as_posix():p.read_bytes()
+            for p in (self.root/'update_ai/versions').rglob('*') if p.is_file()})
+        backup=Path(result['backup'])/'update_ai/state.json'
+        self.assertEqual(json.loads(backup.read_bytes()),before)
+        self.install('1.2.0');self.runtime.close()
+        self.assertFalse(apply_declared_defaults(resource,self.root)['applied'])
+        self.runtime.start()
+        self.assertEqual(self.runtime.session.version,'1.2.0')
+
     def test_same_as_bundled_version_cannot_install(self):
         self.runtime.start()
         with self.assertRaises(UpdateError):

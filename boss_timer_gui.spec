@@ -63,6 +63,8 @@ tcl_root = python_root / "tcl"
 project_root = Path(globals().get("__file__", "boss_timer_gui.spec")).resolve().parent
 BUILD_VERSION = "v5.5.1"
 sys.path.insert(0, str(project_root))
+from distribution_defaults import read_declaration
+read_declaration(project_root)  # Fail before packaging a changed, stale declaration.
 from release_version import resolve_release_version
 BUILD_VERSION = resolve_release_version(BUILD_VERSION, project_root)
 BUILD_LAST_UPDATED = "2026-09-29"
@@ -113,6 +115,10 @@ def read_distribution_default_setting_keys() -> tuple[str, ...]:
 
 def build_distribution_font_size_seed(project, user_base, staging) -> list[tuple[str, str]]:
     """Bundle only validated per-font size numbers; never copy the runtime font settings file."""
+    from distribution_defaults import read_declaration
+    declared = read_declaration(project)
+    if declared and 'font_sizes' in declared[0]['groups']:
+        return [(str(project / 'web_assets/fonts/size_defaults.json'), 'web_assets/fonts')]
     folder = project / "web_assets" / "fonts"
     catalog = json.loads((folder / "catalog.json").read_text(encoding="utf-8"))
     allowed = {"system", *[row["id"] for row in catalog["fonts"]]}
@@ -141,6 +147,11 @@ def build_distribution_font_size_seed(project, user_base, staging) -> list[tuple
 
 def build_distribution_boss_spectrum_seed(project, user_base, staging) -> list[tuple[str, str]]:
     """Bundle shared light-theme color numbers, never runtime credentials."""
+    from distribution_defaults import read_declaration
+    declaration = read_declaration(project)
+    if declaration and 'spectrum' in declaration[0]['groups']:
+        return [(str(project / 'web_assets/boss_spectrum.json'), 'web_assets')]
+    from fixed_boss_aliases import migrate_spectrum_numbers
     numbers = {}
     paths = [project / "web_assets" / "boss_spectrum.json"]
     if user_base:
@@ -168,6 +179,7 @@ def build_distribution_boss_spectrum_seed(project, user_base, staging) -> list[t
                        and type(number) is int and 1 <= number <= 30}
         except (OSError, ValueError):
             continue
+    numbers = migrate_spectrum_numbers(numbers)
     target = staging / "boss_spectrum.json"
     target.write_text(json.dumps(dict(schema=2, target='background', numbers=numbers), ensure_ascii=False), encoding="utf-8")
     return [(str(target), "web_assets")]
@@ -177,6 +189,9 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
     staging_dir = project_root / "build" / "distribution_defaults"
     staging_dir.mkdir(parents=True, exist_ok=True)
     generated_datas: list[tuple[str, str]] = []
+    from distribution_defaults import config_keys
+    declared = read_declaration(project_root)
+    declared_groups = set(declared[0]['groups']) if declared else set()
 
     runtime_settings_path = project_root / "boss_timer_settings.ini"
     user_data_base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
@@ -211,6 +226,12 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
                         else:
                             seed_config['settings'].pop(key, None)
             seed_config["settings"].update(DISTRIBUTION_DEFAULT_SETTING_OVERRIDES)
+            if declared and pinned_path.is_file():
+                for key in config_keys(declared_groups):
+                    if key in pinned['settings']:
+                        seed_config['settings'][key] = pinned['settings'][key]
+                    else:
+                        seed_config['settings'].pop(key, None)
             background_path = str(seed_config["settings"].get("background_path", "") or "").strip()
             if background_path:
                 try:
@@ -229,7 +250,9 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
     runtime_alarm_path = project_root / "init" / "default_schedule_alarm_settings.json"
     if not runtime_alarm_path.exists():
         runtime_alarm_path = project_root / "schedule_alarm_settings.json"
-    if runtime_alarm_path.exists():
+    if 'alarm' in declared_groups:
+        generated_datas.append((str(runtime_alarm_path), 'init'))
+    elif runtime_alarm_path.exists():
         try:
             alarm_payload = json.loads(runtime_alarm_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
@@ -276,6 +299,11 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
             "schedule_area_definitions.txt",
             "schedule_fixed_bosses.txt",
         ):
+            declared_file_group = {'schedule_boss_metrics.json':'metrics', 'schedule_break_rules.json':'breaks',
+                                   'schedule_boss_definitions.txt':'boss_definition', 'schedule_area_definitions.txt':'areas',
+                                   'schedule_fixed_bosses.txt':'fixed'}.get(filename)
+            if declared_file_group in declared_groups:
+                continue
             if filename in {"schedule_boss_metrics.json", "schedule_boss_definitions.txt",
                             "schedule_area_definitions.txt", "schedule_fixed_bosses.txt"} and (project_root / "init" / filename).is_file():
                 continue
@@ -287,6 +315,10 @@ def build_distribution_default_seed_datas() -> list[tuple[str, str]]:
             generated_datas.append((str(seed_path), "init"))
     generated_datas += build_distribution_font_size_seed(project_root, user_data_base, staging_dir)
     generated_datas += build_distribution_boss_spectrum_seed(project_root, user_data_base, staging_dir)
+    if 'notice' in declared_groups:
+        notice_seed = staging_dir / 'notice_defaults.json'
+        shutil.copy2(project_root / 'init/default_notice_settings.json', notice_seed)
+        generated_datas.append((str(notice_seed), 'notice_module/payload'))
     return generated_datas
 
 
@@ -339,12 +371,15 @@ build_metadata_path = write_build_metadata()
 
 datas = [
     (str(build_metadata_path), "."),
+    (str(project_root / "UPDATE_POLICY.md"), "."),
 ]
 datas += collect_tree(project_root / "assets", "assets")
 datas += collect_tree(project_root / "web_assets", "web_assets", excluded_relative_paths={"fonts/size_defaults.json", "boss_spectrum.json"})
 # Trusted fallback sources, loaded through notice_runtime rather than Analysis
 # imports. Downloads override these without rebuilding the executable.
-datas += collect_tree(project_root / "notice_module", "notice_module")
+datas += collect_tree(project_root / "notice_module", "notice_module",
+                      excluded_relative_paths={'payload/notice_defaults.json'}
+                      if read_declaration(project_root) and 'notice' in read_declaration(project_root)[0]['groups'] else set())
 datas += collect_tree(
     project_root / "init",
     "init",
@@ -390,6 +425,7 @@ a = Analysis(
         # Bundle the current HTML/CSS/JS/login modules in PYZ; no separate
         # editable HTML or developer web settings belong in the release ZIP.
         "web_service_worker",
+        "web_persistent_runtime",
         "web_push",
         "pywebpush",
         "py_vapid",

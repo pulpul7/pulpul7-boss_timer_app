@@ -107,6 +107,38 @@ class BossCatalogTests(unittest.TestCase):
         self.assertEqual(after[0]["label"], "티르 새약칭")
         self.assertEqual(next(row for row in after if row["name"] == "지옥성채")["label"], "새 성채")
 
+    def test_fixed_rename_preserves_catalog_identity_and_configured_colors(self):
+        from fixed_boss_aliases import GROUPS
+        from web_schedule_snapshot import _major, _web_colors
+        app, _ = app_fixture()
+        for canonical, aliases in GROUPS:
+            for name in aliases:
+                with self.subTest(name=name):
+                    app.fixed_boss_entries = [dict(boss_name=name)]
+                    row = next(row for row in _collect_catalog(app) if row['id'] == _catalog_id('fixed', canonical))
+                    self.assertTrue(row['legacy_ids'])
+                    if canonical in {'쟁탈전', '방어전', '점령전', '길던'}:
+                        self.assertTrue(_major('fixed', name, False))
+                    if canonical != '길던':
+                        self.assertEqual(_web_colors(app, 'fixed', name, '#123456', '#654321'), ('#123456', '#654321'))
+
+    def test_older_snapshots_restore_legacy_ids_and_merge_alias_duplicates(self):
+        from test_fixed_boss_aliases import old_id
+        data = self.snapshot()
+        prototype = dict(data['boss_catalog'][0], kind='fixed', name='니다벨 닻', label='니다벨 닻')
+        old, identity = old_id('fixed', '니다 닻'), _catalog_id('fixed', '니다벨 닻')
+        data['boss_catalog'] = [dict(prototype, id=old), dict(prototype, id=identity, major=True)]
+        data['events'] = [dict(id='b'*24, kind='fixed', name='니다 닻', catalog_id=old,
+                              scheduled_at=data['captured_at'], end_at=data['captured_at'], note='')]
+        data['active'] = [dict(name='니다 닻', status='출현 중', kind='fixed', catalog_id=old)]
+        result = validate_snapshot(data)
+        self.assertEqual(len(result['boss_catalog']), 1)
+        self.assertEqual(result['boss_catalog'][0]['id'], identity)
+        self.assertIn(old, result['boss_catalog'][0]['legacy_ids'])
+        self.assertTrue(result['boss_catalog'][0]['major'])
+        self.assertEqual(result['events'][0]['catalog_id'], identity)
+        self.assertEqual(result['active'][0]['catalog_id'], identity)
+
     def test_guild_contest_deadline_is_not_a_selectable_boss(self):
         app, _ = app_fixture()
         for name in ("길드 쟁탈전 신청마감", "길드쟁탈전신청마감", "길드  쟁탈전 신청 마감 ★", "쟁탈전 신청마감"):

@@ -634,7 +634,9 @@ class NoticeStore:
                 if event['id'].startswith('manual-') and event.get('category') == 'participation':
                     continue  # Source target, not an independent utterance.
                 slot = event.get('tts_values', {}).get('_slot')
-                if slot and any(row.get('slot') == slot and parse_time(row['at']).date() == now.date()
+                if slot and any(row.get('slot') == slot and
+                                (row.get('event_id') == event['id'] if slot == 'evening_third'
+                                 else parse_time(row['at']).date() == now.date())
                                 for row in state.get('delivery_ledger', [])):
                     continue
                 result.append(dict(id=event['id'], tts_text=event['tts_text'],
@@ -665,6 +667,9 @@ class NoticeStore:
                 state.setdefault("delivery_ledger", []).append({"at": encode_time(self.clock()), "event_id": key,
                                                                "opportunity_id": context['id'] if context else 'timer/' + str(event.get('tts_values', {}).get('_slot')) + '/' + parse_time(self.clock()).date().isoformat(),
                                                                "group": group_of(event), 'slot': event.get('tts_values', {}).get('_slot')})
+                representative = event.get('tts_values', {}).get('_representative')
+                if event.get('tts_values', {}).get('_slot') in {'evening_first', 'evening_second'} and representative:
+                    state['delivery_ledger'][-1]['representative'] = deepcopy(representative)
                 state["generation"] += 1  # Revalidate every pending notice against the shared quota.
             if event.get("policy", "once") != "once":
                 event["delivered_revision"] = None

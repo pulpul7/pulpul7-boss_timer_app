@@ -27,13 +27,17 @@ def records_visit(method, path, ip, raw_cookie):
     """Keep static assets, unknown paths and cookie-free local TLS probes out of visitor history."""
     if method not in {'GET', 'POST'} or path not in VISITOR_PATHS:
         return False
-    if method == 'GET' and path == '/api/session' and not raw_cookie:
+    if method == 'GET' and path in {'/', '/api/session'} and not raw_cookie:
         import ipaddress
         try:
-            if ipaddress.ip_address(ip).is_loopback:
-                return False
+            local = ipaddress.ip_address(ip).is_loopback
         except ValueError:
-            pass
+            local = False
+        # Strict cookies can be withheld on cross-site entry. The following
+        # same-site session fetch must see them before any visitor is replaced.
+        # Loopback session probes remain stateless; local browsers start at /.
+        if (path == '/' and not local) or (path == '/api/session' and local):
+            return False
     return True
 
 

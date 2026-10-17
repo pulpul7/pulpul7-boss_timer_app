@@ -8,9 +8,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 import web_access_settings as policy
-from web_access_runtime import AccessRuntime, VISITOR_COOKIE, SESSION_COOKIE
+from web_access_runtime import AccessRuntime, VISITOR_COOKIE, SESSION_COOKIE, records_visit
 from web_service_manager import WebServiceManager
 from web_shared_state import encrypt_state, decrypt_state, export_state, import_state
+from web_https_app import HTTPSApplication
 
 
 class AccessHandoverTests(unittest.TestCase):
@@ -70,6 +71,61 @@ class AccessHandoverTests(unittest.TestCase):
         self.assertTrue(self.authorized(self.access.data, member))
         self.assertTrue(self.authorized(self.access.data, guest))
         self.assertEqual(policy.readable_pins(self.access.data)['member']['value'], '1234')
+
+    def test_external_reentry_without_initial_cookies_preserves_remembered_login(self):
+        runtime = self.runtime(self.access.data)
+        for role in ('member', 'guest'):
+            cookie = self.cookies(self.access.data, role)
+            for _ in range(3):
+                landing = runtime.context('', '192.0.2.1', 'Chrome', secure=True,
+                    record_visit=records_visit('GET', '/', '192.0.2.1', ''))
+                self.assertEqual(landing['cookies'], [])
+                self.assertEqual(landing['visitor'], '')
+                confirmed = runtime.context(cookie, '192.0.2.1', 'Chrome', secure=True,
+                    record_visit=records_visit('GET', '/api/session', '192.0.2.1', cookie))
+                self.assertTrue(confirmed['authenticated'])
+                self.assertFalse(confirmed['reauth_required'])
+                self.assertFalse(any('Max-Age=0' in value for value in confirmed['cookies']))
+
+    def test_worker_restart_and_temporary_policy_failure_keep_existing_cookie_valid(self):
+        for role in ('member', 'guest'):
+            cookie = self.cookies(self.access.data, role)
+            for _ in range(2):
+                runtime = self.runtime(self.access.data)
+                runtime.available = False
+                unavailable = runtime.context(cookie, '192.0.2.1', 'Chrome', secure=True)
+                self.assertFalse(unavailable['available'])
+                self.assertEqual(unavailable['cookies'], [])
+                runtime.available = True
+                self.assertTrue(runtime.context(cookie, '192.0.2.1', 'Chrome', secure=True)['authenticated'])
+
+    def test_new_public_browser_registers_at_session_check_then_can_login(self):
+        runtime = self.runtime(self.access.data)
+        landing = runtime.context('', '192.0.2.1', 'Chrome', secure=True,
+            record_visit=records_visit('GET', '/', '192.0.2.1', ''))
+        self.assertEqual(landing['cookies'], [])
+        session = runtime.context('', '192.0.2.1', 'Chrome', secure=True,
+            record_visit=records_visit('GET', '/api/session', '192.0.2.1', ''))
+        self.assertTrue(session['visitor']);self.assertTrue(session['cookies'])
+        self.assertEqual(runtime.login(session, '1234', '192.0.2.1', secure=True)[0], 200)
+
+    def test_https_landing_does_not_overwrite_cookies_before_same_site_session_check(self):
+        runtime = self.runtime(self.access.data)
+        assets={name:b'page' for name in ('index.html','login.html','schedule.js','login.js','style.css')}
+        app=HTTPSApplication('test.duckdns.org',8766,Mock(),runtime,None,
+                             authority_check=lambda:True,assets=assets)
+        reply={}
+        def start(status,headers):reply.update(status=status,headers=headers)
+        def get(path,cookie=''):
+            return b''.join(app(dict(REQUEST_METHOD='GET',PATH_INFO=path,
+                HTTP_HOST='test.duckdns.org:8766',REMOTE_ADDR='192.0.2.1',HTTP_COOKIE=cookie,
+                **{'wsgi.url_scheme':'https'}),start))
+        with patch.object(runtime,'read_wait',return_value=0):
+            get('/')
+            self.assertFalse(any(name=='Set-Cookie' for name,_ in reply['headers']))
+            confirmed=json.loads(get('/api/session',self.cookies(self.access.data,'member')))
+            self.assertTrue(confirmed['authenticated'])
+            self.assertFalse(confirmed['reauth_required'])
 
     def test_changed_pin_expires_only_that_role(self):
         member = self.cookies(self.access.data, 'member')

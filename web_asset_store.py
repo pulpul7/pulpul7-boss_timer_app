@@ -63,7 +63,7 @@ def bundled_assets():
         from web_service_page import PAGE, SCRIPT, STYLE
         from web_service_login import LOGIN_PAGE, LOGIN_SCRIPT
         files = dict(zip(FILES, (PAGE, STYLE, SCRIPT, LOGIN_PAGE, LOGIN_SCRIPT,
-            b'{"schema":1,"asset_api":1,"login_api":2,"page_revision":94}')))
+            b'{"schema":1,"asset_api":1,"login_api":2,"page_revision":138}')))
     validate_assets(files)
     return files
 

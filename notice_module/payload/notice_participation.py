@@ -66,11 +66,11 @@ def first_opportunity(rows, day):
 
 
 def dawn_opportunity(rows, now):
-    """One upcoming 22:00~24:00 boss/chain, otherwise the 23:00 queue."""
+    """One upcoming 21:30~24:00 boss/chain, otherwise the 23:00 queue."""
     day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     end = day + timedelta(days=1)
     bosses = sorted([row for row in rows if eligible(row)
-                     and day.replace(hour=22) <= parse_time(row['scheduled_at']) <= end],
+                     and day.replace(hour=21, minute=30) <= parse_time(row['scheduled_at']) <= end],
                     key=lambda row: (parse_time(row['scheduled_at']), row['boss_name']))
     bosses = list({(row['boss_name'], parse_time(row['scheduled_at'])): row for row in bosses}.values())
     chains = [row for row in bosses if chapter(row) >= 5 and not row.get('fixed')]
@@ -110,6 +110,7 @@ def evening_notices(snapshot, state, now):
         name = target.get('display_name') or target['boss_name']
         other = ' 외 주요보스들이' if len(future) > 1 else ('이' if 0xAC00 <= ord(name[-1]) <= 0xD7A3 and (ord(name[-1])-0xAC00) % 28 else '가')
         values = {'알림제목': name, '시작시간': at.strftime('%m월 %d일 %H시 %M분'), '_start_date': at.date().isoformat(),
+                  '_representative': dict(boss_name=target['boss_name'], scheduled_at=target['scheduled_at']),
                   '_participation_name': name + other, '_manual_participation': target.get('manual_text', ''),
                   '_manual_source': target.get('manual_source', ''), '_manual_revision': target.get('manual_revision'),
                   '_midnight': at == end}
@@ -147,6 +148,10 @@ def evening_notices(snapshot, state, now):
 def slot_allowed(event, context, ledger, now):
     values = event.get('tts_values', {})
     slot, plan = values.get('_slot'), values.get('_slot_plan', {})
+    if slot == 'evening_third':
+        at = parse_time(plan.get('at'))
+        return bool(at and plan.get('kind') == 'timer' and at <= now < at + timedelta(minutes=2)
+                    and not any(row.get('event_id') == event['id'] for row in ledger))
     today = [row for row in ledger if parse_time(row['at']).date() == now.date()]
     if slot not in {'evening_first', 'evening_second', 'siege_noon', 'overnight_once'} or any(row.get('slot') == slot for row in today):
         return False

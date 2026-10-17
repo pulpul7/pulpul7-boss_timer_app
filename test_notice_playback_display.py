@@ -31,9 +31,9 @@ class PlaybackDisplayTests(unittest.TestCase):
         self.event.update(policy='participation_slot', tts_values={'_slot_plan': {}})
         self.assertIn('미정', playback_description(self.event))
 
-    def test_manual_participation_source_is_not_a_third_playback(self):
+    def test_manual_participation_source_is_not_independent_playback(self):
         self.event.update(id='manual-guild', category='participation')
-        self.assertEqual(playback_description(self.event), '대상 선정용 · 1차/2차 알림 참조')
+        self.assertEqual(playback_description(self.event), '대상 선정용 · 1·2·3차 알림 참조')
 
     def test_repeat_conditions_do_not_pretend_to_have_fixed_time(self):
         for policy, text in (('transfer_repeat', '판매 중'), ('deadline_repeat', '마감 전날부터'),

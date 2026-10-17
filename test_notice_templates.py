@@ -17,7 +17,7 @@ from test_notice_analysis import source, TRANSFER
 
 class CatalogTests(unittest.TestCase):
     def test_every_scenario_has_valid_default_and_example(self):
-        self.assertEqual(len(TEMPLATES), 42)
+        self.assertEqual(len(TEMPLATES), 43)
         for key, item in TEMPLATES.items():
             with self.subTest(key=key):
                 self.assertTrue(item["condition"])

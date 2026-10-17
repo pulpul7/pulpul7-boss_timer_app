@@ -91,6 +91,22 @@ class AssetSelectionTests(unittest.TestCase):
         self.manager.apply_page_update.assert_called_once_with(expected)
         self.assertEqual(updater.status()["state"], "applied")
 
+    def test_repository_update_applies_if_worker_is_still_on_old_files(self):
+        files = self.files(self.revision + 1)
+        version = self.install(files)
+        self.manager.status.return_value = dict(enabled=True, web_page_version='old-worker-files')
+        updater = self.update(files)
+        self.manager.apply_page_update.assert_called_once_with(version)
+        self.assertEqual(updater.status()['state'], 'applied')
+
+    def test_repository_update_skips_apply_only_when_worker_already_matches(self):
+        files = self.files(self.revision + 1)
+        version = self.install(files)
+        self.manager.status.return_value = dict(enabled=True, web_page_version=version)
+        updater = self.update(files)
+        self.manager.apply_page_update.assert_not_called()
+        self.assertEqual(updater.status()['state'], 'current')
+
     def local_files(self, files):
         folder = self.root / "input-assets"
         folder.mkdir()
@@ -98,7 +114,7 @@ class AssetSelectionTests(unittest.TestCase):
             (folder / name).write_bytes(raw)
         return str(folder)
 
-    def test_local_apply_reuses_restart_path_without_network_and_remembers_folder(self):
+    def test_local_apply_uses_shared_apply_path_without_network_and_remembers_folder(self):
         files = self.files(self.revision)
         folder = self.local_files(files)
         updater = WebPageUpdater(self.manager)
@@ -110,7 +126,7 @@ class AssetSelectionTests(unittest.TestCase):
         self.assertEqual(WebPageUpdater(self.manager).local_folder(), folder)
         self.assertEqual(updater.status()["state"], "applied")
 
-    def test_source_files_changed_under_debug_worker_still_restart(self):
+    def test_source_files_changed_under_debug_worker_request_apply(self):
         folder = self.local_files(self.bundled)
         self.manager.status.return_value = dict(enabled=True, web_page_version="old-worker-files")
         updater = WebPageUpdater(self.manager)

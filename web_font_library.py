@@ -148,6 +148,9 @@ class WebFontLibrary:
         return sizes
 
     def set_size_default(self, key, value):
+        from program_update_guard import active
+        if active(self.root.parent):
+            raise ValueError('전체 업데이트 중에는 기본 글꼴 크기 저장을 잠시 중지합니다.')
         valid_size_defaults({key: value})
         with file_transaction(self.path):
             rows, _, data, _ = self._rows()

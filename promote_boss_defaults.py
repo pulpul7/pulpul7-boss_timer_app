@@ -22,7 +22,7 @@ CONFIG_KEYS = {
 }
 
 
-def promote(root, data, *, apply=False):
+def promote(root, data, *, apply=False, include_spectrum=False):
     root, data = Path(root).resolve(), Path(data).resolve()
     inputs, writes, counts = {}, {}, {}
 
@@ -78,6 +78,17 @@ def promote(root, data, *, apply=False):
             else:
                 config["settings"].pop(key, None)
         writes[target] = config_bytes(config)
+    if include_spectrum:
+        from fixed_boss_aliases import migrate_spectrum_numbers
+        from web_boss_spectrum import read_numbers
+        spectrum = data / "web_service/boss_spectrum.json"
+        if not spectrum.is_file():
+            spectrum = root / "web_assets/boss_spectrum.json"
+        read(spectrum)
+        numbers = migrate_spectrum_numbers(read_numbers(spectrum))
+        value = (json.dumps(dict(schema=2, target="background", numbers=numbers), ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        writes[root / "web_assets/boss_spectrum.json"] = value
+        writes[data / "web_service/boss_spectrum.json"] = value
     manifest.update(refreshed_at=datetime.now().astimezone().isoformat(),
                     refreshed_groups=["boss", "fixed"], source_type="current_boss_settings")
     writes[baseline / "manifest.json"] = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
@@ -119,6 +130,7 @@ def promote(root, data, *, apply=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--include-spectrum", action="store_true")
     args = parser.parse_args()
     print(json.dumps(promote(Path(__file__).resolve().parent, Path(os.environ["APPDATA"]) / "BossTimer",
-                             apply=args.apply), ensure_ascii=False))
+                             apply=args.apply, include_spectrum=args.include_spectrum), ensure_ascii=False))

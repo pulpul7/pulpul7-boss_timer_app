@@ -66,7 +66,7 @@ class ScheduleNoticeTests(unittest.TestCase):
     def test_evening_and_dawn_boundaries_and_confirmed_only(self):
         self.snapshot['events'] = [self.row('before', '22T20:59:59'), self.row('start', '22T21:00:00'),
             self.row('midnight', '23T00:00:00'), self.row('gap', '23T00:00:00.500000'),
-            self.row('dawn', '23T00:00:01'), self.row('last', '23T05:59:59'),
+            self.row('excluded-early', '23T01:30:00'), self.row('dawn', '23T01:30:01'), self.row('last', '23T05:59:59'),
             self.row('hour', '22T22:00:00', precision='hour'), self.row('other', '22T22:00:00', area='아스가르드', star=False),
             self.row('absolute', '22T22:00:00', area='요툰하임', absolute=True),
             self.row('invasion', '22T22:00:00', is_invasion=True)]
@@ -241,7 +241,7 @@ class ScheduleHostTests(unittest.TestCase):
         namespace = {'datetime': datetime}
         exec(compile(ast.Module(body=[method], type_ignores=[]), 'snapshot-adapter', 'exec'), namespace)
         when = datetime(2026, 9, 22, 22, 0, 0, 123456)
-        app = SimpleNamespace(schedule_events=[dict(boss_name='히로킨', scheduled_at=when)],
+        app = SimpleNamespace(schedule_events=[dict(boss_name='히로킨', scheduled_at=when, created_at=when)],
             schedule_boss_definitions={'히로킨': {'area': '니플하임', 'absolute': False}},
             schedule_server_profile_id='odin9', current_season_no=18,
             _get_schedule_boss_definition_name=lambda row: row['boss_name'],
@@ -249,11 +249,23 @@ class ScheduleHostTests(unittest.TestCase):
             _infer_schedule_state_precision=lambda row: 'second',
             _is_schedule_invasion_item=lambda row: False,
             _get_schedule_reference_datetime=lambda: when,
-            _get_schedule_maintenance_cutoff_datetime=lambda now: None)
+            _get_schedule_maintenance_cutoff_datetime=lambda now: None,
+            _get_schedule_missing_boss_catalog=lambda: (('니플하임', '7챕', ('히로킨', 'active-only')),),
+            _get_schedule_default_server_open_datetime=lambda now: when.replace(hour=11),
+            _get_schedule_previous_maintenance_datetime=lambda now: when.replace(hour=8),
+            schedule_active_entries=[dict(boss_name='active-only', created_at=when, state='active')],
+            schedule_control_events=[dict(control_type='server_open', scheduled_at=when.replace(hour=11)),
+                                     dict(control_type='server_open', scheduled_at=when, historical_only=True)])
         before = deepcopy(app.schedule_events)
         result = namespace['_get_notice_schedule_snapshot'](app)
         self.assertEqual(result['events'][0]['scheduled_at'], when.isoformat())
         self.assertEqual(app.schedule_events, before)
+        self.assertEqual(result['input_boss_names'], ['히로킨', 'active-only'])
+        self.assertEqual([r['boss_name'] for r in result['input_entries']], ['히로킨', 'active-only'])
+        self.assertEqual(result['input_entries'][1]['state'], 'active')
+        self.assertEqual(result['input_entries'][0]['created_at'], when.isoformat())
+        self.assertEqual(len(result['control_events']), 1)
+        self.assertFalse(result['web_schedule_published'])
         app.discord_handover_busy = True
         self.assertIsNone(namespace['_get_notice_schedule_snapshot'](app))
 

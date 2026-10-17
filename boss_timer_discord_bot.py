@@ -7,6 +7,8 @@ Secrets are read from the per-user AppData config, never from source code.
 
 from __future__ import annotations
 
+from schedule_order import input_order
+
 from boss_view_labels import row_label, notice_label, strip_last_hit_marker
 
 import asyncio
@@ -507,15 +509,17 @@ def resolve_clip(relative_or_absolute: str) -> str:
 
 
 def voice_file(subdir: str, stem: str) -> str:
+    from fixed_boss_aliases import voice_name_candidates
     wanted = str(stem or "").strip()
-    for root_dir in (RESOURCE_ROOT, APP_ROOT):
-        target_dir = root_dir / "voice" / subdir
-        if not target_dir.is_dir():
-            continue
-        for extension in (".wav", ".mp3", ".m4a", ".aac", ".mp4"):
-            path = target_dir / f"{wanted}{extension}"
-            if path.is_file():
-                return str(path)
+    for name in voice_name_candidates(wanted) if subdir == "boss" else [wanted]:
+        for root_dir in (RESOURCE_ROOT, APP_ROOT):
+            target_dir = root_dir / "voice" / subdir
+            if not target_dir.is_dir():
+                continue
+            for extension in (".wav", ".mp3", ".m4a", ".aac", ".mp4"):
+                path = target_dir / f"{name}{extension}"
+                if path.is_file():
+                    return str(path)
     return ""
 
 
@@ -1243,6 +1247,7 @@ class ScheduleReader:
                 rows.append({
                     "scheduled_at": scheduled_at,
                     "name": name,
+                    "input_order": input_order(item),
                     "kind": "침공" if invasion else "일반",
                     "tier": tier,
                     "last_hit": bool(definition.get("last_hit", False)),
@@ -1267,7 +1272,7 @@ class ScheduleReader:
                     "text_color": str(entry.get("text_color") or "#FFFFFF"),
                     "bg_color": str(entry.get("bg_color") or "#0891B2"),
                 })
-        rows.sort(key=lambda item: (item["scheduled_at"], item["kind"], item["name"]))
+        rows.sort(key=lambda item: (item["scheduled_at"], item["kind"] == "고정", input_order(item)))
         return rows if limit is None else rows[:max(1, int(limit))]
 
 
@@ -1415,6 +1420,9 @@ class DiscordScheduleBot:
             self.gateway_last_heartbeat_latency = latency
 
     def _connection_is_blocked(self):
+        from program_update_guard import active
+        if active():
+            return True
         if STATUS.shutdown_requested.is_set():
             return True
         state = self._connection_state()
@@ -1422,6 +1430,9 @@ class DiscordScheduleBot:
                     or not state["voice_requested"] or state["voice_error"] or state["error"])
 
     def _send_allowed(self):
+        from program_update_guard import active
+        if active():
+            return False
         if STATUS.shutdown_requested.is_set():
             return False
         state = self._connection_state()
@@ -1981,6 +1992,11 @@ class DiscordScheduleBot:
         if not (getattr(permissions, "administrator", False) or getattr(permissions, "manage_guild", False)):
             await interaction.followup.send("Discord 서버 관리자 또는 서버 관리 권한이 필요합니다.", ephemeral=True)
             return
+        if operation == 'administrator_program_update':
+            from program_updater import UPDATE_ENABLED
+            if not UPDATE_ENABLED:
+                await interaction.followup.send('전체 업데이트는 준비 중입니다. 실제 적용 연결 승인을 기다리고 있습니다.', ephemeral=True)
+                return
         request_id = str(interaction.id)
         if not channel and operation == "administrator_connect":
             voice = getattr(getattr(interaction, "user", None), "voice", None)
@@ -1996,7 +2012,7 @@ class DiscordScheduleBot:
             await interaction.followup.send("관리자 요청을 프로그램에 전달하지 못했습니다. 프로그램의 연결 상태를 확인하세요.", ephemeral=True)
             return
         result_path = DISCORD_SCHEDULE_REQUEST_DIR / "results" / (request_id + ".json")
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + (650 if operation == "administrator_program_update" else 270 if operation == "administrator_web_update" else 90)
         while time.monotonic() < deadline:
             try:
                 result = json.loads(result_path.read_text(encoding="utf-8"))
@@ -2004,6 +2020,10 @@ class DiscordScheduleBot:
                 message = str(result.get("message") or "요청 완료")
                 for offset in range(0, len(message), 1900):
                     await interaction.followup.send(message[offset:offset+1900], ephemeral=True, allowed_mentions=self.discord.AllowedMentions.none())
+                if operation == 'administrator_program_update' and result.get('ok'):
+                    from runtime_storage import atomic_write
+                    atomic_write(result_path.with_suffix('.delivered.json'), json.dumps(
+                        dict(request_id=request_id, runtime=STATUS.runtime_id), ensure_ascii=False).encode('utf-8'))
                 return
             except FileNotFoundError:
                 pass
@@ -3310,10 +3330,18 @@ class DiscordScheduleBot:
                 ephemeral=True,
             )
 
-        @self.tree.command(name="웹서버", description="웹 실행 / 로그아웃 이름으로 웹 종료 / 단독 이름으로 강제 실행")
-        @self.discord.app_commands.describe(관리자이름="관리자 이름·ID, 또는 로그아웃 나츠 / 단독 나츠")
+        @self.tree.command(name="웹서버", description="웹 실행 / 로그아웃 이름 / 단독 이름 / 업데이트 비밀번호")
+        @self.discord.app_commands.describe(관리자이름="관리자 이름·ID, 로그아웃 이름, 단독 이름, 또는 업데이트 비밀번호")
         async def webserver_once(interaction: Any, 관리자이름: str) -> None:
             target = 관리자이름.strip()
+            parts = target.split()
+            if parts and parts[0] == "업데이트":
+                if parts != ["업데이트", "0714"]:
+                    if await self._defer_interaction_once(interaction):
+                        await interaction.followup.send("웹 업데이트 비밀번호가 올바르지 않습니다. 업데이트 뒤에 비밀번호를 입력해주세요.", ephemeral=True)
+                    return
+                await self._administrator_command(interaction, "administrator_web_update")
+                return
             operation = "administrator_web_retry"
             for prefix, action in (("로그아웃", "administrator_web_stop"), ("단독", "administrator_web_force")):
                 if target == prefix or target.startswith(prefix + " "):
@@ -3322,9 +3350,18 @@ class DiscordScheduleBot:
             await self._administrator_command(interaction, operation, target=target)
 
         @self.tree.command(name="보탐", description="스케쥴 조회 / 담당자 이름으로 접속 / 초읽기 / 메시지 보관 0~50")
-        @self.discord.app_commands.describe(동작="비우면 조회. +/++/+++는 1/2/3일 추가. 관리자, 담당자 이름, 접속, ?, 초읽기 또는 보관 개수 0~50")
+        @self.discord.app_commands.describe(동작="비우면 조회. 관리자, 접속, 초읽기, 보관 0~50, 업데이트 웹서버/전체 비밀번호")
         async def bosstimer_ansi(interaction: Any, 동작: str = "") -> None:
             동작 = 동작.strip()
+            update_parts = 동작.split()
+            if update_parts and update_parts[0] == "업데이트":
+                if len(update_parts) != 3 or update_parts[1] not in {"웹서버", "전체"} or update_parts[2] != "0714":
+                    if await self._defer_interaction_once(interaction):
+                        await interaction.followup.send("사용법: /보탐 업데이트 웹서버 비밀번호 또는 /보탐 업데이트 전체 비밀번호. 비밀번호를 확인해주세요.", ephemeral=True)
+                    return
+                await self._administrator_command(interaction,
+                    "administrator_web_update" if update_parts[1] == "웹서버" else "administrator_program_update")
+                return
             if re.fullmatch(r"\+{1,3}", 동작):
                 await self._handle_readonly_query(interaction, "schedule" + 동작)
                 return
@@ -4724,6 +4761,10 @@ class DiscordScheduleBot:
 
     async def _shutdown_watch_loop(self) -> None:
         while not STATUS.shutdown_requested.is_set():
+            from program_update_guard import blocked
+            if blocked():
+                STATUS.shutdown_requested.set()
+                break
             await asyncio.sleep(0.25)
         log("shutdown_requested")
         try:
@@ -5779,6 +5820,9 @@ class DiscordScheduleBot:
 
 
 def main() -> int:
+    from program_update_guard import blocked
+    if blocked():
+        return 0
     server = start_status_server()
     if server is None:
         return 1
@@ -5865,6 +5909,9 @@ def main() -> int:
     reserved_launch = os.environ.get("BOSS_TIMER_DISCORD_RETRY_RESERVED") == "1"
     while not STATUS.shutdown_requested.is_set():
         state = policy.snapshot()
+        if blocked():
+            STATUS.shutdown_requested.set()
+            break
         STATUS.update(standby=state["standby"], reconnect_attempts=state["retries"],
                       configuration_error=state["error"])
         if state["error"] or (state["retries"] >= MAX_RETRIES and not reserved_launch):

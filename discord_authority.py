@@ -306,6 +306,9 @@ class DiscordAuthority:
         threading.Thread(target=self._controller_watch, daemon=True, name="discord-local-controller").start()
 
     def _assert_profile(self):
+        from program_update_guard import blocked
+        if blocked():
+            raise AuthorityError('전체 업데이트 중에는 관리자 연결과 재접속이 차단됩니다.')
         if (getattr(self.app, "discord_bot_exit_requested", False)
                 or getattr(self.app, "discord_bot_shutdown_in_progress", False)):
             raise AuthorityError("프로그램 또는 봇 종료 중이라 관리자 연결 요청을 취소했습니다.")
@@ -521,6 +524,8 @@ class DiscordAuthority:
         metadata["web_public_available"] = self._web_publication_configured()
         metadata["web_recovery_protocol"] = 1
         metadata["web_standalone_protocol"] = 1
+        metadata["web_update_protocol"] = 1
+        metadata["program_update_protocol"] = 1
         return metadata
 
     def _presence(self, data, status, metadata):
@@ -745,7 +750,9 @@ class DiscordAuthority:
                 == (value.get("bot_user_id") or value.get("application_id"))}
         return checked
 
-    def start(self, *, remote=False, call=None, channel="", done=None, expected_owner=None, attempt=0):
+    def start(self, *, remote=False, call=None, channel="", done=None, expected_owner=None, attempt=0, resume_only=False):
+        from program_update_guard import require_idle
+        require_idle()
         self._assert_profile()
         if self.busy or self.releasing:
             if call:
@@ -761,7 +768,7 @@ class DiscordAuthority:
         self.incoming_progress_token = uuid.uuid4().hex
         self._progress("incoming", self.incoming_progress_token, "bot", "봇 연결 상태를 확인하고 있습니다.",
                        peer="Discord에서 요청한 관리자 접속" if remote else "디코 실행 · 관리자 접속", create=True)
-        threading.Thread(target=self._incoming, args=(remote, call, channel, done, expected_owner, attempt), daemon=True).start()
+        threading.Thread(target=self._incoming, args=(remote, call, channel, done, expected_owner, attempt, resume_only), daemon=True).start()
 
     def _answer_remote_call(self, call, result, message):
         try:
@@ -774,7 +781,7 @@ class DiscordAuthority:
         except Exception as exc:
             self.app._append_debug_log(f"administrator_call_reply_failed type={type(exc).__name__} error={exc!r}")
 
-    def _incoming(self, remote, call, channel, done, expected_owner, attempt=0):
+    def _incoming(self, remote, call, channel, done, expected_owner, attempt=0, resume_only=False):
         request_id = ""
         result, message = False, ""
         started_at = time.monotonic()
@@ -821,10 +828,14 @@ class DiscordAuthority:
                 self._progress("incoming", self.incoming_progress_token, "confirm", message, skipped=("handover",))
                 return
             live = self._live_data(existing, probe)
+            if resume_only and existing.get('owner'):
+                raise AuthorityError('업데이트 완료 · 담당자 기록이 있어 자동 송출 복원을 보류합니다. 봇은 대기합니다.')
             owner = live["members"].get(existing.get("owner"), {})
             if owner.get("runtime") != existing.get("owner_runtime"):
                 owner = {}
             verified_previous = None
+            if resume_only:
+                verified_previous = self.record.owner_stamp(existing)
             verified_kind = "operator_confirmed"
             if (existing.get("owner") and (existing.get("owner") != self.client
                     or existing.get("owner_runtime") != runtime) and not owner):
@@ -882,7 +893,7 @@ class DiscordAuthority:
             channel = str((call or {}).get("channel") or channel or self.app.discord_bot_voice_channel_id)
             if not channel.isdigit():
                 raise AuthorityError("입장할 음성채널을 설정하세요.")
-            if expected_owner is None and getattr(self.app, "discord_start_web_together", True):
+            if not resume_only and expected_owner is None and getattr(self.app, "discord_start_web_together", True):
                 start_web = getattr(self.app, "_start_web_runtime", None)
                 if callable(start_web):
                     def request_web():
@@ -997,7 +1008,7 @@ class DiscordAuthority:
             self._ui(lambda: self._finish(message, done, result,
                 retry=(lambda: self.start(remote=remote, channel=channel, done=done,
                     expected_owner=expected_owner, attempt=attempt + 1))
-                if not remote and not result and "승계 취소" not in message else None,
+                if not resume_only and not remote and not result and "승계 취소" not in message else None,
                 attempt=attempt), wait=False)
 
     def _wait_local_stop(self, runtime, request_id):
@@ -1428,7 +1439,11 @@ class DiscordAuthority:
         threading.Thread(target=worker, daemon=True, name="discord-query-routing").start()
 
     def command(self, payload, done):
-        if payload.get("operation") in {"administrator_web_retry", "administrator_web_stop", "administrator_web_force"}:
+        from program_update_guard import active
+        if active():
+            done(False, '전체 업데이트 중입니다. 완료 후 다시 요청해주세요.')
+            return
+        if payload.get("operation") in {"administrator_web_retry", "administrator_web_stop", "administrator_web_force", "administrator_web_update", "administrator_program_update"}:
             self.web_control.request(payload, done)
             return
         if payload.get("operation") in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:

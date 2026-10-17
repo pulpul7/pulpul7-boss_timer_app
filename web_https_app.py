@@ -12,10 +12,12 @@ from web_asset_store import bundled_assets
 from web_request_limits import READ_PATHS
 from web_access_runtime import records_visit
 from web_theme_bootstrap import SCRIPT_SOURCE, render_theme_page
+from web_live_assets import AssetSnapshot
+from web_reload_wait import SCRIPT_SOURCE as RELOAD_SCRIPT_SOURCE, render_reload_wait
 
 
 class HTTPSApplication:
-    def __init__(self, domain, port, schedule, access, logger, external_port=None, authority_check=None, assets=None, push=None):
+    def __init__(self, domain, port, schedule, access, logger, external_port=None, authority_check=None, assets=None, push=None, asset_source=None):
         self.domain, self.port = domain, port
         self.schedule, self.access, self.logger = schedule, access, logger
         self.push = push
@@ -23,11 +25,23 @@ class HTTPSApplication:
         self.started_at = timestamp()
         self.external_port = external_port
         self.authority_check = authority_check or (lambda: False)
-        self.assets = assets if assets is not None else bundled_assets()
-        self.asset_etags = {"/" + name: '"' + hashlib.sha256(self.assets[name]).hexdigest() + '"'
-                            for name in ("schedule.js", "login.js", "style.css")}
+        self.asset_source = asset_source
+        self._asset_snapshot = None if asset_source is not None else AssetSnapshot.create(
+            assets if assets is not None else bundled_assets())
         import threading
         self.lock = threading.Lock()
+
+    @property
+    def asset_snapshot(self):
+        return self.asset_source.snapshot if self.asset_source is not None else self._asset_snapshot
+
+    @property
+    def assets(self):
+        return self.asset_snapshot.files
+
+    @property
+    def asset_etags(self):
+        return self.asset_snapshot.etags
 
     def __call__(self, environ, start_response):
         cookies = []
@@ -37,7 +51,7 @@ class HTTPSApplication:
             headers = [("Content-Type", mime),
                        ("Cache-Control", dict(extra).get("Cache-Control", "no-store")), ("X-Content-Type-Options", "nosniff"),
                        ("Referrer-Policy", "no-referrer"),
-                       ("Content-Security-Policy", "default-src 'none'; script-src 'self' " + SCRIPT_SOURCE + "; style-src 'self'; "
+                       ("Content-Security-Policy", "default-src 'none'; script-src 'self' " + SCRIPT_SOURCE + " " + RELOAD_SCRIPT_SOURCE + "; style-src 'self'; "
                         "connect-src 'self'; img-src 'self' blob:; font-src 'self' blob:; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'")]
             headers.extend(("Set-Cookie", value) for value in cookies)
             if code != 304:
@@ -69,29 +83,29 @@ class HTTPSApplication:
                                           secure=True, record_visit=record_visit)
             cookies.extend(context["cookies"])
             if context["blocked"]:
-                return send(403, dict(message="관리자가 이 접속을 차단했습니다."))
+                return send(403, dict(message="관리자가 이 접속을 차단했습니다.", access_blocked=True))
             if method == "GET":
-                if path in READ_PATHS and (record_visit or path == '/api/boss-spectrum'):
+                if path in READ_PATHS and (record_visit or path in {'/', '/api/boss-spectrum'}):
                     wait = self.access.read_wait(context, environ.get("REMOTE_ADDR", ""), path=path)
                     if wait:
-                        message = "새로고침은 5초에 한 번 가능합니다. 잠시 뒤 다시 열어주세요." if path == '/' else "요청이 너무 많습니다. 잠시 뒤 다시 시도해주세요."
+                        message = "요청이 너무 많습니다. 잠시 뒤 다시 시도해주세요."
                         if path == "/":
-                            return send(429, ("<!doctype html><html lang='ko'><meta charset='utf-8'>"
-                                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                                f"<p>{message} ({wait}초)</p><a href='/'>다시 열기</a></html>").encode("utf-8"),
+                            return send(429, render_reload_wait(wait),
                                 "text/html; charset=utf-8", (("Retry-After", str(wait)),))
                         return send(429, dict(message=message), extra=(("Retry-After", str(wait)),))
-                assets = {"/": (self.assets["index.html" if context["authenticated"] else "login.html"], "text/html; charset=utf-8"),
-                          "/schedule.js": (self.assets["schedule.js"], "text/javascript; charset=utf-8"),
-                          "/login.js": (self.assets["login.js"], "text/javascript; charset=utf-8"),
-                          "/style.css": (self.assets["style.css"], "text/css; charset=utf-8")}
+                snapshot = self.asset_snapshot
+                files, etags = snapshot.files, snapshot.etags
+                assets = {"/": (files["index.html" if context["authenticated"] else "login.html"], "text/html; charset=utf-8"),
+                          "/schedule.js": (files["schedule.js"], "text/javascript; charset=utf-8"),
+                          "/login.js": (files["login.js"], "text/javascript; charset=utf-8"),
+                          "/style.css": (files["style.css"], "text/css; charset=utf-8")}
                 if path in assets:
                     if path == '/':
                         from web_font_library import font_developer_allowed
                         page, mime = assets[path]
                         return send(200, render_theme_page(page, font_developer_allowed(self.access, context, ip)), mime)
-                    if path in self.asset_etags:
-                        etag = self.asset_etags[path]
+                    if path in etags:
+                        etag = etags[path]
                         headers = (("ETag", etag), ("Cache-Control", "private, no-cache"))
                         if etag in {value.strip() for value in environ.get("HTTP_IF_NONE_MATCH", "").split(",")}:
                             return send(304, b"", extra=headers)
@@ -101,11 +115,11 @@ class HTTPSApplication:
                     if not context['authenticated']:
                         return send(401, dict(message='다시 로그인해주세요.'))
                     try:
-                        from web_limited_sakura import theme_asset, ATLAS_SHA256
+                        from web_limited_sakura import theme_asset
                         resource = theme_asset(path)
                         if resource is None:
                             return send(404, dict(message='테마 이미지가 목록에 없습니다.'))
-                        etag = '"' + ATLAS_SHA256 + '"'
+                        etag = '"' + hashlib.sha256(resource[0]).hexdigest() + '"'
                         extra = (("ETag", etag), ("Cache-Control", "private, no-cache"))
                         if etag in {v.strip() for v in environ.get('HTTP_IF_NONE_MATCH', '').split(',')}:
                             return send(304, b'', extra=extra)
