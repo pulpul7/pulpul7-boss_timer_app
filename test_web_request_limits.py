@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
-from web_request_limits import CooldownLimiter, ReadLimiter
+from web_request_limits import CooldownLimiter, ReadLimiter, DocumentQueue
 from web_access_runtime import AccessRuntime
 from web_access_settings import validate_settings, ITERATIONS
 from pathlib import Path
@@ -61,6 +61,7 @@ class CooldownTests(unittest.TestCase):
         with patch('web_access_runtime.read_json', side_effect=FileNotFoundError):
             access = AccessRuntime(Path('unused'), 'a' * 32, None)
         access.cooldowns = self.limiter
+        access.document_queue = DocumentQueue(clock=lambda: self.now)
         salt = '1' * 32
         access.settings = validate_settings(dict(schema=1, revision=1, iterations=ITERATIONS,
             key='2' * 64, epoch='3' * 32, salt=salt,
@@ -107,14 +108,18 @@ class CooldownTests(unittest.TestCase):
         with patch('web_access_runtime.read_json', side_effect=FileNotFoundError):
             access = AccessRuntime(Path('unused'), 'a' * 32, None)
         access.cooldowns = self.limiter
+        access.document_queue = DocumentQueue(clock=lambda: self.now)
         first = dict(visitor='a', authenticated=True)
         second = dict(visitor='b', authenticated=True)
         self.assertEqual(access.read_wait(first, '192.0.2.1', path='/'), 0)
         self.assertEqual(access.read_wait(first, '192.0.2.1', path='/'), 5)
         self.assertEqual(access.read_wait(first, '192.0.2.1', path='/api/status'), 0)
+        self.assertEqual(access.read_wait(second, '192.0.2.1', path='/'), .25)
+        self.now += .25
         self.assertEqual(access.read_wait(second, '192.0.2.1', path='/'), 0)
         access.logout(first)
         first['authenticated'] = False
+        self.now += .25
         self.assertEqual(access.read_wait(first, '192.0.2.1', path='/'), 0)
 
     def test_https_login_logout_redirects_are_not_mistaken_for_manual_reloads(self):
@@ -143,16 +148,18 @@ class CooldownTests(unittest.TestCase):
 
         self.assertEqual(send('/')['code'], 200)
         self.assertEqual(send('/api/login', {'pin': '1234'})['code'], 200)
+        self.now += .25  # Login is not a reload cooldown, but still uses the global page queue.
         self.assertEqual(send('/')['code'], 200)
         throttled = send('/')
         self.assertEqual(throttled['code'], 429)
         self.assertIn(('Retry-After', '5'), throttled['headers'])
         self.assertEqual(send('/api/logout', {})['code'], 200)
+        self.now += .25
         self.assertEqual(send('/')['code'], 200)
         denied = send('/api/login', {'pin': '1234'})
         self.assertEqual(denied['code'], 429)
         self.assertIn(('Retry-After', '2'), denied['headers'])
-        self.now = 2
+        self.now += 2
         self.assertEqual(send('/api/login', {'pin': '1234'})['code'], 200)
         self.assertEqual(send('/')['code'], 200)
 
@@ -289,8 +296,13 @@ class ReloadWaitPageTests(unittest.TestCase):
             self.assertIn(f'<noscript><meta http-equiv="refresh" content="{wait};url=/"></noscript>'.encode(),page)
 
     def test_wait_value_cannot_inject_markup_or_invalid_deadline(self):
-        for wait in (0,-1,301,True,'5',1.5,'</body>'):
+        for wait in (0,-1,301,True,'5',float('nan'),float('inf'),'</body>'):
             with self.assertRaises(ValueError):render_reload_wait(wait)
+
+    def test_fractional_queue_wait_keeps_millisecond_deadline_and_integer_header_display(self):
+        page = render_reload_wait(.25)
+        self.assertIn(b'data-retry-ms="250"', page)
+        self.assertIn(b'data-retry-seconds="1"', page)
 
 
 if __name__ == '__main__':

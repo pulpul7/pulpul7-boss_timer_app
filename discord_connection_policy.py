@@ -84,9 +84,16 @@ class ConnectionPolicy:
                         query_protocol=int(data.get("query_protocol", 0)))
         except FileNotFoundError:
             return self._empty()
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError) as exc:
             if strict:
-                raise  # A failed read must never overwrite valid stored state.
+                # Keep the file intact and identify the failed input; a raw
+                # JSON error otherwise looks like a Discord login failure.
+                raise ValueError(
+                    "봇 연결 상태 파일을 읽지 못해 실행을 중단했습니다.\n"
+                    f"파일: {self.path}\n"
+                    "파일이 비어 있거나 형식·읽기 권한에 문제가 있을 수 있습니다. "
+                    "원본을 보존했으며 연결 상태를 초기화하지 않았습니다."
+                ) from exc
             return dict(self._empty(), retries=MAX_RETRIES, handover_hold=True,
                         error="연결 상태 파일을 읽지 못했습니다. 확인 후 수동으로 봇을 실행하세요.")
 

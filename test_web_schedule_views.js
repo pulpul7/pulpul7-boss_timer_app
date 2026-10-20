@@ -6,21 +6,24 @@ const rests=source.slice(source.indexOf('function restDuration('),source.indexOf
 const views=source.slice(source.indexOf('function included('),source.indexOf('function colorOf('));
 function fixture() {
   return new Function(`
-    let now=Date.parse('2026-10-15T11:59:59+09:00'),selectedFilter='all',allDay='',showRest=true,showFixed=true;
+    let now=Date.parse('2026-10-15T11:59:59+09:00'),selectedFilter='all',selectedTheme='default',allDay='',showRest=true,showFixed=true;
     let viewKey='',viewEvents=[],mainKey='',mainRows=[],customDraft=new Set(['chosen']);
+    let copyViewKey='',copyViewRows=[];
     const data={window_start:'2026-10-14T00:00:00+09:00',window_end:'2026-10-30T23:59:59+09:00',
       schedule_version:'1',major_version:'1',catalog_version:'1',events:[]};
     const pad=n=>String(n).padStart(2,'0'),serverNow=()=>now,instant=Date.parse;
     const isBoss=r=>['boss','fixed','invasion'].includes(r.kind);
     const selectionSignature=s=>[...s].sort().join(','),hasCustomSelection=()=>customDraft.size>0;
     const customRowSelected=r=>customDraft.has(r.catalog_id || r.id);
-    const element=id=>({checked:id!=='major-only',value:'24'});
+    const options={'major-only':false,'include-fixed':true,'include-break':true};
+    const element=id=>({checked:options[id]===true,value:'24'});
     const periodEnd=()=>now+86400000;
     ${dates}\n${rests}\n${views}
     return {data,restDuration,isOngoingRest,mainEvents,visibleRows,viewRows,hasDay,viewEnd,selectedDay,bossFinished,recentBosses,spawnBlink,
-      time:s=>now=Date.parse(s),filter:s=>selectedFilter=s,day:s=>allDay=s,
+      time:s=>now=Date.parse(s),filter:s=>selectedFilter=s,theme:s=>selectedTheme=s,day:s=>allDay=s,
       select:ids=>customDraft=new Set(ids),rest:b=>showRest=b,
       fixed:b=>showFixed=b,
+      copy:(id,value)=>options[id]=value,
       rows:rows=>{data.events=rows;data.schedule_version=String(Number(data.schedule_version)+1);}};
   `)();
 }
@@ -66,7 +69,7 @@ check(custom.visibleRows(at(date+'T18:00:03+09:00')).some(r=>r.kind==='break'),'
 custom.filter('today');
 check(custom.visibleRows(at(date+'T18:00:03+09:00')).every(r=>r.kind!=='break'),'major tab receives the same orphaned-rest fix');
 custom.filter('custom');custom.select(['chosen']);
-check(custom.visibleRows(at(date+'T18:00:03+09:00'),true).some(r=>r.kind==='break'),'copy range remains independent of screen-only rest filtering');
+check(custom.visibleRows(at(date+'T18:00:03+09:00'),true).every(r=>r.kind!=='break'),'copy removes orphaned rests after its final included boss');
 const joined=fixture();joined.filter('custom');joined.select(['chosen']);
 const original=[row('selected',date+'T12:30:00+09:00','boss',undefined,{catalog_id:'chosen'}),
   row('r1',date+'T13:00:00+09:00','break',date+'T14:00:00+09:00'),
@@ -83,7 +86,7 @@ check(joined.restDuration(parts[0])==='3시간 30분','filtered rest duration is
 check(joined.isOngoingRest(parts[0],at(date+'T13:30:00+09:00')),'original rest interval remains ongoing');
 check(joined.isOngoingRest(parts[0],at(date+'T14:05:00+09:00')),'a hidden boss does not interrupt filtered rest');
 check(JSON.stringify(original)===before,'joining never mutates original snapshot rows');
-check(joined.visibleRows(at(date+'T12:00:00+09:00'),true).filter(r=>r.kind==='break').length===4,'copy retains separate original rest intervals');
+check(joined.visibleRows(at(date+'T12:00:00+09:00'),true).filter(r=>r.kind==='break').length===2,'copy recalculates two gaps around its three included bosses');
 joined.filter('all');
 check(joined.visibleRows(at(date+'T12:00:00+09:00')).filter(r=>r.kind==='break').length===4,'all tab retains original rest rows');
 joined.filter('today');
@@ -94,13 +97,18 @@ const spawn=fixture();spawn.time(date+'T18:00:00+09:00');
 const when=at(date+'T18:00:00+09:00');
 spawn.rows(['a','b','c','d'].map(id=>row(id,date+'T18:00:00+09:00')));
 check(spawn.visibleRows(when+2999).length===4,'all simultaneous spawns remain for the full three seconds');
-check(spawn.visibleRows(when+3000).length===4,'the recent list preserves a simultaneous group beyond the old two-boss cap');
+check(spawn.visibleRows(when+3000).length===2,'simultaneous past bosses are strictly capped at two');
 const pastIds=spawn.visibleRows(when+3000).map(r=>r.id);
-check(new Set(pastIds).size===4,'simultaneous spawns never duplicate at the past/future boundary');
+check(new Set(pastIds).size===2,'limited simultaneous spawns never duplicate at the past/future boundary');
 check(!spawn.bossFinished(spawn.data.events[0],when+2999)&&spawn.bossFinished(spawn.data.events[0],when+3000),
   'boss changes to past at exactly spawn plus three seconds');
-check(spawn.recentBosses(spawn.data.events,when+2999).length===0&&spawn.recentBosses(spawn.data.events,when+3000).length===4,
-  'every simultaneous boss becomes recent together');
+check(spawn.recentBosses(spawn.data.events,when+2999).length===0&&spawn.recentBosses(spawn.data.events,when+3000).length===2,
+  'the recent cap applies when simultaneous bosses complete their spawn hold');
+spawn.theme('avengers');
+check(spawn.recentBosses(spawn.data.events,when+3000).length===1&&spawn.visibleRows(when+3000).length===1,
+  'Iron Man uses one shared recent limit in summary and schedule rows');
+spawn.theme('winter');
+check(spawn.visibleRows(when+3000).length===2,'leaving Iron Man restores the normal two-boss limit');
 let lit=false;const target={classList:{toggle(name,value){if(name==='spawn-blink')lit=value;}}};
 spawn.spawnBlink(target,spawn.data.events[0],when-5001);check(!lit,'no blinking before five seconds');
 spawn.spawnBlink(target,spawn.data.events[0],when-5000);check(lit,'blinking begins at five seconds');
@@ -159,9 +167,32 @@ const overlapRest=overlap.visibleRows(at(date+'T12:00:00+09:00')).filter(r=>r.ki
 check(overlapRest.length===1&&overlapRest[0].at===at(date+'T13:00:00+09:00')&&overlapRest[0].rest_ms===3600000,
   'overlapping bosses use the latest effective end, not the last row end');
 const overnight=fixture();overnight.filter('custom');overnight.select(['night','morning']);
+const emptyDay=fixture();emptyDay.filter('custom');emptyDay.select(['chosen']);emptyDay.time(date+'T12:00:00+09:00');
+emptyDay.rows([row('yesterday','2026-10-14T23:00:00+09:00','boss',undefined,{catalog_id:'chosen'}),
+  row('unselected',date+'T14:00:00+09:00'),row('tomorrow',next+'T01:00:00+09:00','boss',undefined,{catalog_id:'chosen'})]);
+check(emptyDay.mainEvents(at(date+'T12:00:00+09:00')).some(r=>r.kind==='break'),'fixture contains a derived rest spanning an empty selected day');
+check(emptyDay.visibleRows(at(date+'T12:00:00+09:00')).length===0,'custom day without any displayed boss never shows a standalone spanning rest');
+emptyDay.rest(false);emptyDay.rest(true);
+check(emptyDay.visibleRows(at(date+'T12:00:00+09:00')).length===0,'rest OFF then ON cannot restore an orphaned custom-day rest');
+emptyDay.rows([row('past',date+'T09:00:00+09:00','boss',undefined,{catalog_id:'chosen'}),
+  row('tomorrow',next+'T01:00:00+09:00','boss',undefined,{catalog_id:'chosen'})]);
+check(emptyDay.visibleRows(at(date+'T12:00:00+09:00')).map(r=>r.id).join(',')==='past','past selected boss remains history without a rest toward an undisplayed next-day boss');
+emptyDay.rows([row('first',date+'T13:00:00+09:00','boss',undefined,{catalog_id:'chosen'}),
+  row('last',date+'T15:00:00+09:00','boss',undefined,{catalog_id:'chosen'}),
+  row('tomorrow',next+'T01:00:00+09:00','boss',undefined,{catalog_id:'chosen'})]);
+check(emptyDay.visibleRows(at(date+'T12:00:00+09:00')).some(r=>r.kind==='break'),'valid upcoming custom bosses keep their recalculated rests');
+check(emptyDay.visibleRows(at(date+'T15:00:02.999+09:00')).some(r=>r.kind==='break'),'last custom boss retains its normal three-second spawn hold');
+check(emptyDay.visibleRows(at(date+'T15:00:03+09:00')).every(r=>r.kind!=='break'),'rest toward a hidden next-day boss disappears immediately after final spawn hold without cache reset');
+emptyDay.select(['no-schedule']);
+check(emptyDay.visibleRows(at(date+'T12:00:00+09:00')).length===0,'selected boss with no matching schedule never displays source rests');
+emptyDay.filter('today');
+check(emptyDay.visibleRows(at(date+'T15:00:03+09:00')).every(r=>r.kind!=='break'),'major tab also hides rests when no upcoming boss remains in its displayed period');
+emptyDay.rows([row('source-rest',date+'T12:00:00+09:00','break',date+'T13:00:00+09:00')]);emptyDay.filter('all');
+check(emptyDay.visibleRows(at(date+'T12:10:00+09:00')).some(r=>r.kind==='break'),'all tab continues to show original source rest rows independently');
 overnight.rows([row('night',date+'T23:00:00+09:00','boss',date+'T23:30:00+09:00'),row('morning',next+'T01:00:00+09:00')]);
-const nightRest=overnight.visibleRows(at(date+'T23:45:00+09:00')).find(r=>r.kind==='break');
-check(nightRest?.rest_ms===90*60000,'rest can continue across midnight to a real selected next-day boss');
+const nightRest=overnight.mainEvents(at(date+'T23:45:00+09:00')).find(r=>r.kind==='break');
+check(nightRest?.rest_ms===90*60000,'underlying rest interval across midnight retains its full duration');
+check(!overnight.visibleRows(at(date+'T23:45:00+09:00')).some(r=>r.kind==='break'),'after the last boss today a rest toward an undisplayed next-day boss stays hidden');
 overnight.day(next);
 check(overnight.visibleRows(at(next+'T00:30:00+09:00')).find(r=>r.kind==='break')?.id===nightRest.id,
   'day navigation retains the same actual rest interval without trimming its duration');
@@ -169,6 +200,32 @@ const barrier=fixture();barrier.filter('today');
 barrier.rows([row('before',date+'T12:00:00+09:00'),row('maintenance',date+'T13:00:00+09:00','maintenance'),
   row('after',date+'T16:00:00+09:00')]);
 check(!barrier.visibleRows(at(date+'T12:00:00+09:00')).some(r=>r.kind==='break'),'rest does not span a maintenance boundary');
+check(barrier.visibleRows(at(date+'T12:00:00+09:00'),true).some(r=>r.id==='maintenance'),'copy preserves an included maintenance row while rebuilding rests');
+check(!barrier.visibleRows(at(date+'T12:00:00+09:00'),true).some(r=>r.kind==='break'),'copy cannot bridge a maintenance boundary');
+const sharing=fixture();sharing.rest(false);sharing.fixed(false);sharing.filter('custom');sharing.select([]);
+sharing.rows([row('left',date+'T09:00:00+09:00','boss',date+'T09:30:00+09:00'),
+  row('source-long',date+'T09:30:00+09:00','break',date+'T14:04:00+09:00'),
+  row('fixed-middle',date+'T14:04:00+09:00','fixed',undefined,{important:false,major:false}),
+  row('source-short',date+'T14:04:00+09:00','break',date+'T15:02:00+09:00'),
+  row('right',date+'T15:02:00+09:00')]);
+sharing.copy('include-fixed',false);
+let shared=sharing.visibleRows(at(date+'T10:00:00+09:00'),true);
+check(shared.filter(r=>r.kind==='break').length===1&&shared.find(r=>r.kind==='break').rest_ms===332*60000,
+  'reported 4h34 and 58m source rests become one true gap when copy excludes the intervening fixed boss');
+check(shared.some(r=>r.id==='right'),'copy options remain independent of custom selection and screen rest OFF');
+sharing.copy('include-fixed',true);
+check(sharing.visibleRows(at(date+'T10:00:00+09:00'),true).filter(r=>r.kind==='break').length===2,'including the real middle boss splits rest at that boss');
+sharing.copy('major-only',true);
+check(sharing.visibleRows(at(date+'T10:00:00+09:00'),true).filter(r=>r.kind==='break').length===1,'major-only copy recalculates rest after removing a non-major boss');
+sharing.copy('include-break',false);
+check(sharing.visibleRows(at(date+'T10:00:00+09:00'),true).every(r=>r.kind!=='break'),'copy rest OFF invalidates derived rest cache');
+sharing.copy('include-break',true);
+sharing.data.rest_rules=[];sharing.rows(sharing.data.events);
+check(sharing.visibleRows(at(date+'T10:00:00+09:00'),true).every(r=>r.kind!=='break'),'copy honors disabled administrator rest rules');
+const bounded=fixture();
+bounded.rows([row('inside',date+'T12:00:00+09:00'),row('outside','2026-10-17T12:00:00+09:00')]);
+check(bounded.visibleRows(at(date+'T11:00:00+09:00'),true).map(r=>r.id).join(',')==='inside',
+  'copy does not leave a rest pointing to a boss outside its selected period');
 // Reported source rests: 45 and 42 minutes become adjacent when ordinary bosses are hidden.
 for(const filter of ['today','custom']) {
   const reported=fixture();reported.select(['major-left','major-right']);

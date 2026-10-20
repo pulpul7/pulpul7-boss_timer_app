@@ -225,6 +225,30 @@ class UpdateSequenceTests(unittest.TestCase):
         self.assertFalse(guard.active(self.data))
         self.assertFalse((self.install / POINTER).exists())
 
+    def test_download_reports_bytes_before_verification_and_preparation(self):
+        guard.finish(self.data, self.ticket)
+        raw, row = self.package_fixture()
+        class Chunked(io.BytesIO):
+            def read(self, count=-1):
+                return super().read(min(count, 40) if count >= 0 else count)
+        updater = ProgramUpdater(self.data, self.install, '5.5.0')
+        samples = []
+        original = updater.report_progress
+        def report(*args, **kwargs):
+            original(*args, **kwargs)
+            samples.append(updater.progress)
+        with patch('program_updater.fetch_catalog', return_value=[row]), \
+                patch('program_updater.open_response', return_value=Chunked(raw)), \
+                patch.object(updater, 'report_progress', side_effect=report):
+            updater.prepare()
+        downloaded = [s for s in samples if s['stage'] == 'downloading' and s['received']]
+        self.assertTrue(any(0 < s['received'] < len(raw) for s in downloaded))
+        self.assertEqual(downloaded[-1]['received'], len(raw))
+        stages = [s['stage'] for s in samples]
+        self.assertLess(stages.index('downloading'), stages.index('verifying'))
+        self.assertLess(stages.index('verifying'), stages.index('extracting'))
+        self.assertEqual(stages[-1], 'prepared')
+
     def test_failed_version_is_skipped_automatically_but_manual_retry_is_available(self):
         guard.finish(self.data, self.ticket)
         raw, row = self.package_fixture()
@@ -371,6 +395,40 @@ class UpdateSequenceTests(unittest.TestCase):
         with patch.object(processes, '_kernel', return_value=kernel), \
              patch.object(processes.ctypes, 'get_last_error', return_value=5), self.assertRaises(OSError):
             processes.alive(self.job['parent'])
+
+    def test_exit_between_wait_and_image_query_uses_the_same_handle_signal(self):
+        kernel = Mock()
+        kernel.OpenProcess.return_value = 100
+        kernel.WaitForSingleObject.side_effect = [0x102, 0]
+        with patch.object(processes, '_kernel', return_value=kernel), \
+                patch.object(processes, '_identity', return_value=None):
+            self.assertFalse(processes.alive(self.job['parent']))
+        self.assertEqual([call.args for call in kernel.WaitForSingleObject.call_args_list], [(100, 0), (100, 0)])
+        kernel.CloseHandle.assert_called_once_with(100)
+
+    def test_unreadable_live_process_does_not_count_as_exit(self):
+        kernel = Mock()
+        kernel.OpenProcess.return_value = 100
+        kernel.WaitForSingleObject.return_value = 0x102
+        with patch.object(processes, '_kernel', return_value=kernel), \
+                patch.object(processes, '_identity', return_value=None), self.assertRaises(OSError):
+            processes.alive(self.job['parent'])
+        kernel.CloseHandle.assert_called_once_with(100)
+
+    def test_exit_wait_retries_temporary_identity_failure_without_assuming_success(self):
+        with patch.object(processes, 'alive', side_effect=[OSError('closing'), True, False]) as probe, \
+                patch.object(processes.time, 'sleep'):
+            processes.wait_exited(self.job['parent'], 120)
+        self.assertEqual(probe.call_count, 3)
+
+    def test_exit_wait_retains_error_at_deadline_and_checks_cancellation(self):
+        with patch.object(processes, 'alive', side_effect=OSError('access denied')), \
+                patch.object(processes.time, 'monotonic', side_effect=[0, 121]), self.assertRaises(ValueError) as error:
+            processes.wait_exited(self.job['parent'], 120)
+        self.assertIsInstance(error.exception.__cause__, OSError)
+        with patch.object(processes, 'alive') as probe, self.assertRaises(ValueError):
+            processes.wait_exited(self.job['parent'], 120, cancelled=lambda: True)
+        probe.assert_not_called()
 
     def test_package_selection_ignores_notice_web_and_preview_releases(self):
         from ai_module_updater import REPOSITORY

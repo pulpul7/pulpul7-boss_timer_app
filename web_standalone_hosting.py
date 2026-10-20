@@ -1,6 +1,5 @@
 """Explicit web-only hosting. No voice ownership changes or schedule imports."""
 from copy import deepcopy
-from datetime import datetime
 import math
 import threading
 import time
@@ -10,6 +9,7 @@ from web_delegated_hosting import delegation_info, valid_token
 from web_service_common import read_json
 from web_direct_hosting import PublicError
 from discord_connection_policy import ConnectionPolicy
+from web_publication_confirmation import address_confirmed
 
 
 def standalone_info(data):
@@ -97,6 +97,7 @@ class StandaloneHosting:
     def __init__(self, bridge):
         self.bridge, self.manager, self.app = bridge, bridge.manager, bridge.app
         self.lock = threading.RLock()
+        self.transition_lock = threading.RLock()  # Background confirmation/rollback only; never held by status().
         self.record = {}
         self.busy = False
         self.stopping = False
@@ -105,8 +106,10 @@ class StandaloneHosting:
         self.shared_failures = 0
         self.next_shared_check = 0
         self.confirmed_web = None
+        self.trial_verified_web = None
         self.confirm_attempts, self.confirm_retry_at = 0, 0
         self.resume_stopped_key = None
+        self.restore_unavailable = None
         self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         self.stage, self.message = 'idle', '단독 실행은 이 PC의 현재 스케줄을 사용합니다.'
         self.operation = 'start'
@@ -317,6 +320,10 @@ class StandaloneHosting:
                 guard()
                 self.manager.prepare_local_https(stamp, 10)
                 state = self.manager.https_status()
+                worker = self.manager.status()
+                if worker['state'] == 'error':
+                    detail = worker.get('message') or '웹서비스 진단 로그를 확인해주세요.'
+                    raise ValueError('이 PC 웹서버 준비에 실패했습니다. ' + detail + ' 기존 웹은 유지합니다.')
                 if state.get('https_state') == 'running':
                     access = getattr(self.manager, 'access', None)
                     if access is not None:
@@ -326,7 +333,7 @@ class StandaloneHosting:
                     self.manager._log('web_handover_local_https_ready', request=operation,
                                       elapsed_ms=round((time.monotonic()-prepare_started)*1000))
                     break
-                if state.get('https_state') == 'error' or self.manager.status()['state'] == 'error':
+                if state.get('https_state') == 'error':
                     raise ValueError('이 PC HTTPS 준비에 실패했습니다. 기존 웹은 유지합니다.')
                 if time.monotonic() >= deadline or self.manager.closed.wait(.25):
                     raise ValueError('이 PC HTTPS 준비 시간이 초과되었습니다. 기존 웹은 유지합니다.')
@@ -566,19 +573,25 @@ class StandaloneHosting:
             self.manager.set_authority((info['guild'], info['owner'], info['runtime'], 'solo:'+info['id']),
                 ready=self.manager.snapshot_version > 0, message='웹 단독 운영 · 이 PC 스케줄 사용')
             public = self.manager.public.status()
+            worker = self.manager.status()
             address_ready = False
             if info.get('backup'):
-                ddns = self.manager.ddns.status()
-                try:
-                    updated_at = datetime.fromisoformat(ddns.get('last_updated') or '').timestamp()
-                except (ValueError, TypeError):
-                    updated_at = 0
-                address_ready = (ddns.get('state') in {'ready', 'dns_pending'}
-                                 and updated_at >= info.get('started_at', float('inf')))
+                ddns = self.manager.publication_ddns_status()
+                address_ready = address_confirmed(ddns, info.get('started_at'))
+                if (address_ready and self.manager.publication_allowed() and public['state'] == 'prepared'
+                        and worker['state'] == 'running'):
+                    if self.trial_verified_web != info['id']:
+                        self.manager._log('web_takeover_address_confirmed', request=info['id'])
+                    self.trial_verified_web = info['id']
             trial_expired = bool(info.get('backup') and not address_ready
+                                 and self.trial_verified_web != info['id']
                                  and time.time() >= info.get('trial_deadline', float('inf')))
-            if self.manager.publication_allowed() and public['state'] == 'prepared' and not trial_expired:
-                self._progress_once('running', '웹 단독 공개 중 · 디코 송출권한과 별도로 운영합니다.')
+            if (self.manager.publication_allowed() and public['state'] == 'prepared'
+                    and worker['state'] == 'running' and not trial_expired):
+                if info.get('backup') and not address_ready and self.trial_verified_web != info['id']:
+                    self._progress_once('confirming', 'HTTPS 준비 완료 · 공개 주소 갱신 확인 중')
+                else:
+                    self._progress_once('running', '웹 단독 공개 중 · 디코 송출권한과 별도로 운영합니다.')
                 if (info.get('backup') and self.confirmed_web != info['id'] and self.confirm_attempts < 3
                         and time.monotonic() >= self.confirm_retry_at):
                     if address_ready:
@@ -587,7 +600,7 @@ class StandaloneHosting:
                         self.confirm_retry_at = time.monotonic()+15
                         threading.Thread(target=self._confirm_publication, args=(coordinator, info['id']),
                                          name='web-independent-confirm', daemon=True).start()
-            elif trial_expired or public['state'] == 'error' or self.manager.status()['state'] == 'error':
+            elif trial_expired or public['state'] == 'error' or worker['state'] == 'error':
                 self._progress_once('error', '단독 웹 공개 실패 · 웹 상태와 진단 로그 확인 후 다시 실행해주세요.')
                 if isinstance(info.get('backup'), dict):
                     with self.lock:
@@ -604,6 +617,10 @@ class StandaloneHosting:
             self.manager._log('web_standalone_lease_failed', error_type=type(exc).__name__)
 
     def _confirm_publication(self, coordinator, operation):
+        with self.transition_lock:
+            self._confirm_publication_locked(coordinator, operation)
+
+    def _confirm_publication_locked(self, coordinator, operation):
         try:
             def change(data):
                 web = standalone_info(data)
@@ -623,12 +640,17 @@ class StandaloneHosting:
             self.manager._log('web_independent_publication_confirm_failed', error_type=type(exc).__name__)
 
     def _restore_previous(self, coordinator, operation, backup):
+        with self.transition_lock:
+            self._restore_previous_locked(coordinator, operation, backup)
+
+    def _restore_previous_locked(self, coordinator, operation, backup):
         def valid(data):
             current = standalone_info(data) or {}
             pending = data.get('web_operation') or {}
             if pending and pending.get('id') != operation:
                 return False
-            return ((current.get('id') == operation and current.get('owner') == coordinator.client
+            return ((isinstance(current.get('backup'), dict)
+                     and current.get('id') == operation and current.get('owner') == coordinator.client
                      and current.get('runtime') == coordinator.runtime)
                     or (pending.get('id') == operation and pending.get('owner') == coordinator.client
                         and pending.get('runtime') == coordinator.runtime))
@@ -637,13 +659,36 @@ class StandaloneHosting:
                 current, _ = coordinator.record.read()
             if not valid(current):
                 return
+            active = standalone_info(current) or {}
+            if (active.get('id') == operation and self.manager.publication_allowed()
+                    and self.manager.public.status().get('state') == 'prepared'
+                    and self.manager.status().get('state') == 'running'
+                    and (self.trial_verified_web == operation
+                         or address_confirmed(self.manager.publication_ddns_status(), active.get('started_at')))):
+                self.trial_verified_web = operation
+                self._confirm_publication_locked(coordinator, operation)
+                return  # A delayed failure cannot stop a now healthy trial.
+            # Check the fallback before changing the current site's control.
+            # A closed/restarted old GUI cannot receive the restore request.
+            member = current.get('members', {}).get(backup['owner'], {})
+            if not member.get('online') or member.get('runtime') != backup['runtime']:
+                reason = 'offline' if not member.get('online') else 'session_changed'
+                skipped = (operation, backup['owner'], backup['runtime'], reason)
+                if self.restore_unavailable != skipped:
+                    self.restore_unavailable = skipped
+                    self.manager._log('web_previous_host_restore_skipped', request=operation, reason=reason)
+                    self._progress('error', '이전 PC에 복구할 수 없어 현재 웹 상태를 유지합니다. 공개 상태를 확인해주세요.')
+                return  # No fabricated success and no OFF command to the current site.
+            self.restore_unavailable = None
             self.manager.emergency_stop(standby=True)
             self.manager.set_authority((), message='웹 공개 실패 · 기존 웹 담당 복구 중')
             self.manager._flush_authority(force=True)
             if read_json(self.manager.root/'authority_lease.json').get('enabled') is not False:
                 raise ValueError('새 웹 공개 차단을 확인하지 못했습니다.')
             deadline = time.monotonic()+35
-            while (self.manager.ddns.status().get('busy') or self.manager.public.status().get('busy')
+            while (self.manager.ddns.status().get('busy')
+                   or getattr(self.manager, 'background_busy', lambda: False)()
+                   or self.manager.public.status().get('busy')
                    or self.manager.public.status().get('state') != 'off'):
                 if self.manager.closed.wait(.2) or time.monotonic() >= deadline:
                     raise ValueError('새 웹 공개 규칙 정리가 끝나지 않았습니다.')

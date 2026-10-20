@@ -7,6 +7,7 @@ window.WebSakuraButterfly=(()=>{
   // Original durations are the single reference; rates do not compound on later edits.
   const BASE={transfer:650,approach:3800,return:2400,startle:550,depart:1300};
   const RATE={flight:.3,homeStartle:.06,bossStartle:.1,bossDepart:.5};
+  const VISIT={lead:15000,depart:1000};
   let large=false;
   function size(value) {
     large=value;el.dataset.role=value?'boss':'home';
@@ -87,12 +88,12 @@ window.WebSakuraButterfly=(()=>{
   }
   function startle() {
     if(!enabled || !el || mode==='away' || mode==='escape')return;
-    const now=clock();if(head && head.at-now<=15000 && head.at-now>5000)visited.add(token(head));
+    const now=clock();if(head && head.at-now<=VISIT.lead && head.at-now>-VISIT.depart)visited.add(token(head));
     depart(now,true);
   }
   function approach(now) {
-    if(!bossPoint || !trip || trip.at-now<=5000){depart(now);return;}
-    // Keep the existing five-second departure deadline even when slowing the approach.
+    if(!bossPoint || !trip || now>=trip.at+VISIT.depart){depart(now);return;}
+    // Preserve the approach pace; the visit lasts through one second after spawn.
     fly('approach',bossPoint,Math.min(BASE.approach/RATE.flight,Math.max(250,trip.at-now-5500)),now);
   }
   function land(place) {
@@ -114,8 +115,8 @@ window.WebSakuraButterfly=(()=>{
     if(!el || (!enabled && mode!=='escape'))return;
     const now=clock(),key=token(head),left=head?head.at-now:Infinity;
     if(enabled && trip && ['transfer','approach','perched'].includes(mode) && (key!==trip.key || !bossPoint))depart(now);
-    if(enabled && ['transfer','approach','perched'].includes(mode) && trip && now>=trip.at-5000)depart(now);
-    if(enabled && mode!=='escape' && left<=15000 && left>5000 && onScreen(bossPoint) && !visited.has(key)) {
+    if(enabled && ['transfer','approach','perched'].includes(mode) && trip && now>=trip.at+VISIT.depart)depart(now);
+    if(enabled && mode!=='escape' && left<=VISIT.lead && left>-VISIT.depart && onScreen(bossPoint) && !visited.has(key)) {
       visited.add(key);if(visited.size>64)visited.delete(visited.values().next().value);
       trip={key,at:head.at};bubble.hidden=true;size(true);
       if((mode==='home' && onScreen(homePoint)) || (flight && !el.hidden && onScreen(pose)))fly('transfer',outside(true),Math.min(BASE.transfer/RATE.flight,Math.max(250,left-6500)),now);

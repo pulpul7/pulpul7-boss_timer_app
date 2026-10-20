@@ -310,6 +310,8 @@ class PersistentTests(unittest.TestCase):
         runtime.status.return_value=dict(runtime_protocol=1,runtime_version='test',background_authorized=True)
         cache=Mock();cache.status.return_value={}
         access=Mock();access.summary.return_value={}
+        access.page_refresh.status.return_value={}
+        access.page_refresh.poll.return_value=False
         https=Mock();https.status.return_value={}
         with patch('web_service_worker.ParentWatch') as parent, \
              patch('web_service_worker.ScheduleCache',return_value=cache), \

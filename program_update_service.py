@@ -326,9 +326,12 @@ class ProgramUpdateService:
         window.protocol('WM_DELETE_WINDOW', lambda: None)
         tk.Label(window, text='전체 업데이트', bg='#1e3a8a', fg='white', anchor='w',
                  font=('맑은 고딕', 13, 'bold'), padx=18, pady=12).pack(fill='x')
-        tk.Label(window, text=message, bg='#eff6ff', fg='#1e293b', wraplength=410,
-                 font=('맑은 고딕', 11), padx=18, pady=18).pack(fill='x')
+        self.progress_message = tk.StringVar(window, value=message)
+        tk.Label(window, textvariable=self.progress_message, bg='#eff6ff', fg='#1e293b', wraplength=460,
+                 font=('맑은 고딕', 12, 'bold'), padx=18, pady=18).pack(fill='x')
         bar = ttk.Progressbar(window, mode='indeterminate', length=400)
+        self.progress_bar = bar
+        self.progress_mode = 'indeterminate'
         bar.pack(padx=18, pady=(0, 18))
         bar.start(50)
         center_window(window, parent)
@@ -336,11 +339,28 @@ class ProgramUpdateService:
         window.lift()
         window.focus_force()
 
+    def _refresh_download_progress(self):
+        if getattr(self, 'progress', None) is None or not self.progress.winfo_exists():
+            return
+        state = self.updater.progress
+        self.progress_message.set(state['message'])
+        mode = 'determinate' if state['stage'] == 'downloading' and state['total'] else 'indeterminate'
+        if mode != self.progress_mode:
+            self.progress_bar.stop()
+            self.progress_bar.configure(mode=mode, maximum=100)
+            self.progress_mode = mode
+            if mode == 'indeterminate':
+                self.progress_bar.start(50)
+        if mode == 'determinate':
+            self.progress_bar.configure(value=min(100, state['received'] * 100 / state['total']))
+
     def _close_progress(self):
         window = getattr(self, 'progress', None)
         if window is not None:
-            window.grab_release()
-            window.destroy()
+            if window.winfo_exists():
+                self.progress_bar.stop()
+                window.grab_release()
+                window.destroy()
             self.progress = None
 
     def _resume_voice(self, channel):

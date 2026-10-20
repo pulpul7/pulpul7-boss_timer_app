@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "date": "2026-10-20",
+  "files": [
+    {
+      "file": "토르2.mp4",
+      "gain_db": 6,
+      "before": {
+        "mean": -33.5,
+        "max": -18.4
+      },
+      "after": {
+        "mean": -27.5,
+        "max": -12.3
+      },
+      "original_sha256": "27f622ac72a69fc1ffefc2fe6409a925694ef954bde9a0f0a3d0e930aa54d42e",
+      "sha256": "118920fa9e3fc781dc607bf2fab65cad097611581341d4a99716fb8176606e84",
+      "video_stream_unchanged": true,
+      "video_seconds": 10.166666666666666,
+      "backup": "시네마틱_음량원본_20261020\\토르2.mp4"
+    },
+    {
+      "file": "스파이더맨1.mp4",
+      "gain_db": 6,
+      "before": {
+        "mean": -37.9,
+        "max": -18.5
+      },
+      "after": {
+        "mean": -31.8,
+        "max": -11.0
+      },
+      "original_sha256": "dee0bf8c405beeafb987733db2b3eeb8733d4777f7f4d4ef8aa0a1332226a4e7",
+      "sha256": "425aafa45c8818b00a05088d7aadb44bbf8769b80a0a0224da8fbfd4e877eead",
+      "video_stream_unchanged": true,
+      "video_seconds": 12.5,
+      "backup": "시네마틱_음량원본_20261020\\스파이더맨1.mp4"
+    },
+    {
+      "file": "스파이더맨3명.mp4",
+      "gain_db": 6,
+      "before": {
+        "mean": -33.4,
+        "max": -20.4
+      },
+      "after": {
+        "mean": -27.5,
+        "max": -14.5
+      },
+      "original_sha256": "c66f8c56a2c7aefccf54b8e25a3db60516b2d8654dace8eec4123267eb36e331",
+      "sha256": "ac7d4a2d8b5eee656892cef9606f1a5cd813022d740c42d512dd9d2ce6e7e359",
+      "video_stream_unchanged": true,
+      "video_seconds": 8.916666666666666,
+      "backup": "시네마틱_음량원본_20261020\\스파이더맨3명.mp4"
+    },
+    {
+      "file": "아이언맨등장.mp4",
+      "gain_db": 6,
+      "before": {
+        "mean": -38.0,
+        "max": -21.0
+      },
+      "after": {
+        "mean": -32.0,
+        "max": -14.9
+      },
+      "original_sha256": "8be53e502a2b0a0e4b2fe21e5070ed3e739ce1207ffc57b777eb7112c15c1770",
+      "sha256": "65cd7c8b49e4484597c57131f887aa54c14e3fad2fdca145509a3b00d798efc4",
+      "video_stream_unchanged": true,
+      "video_seconds": 18.833333333333332,
+      "backup": "시네마틱_음량원본_20261020\\아이언맨등장.mp4"
+    },
+    {
+      "file": "어밴저스vs.mp4",
+      "gain_db": 6,
+      "before": {
+        "mean": -37.6,
+        "max": -14.4
+      },
+      "after": {
+        "mean": -31.6,
+        "max": -8.5
+      },
+      "original_sha256": "dd441b2a904a3d6f38cf332bd19385236360815a50e076f00db6f77a068a50df",
+      "sha256": "af544d6619db778494f8f63472bd769ba0674f0e155386b728d8d5e89aeca2ff",
+      "video_stream_unchanged": true,
+      "video_seconds": 29.0,
+      "backup": "시네마틱_음량원본_20261020\\어밴저스vs.mp4"
+    },
+    {
+      "file": "인피니티스톤.mp4",
+      "gain_db": 6,
+      "before": {
+        "mean": -37.2,
+        "max": -17.2
+      },
+      "after": {
+        "mean": -31.2,
+        "max": -11.3
+      },
+      "original_sha256": "e63005999557209a245632353c5d48453f18cb7f1756a79a00c2120699a7db45",
+      "sha256": "5ab1d00149e95f6732c7df9b4b57150794d11e4404d84ca2e2f778d8db954739",
+      "video_stream_unchanged": true,
+      "video_seconds": 25.583333333333332,
+      "backup": "시네마틱_음량원본_20261020\\인피니티스톤.mp4"
+    }
+  ],
+  "scope": "historical_first_6db_adjustment",
+  "subsequent_adjustments": [
+    "cinematic_audio_adjustments_plus8db_20261020.json"
+  ]
+}

@@ -1,6 +1,5 @@
 """Prepare local TLS before a web switch and restore the previous host on failure."""
 from copy import deepcopy
-from datetime import datetime
 import math
 import threading
 import time
@@ -9,6 +8,7 @@ import uuid
 from discord_connection_policy import ConnectionPolicy
 from web_delegated_hosting import delegation_info, valid_token
 from web_service_common import read_json
+from web_publication_confirmation import address_confirmed
 
 TRIAL_SECONDS = 120
 
@@ -45,6 +45,7 @@ class WebReturnRecovery:
         self.record = {}
         self.stage, self.message = 'idle', ''
         self.failed = None
+        self.verified_trial = None
         self.attempts, self.next_attempt = 0, 0
 
     def observe(self, data):
@@ -142,23 +143,21 @@ class WebReturnRecovery:
         if not pending:
             return
         public, state = self.manager.public.status(), self.manager.status()
-        ddns = self.manager.ddns.status()
-        try:
-            updated_at = datetime.fromisoformat(ddns.get('last_updated') or '').timestamp()
-        except (TypeError, ValueError, OverflowError):
-            updated_at = 0
+        ddns = self.manager.publication_ddns_status()
         # Public listener readiness alone does not prove that the shared address
         # points to this PC. Wait for this trial's provider acknowledgement.
-        address_ready = (ddns.get('state') in {'ready', 'dns_pending'} and not ddns.get('busy')
-                         and updated_at >= pending['started_at'])
-        if (not self.failed and public['state'] == 'prepared'
-                and self.manager.publication_allowed() and address_ready):
+        address_ready = address_confirmed(ddns, pending['started_at'])
+        trial_ready = (state['state'] == 'running' and public['state'] == 'prepared'
+                       and self.manager.publication_allowed() and address_ready)
+        if trial_ready:
+            self.verified_trial = pending['id']
+        if not self.failed and trial_ready:
             self._complete(key, coordinator, pending)
             return
         # Ignore an error left by an earlier attempt until this trial is activated.
         activated = (self.manager.authority_key == key and self.manager.authority_ready)
         if (not self.failed and ((activated and (state['state'] == 'error' or public['state'] == 'error'
-                or (getattr(self.manager.ddns, 'active', False) and ddns.get('state') == 'error')))
+                or (ddns.get('enabled', True) and ddns.get('state') == 'error')))
                 or time.time() >= pending['deadline'])):
             self.failed = (key, coordinator, pending)
         if self.failed and self.attempts < 3 and time.monotonic() >= self.next_attempt:
@@ -201,6 +200,14 @@ class WebReturnRecovery:
             if not verified or verified['id'] != pending['id']:
                 self.failed = None
                 return
+            if (self.manager.authority_key == key and self.manager.authority_ready
+                    and self.manager.status()['state'] == 'running' and self.manager.publication_allowed()
+                    and self.manager.public.status()['state'] == 'prepared'
+                    and (self.verified_trial == verified['id']
+                         or address_confirmed(self.manager.publication_ddns_status(), verified['started_at']))):
+                self.failed = None
+                self._complete(key, coordinator, verified)
+                return  # The trial recovered while a previous failure was queued.
             self.stage, self.message = 'restoring', '새 웹 실패 · 기존 웹 담당 자동 복구 요청'
             self.manager.emergency_stop(standby=True)
             self.manager.set_authority((), message=self.message)
@@ -208,7 +215,9 @@ class WebReturnRecovery:
             if read_json(self.manager.root/'authority_lease.json').get('enabled') is not False:
                 raise ValueError('실패한 새 웹의 공개 차단을 확인하지 못했습니다.')
             deadline = time.monotonic()+20
-            while (self.manager.ddns.status().get('busy') or self.manager.public.status().get('busy')
+            while (self.manager.ddns.status().get('busy')
+                   or getattr(self.manager, 'background_busy', lambda: False)()
+                   or self.manager.public.status().get('busy')
                    or self.manager.public.status()['state'] != 'off'):
                 self._guard(key, coordinator)
                 if self.manager.closed.wait(.2) or time.monotonic() >= deadline:

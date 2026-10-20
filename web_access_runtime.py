@@ -88,6 +88,10 @@ class AccessRuntime:
         self.last_throttle_notice = 0.0
         self.read_limiter = ReadLimiter()
         self.cooldowns = CooldownLimiter()
+        from web_request_limits import DocumentQueue
+        from web_page_refresh import PageRefresh
+        self.document_queue = DocumentQueue()
+        self.page_refresh = PageRefresh(root, run_id, logger)
         self.last_read_throttle_notice = 0.0
         try:
             saved = read_json(root / "visitors.json")
@@ -257,7 +261,12 @@ class AccessRuntime:
             keys = [('reload', context['visitor'] or ip, bool(context['authenticated']))]
             if context.get('new_visitor'):
                 keys.append(('reload-new-ip', ip))
-            wait = self.cooldowns.claim(keys, 5)
+            with self.lock:
+                wait = max(self.cooldowns.wait(key) for key in keys)
+                if not wait:
+                    wait = self.document_queue.claim(keys[0])
+                if not wait:
+                    wait = self.cooldowns.claim(keys, 5)
         if wait:
             with self.lock:
                 if time.monotonic() - self.last_read_throttle_notice >= 30:

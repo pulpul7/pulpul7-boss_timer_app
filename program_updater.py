@@ -75,6 +75,11 @@ class ProgramUpdater:
         self.version = str(version)
         self.lock = threading.Lock()
         self.message = '전체 업데이트 확인 전'
+        self.progress = dict(stage='idle', message=self.message, received=0, total=0)
+
+    def report_progress(self, stage, message, *, received=0, total=0):
+        self.message = message
+        self.progress = dict(stage=stage, message=message, received=received, total=total)
 
     def check(self):
         rows = fetch_catalog()
@@ -99,11 +104,12 @@ class ProgramUpdater:
         prepared = False
         destination_created = False
         try:
+            self.report_progress('checking', 'GitHub 전체 업데이트 버전을 확인합니다…')
             deadline = time.monotonic() + 480
             guard.require_idle(self.data)
             row = self.check()
             if row is None:
-                self.message = '현재 프로그램이 최신 버전입니다.'
+                self.report_progress('current', '현재 프로그램이 최신 버전입니다.')
                 return None
             failures = self.root / 'failed_versions.json'
             if automatic and failures.exists() and row['version'] in read(failures):
@@ -121,7 +127,7 @@ class ProgramUpdater:
                         verify_version(old['destination'], old['manifest'])
                     except (OSError, ValueError):
                         continue
-                    self.message = '이미 검증한 전체 업데이트 파일을 사용합니다.'
+                    self.report_progress('prepared', '이미 검증한 전체 업데이트 파일을 사용합니다.')
                     return candidate
             ticket = uuid.uuid4().hex
             folder = contained(self.data, 'update_program/jobs/' + ticket)
@@ -136,7 +142,7 @@ class ProgramUpdater:
             with probe.open('xb') as stream:
                 stream.write(b'')
             probe.unlink()
-            self.message = '전체 업데이트 다운로드 중'
+            self.report_progress('downloading', '전체 업데이트 다운로드를 시작합니다…', total=row['size'])
             total = 0
             with open_response(row['url']) as response, archive_path.open('xb') as output:
                 for chunk in iter(lambda: response.read(1024 * 1024), b''):
@@ -146,9 +152,12 @@ class ProgramUpdater:
                     if total > row['size'] or total > MAX_ZIP:
                         raise ValueError('배포 파일의 다운로드 용량이 다릅니다.')
                     output.write(chunk)
+                    self.report_progress('downloading',
+                        f"다운로드 {total / row['size']:.0%} · {total / 1048576:.1f} / {row['size'] / 1048576:.1f} MB",
+                        received=total, total=row['size'])
                 output.flush()
                 os.fsync(output.fileno())
-            self.message = '전체 업데이트 파일 검증 중'
+            self.report_progress('verifying', '다운로드 완료 · ZIP과 실행파일의 SHA-256을 검증합니다…')
             manifest = verify_archive(archive_path, row)
             with zipfile.ZipFile(archive_path) as archive:
                 unpacked = sum(item.file_size for item in archive.infolist())
@@ -157,6 +166,7 @@ class ProgramUpdater:
             destination = contained(self.install, 'program_versions/' + ticket)
             destination.mkdir(parents=True, exist_ok=False)
             destination_created = True
+            self.report_progress('extracting', '검증 완료 · 새 버전의 압축을 해제합니다…')
             with zipfile.ZipFile(archive_path) as archive:
                 for name in (*FILES, MANIFEST):
                     with archive.open(name) as source, (destination / name).open('xb') as target:
@@ -181,7 +191,7 @@ class ProgramUpdater:
                 archive_path.unlink()
             except OSError:
                 pass
-            self.message = '전체 업데이트 검증 완료'
+            self.report_progress('prepared', '다운로드·검증·압축 해제 완료 · 재시작을 준비합니다.')
             return path
         except Exception:
             if not prepared:

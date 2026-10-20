@@ -43,16 +43,19 @@ class DiscordWebControl:
             coordinator = self.coordinator
             from discord_authority import AuthorityError
             program_update = payload.get('operation') == 'administrator_program_update'
+            refreshing = payload.get('operation') == 'administrator_web_refresh'
             updating = payload.get('operation') == 'administrator_web_update' or program_update
+            host_request = updating or refreshing
             finish = time.monotonic()+(PROGRAM_UPDATE_SECONDS+20 if program_update else UPDATE_SECONDS+20 if updating else 80)
             try:
                 coordinator._assert_profile()
                 selector = str(payload.get('target_administrator') or payload.get('target_client_id') or '').strip()
-                if not selector and not updating:
+                if not selector and not host_request:
                     raise ValueError('관리자 이름 또는 ID를 입력해주세요. /보탐 관리자에서 확인할 수 있습니다.')
                 call_id = str(payload['request_id'])
                 action = {'administrator_web_stop': 'stop', 'administrator_web_force': 'force',
-                          'administrator_web_update': 'update', 'administrator_program_update': 'program_update'}.get(
+                          'administrator_web_update': 'update', 'administrator_web_refresh': 'refresh',
+                          'administrator_program_update': 'program_update'}.get(
                     payload.get('operation'), 'retry')
                 if not call_id.isdigit() or len(call_id) > 24:
                     raise ValueError('웹 요청 번호가 올바르지 않습니다.')
@@ -61,7 +64,7 @@ class DiscordWebControl:
                 handover = payload.get('handover_operation')
                 expected_runtime = payload.get('expected_target_runtime')
                 expected_host = None
-                if updating:
+                if host_request:
                     live = coordinator._live_data(data)
                     members = coordinator.record.online_members(live)
                     expected_host = web_host_stamp(data)
@@ -86,13 +89,13 @@ class DiscordWebControl:
                     member = coordinator.record.online_members(record).get(target)
                     if not member:
                         raise ValueError('대상 관리자 연결이 끊겼습니다. 기존 웹은 유지합니다.')
-                    if updating:
+                    if host_request:
                         if member.get('runtime') != expected_runtime or (not program_update and web_host_stamp(record) != expected_host):
                             raise ValueError('웹 담당자가 변경되어 업데이트 요청을 취소했습니다. 다시 요청해주세요.')
                         if program_update and record.get('phase') == 'active' and record.get('owner') and (
                                 record.get('owner') != target or record.get('owner_runtime') != expected_runtime):
                             raise ValueError('전체 업데이트 담당자가 변경되어 요청을 취소했습니다.')
-                        protocol = 'program_update_protocol' if program_update else 'web_update_protocol'
+                        protocol = 'program_update_protocol' if program_update else 'web_refresh_protocol' if refreshing else 'web_update_protocol'
                         if member.get(protocol) != 1:
                             raise ValueError('대상 관리자 프로그램을 새 버전으로 교체해주세요. 요청한 Discord 업데이트를 지원하지 않습니다.')
                     if handover:
@@ -110,7 +113,7 @@ class DiscordWebControl:
                         raise ValueError('해당 PC에서 웹 요청을 처리 중입니다.')
                     member['web_call'] = dict(id=call_id, runtime=member['runtime'], action=action,
                                              state='pending', expires=time.time()+10)
-                    if updating:
+                    if host_request:
                         member['web_call']['update_host'] = list(expected_host) if expected_host else None
                     if program_update:
                         member['web_call']['requester_runtime'] = payload.get('runtime_id') or coordinator._status().get('runtime_id')
@@ -167,7 +170,7 @@ class DiscordWebControl:
                         or member.get('runtime') != call['runtime']
                         or current.get('state') != 'pending' or time.time() >= current.get('expires', 0)):
                     raise ValueError('웹 요청이 만료되거나 변경되었습니다.')
-                if call.get('action') == 'update':
+                if call.get('action') in {'update', 'refresh'}:
                     expected = tuple(call['update_host']) if call.get('update_host') else None
                     if web_host_stamp(data) != expected:
                         raise ValueError('웹 담당자가 변경되어 이전 업데이트 요청을 취소했습니다.')
@@ -198,6 +201,12 @@ class DiscordWebControl:
             else:
                 coordinator._notify(data)
             action = call.get('action', 'retry')
+            if action == 'refresh':
+                refresh = getattr(manager, 'request_browser_refresh', None)
+                if not callable(refresh):
+                    raise ValueError('대상 관리자 프로그램이 화면 갱신 명령을 지원하지 않습니다.')
+                self._finish(call, True, refresh())
+                return
             if action == 'update':
                 updater = getattr(manager, 'page_updater', None)
                 if not callable(getattr(updater, 'request_and_wait', None)):
@@ -281,7 +290,7 @@ class DiscordWebControl:
                 current = member.get('web_call', {})
                 if (current.get('id') != call['id'] or current.get('runtime') != call['runtime']
                         or member.get('runtime') != call['runtime']
-                        or current.get('state') not in ({'pending', 'accepted'} if call.get('action') in {'update', 'program_update'} and not ok else {'accepted'})):
+                        or current.get('state') not in ({'pending', 'accepted'} if call.get('action') in {'update', 'refresh', 'program_update'} and not ok else {'accepted'})):
                     raise ValueError('새 웹 요청이 있어 이전 결과를 기록하지 않습니다.')
                 if for_handover and ok and stopped:
                     operation = data.get('web_operation') or {}

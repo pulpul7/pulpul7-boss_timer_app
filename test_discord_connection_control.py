@@ -29,6 +29,33 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(self.policy.snapshot()["retries"], 1)
         self.assertTrue(self.policy.claim_retry(now=105))
 
+    def test_invalid_state_reports_path_and_preserves_original_on_manual_resume(self):
+        for raw in ('', 'broken', '[]'):
+            with self.subTest(raw=raw):
+                self.policy.path.write_text(raw, encoding='utf-8')
+                with self.assertRaises(ValueError) as error:
+                    self.policy.resume()
+                self.assertIn(str(self.policy.path), str(error.exception))
+                self.assertIn('연결 상태 파일', str(error.exception))
+                self.assertIsNotNone(error.exception.__cause__)
+                self.assertEqual(self.policy.path.read_text(encoding='utf-8'), raw)
+                self.assertTrue(self.policy.snapshot()['handover_hold'])
+
+    def test_missing_state_allows_first_manual_start(self):
+        self.assertFalse(self.policy.path.exists())
+        self.policy.resume()
+        self.assertEqual(self.policy.snapshot(strict=True)['error'], '')
+
+    def test_valid_state_manual_resume_keeps_owner_identity(self):
+        self.policy.update(client_id='a' * 32, runtime_id='b' * 32,
+                           standby=True, retries=MAX_RETRIES, error='previous')
+        self.policy.resume()
+        state = self.policy.snapshot(strict=True)
+        self.assertEqual(state['client_id'], 'a' * 32)
+        self.assertEqual(state['runtime_id'], 'b' * 32)
+        self.assertTrue(state['standby'])
+        self.assertEqual(state['retries'], 0)
+
     def test_standby_and_error_cannot_be_cleared_by_success(self):
         self.policy.pause()
         self.policy.success()

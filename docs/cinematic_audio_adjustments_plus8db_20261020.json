@@ -1,0 +1,131 @@
+{
+  "schema": 1,
+  "date": "2026-10-20",
+  "filter": "volume=8dB,alimiter=limit=0.891250938:level=false:latency=true",
+  "video_codec": "copy",
+  "audio_codec": "aac",
+  "audio_bitrate": "128k",
+  "state": "applied_and_verified",
+  "files": [
+    {
+      "file": "아이언맨스파이더맨재회2_12fps.mp4",
+      "additional_gain_db": 8,
+      "before": {
+        "mean_volume": -29.2,
+        "max_volume": -10.3
+      },
+      "after": {
+        "mean_volume": -21.2,
+        "max_volume": -2.1
+      },
+      "measured_mean_gain_db": 8.0,
+      "source_sha256": "7b4266965efa7ca9e64b5b176da212312b9dd667e6c03cd5eca4841f33a10a8f",
+      "sha256": "2d32e0fcc9de4dbbe894ed398857b64824d6b7665d118c93d81783327a386db3",
+      "video_stream_unchanged": true,
+      "video_seconds": 45.666666666666664,
+      "audio_before_seconds": 45.65,
+      "audio_after_seconds": 45.65,
+      "backup": "시네마틱_음량원본_20261020_추가8dB\\아이언맨스파이더맨재회2_12fps.mp4"
+    },
+    {
+      "file": "어밴저스vs.mp4",
+      "additional_gain_db": 8,
+      "before": {
+        "mean_volume": -31.6,
+        "max_volume": -8.5
+      },
+      "after": {
+        "mean_volume": -23.7,
+        "max_volume": -0.9
+      },
+      "measured_mean_gain_db": 7.9,
+      "source_sha256": "af544d6619db778494f8f63472bd769ba0674f0e155386b728d8d5e89aeca2ff",
+      "sha256": "267a2fab3275bf10bc96c4300df9e396c4207d2d00e2d31128662c01149557a3",
+      "video_stream_unchanged": true,
+      "video_seconds": 29.0,
+      "audio_before_seconds": 29.0,
+      "audio_after_seconds": 29.0,
+      "backup": "시네마틱_음량원본_20261020_추가8dB\\어밴저스vs.mp4"
+    },
+    {
+      "file": "아이언맨등장.mp4",
+      "additional_gain_db": 8,
+      "before": {
+        "mean_volume": -32.0,
+        "max_volume": -14.9
+      },
+      "after": {
+        "mean_volume": -24.0,
+        "max_volume": -6.7
+      },
+      "measured_mean_gain_db": 8.0,
+      "source_sha256": "65cd7c8b49e4484597c57131f887aa54c14e3fad2fdca145509a3b00d798efc4",
+      "sha256": "5645c5e2955ca71f0964ad46dd44d53c90dfb7fa16eaa8fdd55b4626aa38b1f6",
+      "video_stream_unchanged": true,
+      "video_seconds": 18.833333333333332,
+      "audio_before_seconds": 18.830997732426304,
+      "audio_after_seconds": 18.830997732426304,
+      "backup": "시네마틱_음량원본_20261020_추가8dB\\아이언맨등장.mp4"
+    },
+    {
+      "file": "스파이더맨1.mp4",
+      "additional_gain_db": 8,
+      "before": {
+        "mean_volume": -31.8,
+        "max_volume": -11.0
+      },
+      "after": {
+        "mean_volume": -23.8,
+        "max_volume": -1.8
+      },
+      "measured_mean_gain_db": 8.0,
+      "source_sha256": "425aafa45c8818b00a05088d7aadb44bbf8769b80a0a0224da8fbfd4e877eead",
+      "sha256": "b0da656fe8cb88311f0ad44e8029a6cc98847c4f38d3c451a2adbeec4827bc5a",
+      "video_stream_unchanged": true,
+      "video_seconds": 12.5,
+      "audio_before_seconds": 12.538004535147392,
+      "audio_after_seconds": 12.538004535147392,
+      "backup": "시네마틱_음량원본_20261020_추가8dB\\스파이더맨1.mp4"
+    },
+    {
+      "file": "스파이더맨3명.mp4",
+      "additional_gain_db": 8,
+      "before": {
+        "mean_volume": -27.5,
+        "max_volume": -14.5
+      },
+      "after": {
+        "mean_volume": -19.6,
+        "max_volume": -6.1
+      },
+      "measured_mean_gain_db": 7.9,
+      "source_sha256": "ac7d4a2d8b5eee656892cef9606f1a5cd813022d740c42d512dd9d2ce6e7e359",
+      "sha256": "cf406892dbc09ceecafcb03823477668bae9656c2b401f53927008c322ba24ec",
+      "video_stream_unchanged": true,
+      "video_seconds": 8.916666666666666,
+      "audio_before_seconds": 8.939002267573697,
+      "audio_after_seconds": 8.939002267573697,
+      "backup": "시네마틱_음량원본_20261020_추가8dB\\스파이더맨3명.mp4"
+    },
+    {
+      "file": "토르2.mp4",
+      "additional_gain_db": 8,
+      "before": {
+        "mean_volume": -27.5,
+        "max_volume": -12.3
+      },
+      "after": {
+        "mean_volume": -19.5,
+        "max_volume": -4.5
+      },
+      "measured_mean_gain_db": 8.0,
+      "source_sha256": "118920fa9e3fc781dc607bf2fab65cad097611581341d4a99716fb8176606e84",
+      "sha256": "e99c5571a81823724f91695245cd8e994033861c45d7df8ef915d0f963d2cdbd",
+      "video_stream_unchanged": true,
+      "video_seconds": 10.166666666666666,
+      "audio_before_seconds": 10.216009070294785,
+      "audio_after_seconds": 10.216009070294785,
+      "backup": "시네마틱_음량원본_20261020_추가8dB\\토르2.mp4"
+    }
+  ]
+}

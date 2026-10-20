@@ -6,7 +6,7 @@ import sys
 
 ASSET_PATH = '/themes/limited-sakura-atlas-v1.png'
 BUTTERFLY_PATH = '/themes/limited-sakura-butterfly-v1.js'
-BUTTERFLY_SHA256 = 'eef6a970fbb5adb02cb6ac79b68c07962a25e6384ca0b138c41e52ba9e298550'
+BUTTERFLY_SHA256 = 'f523cba06cafe2d25fc7726dc062e06a14a3bef146868cd90121d278dd0b35be'
 ATLAS_SHA256 = '00341d7141cc4c82eb41f598b2b60c9166b1af1e5d25f698fce6ce185eda0338'
 
 

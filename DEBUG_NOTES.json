@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "debugging_evidence_and_resolution_log_not_code_navigation_tree",
-  "updated_on": "2026-10-18",
+  "updated_on": "2026-10-20",
   "rules": [
     "Record only investigated facts; user reports, hypotheses, confirmed causes and resolutions are distinct.",
     "No credentials, private user data or raw production logs. Reference code symbols/tests and sanitized event names.",
@@ -572,6 +572,1806 @@
       "remaining_limits": [
         "Exact initial mobile failure remains unconfirmed without the matching response status/browser error or timestamped trace.",
         "A later automatic recovery is consistent with existing retries but was not independently traced on the phone."
+      ]
+    },
+    {
+      "id": "header_warning_uses_theme_accent_139",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_nonbuild",
+      "symptom": "Header offline status retained a pink/red warning color in other themes.",
+      "cause": "updateConnection assigns the generic warning class for offline/stale states. Generic warning rules use hardcoded pink/red/brown colors independently of each palette; the header had a themed override only for non-warning status.",
+      "resolution": "Added a header-only #connection.warning color override using the current palette accent variable. Offline and stale labels now follow every selected theme while unrelated warning messages retain their existing styles. CSS mirrors and metadata synchronized at revision 139.",
+      "verification": [
+        "15 existing asset/layout tests passed.",
+        "Confirmed the ID-qualified theme-variable warning rule and HTML/CSS source-fallback equality."
+      ],
+      "remaining_limits": [
+        "No live browser visual measurement, build or web apply performed. Existing CODEMAP web UI route covers the affected CSS."
+      ]
+    },
+    {
+      "id": "copied_630_bot_start_json_diagnostic",
+      "recorded_on": "2026-10-18",
+      "status": "remote_launch_recovered_corruption_origin_unknown",
+      "symptom": "User reports another PC running copied v6.3.0 shows bot launch failed with JSON Expecting value line 1 column 1.",
+      "evidence": [
+        "boss_timer_gui.py#BossTimerApp._start_discord_bot_runtime catches ValueError before successful Popen and displays this popup.",
+        "discord_connection_policy.py#ConnectionPolicy.resume calls update then snapshot(strict=True); an empty connection state reproduces this raw JSON error.",
+        "Missing connection state is accepted as a fresh profile and is not itself an error.",
+        "User PowerShell check reports root connection state parses but server_profiles/season_18/9/discord_bot.ini.connection.json fails ConvertFrom-Json; remote files are nonzero length. File content and Python traceback not available.",
+        "User reports backup/rename of the invalid profile connection file completed and subsequent application/bot start succeeded. This supports the connection-state file as the launch blocker."
+      ],
+      "hypothesis": "Invalid profile connection state is consistent with the pre-launch strict JSON error. How the file became unreadable remains unknown; PowerShell parse failure alone is not a full Python content diagnosis.",
+      "resolution": "Source diagnostics identify failed input without reset. On the remote PC, user quarantined only the failing connection state after identity/process guards, then successfully restarted. No automatic recovery has been added.",
+      "validation": "Five targeted PolicyTests passed earlier. Isolated temporary-data recovery check preserved backup and administrator identity and recreated standby/no-authority state. Remote user confirmed successful launch after quarantine; no EXE build or live local AppData mutation.",
+      "remaining": "Retain the remote backup for content/encoding inspection to establish corruption origin. Diagnostic-only changes need a future build; unattended repair is not implemented. Do not describe atomic replacement as full power-loss durability or claim the defect cannot recur.",
+      "recurrence_assessment": "Other installations use the same strict reader, so independently unreadable state can block their bot starts too. Current save writes a same-directory temporary file then os.replace under a cross-process lock; no partial in-place writer was identified in the inspected path. File corruption origin and frequency remain unknown."
+    },
+    {
+      "id": "remote_630_web_handover_after_connection_state_recovery",
+      "recorded_on": "2026-10-18",
+      "status": "frozen_worker_pid_acceptance_fixed_source_pending_packaged_validation",
+      "symptom": "After remote PC connection-state quarantine, user reports Discord succeeds while web button shows handover failed.",
+      "evidence": [
+        "boss_timer_gui.py#BossTimerApp._refresh_schedule_web_status maps multiple errors to the same web handover failed label.",
+        "web_service_ui.py#_refresh_joint displays standalone status message and return recovery detail in the joint operations tab.",
+        "web_standalone_hosting.py#StandaloneHosting._start_worker checks bot control session, shared settings, local HTTPS, previous host stop and final ownership in separate stages.",
+        "web_secret_store.py encrypts DDNS credentials with Windows user-scoped DPAPI; blindly copied encrypted settings may be unreadable on another Windows account/PC.",
+        "Remote joint operations screenshot reports local HTTPS preparation failed and existing web retained. This message maps to StandaloneHosting._start_worker seeing https_state=error or local worker state=error before sending the peer-stop request.",
+        "web_https_server.py#HTTPSListener._reload logs https_listener_failed with exception type to web_service/worker.log; outer worker startup logs its error_code and errno. Need remote log, not local installation state.",
+        "User network report ends with the exact worker_timeout message; WebServiceManager._monitor uses a 20-second no-initial-heartbeat limit. This points to missing validated local worker readiness, not proof of an inbound router failure.",
+        "Earlier diagnostic filter omitted worker_timeout and worker_exited and its selected fields omitted reason. Only four final ValueError records were returned; this does not establish the internal HTTPS exception or prove none occurred.",
+        "Full remote logs show three matching run IDs each reaching local_listener_ready and https_listener_ready about four seconds after worker_spawned, followed by controller worker_timeout at twenty seconds and worker_stop reason stop_requested. TLS startup itself succeeded in these attempts.",
+        "User also reproduces failure with v6.3.0 EXE on the development PC while VS Code debug execution succeeds.",
+        "GUI spec uses one-file EXE. Manager sets PYINSTALLER_RESET_ENVIRONMENT=1 for persistent children; _read_worker_state previously required status PID to equal Popen launcher PID. Worker writes os.getpid() in its state.",
+        "PyInstaller official advanced-topics documentation describes separate onefile parent and main-application/worker processes: https://pyinstaller.org/en/stable/advanced-topics.html",
+        "Offline regression reproduces a ready same-executable direct child with a different PID being rejected by the old equality check; new process proof admits it and prevents false startup timeout."
+      ],
+      "hypotheses": [
+        "Remote state message is required; UI label alone cannot identify the failing stage.",
+        "If AppData was copied, DPAPI decoding could fail; actual copy scope and failure stage remain unconfirmed."
+      ],
+      "resolution": "Added SpawnedWorkerIdentity with native Windows ancestry/path/creation-time checks for differing frozen PIDs; cached child proofs retain identity rechecks without repeated process-tree scans. Keep run/protocol/port and launcher lifecycle checks. Added bounded identity diagnostics and preserve actual worker failure reason in the web handover UI. No timeout extension, credential reset, forced remote handover or build.",
+      "remaining": "User must rebuild main executable and verify actual onefile startup/handover, identity-verified log and continued running beyond former twenty-second cutoff. Static web ZIP cannot change controller Python code. Original unrelated connection-state corruption origin remains unknown.",
+      "cause": "Confirmed source defect: frozen onefile launcher and actual web worker PIDs are treated as identical. Remote logs prove ready responses were not accepted; actual remote PID pairs were not captured, so repaired EXE validation is still required.",
+      "validation": "233 source regression tests passed: 81 targeted worker-identity/standalone/persistent/hot-asset cases plus 152 lifecycle, return/departed-host, asset selection, page completion, request-limit/auth, full-update and bot-process cases. Initial three new integration fixtures lacked their temporary web_service directory; fixture setup was corrected before the passing runs. No packaged EXE test or build in this task."
+    },
+    {
+      "id": "manual_schedule_sync_modal_and_stale_content",
+      "recorded_on": "2026-10-18",
+      "status": "source_fixed_user_recovered_data_packaged_visual_check_pending",
+      "symptom": "User saw sync stuck at preparing application, then found replace confirmation at far right. Accepting sync displayed an empty schedule; user restored and uploaded the correct data.",
+      "evidence": [
+        "Live UI responsiveness log showed repeated schedule replace-confirmation open events without corresponding closes; user confirmed the question was visible too far right, not an endless network download.",
+        "BossTimerApp._confirm_schedule_sync_replace explicitly parented the question to root while sync progress used schedule_window. The old worker and finish preparation lacked exception cleanup.",
+        "Read-only history inspection showed the pre-sync snapshot had 356 events through Oct 21, while the replaced snapshot had only 9 events ending Oct 14. A later restored/upload-backup entry again had 356 events; no AppData writes performed by the agent.",
+        "Worker computed skip decisions from index version and later replaced the version with the downloaded wrapper dataVersion without checking index/file consistency. Matching/greater version alone did not guard stale semantic content."
+      ],
+      "cause": "Confirmed modal-parent/UI visibility issue and missing destructive-content guards. Remote content was past-only rather than structurally empty. How the stale file acquired its server version is not proven by available evidence.",
+      "resolution": "Use schedule_window as the confirmation parent, withdraw/release progress while asking and restore it on acceptance. Queue worker-to-UI callbacks, close/release on exceptions, bound download/preparation wait to 120 seconds, reject duplicate sync and ignore cancelled/expired late results. Validate declared index/file versions and hashes, block actual older local versions, empty downloads and past-only schedules replacing future local events. Keep explicit history restore separate; do not auto-select/upload a local authority.",
+      "validation": "76 offline tests passed: task lifecycle and real extracted GUI method fixtures, stale/empty/version/hash guards, progress/confirmation behavior, profile switch, partial-apply prevention on boss-config mismatch, GitHub schedule safety/write efficiency and UI responsiveness. Python import in the suite validated main source syntax. No build, network sync, EXE launch or live data modification.",
+      "remaining": [
+        "Restart debug execution to load edited methods; existing process does not hot-reload them. Visually confirm schedule-centered modal and new executable behavior after user build.",
+        "Original stale upload/version provenance remains unconfirmed; broad multi-admin latest-authority sync is still limited as documented in UPDATE_POLICY section 8.",
+        "An exception after actual writes is reported and backed by existing restore history, but this patch does not add full transactional rollback to every manual-apply write."
+      ]
+    },
+    {
+      "id": "web_trial_false_rollback_after_success",
+      "recorded_on": "2026-10-18",
+      "status": "source_fixed_two_pc_exe_validation_pending",
+      "symptom": "After repeated handovers user left admin1 with both connections successful; later only web returned to the prior PC. User initially estimated 2-3 minutes then said possibly longer.",
+      "evidence": [
+        "Read-only local manager log contains web_previous_host_restore_started at 2026-10-17T20:45:09.501Z following handover stop at 20:42:52.659Z. Thus an actual recovery path ran; it was not merely a mistaken status observation.",
+        "StandaloneHosting.tick and WebReturnRecovery.monitor used manager.ddns.status() from the GUI service even though persistent WorkerRuntime owns DDNS and exposes ddns_status in its heartbeat.",
+        "Both paths retain previous-host backup while validating new publication; absent fresh provider proof can trigger recovery after the 120-second trial. GUI cached-DDNS reads can miss successful worker acknowledgements.",
+        "StandaloneHosting._restore_previous previously accepted the active operation even after success removed its backup; a queued restoration could stop the current site."
+      ],
+      "cause": "Confirmed source defects in DDNS proof selection and post-confirmation rollback fencing. The old PC restoration event is confirmed, but the receiving PC exact provider state/log was not captured.",
+      "resolution": "Added publication_ddns_status() with worker-only proof and no stale GUI fallback while a worker exists; kept UI settings getter separate. Both controllers share address_confirmed() requiring current-trial provider acknowledgement. Retain verified proof per trial across control-record retries and reject transient missing-status-driven reversal. Recheck current healthy state and backup before local stop, serialize standalone confirmation/rollback, drain actual worker DDNS before reassignment, and show pending address confirmation distinctly. Genuine failure rollback remains; no Discord ownership rollback was added.",
+      "validation": "217 offline regression tests passed: publication proof, standalone/return recovery, persistent runtime, frozen worker identity, delegated/independent/departed hosting, live asset update and full-update sequence. New tests cover actual-worker success vs stale GUI, expired trial, missing proof, pending display, late/queued restores, simultaneous CAS/restore and genuine worker error. Initial fixture failures reflected separation of UI configuration and runtime telemetry; fixtures were updated before the passing combined run. No two-PC EXE/live provider test or build.",
+      "remaining": [
+        "Rebuild/restart participating GUI controllers on both PCs and observe round-trip handover beyond 120 seconds. Current task performs no build, no live reassignment, no certificate reset and no operational AppData writes.",
+        "The code inspection does not establish every earlier intermittent Discord/web initial connection failure; new receiving-PC logs would be needed if those persist."
+      ]
+    },
+    {
+      "id": "release_v631_full_update_package",
+      "recorded_on": "2026-10-18",
+      "status": "built_and_archive_verified_runtime_handover_not_exercised",
+      "request": "Package all pending fixes as full update v6.3.1, preserving the v prefix.",
+      "changes": [
+        "Explicit validated BOSS_TIMER_BUILD_VERSION takes precedence over Git tags during packaging; no tags created or moved.",
+        "New full ZIP names retain one v prefix; reading older non-v asset names stays compatible.",
+        "Pending frozen web identity, public-address trial/rollback, schedule synchronization safeguards, connection-file diagnostics and offline theme status fixes are bundled."
+      ],
+      "preflight": {
+        "distribution_declaration": "Validated existing areas/boss_definition/fixed/spectrum sources and hashes; selections and revision unchanged.",
+        "web_mirrors": "PAGE/STYLE/SCRIPT byte-identical to web_assets; page revision 139.",
+        "combined_suite": {
+          "tests": 283,
+          "passed": 272,
+          "failures": 9,
+          "errors": 2,
+          "failed_module": "test_discord_connection_control"
+        },
+        "test_limitations": [
+          "Legacy Discord fixtures lack current authority/identity setup; one GUI fixture attempted a real AppData lock and was denied by sandbox. No permission escalation was used for tests.",
+          "Two failing legacy policy fixtures were checked against unmodified HEAD ConnectionPolicy: same failure/error reproduced. Do not claim the entire legacy module passed."
+        ],
+        "targeted_rerun": {
+          "tests": 19,
+          "result": "passed",
+          "scope": "release version/prefix tests, patch history, three new corruption diagnostics and two retry-budget tests"
+        }
+      },
+      "build": {
+        "order": "Discord bot then GUI",
+        "output": "dist/v6.3.1",
+        "environment_issue": "Sandbox Tcl initialization failed although Tcl files existed; read-only unsandboxed probe confirmed normal Tcl/PyInstaller detection. GUI build then completed with approved elevation.",
+        "preserved": "Existing dist executables/ZIPs and live services left in place; AppData not changed by packaging."
+      },
+      "artifact": {
+        "path": "dist/bosstimer_update_v6.3.1.zip",
+        "version": "v6.3.1",
+        "bytes": 214369080,
+        "sha256": "a03cf98bc6a42fdecaf4a7185922965f3f0d99821b6c63415a776f3972bde36c",
+        "files": {
+          "boss_timer_gui.exe": "a4be3939fe854a67316219599725d0351d37e3e402ea2793c2b6963d6f6aae83",
+          "boss_timer_discord_bot.exe": "e624c4bb3dd8420f94fd8ac402c47bb1e89db8e64d60370bc38d301d92df0ee4"
+        }
+      },
+      "validation": [
+        "Completed EXE metadata and ZIP manifest both v6.3.1; exact required three-file ZIP and all executable SHA-256 values verified.",
+        "Actual v6.3.0 tagged package verifier accepted the real new ZIP.",
+        "New modules, current policy, distribution declaration and web resources confirmed inside GUI CArchive/PYZ."
+      ],
+      "remaining": [
+        "No EXE launch, actual automatic update, Discord login or two-PC handover was run. Both administrators need the corrected GUI for controller fixes.",
+        "Legacy Discord test fixtures require a separate update/isolation review; do not interpret package verification as all tests passing."
+      ],
+      "publication": "Local ZIP prepared; no GitHub release publication performed."
+    },
+    {
+      "id": "release_v631_not_visible_in_public_catalog",
+      "recorded_on": "2026-10-18",
+      "status": "confirmed_repository_mismatch_no_source_or_release_changes",
+      "symptom": "User uploaded v6.3.1 but update check reports current version is latest.",
+      "confirmed": [
+        "Full-update filename parser accepts both v6.3.1 and 6.3.1; removing v is unnecessary.",
+        "Live read-only request through the same official releases API returned one published stable release v3.3.4 with boss_timer_gui_v3.3.4.zip; release_rows returned no full-update candidates.",
+        "Repeated public API check with a cache-busting query still returned only stable v3.3.4; /releases/latest agreed; /releases/tags/v6.3.1 returned HTTP 404 (release tag name may differ).",
+        "ProgramUpdater.check returns None for an empty recognized catalog; AiUpdateCenter._check_full labels that outcome as latest, so the message does not prove that the uploaded ZIP was found.",
+        "Sanitized local origin repository matches the hard-coded updater repository.",
+        "User-provided boss_timer release is public, stable and contains bosstimer_update_v6.3.1.zip.",
+        "Remote asset size 214369080 and SHA-256 a03cf98bc6a42fdecaf4a7185922965f3f0d99821b6c63415a776f3972bde36c match the locally verified full package.",
+        "Configured release_rows rejects the different repository download URL; bypassing its origin validation would be inappropriate."
+      ],
+      "inference": "v6.3.1 was not visible in this public catalog at check time. Draft, upload location or publishing completion remains unconfirmed.",
+      "resolution": "For existing v6.3.0 clients, publish the same verified ZIP as a stable Release asset in their configured pulpul7-boss_timer_app repository. A migration to boss_timer requires an explicitly updated client or a transition release from the old repository; changing local source cannot alter installed EXEs.",
+      "validation": "API listing only; no release modification, download, installation or source changes.",
+      "remaining": "No upload or repository configuration change performed. User can publish the same ZIP at the existing configured location, or request a repository migration.",
+      "cause": "Installed updater and local source use pulpul7/pulpul7-boss_timer_app; user published the ZIP to pulpul7/boss_timer."
+    },
+    {
+      "id": "full_update_exit_query_race_and_missing_download_progress",
+      "recorded_on": "2026-10-18",
+      "status": "source_fixed_tests_passed_existing_transaction_recovered_by_original_entry",
+      "symptom": "Manual v6.3.0-to-v6.3.1 update showed no visible download progress, closed the GUI and did not relaunch until recovery entry was opened.",
+      "confirmed": [
+        "Transaction was left stopping with the process image re-query failure message; prepared GUI/bot EXEs existed with expected sizes and no active-version pointer had been written.",
+        "Read-only native inspection confirmed both old GUI and first helper had exited.",
+        "program_update_process.alive checked the process signal before querying path/creation; if it exited during that query the failed query raised without a second signal check. Helper wait was before version transition.",
+        "Manual download only updated a worker-owned message; the modal was first opened during the later shutdown stage."
+      ],
+      "inference": "The observed shutdown-time image query failure is consistent with an exit/query race. Exact native wait/query return values from the original failure were not captured.",
+      "resolution": [
+        "Recheck the same retained process handle after failed identity query; retry temporary inspection errors within the existing exit deadline. Unknown identity/access denial never proves exit; cancellation and timeout remain enforced.",
+        "Open manual download progress before the background job, show percent and received/total MB, separate verification/extraction messages, and close the popup on success/error before scheduling apply.",
+        "Update policy, update-management guidance, pending patch notes and CODEMAP current entrypoints."
+      ],
+      "validation": {
+        "offline": "82 tests passed: test_program_update_sequence, test_ai_update_tabs, test_web_discord_control, test_app_patch_notes; diff whitespace check passed.",
+        "live_recovery": "Reopened the original EXE after validating matching transaction/fence, old process exit and prepared EXE hashes. Existing frozen recovery sequence progressed stopping ? switching ? verifying ? complete; maintenance fence was removed.",
+        "live_timing_kst": "First helper start 07:05:50; ready/complete 07:12:31, elapsed 6m41s including the stopped interval and manual recovery re-entry; not a normal download-time measurement.",
+        "user_confirmation": "User saw v6.3.1 and automatic login. Web showed waiting; its pre-update public state is unconfirmed."
+      },
+      "remaining": [
+        "The downloaded v6.3.1 ZIP and installed binaries do not contain these new source fixes. No new EXE/ZIP was built.",
+        "New exit-race correction and progress popup were verified in offline tests, not newly built EXEs. Current live recovery used the existing frozen helper once the old process was already gone.",
+        "User is testing another PC; compare pre-update web publication and post-update same-URL availability before classifying web waiting as a regression."
+      ]
+    },
+    {
+      "id": "remote_full_update_web_waiting_after_success",
+      "recorded_on": "2026-10-18",
+      "status": "pre_update_standby_timeline_confirmed_restore_target_order_guard_fixed_in_source",
+      "symptom": "Second PC updated successfully via Discord and relaunched quickly at v6.3.1, but UI shows web waiting rather than failure. User confirms it was publishing before update and the original URL was inaccessible afterwards.",
+      "confirmed": [
+        "ProgramUpdateService.resume calls manager.start_saved after the helper commits and removes the maintenance fence.",
+        "WebServiceManager.start_saved is a local worker discovery/start entry; public restoration depends on adopting a live worker and retaining verified publication state. Waiting text alone does not prove which of these steps ran.",
+        "Remote PC process/manager logs are not accessible from this workspace. Local logs must not be attributed to the second PC.",
+        "The existing worker was reattached automatically after update, before the later Discord retry command. The earlier hypothesis that post-update discovery was skipped is refuted by this table.",
+        "The public standby/previous-host restore failure occurred before the old GUI detached, so this event sequence does not show the update stopping a previously published listener.",
+        "Offline inspection of the actual v6.3.1 EXE PYZ confirmed StandaloneHosting.tick uses publication_ddns_status and trial_verified_web; the earlier DDNS/trial correction is included.",
+        "Current _restore_previous_locked stopped the current public site before checking whether the fallback member was online with the original runtime; a known-offline fallback can therefore leave only the current site in standby.",
+        "The fallback check is repeated within the shared-record mutation; keeping that final check is still necessary because availability can change after the initial read."
+      ],
+      "inference": [
+        "The pre-update rollback follows the known older trial/previous-host restore path. Filtered events omit the exception message and stage payload, so the exact ValueError and whether public failure versus trial timeout triggered it remain unconfirmed."
+      ],
+      "remaining": "New fallback-order guard is source-only and is not in the existing v6.3.1 ZIP/installed EXEs. No rebuild or live web takeover performed. Remote filtered logs do not contain the ValueError text, so the exact original exception is not conclusively attributed to this guard-order defect; the vulnerable case itself is reproduced by tests.",
+      "remote_evidence": {
+        "source": "User-pasted sanitized right-PC event table; no credentials/raw full production log copied.",
+        "kst_timeline": [
+          "07:16:14 web_handover_standby_requested and web_authority_changed.",
+          "07:16:20 web_independent_restore_failed ValueError.",
+          "07:16:39 web_gui_detached.",
+          "07:17:00 start_requested; 07:17:03 local_connection_ready and web_worker_reattached.",
+          "07:19:29 discord_web_retry_once; 07:19:34 onward authority/publication progress; 07:19:47 web_background_ready."
+        ]
+      },
+      "user_clarification": "PC1 was fully stopped, then PC2 connected Discord and web, then PC2 updated. Repeated test history alone must not be treated as the cause.",
+      "new_source_resolution": [
+        "Before any emergency_stop/set_authority/lease write, verify fallback online state and original runtime. Skip an unavailable fallback without changing current site controls or fabricating publication success.",
+        "Deduplicate the unavailable-target diagnostic by operation/target/session/reason, and allow restoration if the target becomes available later.",
+        "Existing healthy-trial proof confirmation and genuine available-target recovery remain in place. Policy, update-management notes and pending patch history updated. Existing CODEMAP restore path already covers this change; no duplicate route added."
+      ],
+      "validation": "132 offline tests passed: publication confirmation, standalone hosting, return recovery, persistent runtime, full update sequence and app patch notes; diff whitespace check passed. New cases cover offline/restarted fallback, no OFF/lease mutation, deduplicated logs and later availability."
+    },
+    {
+      "id": "web_public_sakura_and_remaining_update_work_audit",
+      "recorded_on": "2026-10-18",
+      "status": "source_verified_packaging_cancelled_followup_features_deferred",
+      "confirmed": [
+        "Web source metadata is v1.0.1, page_revision 140. Spring theme is public including guests; recipient/dedication labels are removed. Nickname artwork easter eggs remain separate.",
+        "Source web files and embedded page/script mirrors match; bundled six-file assets validate and distribution declaration hashes remain valid.",
+        "Existing browser polling fetches schedule data. It does not detect a new web asset version or reload JavaScript/CSS; inserting and deleting a dummy schedule is not a code-update workaround.",
+        "Current Discord web-update command requests GitHub web_assets retrieval. Discord attachment transport and a desktop one-click web-patch send button are not implemented.",
+        "Post-v6.3.1 source corrections for download progress, process-exit inspection and unavailable fallback order are not in the existing v6.3.1 executables."
+      ],
+      "validation": [
+        "50 targeted Python web tests passed after public-theme edits.",
+        "Offline Node vm tests passed 31 settings/artwork checks each for source and embedded scripts; both scripts parse. Saved spring bootstrap restored for six guest/ordinary/tester/developer identities.",
+        "32 source release-preflight/version/build-metadata/update-tab tests passed during this audit.",
+        "No v1.0.1 web ZIP exists; no executable build, package creation, GitHub upload or live server update was performed for this audit."
+      ],
+      "remaining": [
+        "Automatic browser refresh is explicitly deferred; currently reload each browser once after applying web assets.",
+        "Discord file transport and desktop send button require a separate implementation request and deployment of changed GUI/bot executables.",
+        "User is continuing two-PC tests before requesting a new complete executable bundle. New-binary web continuity, restart and failure recovery still need actual execution checks.",
+        "Known legacy Discord authority/identity test fixtures need separate review; targeted passing checks do not imply the whole suite passes.",
+        "Empty compatible-release catalogs still share the latest-version UI outcome; distinguishing missing/invalid update packages remains a diagnostic improvement."
+      ]
+    },
+    {
+      "id": "discord_browser_refresh_and_document_reload_pacing",
+      "recorded_on": "2026-10-18",
+      "status": "source_implemented_offline_verified_not_built_or_deployed",
+      "request": "User authorized automatic browser refresh and /webserver refresh after the earlier deferral, plus pacing simultaneous F5/refresh requests. Existing download-progress and web-continuity source corrections remain included.",
+      "confirmed": [
+        "Discord slash callback routes the refresh action through existing administrator/manage-guild permission checks. The current web host and runtime are selected and fenced; old receivers fail before execution.",
+        "Manager sends a bounded-lifetime private file signal and checks the exact worker receipt under the maintenance work gate. Refresh never calls server start/stop, schedule mutation or GitHub download.",
+        "Initial documents contain trusted current refresh/page-version tokens. Existing 15-second status polling detects a command or an asset-version change; no extra periodic request was added.",
+        "HTTP and HTTPS share AccessRuntime's FIFO document queue. New document starts are spaced by 0.25 seconds, retries retain position, storage is capped at 512 and abandoned entries expire. Request threads are not held while waiting.",
+        "Existing five-second visitor cooldown, API limits and asset caches remain. Waiting pages use millisecond deadlines with integer Retry-After headers.",
+        "Automatic refresh saves pending boss selection locally and restores tab/date/scroll using per-tab storage; save failure defers navigation. Hidden pages wait for visibility. Login/settings/schedules are not reset.",
+        "Local HTTP pins one asset snapshot for both document content and refresh-version markup, avoiding an old document being stamped with a newer version during a swap."
+      ],
+      "validation": [
+        "239 targeted Python tests passed across update sequence/progress, web hosting recovery, persistent worker, refresh, request limits, live assets, Discord commands, update completion, assets/bootstrap and patch notes.",
+        "After final snapshot/integration changes, 63 tests passed across refresh, request limits, live assets and release-preflight/version/metadata. Includes an HTTPS document/status signal integration check and simultaneous 100-client queue admission test.",
+        "Production JavaScript source and embedded script each passed 13 new refresh, 31 settings/artwork, 15 theme-tab, 12 visible-update and 11 session-recovery checks. Shared wait script passed 15 lifecycle/countdown checks.",
+        "Python syntax, CODEMAP/DEBUG_NOTES JSON, all six web assets and source/embedded script/HTML/CSS parity verified. Web metadata is v1.0.1 revision 141."
+      ],
+      "remaining": [
+        "No build, ZIP creation, GitHub publication, Discord login or live server restart/update performed. Existing v6.3.1 binaries do not contain these source changes.",
+        "First rollout needs the changed GUI/bot and web process code. A preserved old worker is not upgraded by static files; refresh reports unsupported rather than killing it. Already-open old JavaScript needs one manual reload before future automatic refresh works.",
+        "Signal acknowledgment means the worker received the request, not that every client finished refreshing. Browser suspension/offline state may delay it; audio playback can require a renewed user gesture.",
+        "Actual two-PC deployment, update/restart continuity and mobile/browser behavior remain live verification tasks. Discord attachment transport/button remain outside this request."
+      ]
+    },
+    {
+      "id": "desktop_timer_three_second_web_snapshot_stall_diagnosis",
+      "recorded_on": "2026-10-18",
+      "status": "diagnosed_from_current_logs_and_actual_tk_execution_path_no_behavior_change",
+      "symptom": "User observes the desktop boss-fight timer pause about 0.2 seconds every three seconds, then continue.",
+      "confirmed": [
+        "BossTimerApp._publish_web_schedule_snapshot is a Tk after callback that invokes collect_web_schedule_snapshot synchronously and reschedules itself 3000ms after finishing.",
+        "Current local AppData web_service/manager.log tail contains 669 schedule_snapshot_collection_slow records among the last 700 rows. Last twelve durations are 344,328,297,438,343,375,328,375,375,344,344,563ms, separated by roughly 3 seconds plus collection duration.",
+        "collect_snapshot rebuilds the public schedule for yesterday through up to fourteen days ahead, plus active entries and boss catalog. It calls GUI sharing helpers on the Tk thread.",
+        "With break rows enabled, _collect_schedule_share_rows collects base rows twice, once for the requested range and again for the expanded break probe range.",
+        "The timer's _update_loop uses the same Tk event loop. _now_elapsed derives elapsed time from perf_counter, so a blocked event loop pauses display updates while elapsed-time measurement continues.",
+        "The three-second Discord status poll performs its status-port query on a background thread; its periodic interval alone does not establish it as the blocking task."
+      ],
+      "inference": "The observed periodic UI pause is strongly explained by the measured synchronous web snapshot collection. Exact attribution within collection (base rows, fixed generation, breaks, catalog or relay offer) requires a narrower timing/profile; timer-gap samples for this current run were not available in the workspace debug log.",
+      "resolution": "Diagnosis and navigation index recorded. No timer, snapshot, transmission, cache or scheduling behavior changed in this diagnosis turn.",
+      "validation": "Read-only code and sanitized timing-log inspection. No live GUI control, network request, user-data write, build or application restart.",
+      "remaining": [
+        "Avoid regenerating unchanged public schedule data on every heartbeat, while retaining freshness, source-change detection, day/control boundaries and the existing 90-second delegated transmission contract.",
+        "Do not move the existing collector directly to a background thread: it reads Tk variables and GUI methods. A subsequent optimization needs safe invalidation or a detached input model and output-equivalence tests.",
+        "No claim that other callback latency is absent; actual live timer smoothness after an optimization still needs verification."
+      ]
+    },
+    {
+      "id": "web_snapshot_reuse_on_source_changes",
+      "recorded_on": "2026-10-18",
+      "status": "source_optimized_offline_verified_not_restarted_or_built",
+      "symptom": "Confirmed 3000ms Tk publishing callback repeatedly regenerated unchanged public schedule data and blocked timer painting for hundreds of milliseconds.",
+      "confirmed": [
+        "The public collector and GUI sharing helpers read Tk variables, so moving the existing call directly to a worker thread would violate its execution contract.",
+        "Worker schedule freshness requires a renewed captured_at within 15 seconds while attached; dropping all unchanged publications would falsely mark a healthy schedule stale.",
+        "Delegated automatic transmission uses edit_hash, which excludes captured_at and other envelope metadata. Retaining heartbeat timestamps does not reset the existing 90-second edit debounce."
+      ],
+      "resolution": [
+        "Added WebSnapshotMemo at the actual Tk publishing entry. A content key of schedule/configuration inputs and semantic time boundaries controls rebuilding; in-place edits and equal-content list replacements are distinguished by values rather than object identity.",
+        "Unchanged events, active entries, fixed bosses, rests and catalog are reused in a new detached top-level envelope with a fresh captured_at. Previously offered envelopes and nested public data are never mutated by the memo.",
+        "Keys include aliases, colors, invasion visibility/color, star/last-hit flags, rest/metric settings, log-statistics invalidation revision, server/season, day/timezone and maintenance/control-event boundaries.",
+        "The existing collector remains the output authority. Unknown input types bypass reuse, and failed builds do not advance the stored key. Slow collection logs now include reused to identify the remaining path.",
+        "Updated the existing web snapshot route, policy implementation scope, web-service guidance, pending patch notes and source handoff checks. No duplicate navigation route added."
+      ],
+      "validation": [
+        "116 targeted tests passed before adding the final GUI-callback integration case: memo, public boss catalog, filtered rests, delegated hosting, persistent worker, publication confirmation and input order.",
+        "Final 32-test group passed: all seven memo tests including the actual GUI publishing method, pending patch notes, notice publication and worker identity. Test-only callback fixture was corrected to expose its scheduled method.",
+        "Thirty unchanged heartbeat captures invoked the collector once with stable view/edit hashes and preserved same-time input order. In-place edits, deletion, aliases/star/last-hit/rests, active rows, colors, statistics, season, midnight/control and maintenance boundaries invalidate reuse.",
+        "Worker integration remained ready across simulated 0/12/24/60-second heartbeat updates with stable browser schedule/major/catalog versions. Real GUI callback offered ten envelopes while invoking the collector once, then rebuilt after an edit.",
+        "Read-only synthetic benchmark: 700 source events, 40 change-key checks, median 2.77ms and maximum 5.35ms. This measures synthetic input comparison, not live GUI frame latency."
+      ],
+      "remaining": [
+        "Current live program was not restarted or hot patched; behavior applies on a new source execution or a future user-built EXE. No EXE, ZIP, deployment folder or GitHub upload created.",
+        "First collection and actual source/boundary changes still pay the collector cost. Other Tk callbacks can still cause latency and actual timer smoothness needs user/live verification after restart.",
+        "Future changes to collector/share-helper inputs must update the memo input contract and invalidation checks. Existing background snapshot serialization/heartbeat file delivery remains in place."
+      ]
+    },
+    {
+      "id": "web_copy_rests_and_themed_canvas_export",
+      "recorded_on": "2026-10-18",
+      "status": "source_fixed_offline_verified_not_deployed",
+      "symptom": "Copy preview shows adjacent split source rest rows after filtering bosses; exported image uses a dark background despite a light theme.",
+      "confirmed": [
+        "visibleRows(sharing=true) previously filtered raw snapshot rests, unlike the recalculated major/custom screen views. Excluding an intervening fixed/ordinary boss left independent rest rows adjacent.",
+        "drawImage previously used fixed dark canvas, header, card and clock colors. CSS theme rules applied to the preview did not reach the independent canvas renderer."
+      ],
+      "resolution": [
+        "sharingEvents applies copy period/major/fixed options first and caches reconstructed intervals using the shared rest algorithm. Include-rest explicitly controls this independently of screen rest OFF or custom selection.",
+        "Preserve included maintenance/server-open rows, use all control barriers to prevent cross-boundary rests, honor effective boss end times and rest rules/heights, and omit orphan rests after the final included boss or towards an out-of-period boss.",
+        "Preview, image copy, PNG save and share consume the same corrected list. Existing text/TXT omission of rests is retained.",
+        "Canvas exports capture current CSS palette/font and preview row computed fill/gradient/border/name/time/state ink. Loaded spring/winter/rain photographs are reused with a bounded canvas cover draw and readable header/footer panels; optional unavailable/foreign scenes are omitted.",
+        "Moved the existing 10KB rain-foreground Base64 sprite bytes from JS to an HTML template without altering the image. This retains six-file web update compatibility and the existing 1MiB per-file limit; no new download endpoint or additional asset file is required.",
+        "Source and embedded web mirrors are synchronized at v1.0.1 page_revision 142. Navigation, pending patch notes and web-service documentation updated."
+      ],
+      "validation": [
+        "Production source and embedded scripts each passed 96 schedule/copy/rest/input-order checks, 14 canvas theme checks, 19 theme-performance checks, 12 visible-update checks and 13 automatic-refresh checks.",
+        "46 targeted Python public catalog/rest-rule/asset/bootstrap/live-asset tests passed; final 37 asset/bootstrap/live-update/completion/patch-note tests passed before the final origin predicate tightening.",
+        "All six assets validate under MAX_FILE and source/bundled HTML/CSS/JS bytes match. HTML approximately 1045582 bytes and JS approximately 1043187 bytes; rain sprite SHA-256 unchanged at 89d38be19115cd100a64056d059310317bceab3c5646380143358b7012cba3e6."
+      ],
+      "remaining": [
+        "No live browser/phone pixel inspection, actual clipboard/PNG download, web deployment, GitHub upload, executable build or ZIP creation performed. Canvas checks use production functions with mocked computed styles and drawing context.",
+        "Static PNG uses loaded background photographs and theme colors, not the live animated petal/snow/butterfly overlays. Unloaded photos fall back to theme-colored backgrounds.",
+        "Changes need web asset application/reload on the running service; operational schedules and stored user selections were not changed."
+      ]
+    },
+    {
+      "id": "sakura_butterfly_depart_one_second_after_spawn",
+      "recorded_on": "2026-10-18",
+      "status": "source_fixed_offline_verified_not_deployed",
+      "confirmed": [
+        "The existing visit started at T-15s but departure, approach admission and touch dismissal used a T-5s cutoff. The schedule hero retains a spawned boss until T+3s."
+      ],
+      "resolution": [
+        "Use a shared VISIT lead/depart contract: begin at T-15s, depart at T+1s. Align approach eligibility and touch dismissal with the new cutoff. Preserve the existing approach pace, flight speeds, single butterfly, simultaneous-spawn token and idle frame budget.",
+        "Regenerate the authenticated butterfly script integrity hash. This is a separate server-bundled script, not one of the six replaceable web files; page metadata is unchanged. No new route or CODEMAP entry is needed."
+      ],
+      "validation": [
+        "81 offline butterfly checks and 178 spring checks passed. Timing covers T-15s, T-5s, T0, T+999ms and T+1000ms, simultaneous bosses, late visible arrivals and background resume.",
+        "19 Python asset integrity, ETag, authenticated serving and patch-note tests passed."
+      ],
+      "remaining": [
+        "Live phone/browser animation was not inspected. No executable, ZIP, deployed server restart or upload performed. The running service must receive the changed butterfly script and matching server hash; reload existing pages after applying the source."
+      ]
+    },
+    {
+      "id": "avengers_stark_hud_theme",
+      "recorded_on": "2026-10-18",
+      "status": "source_and_isolated_browser_verified_not_deployed",
+      "symptom": "Requested Endgame portals, ensemble heroes, cyan HUD, gold next-boss panel and cropped button art with low ambient animation cost.",
+      "evidence": [
+        "New avengers theme is independent of data-theme-pink and stops snow/rain/blossom modules.",
+        "Raster images are downloaded source imagery recorded in sources.json; an image-generation attempt returned a moderation error and produced no asset.",
+        "Shared data-URI art in style.css retains the six-file web asset contract and existing per-file size limit.",
+        "Initial SVG border-image distortion was fixed with explicit intrinsic dimensions. Browser cache was bypassed for final visual inspection."
+      ],
+      "resolution": [
+        "Added scoped editable CSS, vector HUD frames/reactor/portal and shared CSS image crops.",
+        "Stored theme is supported by the first-paint bootstrap. Hero GIF layer remains empty and hidden.",
+        "Narrow 320px layout places remaining time beneath boss text; cropped button ornament does not capture input."
+      ],
+      "validation": [
+        "32 Python theme/bootstrap/asset/history tests passed.",
+        "Theme transition test 8 checks; public visibility 36; copy canvas 15; theme tab 15; theme performance 19; visible updates 12; schedule views 96.",
+        "Isolated local Chrome screenshots at 320/390/1440 CSS pixels: no JS errors, no horizontal overflow; pink-to-Avengers transition clears pink flag.",
+        "Six asset validation, exact HTML/CSS/JS fallback mirrors and SVG XML parsing passed."
+      ],
+      "remaining": [
+        "No build, ZIP, publication or operational service restart performed.",
+        "No physical phone thermal/battery measurement; static CSS/image paint still costs resources.",
+        "Canvas export includes theme color and portal photograph, not the full CSS hero/button ornament composition.",
+        "Future boss-time GIF and animation triggers remain unimplemented."
+      ]
+    },
+    {
+      "id": "avengers_images_blocked_by_production_csp",
+      "recorded_on": "2026-10-18",
+      "status": "fixed_source_and_real_csp_browser_verified",
+      "symptom": "User screenshot showed HUD colors/countdown but no photo backgrounds, SVG frames or button crops.",
+      "confirmed_cause": "Both HTTP and HTTPS production responses allow img-src self blob only. Previous preview omitted CSP and embedded data URLs were blocked in production.",
+      "resolution": [
+        "Keep image bytes in inert CSS source custom properties; convert JPEG/WebP base64 and percent-encoded SVG to blob URLs on first selection.",
+        "Reuse all ten URLs across theme switches; do not loosen server CSP or restart server.",
+        "page_revision 144; synchronized Python source mirrors."
+      ],
+      "validation": [
+        "Production HTTPSApplication CSP used in isolated Chrome fixture: all ten real images decoded, scene naturalWidth 1200, frame and button blob URLs present, zero securitypolicyviolation events, repeated preparation reused URLs.",
+        "10 theme transition/decoding checks, 15 copy-image checks, 36 public visibility checks passed.",
+        "29 Python bootstrap/asset tests passed; final six-file validation and exact page/style/script mirror checks passed."
+      ],
+      "remaining": [
+        "Source only: current user browser must receive updated web assets and reload; no remote deployment/build performed.",
+        "Initial browser-launch harness failed before page tests; verified via isolated debug-port attachment instead."
+      ]
+    },
+    {
+      "id": "avengers_ironman_red_gold_armor",
+      "recorded_on": "2026-10-18",
+      "status": "source_and_isolated_browser_verified_not_deployed",
+      "request": "Match reference with gold beveled armor corners, red selected/pressed buttons, gold helmet and bright circular chest reactor.",
+      "changes": [
+        "Replaced cyan theme with red/gold/charcoal palette and shared gold/steel/red sliced vector frames with bolts and cyan edge accents.",
+        "Transparent center masks prevent sliced frames from obscuring background artwork.",
+        "Gold helmet on next-boss left; circular arc reactor on header and next-boss right; official Iron Man armor gallery in background.",
+        "Removed four unused embedded artworks; six shared blob assets remain. Stylesheet reduced from 886660 to 603178 bytes.",
+        "Kept existing allowed blob image policy and no new ambient animation loop. page_revision 145."
+      ],
+      "validation": [
+        "Production CSP Chrome fixture decoded all six assets: frame and button image valid, same URLs reused, zero CSP violations.",
+        "Chrome forced :active on button confirmed red armor gradient; selected schedule tab uses red gradient.",
+        "Actual schedule page at 320/390/1440 CSS pixels: no JS/CSP errors or horizontal overflow; screenshots inspected.",
+        "32 Python theme/bootstrap/asset/history tests; 10 theme transitions, 15 canvas export, 36 visibility and 15 theme-tab checks passed.",
+        "Final asset limits, exact HTML/CSS/JS mirrors and SVG XML passed."
+      ],
+      "remaining": [
+        "Source only; no build or deployment. User needs local web apply and browser refresh.",
+        "No physical device thermal/battery measurement.",
+        "Future boss GIF is still unimplemented."
+      ]
+    },
+    {
+      "id": "avengers_outer_armor_and_reactor_energy",
+      "recorded_on": "2026-10-18",
+      "status": "source_and_browser_verified_not_deployed",
+      "request": "Whole-screen red/gold armor casing, bottom blue lights, thick angular panels, pale-yellow names and CSS reactor light.",
+      "changes": [
+        "Added outer-frame.svg with side armor/conduits/bolts and bottom armor/lights as a non-interactive main pseudo-element.",
+        "Added 64px card-frame.svg sliced at 20px with thick gradient chamfers; charcoal boss panels and red circuit mesh rest panels.",
+        "All boss names including recent bosses use #fff2ae; time/state ink remains separate.",
+        "Only two reactor energy overlays animate transform/opacity. A single IntersectionObserver pauses off-screen overlays; visibility/theme changes and reduced-motion pause them. Explicit CSS paused rules prevent running state from persisting after scrolling off-screen.",
+        "Eight allowed blob assets are reused. No JavaScript frame loop or animation on each rest/ON icon. page_revision 146.",
+        "320px header and date controls wrap to keep buttons visible."
+      ],
+      "validation": [
+        "32 Python bootstrap/asset/history tests passed; 14 theme state, 15 copy canvas and 15 theme-tab checks passed.",
+        "Production CSP Chrome loaded all eight assets and reused URLs without CSP violations.",
+        "Forced button press is red; visible reactors run; off-screen reactors pause; reduced-motion removes animations. Outer shell and uniform pale-yellow names verified.",
+        "320/390/1440 CSS pixel previews have no horizontal overflow or JavaScript errors. Full-page preview includes bottom casing.",
+        "SVG XML and exact source mirrors passed after normalizing HTML CRLF to LF."
+      ],
+      "remaining": [
+        "Source only; no build/deployment or operational service restart.",
+        "Physical phone battery/thermal behavior not measured.",
+        "Future boss GIF remains unimplemented."
+      ]
+    },
+    {
+      "id": "ironman_next_boss_whole_name_wrap",
+      "recorded_on": "2026-10-18",
+      "status": "source_and_browser_verified_not_deployed",
+      "symptom": "Narrow next-boss heading split a Korean boss name across the remaining part of the time line and another line.",
+      "cause": "Inline time/name text could break inside the boss name before moving the whole name below the timestamp.",
+      "resolution": "Use wrapping flex items for time and boss-name in this theme, with a non-wrapping timestamp. Rename public button to Iron Man while retaining avengers storage/theme key. page_revision 147.",
+      "validation": [
+        "Actual Chrome 320px: complete boss-name element is below timestamp and fits one name line. 390/1440px have no horizontal overflow.",
+        "Production CSP, eight assets, reactor pause/reduced-motion and pressed-state browser checks passed.",
+        "Six-file validation, renamed button and exact HTML/CSS/JS source mirrors passed."
+      ],
+      "remaining": [
+        "Source only; local web asset apply and browser refresh required."
+      ]
+    },
+    {
+      "id": "cafe24_dongdong_armor_control_alignment",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_font_browser_verified_not_deployed",
+      "symptom": "Font 15 labels appeared low in rest/fixed/theme buttons and clipped in font settings.",
+      "confirmed_causes": [
+        "Armor borders consume 10px inside controls retaining the original 32/34px fixed heights and padding. Remaining content space was smaller than the inherited text line box.",
+        "Existing common font-size :is() selector contains an ID, giving it enough specificity to override the intended 24px +/- class rule."
+      ],
+      "resolution": [
+        "Center targeted web control line boxes with flex alignment; allow rest/fixed/theme controls in armor theme to grow from 40px.",
+        "Font select minimum height 48px; regular font settings buttons 42px; symbol buttons 44px with auto growth.",
+        "Explicit symbol ID rules retain the intended 24px-based +/- font size.",
+        "Added opt-in real Cafe24 Dongdong fixture and checks for line-box fit. page_revision 148."
+      ],
+      "validation": [
+        "Real bundled cafe24-dongdong WOFF2 loaded and reported as active font in Chrome.",
+        "320/390/1440 CSS pixel schedule controls center and fit their line boxes without horizontal overflow.",
+        "Theme buttons 40px, font select 48px, +/- buttons 44px at 24px symbol font; native text and button lines fit within border/padding content boxes.",
+        "39 Python font/bootstrap/asset tests passed; final six-file validation and exact HTML/CSS/JS mirrors passed.",
+        "Existing CSP, asset reuse, reactor pause/reduced-motion and red pressed-state browser checks passed."
+      ],
+      "remaining": [
+        "Source only; apply local web assets and refresh the page. No build or operational service restart."
+      ]
+    },
+    {
+      "id": "ironman_header_inset_and_selected_fill",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_browser_verified_not_deployed",
+      "symptom": "Next-boss title was indented past the fixed helmet; day buttons were smaller than rest; selected buttons retained gray strips inside the gold frame.",
+      "confirmed_causes": [
+        "The whole hero shared a left padding reserved for helmet art, including its title row.",
+        "The day controls retained 32px height and narrower width rules.",
+        "The selected gold-frame SVG inner steel gradient remained gray independent of the red CSS background."
+      ],
+      "resolution": [
+        "Use separate title/body grid rows; align title to ordinary row text and reserve fixed helmet/reactor footprints around the countdown only.",
+        "Today/next-day/rest/fixed share 74px width and 40px minimum auto height.",
+        "Tint selected-frame inner lip red; use the same red frame and border-box fill for selected/pressed buttons while retaining mixed alarm gradients. page_revision 149."
+      ],
+      "validation": [
+        "Real font-15 Chrome at 320/390/1440 CSS pixels: title inset difference 0px from ordinary row; title and countdown clear helmet/reactor; day/rest dimensions equal.",
+        "All eight runtime assets load/reuse under production CSP with zero violations.",
+        "Font controls fit line boxes; red pressed state, pale-yellow names and reactor pause/reduced-motion checks pass.",
+        "Screenshots reviewed; final six-file limits and exact HTML/CSS/JS source mirrors pass."
+      ],
+      "remaining": [
+        "Source only. Local web apply and browser refresh required; no build or operational restart."
+      ]
+    },
+    {
+      "id": "ironman_heading_background_visibility",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_browser_verified_not_deployed",
+      "symptom": "Master alarm button was shorter than fixed control; background photograph was obscured behind date/time/day/filter controls.",
+      "confirmed_causes": [
+        "Master alarm retained shared 32px fixed height while fixed control uses a 40px minimum.",
+        "Heading dark gradient, outer casing center wash and photo tint accumulated into an almost opaque surface."
+      ],
+      "resolution": [
+        "Master alarm uses centered flex layout, auto height, 40px minimum and the same line height/vertical padding as fixed.",
+        "Reduced heading wash to 8-15 percent and outer center wash to 10-15 percent; softened photo tint.",
+        "Kept container opacity at 1 and added dark text edging so frame, text and buttons remain opaque/readable. page_revision 150."
+      ],
+      "validation": [
+        "Real Cafe24 Dongdong in Chrome at 320/390/1440 CSS pixels: master alarm and fixed both 40px high; heading opacity 1 with the new alpha background.",
+        "Screenshots show photograph through heading and outer casing center; borders and buttons remain clear.",
+        "Existing title alignment, helmet clearance, equal day/rest sizes, font fit, asset CSP/reuse and reactor pause/reduced-motion checks pass.",
+        "Final six-file size/format validation and exact HTML/CSS/JS mirrors pass."
+      ],
+      "remaining": [
+        "Source only. Local web apply and refresh required; no build or operational service restart."
+      ]
+    },
+    {
+      "id": "ironman_selected_button_continuous_fill",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_pixels_browser_verified_not_deployed",
+      "symptom": "The previously tinted inner frame lip and CSS button center looked like two different reds.",
+      "confirmed_cause": "The SVG inner lip used an independent opaque red gradient. It could not continuously match the CSS gradient whose coordinates follow each button size.",
+      "resolution": [
+        "Added selected-frame.svg with opaque metal rings/fasteners only and a transparent inner lip.",
+        "Selected/pressed backgrounds use border-box origin and clip so one CSS gradient paints both center and inner margins. Removed the extra selected inset tint.",
+        "Kept gold-frame.svg for non-button/header framing; nine shared blob assets remain. page_revision 151."
+      ],
+      "validation": [
+        "Chrome decoded all nine assets with zero CSP violations and stable URL reuse.",
+        "Canvas samples of eight selected-frame inner-lip locations have alpha zero.",
+        "Actual selected buttons at 320/390/1440 CSS pixels use the transparent selected frame and a single border-box fill. Screenshots reviewed with real Cafe24 Dongdong.",
+        "Existing alignment, helmet clearance, control heights, font fit and reactor pause/reduced-motion checks pass.",
+        "14 theme-state and 15 copy-image JS checks passed; final six-file limits, exact mirrors and selected SVG XML passed."
+      ],
+      "remaining": [
+        "Source only. Local web apply and browser refresh required."
+      ]
+    },
+    {
+      "id": "web_custom_header_intrinsic_wrapping",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_font_browser_verified_not_deployed",
+      "symptom": "User-tab settings/clock/day marker crowded the alarm on narrow screens; settings target was small.",
+      "confirmed_causes": [
+        "Settings host was nested in the nowrap clock-controls; the phone/PC heading reserved a separate grid column for alarm.",
+        "Compact settings retained a fixed 32px height."
+      ],
+      "resolution": [
+        "Move the same settings host to a heading sibling; compact User header uses intrinsic flex wrapping: alarm first, then settings alongside alarm.",
+        "Settings minimum 80x40px, centered with more padding; keep 8ch clock slot and day marker together. No resize observer or periodic DOM/layout work. page_revision 152."
+      ],
+      "validation": [
+        "Chrome with actual bundled font 15: 280/320/390/500/1440 CSS pixels, zero horizontal overflow/overlap or text clipping, next-day marker visible.",
+        "390px alarm wraps first; 320px settings and alarm share a row. Real settings open/close restores button focus.",
+        "Existing whole-schedule/title/frame/font/animation/CSP checks passed at 320/390/1440px.",
+        "42 Python custom-layout/font/bootstrap/live-asset/asset-selection tests; 40 JS first-use/theme-tab/Avengers checks passed."
+      ],
+      "remaining": [
+        "Source only. Apply local web assets and refresh; no build or operational restart."
+      ]
+    },
+    {
+      "id": "ironman_static_button_glow_restored",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_browser_verified_not_deployed",
+      "symptom": "User reported lost button glow after continuous red fill cleanup.",
+      "confirmed_cause": "Final selected-button shadow overrode the earlier inset glow with an outer shadow only; the latest responsive header edit did not change these theme rules.",
+      "resolution": [
+        "Restore compact static inset 7px and outer 9px shadows on selected tabs/day/theme/master-alarm controls only. Repeated small selection/alarm buttons keep a single weaker 5px shadow.",
+        "Keep transparent frame interior and a single red background; no animated shadow, filter, will-change or new JS loop. page_revision 153."
+      ],
+      "validation": [
+        "Real font 15 Chrome at 320/390/1440px: selected controls report inset/outer shadows, animation none, filter none, will-change auto.",
+        "Existing no-overflow, title/art clearance, equal button sizing, source asset CSP/reuse, reactor pause and reduced-motion checks passed."
+      ],
+      "remaining": [
+        "Source only; local web apply and refresh required. Device heat/energy use not measured. No build or deployment."
+      ]
+    },
+    {
+      "id": "ironman_cinematic_timing_cluster_and_still_lifetime",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_mp4_browser_verified_not_deployed",
+      "user_requirements": [
+        "Auto movie ends at boss T-5; hold final frame; shrink hero helmet/reactor.",
+        "Alarm/sound preferences control movie audio; manual filename-order Play button beside User.",
+        "No queue; only first boss of a chain whose adjacent gaps are <=150 seconds gets a movie.",
+        "Movie/still shows spawn time and boss name only; centered cover crop.",
+        "Clear held frame when final connected boss leaves next-boss card, using existing transition rather than a second spawn delay."
+      ],
+      "confirmed_facts": [
+        "24 supplied MP4s have 12 fps video tracks and different durations (3.9167-68.5833 seconds). Files also contain audio, so movie/container duration can slightly exceed video-track duration.",
+        "Existing /cinematic backend, playback controller and media delivery did not exist; original hero media image was an unused placeholder.",
+        "Metadata scans read moov only and cache hashes by file stat; no conversion or edits to original MP4s."
+      ],
+      "resolution": [
+        "Authenticated /cinematic catalog/player/media routes in local HTTP and HTTPS; content-hash filenames, single Range/If-Range/ETag handling and safe source/bundled folder lookup.",
+        "Native one-at-a-time video with start at boss time minus five seconds minus video duration, deadline timer, late seek correction and final-frame-center bitmap capture. Decoder released after capture; no frame loop.",
+        "Whole schedule cluster map keyed by schedule version; connected followers and overlap starts are discarded. Manual preview advances filename order and overrides active preview without a queue.",
+        "Track held group until rendered next-boss transition leaves its last member; clear bitmap and restore normal countdown, alarm and artwork then.",
+        "Movie sound follows boss alarm, sound enabled and volume; blocked audible autoplay falls back to muted playback and retries on user gesture.",
+        "Only active theme computes groups/downloads catalogue. Near-window preloading, offscreen/background pause; static hold uses a single <=960px bitmap. Hero ornaments reduced approximately 15 percent.",
+        "Spec includes cinematic resources; six-file web update contract is unchanged. Initial runtime support requires a new web worker and explicit user web restart; no operational restart/build performed. page_revision 154."
+      ],
+      "validation": [
+        "103 Python checks passed: media metadata/ranges/auth/cache, local/HTTPS endpoints, existing sound/font/theme/live assets/request limits/persistent runtime.",
+        "136 existing JS first-use/theme-tab/Avengers/schedule-view checks passed.",
+        "Real Chrome with supplied MP4s: manual order, actual final-frame pixel equality versus an independent decoder, T-5 freeze within 0.05 seconds, alarm/sound mute gating, source release, 150-second chain boundary and discarded overlap.",
+        "Single and chained held frames persist until existing next-boss transition, then countdown/art returns. Center crop/title-only display and zero CSP/JS errors verified."
+      ],
+      "remaining": [
+        "No EXE/ZIP/build/deployment or live web restart. Packaged EXE resource inclusion and physical-phone audible playback/heat remain unmeasured. Browser may require user interaction for sound."
+      ]
+    },
+    {
+      "id": "ironman_browser_preload_and_attached_transport",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "user_requirements": [
+        "Pre-download cinematic movies on theme selection for local per-browser playback.",
+        "Retained final frame shows countdown with artwork still hidden.",
+        "Attach a matching armor transport frame beneath next-boss card for Previous/Play-Stop/Next."
+      ],
+      "confirmed_causes": [
+        "Previous implementation loaded one movie only near its cue and hid the countdown for both moving/still modes.",
+        "renderRows reparents the live hero into schedule order. A dynamically mounted sibling left in overview would appear above it unless moved in the same fragment."
+      ],
+      "resolution": [
+        "Sequential, abortable CacheStorage preloading under BossTimer.cinematic.v1, with HTTP-cache fallback; deduplicated download jobs and ready count. Use one revocable local movie blob URL; prune obsolete files only in this owned cache.",
+        "Reuse cached MP4s across reload; stop warm downloads on background/theme exit/pagehide. No decoder is created for prefetch.",
+        "Restore countdown in still mode only, reserve original panel geometry and keep helmet/reactor/alarm button hidden.",
+        "Attach CSS/SVG armor controls directly below hero, with previous/replay/stop/next; stop seeks final frame and releases decoder. renderRows moves hero and transport together only when schedule rendering changes. page_revision 155."
+      ],
+      "validation": [
+        "Real Chrome: all 24 files (25514408 bytes) stored; movie fetch calls deliberately rejected and manual/automatic local-blob playback still succeeded.",
+        "Hard reload reused all 24 stored clips with zero MP4 resource requests and no active video source/decoder.",
+        "Previous, next, stop/final bitmap, replay, countdown restoration, centered crop, alarm/sound mute, existing T-5 timing, connected-boss exclusions and hold expiry checks passed.",
+        "Actual 15th font at 280/320/390/500/1440px: no horizontal overflow or custom-header overlap. Transport shares hero width, overlaps its lower border and uses existing armor assets with >=40px controls.",
+        "103 Python checks and 136 JS first-use/theme/schedule checks passed. Six-file limits and exact bundled mirrors passed; no CSP/JS errors. Screenshot reviewed."
+      ],
+      "remaining": [
+        "Source only; no build, package, deployment or operational restart. Physical phone cache quota/eviction, heat/battery and autoplay permission behavior remain device-dependent."
+      ]
+    },
+    {
+      "id": "strict_recent_limit_and_collapsible_media_pause",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "Past bosses could exceed two on simultaneous spawns; Iron Man needed a one-row budget.",
+        "Large lower transport used visible text/framed buttons and stopped/restarted instead of pause/resume.",
+        "Mouse drag selected next-boss text and obscured the panel."
+      ],
+      "confirmed_causes": [
+        "recentBosses used the timestamp of the last two rows as an inclusive threshold, retaining every boss tied at that time.",
+        "The transport was always expanded with a full lower frame, and its toggle called freeze()."
+      ],
+      "resolution": [
+        "recentBosses now slices actual finished rows to two by default, one for selectedTheme avengers; summary and visibleRows/renderRows share the function. Copy/export keeps its existing two-row policy.",
+        "Default collapsed 22px inverted-triangle SVG integrated with hero frame toggles a small icon-only drawer. Accessible names/status remain hidden; controls have no individual border/background or visible captions.",
+        "togglePause retains native video position. Manual-preview synthetic deadline shifts by paused time; automatic T-5 deadline is unchanged and captures final frame even while paused. Pending play rejection and global gesture handler cannot undo explicit pause.",
+        "Scoped CSS disables selection/callout/native image drag inside hero only. page_revision 156."
+      ],
+      "validation": [
+        "107 Python media/font/theme/asset/runtime/rest-rule tests passed; 138 JS schedule/first-use/theme checks passed, including strict simultaneous-spawn caps and theme restoration.",
+        "Real Chrome with actual font 15 and simultaneous-spawn fixture: default/pink/winter recent counts 2; Iron Man 1 at 320/390/1440px.",
+        "Actual CDP mouse press-drag-release inside next-boss text left selection empty.",
+        "Real MP4 tests passed: collapsed/expanded bounds, icon-only unframed controls, no position drift during pause, unrelated touch does not resume, resume continues same position, automatic paused clip still freezes at T-5.",
+        "Existing browser-cache offline playback/reload, final-frame pixel equality, cluster/no-queue/lifetime, artwork/countdown and zero CSP/JS-error checks pass. Collapsed screenshot reviewed.",
+        "Six-file per-asset limits, exact bundled mirrors and navigation/debug JSON verified."
+      ],
+      "remaining": [
+        "Source only; no build, package, deployment or operational restart. Physical-device battery/heat not measured."
+      ]
+    },
+    {
+      "id": "cinematic_runtime_skin_snapshot_isolation",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User screenshot showed a large old red/gold transport frame, narrow blank button and visible video-ready caption after the compact SVG control change."
+      ],
+      "confirmed_causes": [
+        "Player JS is served from runtime disk/bundle while style.css comes from an immutable six-file page snapshot. They can be different generations.",
+        "Loading conflicting legacy transport rules in the isolated browser reproduces the cascade risk; no production snapshot or operational AppData was changed or inspected."
+      ],
+      "inference": [
+        "The supplied screenshot is consistent with this mixed-generation style path; the exact production snapshot version was not measured."
+      ],
+      "resolution": [
+        "Serve companion cinematic.css through authenticated /cinematic/player.css with ETag/no-cache; mount loads it once before exposing controls.",
+        "Dedicated ironman-media-dock ID overrides legacy panel, button and caption selectors even when the legacy CSS loads later. Hidden controls/drawer stay hidden. No inline CSS or relaxed CSP.",
+        "Page revision 157; synchronized Python mirrors; six-file update contract unchanged."
+      ],
+      "validation": [
+        "35 Python cinematic/auth/range/asset/bootstrap checks passed.",
+        "Real Chrome with production CSP and font 15: 320/390/1440 page widths and 280/320/390/500/1440 custom header widths passed.",
+        "36 native MP4/cache/transport/timing checks passed including deliberately late legacy CSS; collapsed 22px dock, 72px triangle, icon-only drawer, pause/resume, final-frame equality and T-5 hold passed.",
+        "Hard reload reused all 24 clips with zero MP4 network requests; no CSP/JS errors. Collapsed screenshot visually reviewed."
+      ],
+      "remaining": [
+        "Source only; no build, distribution, live apply or operational restart.",
+        "Existing workers without the new CSS route need an explicit user web stop/start after source/runtime changes; no automatic restart added."
+      ]
+    },
+    {
+      "id": "cinematic_original_aspect_and_compact_hold",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User requested remeasurement of Avengers1/AvengersVS/AvengersEnd2, native-aspect playback, smaller stopped panel and smaller helmet/reactor."
+      ],
+      "confirmed_causes": [
+        "Player previously used an absolute cover background in a constant-height card; no playback-specific aspect viewport existed."
+      ],
+      "resolution": [
+        "Added cinematic stage containing the existing single video/canvas. Playing uses a native-aspect grid row below the title; pause/final hold uses the compact title/countdown card and centered-cover background. Resume restores the native-aspect row.",
+        "Set clip aspect once per prepare, with no resize/frame loop. Reduced normal helmet/reactor and energy footprint by approximately 20%, with matching countdown spacing.",
+        "Re-read video-track durations without changing media: Avengers1 16.500s, AvengersVS 32.833333s, AvengersEnd2 68.583333s; all 960x226 at 12fps. Browser container durations are 16.556s, 32.833s, 68.591s respectively; sub-frame differences are container/audio tails. Existing video-track T-5 timing is retained.",
+        "Page revision 158; source fallback mirrors synchronized."
+      ],
+      "validation": [
+        "26 Python cinematic/bootstrap/layout/asset-selection checks passed.",
+        "Real Chrome native cached-MP4 metadata matched all three tracks within 0.1s and confirmed identical dimensions.",
+        "47 cinematic browser checks passed including original viewport ratio, reserved title row, compact pause/hold, resume height/position, final-frame pixel equality, automatic T-5 timing, clusters/no-queue, local cache and zero CSP/JS errors.",
+        "Font15/browser page layout at 320/390/1440px, existing art/energy/selection and previous-boss cap checks passed. Collapsed final-frame screenshot reviewed.",
+        "Six-file size limits and exact Python page/style/script mirrors passed."
+      ],
+      "remaining": [
+        "Source only; no build, package, live service restart or deployment. Physical-device battery/heat not measured."
+      ]
+    },
+    {
+      "id": "cinematic_arrival_blink_and_deferred_size_collapse",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User requested a small blinking lower-left arrival caption during playback, a countdown/outer-frame blink at boss T-5 and delayed shrinking until the boss leaves the next-boss card."
+      ],
+      "confirmed_causes": [
+        "Previous still-mode CSS immediately returned the media stage to an absolute background and reduced its row height. Existing spawnBlink already supplies T-5 through spawn+3 timing but only animated the general card glow."
+      ],
+      "resolution": [
+        "Add one 11px caption span to the media stage and CSS opacity animation during playing only; it does not overlap the held-frame countdown.",
+        "Reuse the existing spawn-blink class for main countdown opacity and outer outline/glow; respect reduced-motion. No new JS polling or animation loop.",
+        "Keep held media in the original-aspect grid row with countdown overlaid in the same row. Track expandedOwner and set cinematicSize compact only after the displayed next boss changes.",
+        "Retain independent connected-chain bitmap lifetime and existing pause/resume behavior. New clip start/capture resets expanded ownership."
+      ],
+      "validation": [
+        "11 Python cinematic/auth/cache/range/bootstrap checks passed.",
+        "98 schedule view JavaScript checks passed, including exact T-5 start and spawn+3 end boundaries.",
+        "Real Chrome native MP4 checks passed: caption text/11px size/bottom-left coordinates and animation, original-aspect height retained at manual/automatic final freeze, caption hidden after spawn, owner transition shrinks frame, chained still survives compact layout.",
+        "Existing pause/resume, final-frame pixel equality, centered video, T-5 freeze within 41ms, cluster exclusions, disk-cache playback and reload without movie network passed; no CSP/JS errors.",
+        "Browser page checks at 320/390/1440px and font15 passed. Initial caption animation assertion inherited the host reduced-motion preference; checker now explicitly uses no-preference when validating blinking. This did not require weakening runtime accessibility rules.",
+        "Exact source mirrors and six-file limits verified. Runtime-only JS/CSS change; six-file page revision remains 158. Screenshot reviewed."
+      ],
+      "remaining": [
+        "Source only; no executable/ZIP/test build, live deployment or operational restart performed."
+      ]
+    },
+    {
+      "id": "restore_cinematic_cover_in_existing_hero",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User asked to restore the earlier movie appearance instead of a ratio-sized playback area."
+      ],
+      "confirmed_causes": [
+        "The previous layout introduced an in-flow aspect-ratio media row below the boss title, producing a separate movie area."
+      ],
+      "resolution": [
+        "Remove in-flow/native-aspect sizing and the per-clip aspect assignment. Use the existing absolute media stage as a centered-cover background across the whole next-boss card.",
+        "Keep the hidden countdown in layout so playback retains the normal card height. Preserve latest arrival/countdown/frame blink, final-frame height retention and shrink only after boss transition.",
+        "Current navigation paths are unchanged; existing web_ui_themes_copy route remains sufficient."
+      ],
+      "validation": [
+        "Real Chrome native MP4/browser-cache suite passed: absolute whole-card media background, auto aspect ratio, unchanged playback height, title overlay, centered cover, caption coordinates/blink, pause/resume, final-frame preservation and post-boss shrink.",
+        "Existing native duration checks, exact final-frame bitmap, T-5 within 41ms, connected-chain exclusions/lifetime, offline cached playback and reload with zero movie network requests passed. No CSP/JS errors.",
+        "Final held-frame screenshot reviewed."
+      ],
+      "remaining": [
+        "Source only; no build, package, live deployment or operational restart."
+      ]
+    },
+    {
+      "id": "paused_manual_preview_automatic_deadline_and_end_compaction",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User left a manually played cinematic paused; the scheduled next-boss cinematic did not play. Requested automatic start despite manual pause and compaction five seconds after movie end."
+      ],
+      "confirmed_causes": [
+        "togglePause cancelled the only player deadline for manual previews, pump returned early for paused previews, and update returned for any preview before pumping automatic work.",
+        "discardOverlaps marked the entire planned remaining preview interval and extended it during pause, prematurely recording future automatic movies as completed.",
+        "Layout compaction followed next-boss ownership rather than time since movie end."
+      ],
+      "resolution": [
+        "automaticPlan retains the eligible current next-boss start/end and keeps the existing deadline armed while manual preview is paused. At the due window the player releases the preview/paused flag and starts the scheduled clip at the current timeline position.",
+        "Only actually elapsed, unpaused playback discards overlaps. Completed and skipped sets are distinct and bounded, allowing recovery from a skipped active automatic window when the manual preview is paused, without replaying completed movies.",
+        "compactAfterEnd uses one monotonic five-second timeout after final-frame capture; new playback cancels the old timeout. Keep final bitmap lifetime, original whole-card centered cover, audio rules and cluster exclusions independent.",
+        "Updated CODEMAP with automaticPlan and compactAfterEnd and removed stale owner-based/current-media-count assumptions from current docs/checker."
+      ],
+      "validation": [
+        "11 Python cinematic/bootstrap checks passed against current source media.",
+        "Real Chrome: paused manual preview is preempted at the automatic deadline without another update call; pausing after the automatic window already began recovers the scheduled clip at 0.683s versus expected 0.704s.",
+        "Automatic clips still finish at boss T-5 within 19ms; final frame remains expanded before five seconds and contracts after five seconds without clearing the bitmap.",
+        "Existing actual-MP4 pause/resume, final-frame pixel equality, centered cover, arrival/frame blink, active-overlap discard/no queue and connected-chain exclusions/lifetime passed. No CSP/JS errors.",
+        "User media changed/grew during checks; no media file was edited. Checker no longer hardcodes 24 clips. Final reload reports ready 32/32, zero movie requests and no active decoder, preserving cached content.",
+        "Exact Python page/style/script mirrors and six-file limits passed. Navigation/debug JSON validated."
+      ],
+      "remaining": [
+        "Source only; no executable, ZIP, test build, deployment or operational web restart.",
+        "Browser visibility/autoplay permissions still apply; muted fallback and hidden/off-screen decoder suspension are preserved."
+      ]
+    },
+    {
+      "id": "cinematic_media_remeasure_cache_controls_and_functional_blinks",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User replaced the previously measured movies, added eight movies, requested video/audio remeasurement, sequential client-side browser-cache playback, hidden top preview button, one-character-left countdown in all media states and visible arrival/frame blinks."
+      ],
+      "confirmed_causes": [
+        "Existing player already stored MP4s sequentially in CacheStorage and played a single cached blob, but catalog promise remained cached across theme reentry.",
+        "Functional alert CSS was disabled by reduced-motion along with decorative animations. Arrival caption also lived inside the lower-z-index video stage, beneath the countdown overlay.",
+        "Existing media countdown was hidden while playing and centered in paused/held modes; paintButton showed the upper preview button."
+      ],
+      "resolution": [
+        "Added read-only inspect_cinematic_media.py and dated docs/cinematic_media_measurements.md/JSON for all 32 files, including video duration, effective audio edit-list duration, raw encoded audio and SHA-256. Source MP4s are unchanged.",
+        "Refresh current catalog on theme entry before warming media; changed content hashes get new cached URLs and unchanged clips are reused. Failed keys can recover when catalog changes.",
+        "Always hide upper cinematic-play button; retain lower icon transport. Show playing/paused/still countdown left aligned with 1ch padding.",
+        "Keep functional blinks under reduced-motion with slower periods, overriding the legacy main-frame animation:none rule only for the main alert. Decorative reactor reduction remains. Move arrival caption directly into hero above the countdown overlay."
+      ],
+      "validation": [
+        "12 Python cinematic/bootstrap checks passed, including a synthetic AAC-priming edit-list measurement test.",
+        "Measured reports match all 32 current source files and hashes. Replacements: video 16.416667/29/68.333333s; audio playback 16.416/29/68.333s. Added eight files and full metadata are in the report.",
+        "Fresh-origin real Chrome: 32 movie requests, maximum one active transfer until body consumption; all 32 cached. Cached-origin second run/reload made zero movie fetches and no idle decoder. Movie fetches deliberately rejected during manual/automatic playback and cached blob playback still passed.",
+        "Reduced-motion browser checks passed: top preview hidden, countdown visibly left aligned with padding in playing/paused/still states, arrival midpoint opacity below 0.4, gold outer outline at animation midpoint, caption above countdown stacking context.",
+        "Existing native media durations/dimensions, final-frame equality, T-5 within 24ms, five-second compaction, pause/deadline takeover, active-overlap discard and chain lifetime passed with no CSP/JS errors.",
+        "Exact Python page/style/script mirrors and six-file limits verified; CODEMAP/DEBUG_NOTES JSON valid. Final screenshot reviewed."
+      ],
+      "remaining": [
+        "Source and metadata reports only; no build, ZIP, deployment or operational restart.",
+        "Measurements are a dated snapshot; future MP4 replacements require remeasurement. Browser storage quota/eviction and autoplay policies remain browser-dependent."
+      ]
+    },
+    {
+      "id": "cinematic_transport_auto_show_and_three_second_idle_hide",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User requested automatic transport reveal on playback and automatic hide after three seconds without screen activity, including manually opened controls."
+      ],
+      "confirmed_causes": [
+        "Drawer visibility previously changed only in the triangle click handler and had no idle timeout or native playback reveal."
+      ],
+      "resolution": [
+        "Centralized open/close, aria-expanded and labels in setTransportOpen. Native video play/resume and manual expansion open the drawer with the same idle policy.",
+        "Pointer/touch down, pointer movement, click, key and captured scroll events update only the monotonic activity timestamp while controls are visible. One timeout rechecks remaining inactivity and closes after three idle seconds; timing/cache repaint does not reset it.",
+        "Theme exit, hidden document and pagehide close the drawer and clear the timeout. Closing restores focus from hidden controls to the triangle when needed. Late CSS load can reveal controls if playback already started."
+      ],
+      "validation": [
+        "12 Python cinematic/bootstrap checks passed.",
+        "Real Chrome/native MP4: close manually then playback auto-opens; no-input auto-close occurs after three seconds; manually opening during pause resets on movement and then auto-closes three seconds after the last input without resuming video.",
+        "Existing source-media duration checks, one-file-at-a-time cache warm, zero movie downloads on cache reuse/reload, pause/resume, scheduled override of manual pause, final-frame equality, T-5 within 40ms, end+5 compaction, functional blinks and chain/no-queue rules passed with no CSP/JS errors.",
+        "Exact source mirrors, six-file size limits and CODEMAP/DEBUG_NOTES JSON verified."
+      ],
+      "remaining": [
+        "Source only; no build, ZIP, deployment or operational restart."
+      ]
+    },
+    {
+      "id": "cinematic_stale_frame_switch_and_hidden_audio_playback",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "Next briefly showed the first previously played final frame; user sometimes heard movie audio without seeing video."
+      ],
+      "confirmed_causes": [
+        "release restored any nonempty final-frame canvas while a new clip loaded asynchronously; manual Next/new-source preparation did not clear it.",
+        "Global gesture handling could restart an IntersectionObserver-paused offscreen or ancestor-hidden video. Audio permission did not require visible output.",
+        "The player had no positive first-frame presentation check. These are confirmed unsafe paths, not proof of the exact unrecorded user incident."
+      ],
+      "resolution": [
+        "New-source preparation and Previous/Next release with keepStill=false, clearing the bitmap synchronously before cache/metadata loading. Actual final capture retains the existing lifetime.",
+        "Gate play, gestures and audio on active theme, loaded companion CSS, document/intersection visibility, hidden ancestors, native layout and video state. Invisible playback stays paused and muted.",
+        "Confirm first presented frame with a one-shot requestVideoFrameCallback and two-second deadline; no confirmation stops playback and clears decoder/bitmap. Unsupported browsers retain ready-state and video-dimension checks. Reset confirmation on buffering and cancel stale source callbacks.",
+        "Retain muted autoplay fallback, including browser policy pauses after unmute. Runtime companion CSS also owns basic native-video visibility for older page snapshots.",
+        "Extend the existing browser checker with cached-source native decode/frame sampling, stale-canvas switching, delayed/missing-frame sound gates and hidden-video gesture cases. Record current-source results in docs/cinematic_decode_audit.json."
+      ],
+      "validation": [
+        "12 Python cinematic/bootstrap tests passed.",
+        "Real Chrome decoded and presented frames for all 32 cached current movies; all audit entries passed with nonzero dimensions and sampled colors.",
+        "Next immediately cleared the previous canvas; audio stayed muted until a frame was confirmed. Ancestor-hidden/offscreen and hidden-video touches could not restart sound. Missing frame callback caused muted cleanup after the bounded guard.",
+        "Full native-browser regression passed: transport three-second idle hide, left countdown, functional blink, final-frame pixel equality, T-5 within 34ms, five-second compaction, automatic takeover of paused preview, chain exclusions and no queue.",
+        "Initial prefetch used 32 movie requests with maximum concurrency one; reload reused all 32 with zero movie fetches and no idle decoder. No CSP/JS errors.",
+        "Exact Python page/style/script mirrors, six-file size limits and navigation/debug JSON verified."
+      ],
+      "remaining": [
+        "Current PC Chrome verification does not establish codec/presentation behavior on every phone/browser; the exact intermittent user incident was not captured.",
+        "Source only; no executable, ZIP, test build, deployment, media modification or operational web restart."
+      ]
+    },
+    {
+      "id": "ironman_initial_compact_card_and_media_overlay_removal",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User requested the initial next-boss card match the compact post-movie card and smaller helmet/reactor. Reported gradient boxes behind title/countdown over the movie."
+      ],
+      "confirmed_causes": [
+        "Compact rules required an explicit compact/paused player state, so the initial card used the expanded theme minimum height/countdown sizing.",
+        "Normal title and playing/paused/held countdown rules painted separate dark gradients on top of movie content."
+      ],
+      "resolution": [
+        "Apply compact styling by default unless data-cinematic-size explicitly requests expanded; preserve playback/final-five-second expansion and pause compaction. Shared CSS supplies first-paint defaults; runtime companion keeps matching state selectors.",
+        "Reduce hero helmet to at most 42x50px and reactor/energy to 54x54px, with smaller mobile breakpoints and matching countdown insets. Header art is unchanged.",
+        "Remove title/countdown backgrounds in all media states; retain normal non-media title styling. Advance web page revision and matching bundled fallback to 159 without changing the release version."
+      ],
+      "validation": [
+        "12 Python cinematic/bootstrap tests passed.",
+        "Real Chrome at 320/390/1440px: no horizontal overflow or JavaScript/CSP errors; screenshots captured and 390px reviewed.",
+        "Native player check: initial height equals explicit post-movie compact height, small ornaments/energy match, playback expands, pause/end compaction and restored artwork pass. Playing title/countdown have no background image or color.",
+        "Full existing native MP4 regression passed, including all 32 source decode checks, final-frame equality, T-5 within 31ms, automatic scheduling, idle drawer, first-frame audio gates and hidden decoder safety. Reload reused all 32 cached movies without movie requests or active decoder."
+      ],
+      "remaining": [
+        "Source only; no executable, ZIP, test build, deployment, original media edits or operational web restart."
+      ]
+    },
+    {
+      "id": "cinematic_playing_countdown_visibility_override",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "Countdown reappeared over the playing cinematic despite the requested playback-only hiding."
+      ],
+      "confirmed_causes": [
+        "The runtime companion applied visibility:visible!important to every data-cinematic state, overriding the shared playing-state hidden rule. The previous browser check also incorrectly required a visible playing countdown."
+      ],
+      "resolution": [
+        "Keep common media alignment/background rules without a visibility override. Explicitly hide the playing countdown and show it only for paused/still media states. Use visibility to preserve the movie card footprint.",
+        "Correct the existing native-browser assertion and current behavior documentation/patch notes. Existing CODEMAP cinematic route already indexes the affected source and checker; no duplicate route added."
+      ],
+      "validation": [
+        "12 Python cinematic/bootstrap tests passed.",
+        "Real Chrome/native MP4 suite confirmed hidden countdown/alarm/art during playback, visible left-aligned countdown when paused and on final frame, pause/resume and end compaction.",
+        "Full existing player/cache/decode/scheduling/audio-safety regression passed, including all 32 current files, no CSP/JS errors and cached reload without movie fetches or active decoder.",
+        "Exact Python mirrors, six-file limits and navigation/debug JSON verified."
+      ],
+      "remaining": [
+        "Source only; no build, ZIP, deployment or operational web restart."
+      ]
+    },
+    {
+      "id": "cinematic_random_first_then_sequential_automatic_order",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User requested actual boss cinematics follow catalog order after one random first position, with manual preview navigation unchanged."
+      ],
+      "confirmed_causes": [
+        "choose previously hashed each boss key independently, so successive automatic clips were unrelated rather than sequential. The manual transport shared the displayed index but did not have an independent automatic cursor."
+      ],
+      "resolution": [
+        "Use one session-local random starting cursor and bounded per-boss automatic assignments. choose only peeks or retrieves an existing assignment. Native automatic play commits and advances once; manual previews, future planning and skipped connected bosses never consume a position. Wrap at catalog end.",
+        "Keep current automatic assignment stable through buffering/pause/resume. Retain the cursor across theme reentry and preserve its next URL on catalog refresh when possible. New page sessions choose a new initial position.",
+        "Keep existing transport filename-order Previous/Next behavior. Update the CODEMAP existing cinematic route with selector/commit symbols and the focused sequence regression test.",
+        "Adapt the native browser harness to deterministic RNG in its isolated test document and explicit clock advancement for long sequential clips; production randomness is unchanged."
+      ],
+      "validation": [
+        "39 focused production-function checks passed for RNG starts at first/middle/last positions, planning-only peeks, pause/repeated-commit stability, two full wraparound cycles and bounded assignment storage.",
+        "12 Python cinematic/bootstrap tests passed.",
+        "Real Chrome/native MP4 suite passed: manual previews before the first automatic movie did not change its seeded start; subsequent automatic movie followed catalog order; skipped chain members and manual navigation did not consume automatic positions.",
+        "Full native player regression passed including all 32 source decodes, T-5 within 45ms for the real-clock short clip, automatic takeover of paused manual preview, final-frame equality, compaction, playback-only countdown hiding and invisible-audio guards. No CSP/JS errors.",
+        "Cached reload reused all 32 movies with no movie requests or active decoder. Main six-file mirrors/limits and navigation/debug JSON verified."
+      ],
+      "remaining": [
+        "Source only; no build, ZIP, deployment, media edits or operational web restart. Automatic order is session-local and restarts at a random position when the page is reloaded."
+      ]
+    },
+    {
+      "id": "ironman_help_rollover_reactor_visibility_and_helmet_scale",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "Iron Man theme help hover appeared to overlap generic rounded theme chrome. Reactor CSS effects were hard to see; user requested a 1.3x helmet without growing the card/window."
+      ],
+      "confirmed_causes": [
+        "Shared .hidden-menu .hidden-help-trigger rounded background/border rules had greater specificity than the generic Iron Man button skin; the common help balloon also retained rounded corners and its arrow. One active help panel was present, not duplicate popup instances.",
+        "The visible foreground reactor animation was running with awake/in-view true in real Chrome. Its old sweep mask covered the bright inner reactor rather than the outer ring; this supports a low-contrast visibility explanation, but does not establish the exact state of the user device."
+      ],
+      "resolution": [
+        "Scope angular help-trigger/open-state colors, transparent frame borders and a single metal-framed help balloon to Iron Man. Remove the generic arrow; retain existing help interaction and other theme skins. Fix the active trigger text to pale yellow rather than inherited dark ink.",
+        "Move the sweep to the outer ring, strengthen cyan/white/gold contrast and use a 10-second transform rotation plus 4.8-second opacity pulse on the same two CSS layers. Preserve hidden/offscreen and reduced-motion suspension.",
+        "Scale existing helmet dimensions exactly 1.3x at all three breakpoints (54.6x65,49.4x59.8,41.6x52). Keep absolute positioning, adjust bottom inset/countdown side space and preserve card height/minimums. No new visual timer or layer.",
+        "Refresh CSS/Python mirrors and page revision/fallback to 160. Extend existing browser verification with an opt-in real mouse help-hover probe; update current docs/navigation."
+      ],
+      "validation": [
+        "Real Chrome at 320/390/1440px: no horizontal overflow, title/countdown clear of enlarged artwork and correct button dimensions. Foreground reactor animations running; offscreen paused; reduced-motion disables decorative animation.",
+        "Actual help hover: zero-radius trigger and popup, transparent trigger border, blob metal frame, no generic arrow, exactly one visible help panel and no JavaScript/CSP errors. Screenshot reviewed; after visual review corrected dark active-trigger text and repeated the focused help check.",
+        "390px card screenshot reviewed against the earlier compact layout: compact panel retained while helmet enlarged. No layout-sizing properties were increased.",
+        "12 Python cinematic/bootstrap tests passed. Exact page/style/script mirrors, six-file limits, revision and navigation/debug JSON validated."
+      ],
+      "remaining": [
+        "No physical phone heat/battery measurement or reproduction of the user device animation state. Device reduced-motion settings intentionally remain respected.",
+        "Source only; no build, ZIP, deployment, media changes or operational web restart."
+      ]
+    },
+    {
+      "id": "reactor_real_rotation_verification_and_reduced_motion_slow_ring",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User still saw glow without apparent reactor rotation after earlier contrast changes."
+      ],
+      "confirmed_causes": [
+        "The test PC defaults to prefers-reduced-motion: reduce. Existing theme CSS removed both decorative animations in that mode. animation-play-state remained running due the awake/in-view rule even though animation-name was none and computed transform was none.",
+        "Earlier verification checked running state without checking actual transform or painted output, so it incorrectly treated that as proof of visible rotation. With pulse frozen, two screenshots and transforms were identical under the original reduced-motion rule. Exact user-device preference outside this PC is not established."
+      ],
+      "resolution": [
+        "Use a clearer asymmetric border arc with a moving bright marker and a 4.5-second transform rotation, replacing the masked conic sweep without adding layers or a JavaScript loop.",
+        "For the requested visible Iron Man reactor movement, reduced-motion mode now keeps a slow 12-second ring only and disables breathing/pulse. Other theme behavior and hidden/offscreen/foreground pause conditions remain unchanged.",
+        "Strengthen the existing native browser verifier: log the actual default media preference; explicitly test ordinary and reduced modes; freeze pulse and compare changing transform matrices plus native reactor screenshots 1.1 seconds apart. Do not infer visibility from play-state alone.",
+        "Refresh generated CSS/Python mirrors and bundled revision/fallback to 161; update current docs and the existing navigation match."
+      ],
+      "validation": [
+        "Actual browser default reduced motion reported true. Ordinary mode showed changing transform matrices and changed reactor pixels with pulse held static. Slow reduced-motion rotation also changed reactor pixels while pulse was disabled.",
+        "Existing 320/390/1440px layout, text/art clearance, offscreen pause, static button glow, asset decode and CSP/JS checks passed. Rotation snapshots reviewed.",
+        "12 Python cinematic/bootstrap tests passed. Exact source mirrors, six-file limits and navigation/debug JSON verified."
+      ],
+      "remaining": [
+        "No build, ZIP, deployment or operational web restart. No physical phone energy measurement."
+      ]
+    },
+    {
+      "id": "ironman_cache_key_warmup_and_event_driven_player_optimization",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_real_browser_verified_not_deployed",
+      "symptoms": [
+        "User requested a complete Iron Man theme audit for unnecessary computation, requests and resource use while preserving behavior."
+      ],
+      "confirmed_causes": [
+        "Cached warm-up called blob() for each movie and materialized every cached Response body instead of checking cache keys only. This is a confirmed API path; physical disk/RAM traffic depends on browser Blob implementation.",
+        "The common one-second schedule tick pumped the player repeatedly, including whole-schedule overlap scans, repeated data-cinematic assignment and native audio writes. Global pointer/change/input events also reached an idle player.",
+        "Transport progress repainted disabled states and SVG paths even when only ready count changed. release reloaded an empty native decoder. Catalog no-cache responses had no ETag, so unchanged metadata always sent a body."
+      ],
+      "resolution": [
+        "Warm from CacheStorage request keys, reuse unchanged manifest scan, prune only obsolete cinematic cache entries and read one movie body on actual playback. Keep sequential cold-download behavior and HTTP-cache fallback.",
+        "Retain existing deadline/native playback for unchanged schedule ticks. Replan after schedule changes or at least 250ms clock correction; reconcile buffering on the native playing event.",
+        "Account overlaps at actual play-span boundaries and pauseDecoder cleanup instead of scanning all events each second. Stop/mute offscreen video and exclude paused/offscreen intervals. Preserve manual-pause automatic takeover and sequential automatic selection.",
+        "Only update transport attributes, native volume/mute and playing DOM state when values change. No decoder load without a source. Idle/disabled/user-paused gestures return before layout/decoder work; active gestures avoid redundant play calls. Restrict sound input hooks to real sound checkbox/volume controls.",
+        "Add conditional ETag/304 catalog responses without changing authentication/range/media content. No new theme polling or animation loop. Existing two CSS reactor layers, one native decoder, one final bitmap and shared static art remain.",
+        "Update existing CODEMAP route with performance terms/pauseDecoder and current docs/patch notes. Extend existing checks with mutation/idle decoder/layout and cached Response-body probes."
+      ],
+      "validation": [
+        "13 Python cinematic/bootstrap tests passed, including unchanged catalog 304 and changed-manifest invalidation.",
+        "39 production automatic-order checks passed; current player JavaScript compiled successfully.",
+        "Cold-origin real Chrome: all 32 movies warmed with maximum one active prefetch. Cached-origin run and reload: all 32 ready, zero movie requests, no active video source and zero cache Response-body reads during preparation.",
+        "200 unchanged idle updates/touches produced zero cinematic DOM mutations, native pause calls or layout reads. 200 unchanged playing updates produced zero cinematic DOM mutations or movie requests.",
+        "Full native movie regression passed, including all 32 source decodes, final-frame pixel equality, first random/sequential order independent of manual panels, skipped chain exclusions, pause/resume, T-5 within 40ms, five-second compaction, three-second controls hide, playing countdown hiding and hidden/audio-failure guards. No CSP/JavaScript errors.",
+        "Audited source: common local clock remains one second; status freshness polling remains 15 seconds with backoff/hidden-page stop and full schedule fetch only on version change. Theme source adds no periodic requests. Static images are shared local blob assets, not external fetches.",
+        "Exact Python asset mirrors, six-file size limits and navigation/debug JSON verified. Original 32 source movies total 42.0 MiB and were not changed."
+      ],
+      "remaining": [
+        "No physical phone thermal/power profiling or claimed percentage CPU/battery reduction. Visible CSS movement and native video decode still require resources; original visual/timing behavior is retained.",
+        "Source only; no executable, ZIP, deployment, operational restart, AppData/settings/schedule or media modifications."
+      ]
+    },
+    {
+      "id": "cinematic_midplay_audio_only_safety_singleton_and_panel_alignment",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_native_audible_browser_verified_not_deployed",
+      "symptoms": [
+        "User reported cinematic dialogue/music with no video outside boss timing and overlapping voices while another cinematic was visible. Asked to check whether a prior player remained alive and align manual panel sequence with upcoming automatic movies."
+      ],
+      "confirmed_causes": [
+        "The player verified only its first presented frame and did not verify continued presentation during playback. canPresent checked theme/document/intersection/hidden attributes but not connected video/source identity or CSS-hidden/transparent media layers.",
+        "The runtime had no duplicate-evaluation singleton guard or same-origin cross-window cinematic audio ownership. These are confirmed unguarded paths; the exact original user incident and number of browser windows were not captured.",
+        "The manual panel began at file zero/last preview index while automatic playback began at a random cursor, so initial sequences could differ."
+      ],
+      "resolution": [
+        "Guard runtime re-evaluation so it reuses the same API/decoder rather than leaving unmanaged player instances.",
+        "Require a live connected visible video/stage/hero, no covering held bitmap, matching loaded key/current blob and valid playback time window before sound. CSS-hidden playback is muted and paused.",
+        "Sample presentation using native timeupdate at approximately one-second intervals during actual playback, with only one pending video-frame callback and a two-second failure deadline. Mid-play frame failure releases decoder/source/bitmap; idle/hidden/paused modes do no sampling.",
+        "Use a same-origin cinematic-only BroadcastChannel claim to mute the previous audio channel in another browser window. Explicit local interaction or a new source may claim audio again. No server request or heartbeat; normal notice audio and other devices are unchanged.",
+        "Start panel playback at the current scheduled automatic clip. Follow the same cyclic catalog order for Previous/Next, retain manual navigation without consuming automatic positions, and realign after real automatic playback.",
+        "Update current docs, patch notes and existing CODEMAP route; consolidate duplicated navigation terms/symbols."
+      ],
+      "validation": [
+        "13 Python cinematic/bootstrap tests passed and runtime JavaScript syntax checked.",
+        "51 production automatic/panel ordering checks passed, including nonzero random starts and panel alignment without consuming the automatic sequence.",
+        "Full real Chrome/native movie suite passed for all 32 source movies, automatic sequential order, skipped chains, manual pause takeover, final-frame equality, T-5 within 40ms, end compaction and controls inactivity.",
+        "Additional native-audible checks explicitly confirmed unmuted playback first, then verified a competing channel silenced it and refreshAudio could not immediately unmute it; duplicate runtime kept identical API and exactly one video element; CSS display:none caused paused+muted state; simulated frame loss after playback had started cleared the source while muted.",
+        "Optimization regressions retained: 200 idle updates/touches and 200 playing updates caused zero unnecessary cinematic DOM writes/movie fetches; cached reload had zero movie fetches/body reads and no active decoder. No CSP/JavaScript errors in the full suite.",
+        "Exact Python asset mirrors, six-file size limits and navigation/debug JSON verified."
+      ],
+      "remaining": [
+        "No capture of the original live user incident or physical multi-device audio reproduction. The native competing-channel check uses a second BroadcastChannel endpoint on the same origin.",
+        "Frame sampling is bounded fail-closed protection, not per-frame JS rendering. Browsers without requestVideoFrameCallback retain visibility/source/time/dimension gates.",
+        "Source only; no executable, ZIP, deployment, media edits or operational web restart."
+      ]
+    },
+    {
+      "id": "web_all_theme_menus_five_second_idle_collapse",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "symptoms": [
+        "User requested more visible schedule space: hide menus above previous bosses after five seconds without input, including the dark theme, and restore on touch or mouse hover."
+      ],
+      "confirmed_causes": [
+        "Header, tab bar and frame heading remain in normal layout above recent bosses. The existing sixty-second theme-settings fold controls a separate settings page and does not collapse these schedule menus."
+      ],
+      "resolution": [
+        "Add WebMenuIdle and theme-independent display:none selectors for app-header, live-bar and frame-heading; retain recent/next/following cards and existing schedule updates.",
+        "Track actual pointer/key/input/wheel activity with one monotonic timer, restore immediately and preserve menus during held touches, settings/custom editing, focused inputs and modal dialogs.",
+        "Do not treat scroll anchoring or internal pointerover from layout changes as user activity. Stop the timer while hidden/leaving, reset on foreground and bfcache restore. No storage, network request or schedule/video regeneration is added.",
+        "Mirror shared assets and increment page revision to 162 without changing release version or producing a build."
+      ],
+      "validation": [
+        "29 deterministic production-controller checks passed; 24 existing settings-idle, 15 theme-tab and 12 visible-update checks passed.",
+        "13 Python cinematic/bootstrap tests passed; JavaScript syntax, six-asset validation and generated fallback equality passed.",
+        "Isolated real Chrome at 390x844 passed 32 checks: five-second dark-theme collapse reclaimed 161px, all sixteen theme selectors stayed collapsed, boss cards and clocks remained active, layout scroll did not reopen, mouse/touch restored, held touch/settings/custom editor/modal preserved menus, and no runtime errors or horizontal overflow appeared. The initial custom-editor assertion incorrectly expected the existing intentionally hidden frame heading to remain visible; corrected the test to check the idle class and editor state, then reran successfully."
+      ],
+      "remaining": [
+        "Real mobile hardware behavior and deployment are not tested here; no build, ZIP, operational schedule or AppData changes."
+      ]
+    },
+    {
+      "id": "web_menu_three_second_idle_scroll_down_and_return_top",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "symptoms": [
+        "User changed menu behavior: hide after three seconds without input or immediately on downward scrolling; reveal only after leaving the top and scrolling back, never on stationary-top idle, hover or touch."
+      ],
+      "confirmed_causes": [
+        "The previous controller used a five-second timeout and revealed on activity. It did not implement a non-top-to-top transition.",
+        "A real-browser fixture with a short schedule had no overflow while menus were visible, so scrollTo(30) did not scroll or emit an event. The fixture now explicitly provides long content for scrolling tests and removes it for the separate short-content test."
+      ],
+      "resolution": [
+        "Change WebMenuIdle to a three-second timer. Input only renews the deadline while menus remain visible. Folded menus have no idle timer and do not reopen on pointer, touch, hover, key, page-show or foreground events.",
+        "Fold immediately on downward document scrolling, preserving the existing settings/editor/modal exceptions. Track non-top state and reveal only on an actual below-top-to-top transition; force the restored viewport to remain at top.",
+        "Read the clamped scroll position when folding and disable scroll anchoring while collapsed to distinguish layout-driven top from a genuine return. Preserve four pixels of scrollable height for short/empty content so hidden menus remain reachable.",
+        "Update shared fallback mirrors, revision 163, current docs, patch notes and the existing navigation route."
+      ],
+      "validation": [
+        "34 deterministic production-controller checks passed, including stationary-top idle, pointer/key no-reveal, actual away-return, immediate downward fold, clamped-layout top, background and legacy touch paths.",
+        "24 settings-idle, 15 theme-tab and 12 visible-update regression checks passed; 13 Python bootstrap/cinematic tests passed.",
+        "Final isolated Chrome at 390x844 passed 42 checks using current revision 163: actual three-second collapse reclaimed 161px; all sixteen themes shared CSS; stationary top/touch/hover/key did not reveal; small and large downward scrolls folded immediately; only actual top return restored; held-touch swipe folded; settings/editor/modal exceptions and short-content scroll-return access passed; clocks/cards remained and no runtime errors or horizontal overflow occurred."
+      ],
+      "remaining": [
+        "Actual phone hardware and deployment are not verified; no build, ZIP, AppData or schedule changes."
+      ]
+    },
+    {
+      "id": "web_previous_boss_idle_hide_and_manual_custom_selection_save",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "symptoms": [
+        "User requested previous bosses to hide with the upper menus, and user-tab boss selection to persist only when Save is pressed instead of the existing delayed automatic save."
+      ],
+      "confirmed_causes": [
+        "The shared menus-idle selector excluded #recent.",
+        "changeCustomSelection scheduled autoSaveCustom after seven seconds. Additional implicit commits occurred on profile/scope changes, document visibility/pagehide and automatic page refresh."
+      ],
+      "resolution": [
+        "Include #recent in the existing theme-independent collapse selector. Restore it with menus on non-top-to-top scrolling; next/following bosses and countdown continue.",
+        "Remove custom autosave timer, timestamp, countdown, callback and implicit lifecycle/scope commits. Only the explicit custom-save click listener invokes saveCustomSelection; keep explicit Undo, storage error retry and saved selections. Existing catalog alias migration of already-saved IDs remains to preserve rename identity.",
+        "Defer WebPageRefresh while customDirty without committing the draft. Existing status polling retries after explicit save or undo. Read UPDATE_POLICY.md before editing this path and update its current implementation notes.",
+        "Update editor text, docs, patch notes, the existing navigation route and revision 164; regenerate matching fallback assets."
+      ],
+      "validation": [
+        "124 production JavaScript checks passed across menu idle, manual save, first use, refresh deferral, settings idle, theme tabs and visible updates.",
+        "25 Python custom-layout/bootstrap/page-refresh/cinematic tests passed. Six-asset validation and fallback equality passed; main script size 1047467 bytes remains below the 1 MiB limit.",
+        "Isolated Chrome at 390x844 passed 51 checks including previous-boss hide/restore, 232px reclaimed hero position, all-theme hiding CSS, real selection unchanged in localStorage after 7.5 seconds and tab switches, explicit Save persistence, short-content access, editor/modal usability, and no runtime errors or horizontal overflow."
+      ],
+      "remaining": [
+        "Actual phone hardware and deployment are unverified. No EXE/ZIP/build, operational schedule or AppData modifications. Unsaved selections are intentionally not persisted across explicit browser reload or profile changes."
+      ]
+    },
+    {
+      "id": "web_menu_mouse_below_next_boss_three_second_deadline",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "symptoms": [
+        "User requested that a mouse located below the next-boss card also count toward the three-second menu-hide condition."
+      ],
+      "confirmed_causes": [
+        "Every pointermove previously renewed the idle timestamp regardless of pointer location, so continuous movement below the next boss kept the upper menus visible."
+      ],
+      "resolution": [
+        "Add pointerActivity to WebMenuIdle: entering below the visible hero bottom starts a fresh three-second deadline, and continued mouse movement below does not renew it. Moving back above resumes ordinary activity.",
+        "Keep real clicks/keys, held interactions, settings/editor/modal protections and touch movement behavior. Folded menus still restore only after leaving the top and returning, not on pointer activity.",
+        "Measure the hero boundary at most once every 200ms during mouse movement; skip measurements when folded/background, and fall back to normal activity when no visible hero exists. Reuse the existing single idle timer with no new network requests or animation loop.",
+        "Update current docs, patch notes, the existing CODEMAP route and shared/fallback revision 165."
+      ],
+      "validation": [
+        "134 production JavaScript checks passed, including 44 menu checks for below-entry timing, sustained below/above movement, touch distinction, hidden hero, legacy mouse, capped geometry reads, and existing top-return behavior.",
+        "25 Python layout/bootstrap/page-refresh/cinematic tests passed. Main JS/browser-check syntax, six-asset validation, fallback equality and the 1 MiB file limit passed.",
+        "Isolated Chrome at 390x844 passed 57 checks on revision 165. Sustained mouse movement above the next-boss bottom kept menus visible beyond three seconds; sustained movement below folded them after three seconds. Moving back above could not reveal folded menus; actual top return restored them. Previous-boss hiding, manual Save persistence, settings/modal guards, short-content access, and no runtime errors/horizontal overflow also passed."
+      ],
+      "remaining": [
+        "Actual phone hardware and deployment are unverified. No EXE/ZIP/build, AppData or operational schedule changes."
+      ]
+    },
+    {
+      "id": "web_top_scroll_gesture_stop_and_mobile_light_tap",
+      "recorded_on": "2026-10-19",
+      "status": "source_full_chrome_and_native_input_verified_not_deployed",
+      "symptoms": [
+        "User requested upward scrolling at an already stationary top to reveal menus again, then requested an initial stop at the next boss when scrolling up from below. User explicitly selected the same staged stop for mobile, with light taps revealing immediately."
+      ],
+      "confirmed_causes": [
+        "The earlier non-top-to-top rule had no upward-wheel path for stationary-top input. Restoring on any touchstart would also restore at the start of a drag, so it cannot distinguish the requested mobile stop from a light tap.",
+        "Real Chrome passive wheel dispatch can observe scrollY=0 after compositor scrolling already reached the top. A fresh-wheel test using only the current position incorrectly revealed menus during the first ascent; native input checks caught this."
+      ],
+      "resolution": [
+        "Keep menus and previous bosses hidden when the first ascent reaches next boss/top. Continuous wheel/inertial input cannot open them; a separate upward wheel after more than 300ms without wheel input opens them at top.",
+        "Track top-arrival time and the previous scroll position to handle compositor-before-wheel event ordering while retaining a passive constant-work wheel handler.",
+        "Classify single-finger light taps on touchend using at most 450ms and 10px movement. Initial touchstart never reveals; dragging, pinch, cancelled and long touches do not count. A new upward gesture begun at the top can also reveal.",
+        "Consume only the reveal tap/swipe default action so it cannot also toggle a boss alarm or pull to refresh. Preserve ordinary visible controls, idle/mouse-below rules, editing exceptions, manual Save and background timer stop.",
+        "Move readable controller to web_menu_idle.js and reuse sync_web_sakura.compact_module with an explicit module-local binding list. Embed inside existing schedule.js and fallback mirrors within the unchanged six-file/1MiB contract, with no new server path/request/build resource. Preserve existing blossom embedding output.",
+        "Update current docs and patch notes around final staged behavior and maintain the existing CODEMAP route. Shared page revision is 166."
+      ],
+      "validation": [
+        "143 production JavaScript checks passed, including 53 controller tests against the real embedded module; the same 53 tests separately passed against the readable module. Coverage includes continuous wheel, compositor ordering, stationary-top reveal, mobile swipe-stop/new gesture/tap, click prevention, invalid touch gestures, mouse geometry throttling, lifecycle and editing exceptions.",
+        "25 Python custom-layout/bootstrap/page-refresh/cinematic tests passed; JavaScript syntax, six-asset limit, generated fallback equality and default blossom embedding equality passed.",
+        "Isolated native Chrome input check passed actual wheel ascent/continuous input stopping at next boss, separate upward wheel reveal, actual mobile drag stopping and a new light tap revealing.",
+        "Final isolated Chrome at 390x844 passed all 65 full browser checks and then native-input wheel/swipe/tap checks on the same final source. Previous bosses, 232px reclaimed space, all sixteen theme CSS paths, short-content access, custom manual Save after 7.5s/tab changes, settings/modal protections and no runtime errors/horizontal overflow passed."
+      ],
+      "remaining": [
+        "Actual phone/tablet hardware and deployment are unverified. No EXE/ZIP/build, AppData or operational schedule modifications."
+      ]
+    },
+    {
+      "id": "web_visible_menus_first_downward_gesture_stop",
+      "recorded_on": "2026-10-19",
+      "status": "source_full_chrome_and_native_input_verified_not_deployed",
+      "symptoms": [
+        "User requested a stop at the next boss on the first downward scroll while upper menus are visible and asked which approach is better: scrolling into the stop or hiding menus on downward input."
+      ],
+      "confirmed_causes": [
+        "The previous document scroll listener hid menus after actual movement, but did not consume the first downward gesture. Its remaining wheel/swipe input could continue into the list."
+      ],
+      "resolution": [
+        "Handle first downward input before normal list movement: fold menus/previous bosses, pin the viewport at the next-boss/top position and consume the remainder of that wheel gesture. A new wheel gesture after more than 300ms quiet can browse downward normally.",
+        "For mobile, classify a primarily vertical downward-page swipe (finger moving up) that began with menus visible; fold/pin and consume that gesture. New touchstart releases the stop, and the next downward swipe browses the list. Horizontal gestures/settings/inputs/modals remain exempt.",
+        "Use a non-passive constant-work wheel listener to cancel only the first held descent. Correct any already-applied/noncancelable scroll through the existing scroll callback, without a frame loop or extra timer. Preserve the existing upward stop/new-upward reveal, light tap classification, idle/mouse-below rules and manual Save.",
+        "Keep readable controller and compact embedding. Allow explicit identifier prefixes for the menu compaction and include its private x field in the binding map, avoiding collisions while preserving default blossom compaction output. No asset limit, endpoint or six-file contract change.",
+        "Update docs, patch notes, existing navigation route and matching bundled/fallback page revision 167."
+      ],
+      "validation": [
+        "163 production JavaScript checks passed, including 73 controller checks against the embedded module and the same 73 separately against readable source. Tests cover first descent, continuous input, noncancelable scroll correction, next gesture release, horizontal/settings exemptions, previous upward/tap rules and lifecycle.",
+        "25 Python layout/bootstrap/page-refresh/cinematic tests passed; JS syntax, all six asset limits, fallback equality and unchanged default blossom embedding passed.",
+        "Isolated Chrome native-input test passed real first downward wheel/swipe stops, subsequent gestures browsing, previous upward stop/new wheel and light tap reveal.",
+        "Final isolated Chrome at 390x844 passed all 85 browser checks and subsequent actual native wheel/touch checks on revision 167. First downward gestures and continuation held the next-boss stop; subsequent downward gestures browsed the list; all-theme hiding, upward stop/new-input reveal, light taps, manual Save, short-content access and editing/modal exemptions passed with no runtime errors or horizontal overflow."
+      ],
+      "remaining": [
+        "Actual phone/tablet hardware and deployment are unverified. No EXE/ZIP/build, AppData or operational schedule modifications."
+      ]
+    },
+    {
+      "id": "web_filtered_view_without_upcoming_boss_orphan_rest",
+      "recorded_on": "2026-10-19",
+      "status": "source_full_chrome_and_native_input_verified_not_deployed",
+      "symptoms": [
+        "User reported rest rows showing in the custom tab despite no schedule being available to display."
+      ],
+      "confirmed_causes": [
+        "Filtered rests are rebuilt over the full selected-boss timeline before calendar-day selection. A gap between a previous-day boss and next-day boss can intersect an empty displayed day, or remain after the final displayed boss has finished.",
+        "visibleRows retained every rest whose end is in the future even when its current displayed period contained no remaining boss. Existing tests covered globally absent bosses, but not these day-boundary cases. A new production-function test reproduced the reported standalone rest before the fix."
+      ],
+      "resolution": [
+        "For custom/major screen views, omit future rest-only rows when the already-filtered current period has no boss remaining, including the existing three-second spawn hold. Keep past-boss history.",
+        "Keep raw schedule/rest data, recalculation intervals, full/all-tab source rest behavior and copy options independent. A next-day view containing the actual selected boss can still use the same original derived rest interval.",
+        "Reuse immutable input listener options in the readable menu module to keep generated schedule.js within the unchanged 1MiB asset contract; menu behavior is unchanged.",
+        "Add empty-day, past-only/next-day, selected-but-unscheduled, rest toggle, fixed filter and final-spawn-boundary checks. Update docs, patch notes, existing CODEMAP route and matching bundled/fallback revision 168."
+      ],
+      "validation": [
+        "233 production JavaScript checks passed: 109 view/rest/order/date/copy checks, 73 menu checks, 14 manual Save, 11 first use, 14 refresh deferral and 12 visible-update checks. The same 73 menu checks also passed against readable source.",
+        "12 Python public rest-rule/bootstrap/custom-layout tests passed. JavaScript syntax, six-asset limits, generated fallback equality and unchanged default blossom embedding passed.",
+        "Isolated Chrome at 390x844 passed 17 real DOM checks for empty custom dates, clock/toggle persistence, valid rests, fixed OFF/ON, past history, no remaining boss today, full/all-tab source rests, and no runtime errors/horizontal overflow. Existing actual native wheel/swipe/tap stop and reveal checks passed in the same isolated browser session."
+      ],
+      "remaining": [
+        "The original live user screen was not captured; the reported class of issue was reproduced from production functions and browser DOM fixtures. Actual phone hardware and deployment are unverified. No build/ZIP/EXE, AppData or operational schedule changes."
+      ]
+    },
+    {
+      "id": "web_recent_ui_hidden_work_prebuild_optimization",
+      "recorded_on": "2026-10-19",
+      "status": "source_and_isolated_chrome_verified_not_built_or_deployed",
+      "symptoms": [
+        "User requested prebuild optimization of recent rest, menu-hide/scroll, manual Save and Iron Man changes, including animations hidden behind menus or cinematic artwork."
+      ],
+      "confirmed_causes": [
+        "Every selectionSignature read spread/sorted the unchanged draft; key/dirty checks repeated this on clock ticks. A 4000-item set required 600 sorts for 600 unchanged signature reads before this change.",
+        "The cinematic hero reactor already paused while hidden by video, and menu display:none removed header painting. These were not newly discovered continuous rendering faults. However, the hidden playing-video countdown retained its spawn blink animation, and an offscreen video pause left the arrival/frame CSS animations active.",
+        "Upper menu clock/date and connection updates still ran while their containers were hidden. Hidden schedule row clocks and winter/rain/theme-leave cleanup already had existing work-budget guards, verified by regression checks."
+      ],
+      "resolution": [
+        "Cache canonical selection signatures by weak Set identity/size. Production draft edits clone and replace the set, so same-size replacements invalidate reliably; load, save and catalog migration already replace sets. Preserve explicit Save only.",
+        "Pause folded header reactor CSS immediately. Pause cinematic-hidden countdown blink, background alerts and offscreen cinematic caption/frame through the existing cinematic IntersectionObserver visibility state; add no observer, animation loop or network request. Preserve visible glow/rotation and visible spawn alert behavior.",
+        "Skip hidden upper clock/date/connection writes; menu restoration calls the normal tick once immediately. Keep schedule, notification and bottom date navigation behavior active.",
+        "Extend existing safe indentation compaction to HIDDEN HELP and NOTICE blocks, preserving literal content and the unchanged 1 MiB asset contract. Match generated Python page/script mirrors and fallback metadata at page revision 169; retain release version v1.0.1.",
+        "Update existing CODEMAP routes, patch notes, web behavior documentation and BUILD_HANDOFF without conflating exploration index and history."
+      ],
+      "validation": [
+        "74 Python checks passed: release preflight/version/metadata/patch notes, cinematic media/auth/cache, rest rules, theme bootstrap, custom layout, web asset selection and blossom resources.",
+        "417 production JavaScript checks passed across recent view/rest/order/copy/menu/manual-save/first-use/refresh/visible-update/theme/settings/cinematic-order paths; the readable menu module also passed the same 75 menu checks as the embedded version.",
+        "4000 unchanged selected IDs: 600 signature reads now sort once instead of 600 times. A separate 600-round signature/dirty regression sorts draft and saved sets twice total, and verifies same-size replacement, undo, no-op ordering, aliases and storage failures.",
+        "Isolated Chrome passed menu 85, empty custom rest 17, native wheel/swipe/tap and 42 hidden-motion/DOM checks across normal and reduced-motion settings. Actual CSS animation currentTime stops while hidden/offscreen/background and resumes when visible; hidden upper menu writes stay zero and restoration catches up immediately.",
+        "Full native cinematic suite passed, including actual frame decoding for all 32 cached movies, automatic/manual timing, final-frame/chain behavior, zero DOM changes for 200 unchanged idle/playing updates, cached reload without media requests/body reads/idle decoder, and audible foreign-channel/singleton/CSS-hidden/stalled-frame cleanup.",
+        "Python AST, JSON, JS syntax, unchanged blossom embedding, matching bundled page/style/script and six-asset validation passed. Final schedule.js is 1048160 bytes, below the existing 1048576 limit."
+      ],
+      "remaining": [
+        "No physical phone power/temperature measurement and no actual deployment EXE/runtime measurement. UI optimization does not constitute full-program deployment certification.",
+        "Cinematic companion JS/CSS are full application resources outside the six-file static web update contract; apply them through the existing appropriate source/build deployment path. No update protocol or lifecycle changes made.",
+        "No EXE/ZIP/test builds, new test distribution folder, AppData/settings/schedules/media edits, commits or deployment performed. Isolated fixture/browser are stopped after verification."
+      ]
+    },
+    {
+      "id": "cinematic_media_remeasure_gain_and_cache_generation_v2",
+      "recorded_on": "2026-10-20",
+      "status": "source_media_and_isolated_chrome_verified_not_deployed",
+      "symptoms": [
+        "User replaced/added/removed movies and requested fresh downloads, current durations and louder audio for Thor2, both Spider-Man movies, Iron Man entrance, Avengers vs and Infinity Stones."
+      ],
+      "confirmed_facts": [
+        "31 MP4s accepted, all 12 fps. Catalogue already derives names, video duration and hash URL from current folder. Old report and smoke-test movie names were stale.",
+        "Six requested clips had peaks at -14.4 dBFS or below. v1 CacheStorage retained unchanged clips, and old HTTP cache could satisfy a storage miss."
+      ],
+      "resolution": [
+        "Back up six originals outside packaged media, then FFmpeg +6dB AAC audio with compressed video copy. Verify unchanged video stream hash/metadata before replacing source; other MP4 bytes unchanged.",
+        "Remeasure all current files; extend read-only inspector with Markdown and measurement-date flags. Current JSON/Markdown replace stale tables.",
+        "New player deletes only legacy numbered cinematic caches and uses v2. CacheStorage miss uses HTTP reload once, saved bodies are reused. Storage restrictions retain HTTP-cache fallback. Sequential warm and obsolete-file pruning remain.",
+        "Keep release v1.0.1 and synchronize asset/fallback revision 170. Update existing index, docs, policy implementation notes and build handoff."
+      ],
+      "media_changes_by_same_filename": {
+        "added": [
+          "보스웨이크업.mp4",
+          "아이언맨2투게더.mp4",
+          "아이언맨변신1_12fps.mp4",
+          "아이언맨변신3_12fps.mp4",
+          "아이언맨변신_12fps.mp4",
+          "아이엠아이언맨_12fps.mp4",
+          "어밴저스4_12fps.mp4",
+          "어밴저스엔드3_12fps.mp4",
+          "어밴저스첫결성_12fps.mp4",
+          "캡틴등장_12fps.mp4",
+          "캡틴토르망치_12fps.mp4"
+        ],
+        "removed": [
+          "스타로드.mp4",
+          "아이언맨인피니티스톤스틸.mp4",
+          "어밴저스1.mp4",
+          "어밴저스엔드2.mp4",
+          "어벤저스4.mp4",
+          "어벤저스엔드3.mp4",
+          "여전사들.mp4",
+          "와칸다1.mp4",
+          "캡티1.mp4",
+          "캡틴3.mp4",
+          "캡틴등장.mp4",
+          "헐크.mp4"
+        ],
+        "modified": [
+          "스파이더맨1.mp4",
+          "스파이더맨3명.mp4",
+          "아이언맨등장.mp4",
+          "아이언맨백업.mp4",
+          "어밴저스vs.mp4",
+          "어밴저스엔드.mp4",
+          "인피니티스톤.mp4",
+          "토르2.mp4"
+        ]
+      },
+      "validation": [
+        "28 Python cinematic/asset/patch-note/page-update checks, 10 JS cache and 51 JS movie-order checks passed. Player JS syntax valid.",
+        "Isolated Chrome removed seeded v1 and preserved unrelated cache; downloaded all 31 once, max concurrency 1. Reload made no movie requests, cache body reads or idle video source.",
+        "Native frames decoded for all 31; six adjusted movie metadata checked. Full automatic/manual timing, connected-chain/final-frame, offline cache playback and audio/singleton/hidden/stalled-frame safety suite passed.",
+        "Six backups match recorded original hashes. Exact compressed video stream hashes and video metadata unchanged. Mean gain 5.9-6.1 dB; resulting peaks -8.5 dBFS or lower. Non-target source files untouched by audio adjustment.",
+        "31 names/durations/hashes match live catalogue. Existing asset limits and bundled mirrors valid. Backup folder outside spec media collection."
+      ],
+      "remaining": [
+        "Actual remote caches were not manipulated here: new player/media must be deployed and already-open old pages refreshed for migration.",
+        "No EXE/ZIP/test builds or deployment. No AppData/login/preferences/schedule changes. Cinematic player and MP4s are outside the six-file static update contract.",
+        "No phone-specific subjective loudness evaluation; objective gain/headroom and native audio path verified."
+      ]
+    },
+    {
+      "id": "ironman_major_fixed_name_ink_and_major_portrait",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "request": [
+        "Only Iron Man: ordinary fixed boss NAME text uses arc cyan, major boss NAME text red, major fixed bosses red. Use local Iron Man1 image immediately left of alarm and remove faded right decoration only on portrait rows."
+      ],
+      "confirmed_facts": [
+        "Theme CSS forced pale-yellow names through both color and -webkit-text-fill-color. The shared existing majorBoss classifier already supplies canonical major-tab semantics, including fixed guild events and exclusions.",
+        "Faded right-side decoration is the card ::before circuit gradients. Alarm ::after already supplies the ON reactor dot; portrait uses its previously hidden ::before independently."
+      ],
+      "resolution": [
+        "Derive rank with the existing majorBoss function and attach rank to each label and background host on normal rendering. Major rank takes precedence over fixed; stale rank clears on host reuse.",
+        "Scoped Iron Man CSS overrides both text color/fill: major #ff715b, ordinary fixed #79e8ff, ordinary names remain pale yellow. Keep time/countdown/background styles and other themes.",
+        "Embed original local JPEG via existing stylesheet generator and one shared blob URL. Place a static 32x28 portrait in reserved space left of each major alarm; hide card circuits only where an alarm/portrait is present. Preserve ON reactor and button functionality; cinematic alarm visibility hides portrait too.",
+        "Synchronize generated mirrors and metadata revision 171, keeping release v1.0.1. Update existing docs/index and test fixture image count from 9 to 10."
+      ],
+      "validation": [
+        "181 JS checks passed across rank classification (9), theme transitions/blobs (14), schedule/rest/order/views (109), image copy (15), manual selection save (19), visible clock updates (15).",
+        "27 Python theme bootstrap, custom layout, rest rules, asset selection and patch-note tests passed.",
+        "Isolated Chrome 390/320/280px: 24 checks each passed for actual ink/text fill, major fixed precedence, image position/reserved space, ON state, conditional circuit removal, hero/cinematic visibility, row reuse and other-theme behavior. Iron Man fits the exact physical widths. Synthetic probe in dark theme at 280px has 293px layout; the new Iron Man styling is scoped and dark ink/portrait removal were verified.",
+        "42 normal/reduced-motion hidden animation checks passed after the static portrait changes. All 10 shared artwork blobs decode under production CSP.",
+        "JS syntax, JSON, six-asset limit and generated page/style/script equality verified."
+      ],
+      "remaining": [
+        "No build/ZIP/deployment or live user settings/schedules changed. Physical phone display not measured.",
+        "Canvas export does not rasterize CSS pseudo-element portrait; existing name-color capture follows the themed DOM."
+      ]
+    },
+    {
+      "id": "folded_menu_small_yellow_current_datetime",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "request": [
+        "Show actual current date/time in small yellow text above next boss only while upper menus are hidden."
+      ],
+      "implementation": [
+        "Place a compact time element immediately above event list, outside hidden upper menus. Existing tick updates it with dateLabel(now) and clock(now) only when folded; visible upper-menu state does not write compact clock.",
+        "Fold calls the existing tick once for immediate paint. Existing menu-show tick restores upper time and CSS hides compact clock. Reuse local schedule timer and background stop; no new network request/timer.",
+        "Use 11px yellow #ffe279 with a thin contrast stroke/shadow. Actual date remains independent of selected tomorrow schedule. Sync bundled mirrors and revision 172."
+      ],
+      "validation": [
+        "220 JS menu/visible updates/schedule views/theme performance checks passed; isolated Chrome 16 compact-clock checks passed, including immediate fold, yellow size, location, ticking, actual-date versus tomorrow, hidden no-writes, dark/pink/yellow/Iron Man themes and no overflow/errors.",
+        "Existing native wheel/swipe stop and light-tap restoration checks passed.",
+        "20 Python bootstrap/asset-selection/patch-note checks passed; six-asset limits and bundled mirrors valid."
+      ],
+      "remaining": [
+        "No build/ZIP/deployment, live user settings or schedules changed. Phone hardware display not measured."
+      ]
+    },
+    {
+      "id": "folded_datetime_left_align_minimal_top_gap",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_chrome_verified_not_deployed",
+      "request": [
+        "Left-align compact yellow clock and minimize empty space above it."
+      ],
+      "resolution": [
+        "Only folded state: remove clock inner padding, left-align, reduce line-height to 1.25 and bottom gap to 1px. App top padding 2px, frame top padding zero, first hero top margin zero. Expanded theme spacing remains. Page revision 173."
+      ],
+      "validation": [
+        "Isolated Chrome 21 compact-clock/layout checks passed across dark/pink/yellow/Iron Man, plus existing native wheel/swipe/tap. Top gap <=4 CSS pixels including border, left alignment and ticking/restore correct. Bundled mirrors and asset limits checked."
+      ],
+      "remaining": [
+        "No build or deployment; actual phone not measured."
+      ]
+    },
+    {
+      "id": "remove_folded_datetime_keep_spacing",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_chrome_verified_not_deployed",
+      "request": [
+        "Remove compact date/time while keeping current spacing exactly."
+      ],
+      "resolution": [
+        "Replace compact time node with an aria-hidden static spacer at identical 13.75px height plus 1px lower margin. Preserve folded app/frame padding. Remove compact-clock writes and fold-only tick; existing upper clock restoration unchanged. Update current index/test route and metadata revision 174."
+      ],
+      "validation": [
+        "75 menu and 17 visible-update JS checks passed. Isolated Chrome 15 spacing checks passed across dark, pink, yellow and Iron Man: no date/time, identical spacer height/margin, minimal upper padding and restore. Asset limits/mirrors validated."
+      ],
+      "remaining": [
+        "No build or deployment."
+      ]
+    },
+    {
+      "id": "cinematic_restore_default_five_seconds_after_compaction",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_native_chrome_verified_not_deployed",
+      "request": [
+        "Check existing initial artwork restore, and restore five seconds after shrinking if no timed restore exists."
+      ],
+      "confirmed_facts": [
+        "Previous expireStill cleared only when the held owner/group no longer matched the next boss. Existing five-second compaction did not clear the bitmap."
+      ],
+      "resolution": [
+        "Reuse one panel timeout: final-frame capture to compact at 5s, clear bitmap and restore compact helmet/reactor at 10s. Preserve earlier next-boss/group transition cleanup.",
+        "Clear pending phases on new media, early boss transition, theme exit, page exit and failures. Timer callbacks settle current monotonic deadlines, so obsolete callbacks cannot affect newer playback/holds. Late background resume consumes elapsed phases without starting another full wait.",
+        "Timed clear applies within connected chains too; their remaining movie exclusion/order remains. No additional network requests, decoder or repeated rendering loop.",
+        "Update source docs/readme/patch notes/current navigation tests and revision 175."
+      ],
+      "validation": [
+        "12 production panel lifecycle checks passed for both boundaries, one timeout, cancellation, stale callback/new final-frame protection and late background catch-up; 51 movie-order and 10 cache checks also passed.",
+        "23 Python cinematic/patch-note/asset-selection tests passed. Asset limits and generated mirrors verified.",
+        "Isolated Chrome full cinematic suite passed: actual 5s compaction plus 5s artwork return, compact size/decoder-release retained, connected chain timer and exclusions, 31 real movie frame decodes, manual/automatic timing and last-frame capture. Native audible cross-channel/singleton/CSS-hidden/stalled-frame checks passed; cached reload made no movie requests/body reads."
+      ],
+      "remaining": [
+        "No build/ZIP/deployment or media/user-data changes. Updated companion player is outside the six-file static update contract; operational host must receive the new runtime resource and existing pages refresh."
+      ]
+    },
+    {
+      "id": "ironman_replaced_source_portrait_not_embedded",
+      "recorded_on": "2026-10-20",
+      "status": "source_assets_verified_not_deployed",
+      "symptom": [
+        "User replaced boss portrait but webpage kept previous image."
+      ],
+      "confirmed_cause": [
+        "Source JPEG was 54823 bytes with SHA256 071c61dd601a04bfced69cb70c30bee7b0fb01eb8b6488ada6564712c26e95fb; embedded CSS retained older 37429-byte image SHA256 0488d6ea7008406a3efea3f6405971b6a1577653c32cd79c9d5177bafb42eaa5. This is stale generated artwork, not authentication cookies."
+      ],
+      "resolution": [
+        "Regenerate Avengers CSS and Python bundled mirrors from current source JPEG; increment matching page/fallback revision to 176. Document source-asset regeneration and apply/refresh requirement."
+      ],
+      "validation": [
+        "New embedded image bytes exactly match source file. Bundled page/style/script and six-file validation pass; replacement JPEG visually inspected."
+      ],
+      "remaining": [
+        "No running production web apply, cookie deletion, build or deployment performed. Existing immutable web bundle must receive updated files and existing browser page refresh."
+      ]
+    },
+    {
+      "id": "ironman_boss_and_rest_rows_slightly_shorter",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_chrome_verified_not_deployed",
+      "request": [
+        "Slightly reduce boss-name and rest box heights in current Iron Man work."
+      ],
+      "resolution": [
+        "Only Iron Man following/event rows: vertical frame widths 12 to 10px desktop and 10 to 8px mobile, corresponding border-image widths. Reduces natural height by 4px while preserving inner padding, font and portrait space. Preserve rest minimum/scaling and hero cinematic size. Revision 177."
+      ],
+      "validation": [
+        "Existing Chrome boss-rank/portrait suite passed 24 checks each at physical widths 390/320/280, including image placement, title ink, ON state, conditional decorations and cinema visibility. CSS source review confirms only outer vertical frame changes. Bundled mirrors and asset limits verified."
+      ],
+      "remaining": [
+        "No build/deployment or user preferences changed."
+      ]
+    },
+    {
+      "id": "personal_theme_font_size_and_uncropped_ironman_portrait",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_isolated_chrome_verified_not_deployed",
+      "request": [
+        "Save personal font and size per theme using default, theme save, apply-all buttons; replacement major-boss Iron Man image appeared half cropped/reversed."
+      ],
+      "confirmed_facts": [
+        "Old font selection and per-font size saved automatically; old default-save button wrote server font size defaults with developer permission. New requested buttons are personal preferences.",
+        "Portrait source is vertical while the 32x28 CSS slot used cover, cropping the replacement. Native computed transform has no reflection or rotation; reversed direction was not reproduced."
+      ],
+      "resolution": [
+        "Store schema-1 per-theme font/size pairs and optional all-theme fallback in BossTimer.webFont.themes.v1:<nickname>. Explicit save only. Default restores and saves current theme deployment font/base size. Apply-all removes theme exceptions. Preserve legacy personal values as read fallback; missing theme fonts fall through to valid all-theme/legacy/catalog settings.",
+        "Theme changes reuse cached font catalog and personal list; serial/scope checks reject obsolete loads. New personal buttons never POST server defaults. Backend API and GUI deployment font controls remain compatible.",
+        "Use contain in unchanged portrait slot, preserving whole image and original orientation without new per-row downloads.",
+        "Embed readable font module using sync_web_sakura.py; retain six-file asset size contract and matching Python mirrors. Revision 178; documentation, patch notes and existing CODEMAP route updated."
+      ],
+      "validation": [
+        "23 isolated font checks passed for both readable and embedded production module: explicit persistence, reload, theme/nickname isolation, apply-all clearing exceptions, default reset, missing fonts, failed storage, cross-tab updates, stale loads, one catalog fetch and no server writes.",
+        "36 Python font/default/bootstrap/asset/patch-note tests passed. Existing JS theme/major-rank/theme-tab checks passed 14/9/15.",
+        "Isolated Chrome real Cafe24 font tested at 390/320/280 CSS pixels: 14 font save/layout checks each; 26 boss-rank/portrait checks each. All 10 artwork blobs decoded with production CSP; portrait contain, direction, no clipping/overlap verified.",
+        "Final six-file validation, matching generated font/page/style/script mirrors, JS syntax, Python AST, JSON and git diff --check passed."
+      ],
+      "remaining": [
+        "No build, ZIP, deployment, production-web apply, source-image edit or user/server data mutation. Physical phone not measured. Personal preferences remain independent across devices/browsers."
+      ]
+    },
+    {
+      "id": "ironman_theme_deployment_default_suit_20",
+      "recorded_on": "2026-10-20",
+      "status": "source_verified_not_deployed",
+      "request": [
+        "Set Iron Man deployment default font to catalog #20 SUIT."
+      ],
+      "resolution": [
+        "defaultFont selects suit only for avengers when available in catalog; normal catalog default retained elsewhere. Initial fallback and explicit default reset share this resolver. Personal theme/all-theme/legacy preferences keep precedence. Page revision 179 and Python fallback match."
+      ],
+      "validation": [
+        "29 font checks passed for both readable and embedded modules, including fresh Iron Man default, default button persistence, personal/legacy preference precedence, other themes unchanged and absent-SUIT fallback. Full script syntax and 36 Python font/default/bootstrap/assets/patch-note tests passed. Six-file limits and generated mirrors validated."
+      ],
+      "remaining": [
+        "No build, ZIP, deployment or user settings mutation."
+      ]
+    },
+    {
+      "id": "personal_ironman_cinematic_boss_category_selection",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_headless_chrome_verified_not_deployed",
+      "request": [
+        "Add personal cinematic boss category checkboxes under User settings for Iron Man only, discover configured chapters dynamically and use requested initial categories."
+      ],
+      "confirmed_facts": [
+        "boss_catalog already exposes current chapter groups, absolute/major flags, canonical IDs and legacy IDs. Existing automatic player had no personal category gate. Manual previews and automatic movies share one decoder."
+      ],
+      "resolution": [
+        "selectionPrefs in cinematic.js receives nickname/catalog/shared major predicate from refreshCustomUI. Append explicit Save/Undo section below custom boss savebar, visible only in Iron Man. OR matching across configured chapters and absolute/major/world/Valhalla/floor/lowest categories. Major matches chapter 7+ and configured major fixed/guild dungeon entries; lower-chapter absolute/lowest remain independently selectable.",
+        "Default includes absolute, configured chapters 4+, major, world, floor 10 and three lowest bosses. Saved all covers future chapters; saved empty disables automatic movies. Persist schema-1 {all,selected} in BossTimer.cinematic.bosses.v1:<nickname>. Draft never changes active policy before save; failures retain prior state. Clean storage events synchronize tabs; nickname changes reset scope.",
+        "Gate automatic planning/preparation, paused-preview takeover and overlap assignments. Saved exclusion releases current automatic decoder/still/audio. Retain manual preview behavior and full-row 150-second chain exclusions. Pending draft blocks automatic page reload. Stable catalog/nickname refresh does not rebuild controls or add fetch/timer work.",
+        "Companion CSS provides themed, accessible wrapping checkboxes. Keep six-file size contract and matching Python mirrors, revision 180. New API calls are optional for old runtime compatibility. CODEMAP/docs/patch notes updated."
+      ],
+      "validation": [
+        "42 production-module checks passed: requested defaults, dynamic chapters, aliases, major boundaries, explicit empty/all save, drafts/undo, failures, nickname/reload/cross-tab isolation, no repeated rebuild/write and excluded automatic planning. Existing JS order/panel/cache/custom-save/visible-update checks passed 51/12/10/19/17.",
+        "Headless Chrome checks passed 35 each at 390/320/280 with actual MP4 decoder: checkbox layout/defaults, dynamic chapter 9, personal saved filter, excluded no source, allowed automatic start, saved exclusion stopping source, manual preview, nickname and theme visibility.",
+        "Full headless cinematic suite passed: all 31 real video frames, cache migration/prefetch/reload, zero repeated idle/playing DOM mutations/movie requests, panel idle timeout, automatic/movie ordering, chain skip, still/compact/default restore. Native audible cross-channel/singleton/CSS-hidden/stalled-frame cleanup passed.",
+        "27 Python cinematic/asset/filter-rest/patch-note tests passed; final JSON/AST, six-file size/mirror validation and diff whitespace checks passed."
+      ],
+      "remaining": [
+        "No EXE, ZIP, deployment, production service change or user data/media changes. Operational host needs both changed companion cinematic.js/css and new page assets; six-file static update alone does not deliver companion resources. Physical mobile device not measured."
+      ]
+    },
+    {
+      "id": "user_observed_local_cinematic_test_window",
+      "recorded_on": "2026-10-20",
+      "status": "confirmed_test_fixture_closed_production_cause_not_reproduced",
+      "symptom": [
+        "User saw a separate window playing video at loopback port 50949 /preview?font=15 while testing was running."
+      ],
+      "confirmed_facts": [
+        "That exact loopback URL belongs to the isolated Chrome verification fixture launched during this task. The visible initial run failed an idle-timeout check; no production JS/CSP errors were recorded. Headless rerun passed that timeout and complete audio/movie tests.",
+        "Production player appends a single inline video to the hero with playsInline, hidden native controls and picture-in-picture disabled. No window.open, requestPictureInPicture or fullscreen launch calls found in the production playback/page paths.",
+        "Stopped the visible checker/browser and loopback fixture. Browser debugging endpoint no longer responded. Subsequent browser validation used --headless=new with the same isolated profile and no desktop playback window."
+      ],
+      "resolution": [
+        "Document headless-only browser verification in Avengers guide. Keep test fixture separate from production playback."
+      ],
+      "remaining": [
+        "Do not infer that the historical production audio-only issue had this same cause; that earlier report was not reproduced by this observation."
+      ]
+    },
+    {
+      "id": "major_ironman_portrait_120_percent_gold_edge_spacing",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_headless_chrome_verified_not_deployed",
+      "request": [
+        "Enlarge major-boss Iron Man mask 1.2x and keep distance from yellow vertical edge left of ON button."
+      ],
+      "resolution": [
+        "Only major portrait CSS: 32x28 to 38.4x33.6, left offset -43 to -52.4 to retain a 10px gap from outer alarm gold edge. Reserve margin 44 to 54px to keep title/time clear; contain and original orientation retained. Shared artwork, hero/cinematic logic and row sizing unchanged. Revision 181 with generated CSS/Python mirrors. Existing CODEMAP route already covers unchanged source and verification paths; no new route needed."
+      ],
+      "validation": [
+        "Headless Chrome 28 checks passed at each physical width 390/320/280: exact enlarged size, gold-edge gap, title separation, portrait orientation, ON preservation, cinematic visibility, theme cleanup and Iron Man viewport fit. Ten runtime artwork blobs decode under production CSP.",
+        "Six-file limits, matching page/style/script mirrors, JSON and Python AST passed."
+      ],
+      "remaining": [
+        "No build/ZIP/deployment or source-image/user-data changes."
+      ]
+    },
+    {
+      "id": "ironman_spawn_frame_outer_line_to_inner_glow",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_headless_chrome_verified_not_deployed",
+      "symptom": [
+        "Next-boss frame blinking showed a sharp line outside the decorative frame."
+      ],
+      "confirmed_cause": [
+        "Companion spawn CSS animated a rectangular 2px outline and outward 10px shadow on the hero, independent of the angular metal frame."
+      ],
+      "resolution": [
+        "Disable hero outline/whole-card blink animation. Reuse cinematic stage ::after for clipped, inset-only amber glow above movie/canvas. Animate only opacity, retaining countdown and five-second spawn trigger. Existing reduced-motion cadence and offscreen/background pauses cover overlay; clearing spawn class removes effect. No extra DOM node, timer, request or runtime JS change. Revision 182.",
+        "Existing CODEMAP route covers unchanged cinematic CSS and browser check paths; no new navigation route needed."
+      ],
+      "validation": [
+        "Headless Chrome 32 checks passed each at 390/320/280: zero hero outline, no outer shadow animation, clipped inset glow, dim/bright opacity phases, offscreen pause and class removal. Existing mask sizing/gold gap/name colors/cinematic visibility/theme cleanup and ten artwork decodes remain passing.",
+        "Six-file size/compatibility and exact page/style/script Python mirrors, JSON/AST and whitespace checks passed. Full cinematic checker assertions updated to the new inner-layer effect; full media suite not rerun for this CSS-only change."
+      ],
+      "remaining": [
+        "No build, ZIP, deployment or production service/user data changes. Companion CSS must reach operational host."
+      ]
+    },
+    {
+      "id": "six_cinematic_audio_additional_8db",
+      "recorded_on": "2026-10-20",
+      "status": "media_applied_and_verified_not_deployed",
+      "request": [
+        "Raise current volume another 8 for six named clips; explicitly communicated interpretation as additional 8dB."
+      ],
+      "resolution": [
+        "Back up all six exact current MP4s in sibling backup folder before any change; preserve first adjustment originals. Generate and validate all six pending files before replacing source files.",
+        "Copy video stream; audio volume +8dB with -1dB sample-peak limiter, no automatic level boost and latency compensation, AAC 128k. Five previously boosted clips receive additional gain; reunion2 receives its first recorded gain. Infinity Stone and remaining media unchanged.",
+        "Store historical +6dB report with link to new adjustment report; remeasure all 31 current files and update duration/hash documents. Content-addressed cinematic catalog changes automatically; no runtime/cache-version change needed. Existing CODEMAP routes already cover media/measurement path."
+      ],
+      "validation": [
+        "Average measured increase 7.9-8.0dB for all six; decoded peaks range -6.7 to -0.9dB. Audio analysis decodes succeed without clipping to 0dB.",
+        "Compressed video stream SHA256 unchanged for each output; video duration, fps, dimensions identical. Audio presentation-duration difference <60ms; current timing records refreshed. All six backups match exact pre-change file hashes; all other 25 MP4 file hashes unchanged.",
+        "All 31 current MP4s parsed/measured, cinematic catalog and Python media tests checked."
+      ],
+      "remaining": [
+        "No EXE/ZIP/build, production web apply, browser playback test or unrelated media changes. Existing page needs new catalog after refresh/theme re-entry when updated media are installed on web host."
+      ]
+    },
+    {
+      "id": "empty_custom_tab_restore_settings_button_landing",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_headless_chrome_verified_not_deployed",
+      "symptom": [
+        "User tab with no boss selections entered the editor immediately instead of its existing settings-button screen."
+      ],
+      "confirmed_cause": [
+        "refreshCustomUI forced customEditing=true whenever active and customDraft.size===0. It also disabled custom-close for zero valid selections. Existing custom-actions landing host and click handlers were still present."
+      ],
+      "resolution": [
+        "Remove forced editing from zero selection and enable back regardless of count. Existing readCustomSelection defaults editing false, and only settings-button click opens it. Preserve personal selection data, explicit-save-only behavior, empty-schedule filtering and compact settings-button placement when selections exist. Revision 183 and generated script fallback match; replace obsolete first-use documentation.",
+        "Existing CODEMAP route already includes entry functions and first-use/manual-save/native empty-rest checks; no new route or dependency needed."
+      ],
+      "validation": [
+        "14 first-use checks passed: zero first visit, explicit open/back, unchanged tick, zero saved selection, reload, tab return and existing selected-user path. Existing manual-save/visible-update/theme-tab checks passed 19/17/15; full script syntax passed.",
+        "Headless Chrome 23 checks passed using real page/catalog: empty landing/settings-button visibility, no boss/rest placeholders, repeated tick, empty open/back/tab return plus existing filtered-rest/fixed-toggle rules and no runtime/viewport errors.",
+        "19 Python custom layout/asset/filter-rest tests passed. Six-file compatibility/size and exact Python page/style/script mirrors, JSON/AST and whitespace checks passed."
+      ],
+      "remaining": [
+        "No build/ZIP/deployment or user settings/schedule mutation."
+      ]
+    },
+    {
+      "id": "theme_family_order_and_cinematic_options_relocation",
+      "recorded_on": "2026-10-20",
+      "status": "source_and_headless_chrome_verified_not_deployed",
+      "request": [
+        "Swap background and limited special edition theme groups; move personal cinematic controls out of User editor into Theme tab and display only when Iron Man is selected, including already selected startup."
+      ],
+      "resolution": [
+        "HTML theme-family order is color/background/limited. Add cinematic-settings-host after theme-controls inside the theme card body, outside theme-controls button sizing styles. Player builds the same personal controls at this host; storage keys, values, defaults and explicit save remain unchanged.",
+        "Move preferences catalog hook from per-tick refreshCustomUI into acceptCatalog. Pass owner/catalog/major predicate to player enable during theme initialization/selection, so theme page displays correct scope/catalog without User editor visit. Existing API enable calls without extra arguments remain compatible.",
+        "Generated HTML/script Python mirrors and fallback revision 184 match. Update current navigation route with actual acceptCatalog entry, docs and patch notes."
+      ],
+      "validation": [
+        "42 existing selection/filter/persistence checks passed, plus first-use/manual-save/theme-tab checks 14/19/15. Full player/main script syntax passed.",
+        "Headless Chrome 36 checks each passed at 390/320/280: existing selected Iron Man opens options directly in Theme, exact family order and new host placement, dynamic chapters/defaults, wrapping/no overflow, explicit save, automatic selected/excluded real decoder behavior, manual preview, nickname and theme visibility.",
+        "20 Python layout/bootstrap/asset tests passed. Six-file compatibility/size and exact page/style/script mirrors, JSON/AST and whitespace checks passed."
+      ],
+      "remaining": [
+        "No build/ZIP/deployment, user data changes or production service apply. Operational host needs changed companion player and updated page assets."
       ]
     }
   ]

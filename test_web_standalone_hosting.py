@@ -29,6 +29,7 @@ class StandaloneTests(unittest.TestCase):
             publication_allowed=Mock(return_value=True), set_authority=Mock(),
             offer_snapshot=Mock(), emergency_stop=Mock(), _flush_authority=Mock())
         app = NS(current_season_no=18, _github_get_json_file=self.repo.get)
+        manager.publication_ddns_status = Mock(side_effect=lambda: dict(manager.ddns.status(), configured=True))
         coordinator = NS(client=SOURCE, runtime=SOURCE_SESSION, alive=True, scope=SCOPE,
             lock=threading.RLock(), record=AuthorityRecord(self.repo.get, self.repo.put, SCOPE),
             _assert_profile=Mock(), _status=Mock(return_value=dict(online=True)),
@@ -74,6 +75,17 @@ class StandaloneTests(unittest.TestCase):
         self.assertEqual(standalone_info(self.repo.data)['state'], 'active')
         coordinator.web_control.request.assert_not_called()
         manual.bridge._sync.assert_not_called()
+
+    def test_worker_start_failure_keeps_actual_reason_and_does_not_stop_peer(self):
+        manual, manager, coordinator, _ = self.node()
+        manager.status.return_value = dict(state='error', enabled=True,
+            message='웹서버 시작 응답이 없습니다. 다시 시도해주세요.')
+        manager.https_status = lambda: dict(https_state='stopped')
+        self.run_start(manual)
+        self.assertEqual(manual.stage, 'error')
+        self.assertIn('웹서버 시작 응답이 없습니다', manual.message)
+        self.assertNotIn('HTTPS 준비에 실패', manual.message)
+        coordinator.web_control.request.assert_not_called()
 
     def test_prepared_local_worker_is_reused_during_force_start(self):
         manual, manager, _, _ = self.node(owner=SOURCE)

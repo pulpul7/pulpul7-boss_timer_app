@@ -1,0 +1,533 @@
+{
+  "schema": 1,
+  "measured_on": "2026-10-20",
+  "files": [
+    {
+      "file": "보스웨이크업.mp4",
+      "bytes": 1200204,
+      "sha256": "34222e2ad946997af158a962eee5421a97beff2b4a0024bcec3e3a702041e3ca",
+      "video_seconds": 20.916666666666668,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 20.968,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 20.990839002267574,
+          "playback_seconds": 20.967
+        }
+      ]
+    },
+    {
+      "file": "스파이더맨1.mp4",
+      "bytes": 424713,
+      "sha256": "b0da656fe8cb88311f0ad44e8029a6cc98847c4f38d3c451a2adbeec4827bc5a",
+      "video_seconds": 12.5,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 12.538004535147392,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 12.561224489795919,
+          "playback_seconds": 12.538004535147392
+        }
+      ]
+    },
+    {
+      "file": "스파이더맨3명.mp4",
+      "bytes": 394500,
+      "sha256": "cf406892dbc09ceecafcb03823477668bae9656c2b401f53927008c322ba24ec",
+      "video_seconds": 8.916666666666666,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 8.939002267573697,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 8.962222222222222,
+          "playback_seconds": 8.939002267573697
+        }
+      ]
+    },
+    {
+      "file": "아이언맨1.mp4",
+      "bytes": 879656,
+      "sha256": "24f00c7c6e4032a1a1de7be6362e0ef6136c62f88f17464778e2ebae14720c48",
+      "video_seconds": 15.0,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 15.047,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 15.069750566893424,
+          "playback_seconds": 15.046
+        }
+      ]
+    },
+    {
+      "file": "아이언맨2투게더.mp4",
+      "bytes": 919160,
+      "sha256": "be4a4b34c98423127f0811941c9a9c21df98a2cdfcb80505807d408640533e05",
+      "video_seconds": 26.083333333333332,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 26.084,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 26.09922902494331,
+          "playback_seconds": 26.076
+        }
+      ]
+    },
+    {
+      "file": "아이언맨등장.mp4",
+      "bytes": 739811,
+      "sha256": "5645c5e2955ca71f0964ad46dd44d53c90dfb7fa16eaa8fdd55b4626aa38b1f6",
+      "video_seconds": 18.833333333333332,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 18.833333333333332,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 18.85421768707483,
+          "playback_seconds": 18.830997732426304
+        }
+      ]
+    },
+    {
+      "file": "아이언맨백업.mp4",
+      "bytes": 984185,
+      "sha256": "74818d1736eab0ab2685096d217d499ef63dff4e34773758115ac83d3d0c2ba1",
+      "video_seconds": 20.666666666666668,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 20.713,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 20.735419501133787,
+          "playback_seconds": 20.712
+        }
+      ]
+    },
+    {
+      "file": "아이언맨변신1_12fps.mp4",
+      "bytes": 1889522,
+      "sha256": "01977a543e53cef985c88aa364186f5496685ab2774907bf0d9d646558a8a379",
+      "video_seconds": 31.333333333333332,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 31.371,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 31.393378684807256,
+          "playback_seconds": 31.37
+        }
+      ]
+    },
+    {
+      "file": "아이언맨변신3_12fps.mp4",
+      "bytes": 1048359,
+      "sha256": "ca99d1400fe3850a187cfed51e5528fc453e5afde8c3551ea3177414f10f3214",
+      "video_seconds": 23.166666666666668,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 23.167,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 23.173514739229024,
+          "playback_seconds": 23.15
+        }
+      ]
+    },
+    {
+      "file": "아이언맨변신_12fps.mp4",
+      "bytes": 1492142,
+      "sha256": "d2ea4efba4b3e257bc13e845971bdf305cda8a21eba2952a0e70b4b2e5d8e093",
+      "video_seconds": 27.0,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 27.029,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 27.051247165532878,
+          "playback_seconds": 27.028
+        }
+      ]
+    },
+    {
+      "file": "아이언맨스파이더맨재회1_12fps.mp4",
+      "bytes": 3870681,
+      "sha256": "95d7d81220032af8393218ae01289baaadf8a9f11972785c7a36ddb1bd583f5a",
+      "video_seconds": 49.0,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 49.0,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 48.99410430839002,
+          "playback_seconds": 48.971
+        }
+      ]
+    },
+    {
+      "file": "아이언맨스파이더맨재회2_12fps.mp4",
+      "bytes": 2842531,
+      "sha256": "2d32e0fcc9de4dbbe894ed398857b64824d6b7665d118c93d81783327a386db3",
+      "video_seconds": 45.666666666666664,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 45.666666666666664,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 45.67321995464852,
+          "playback_seconds": 45.65
+        }
+      ]
+    },
+    {
+      "file": "아이엠아이언맨_12fps.mp4",
+      "bytes": 3305422,
+      "sha256": "c580bccfe1da0f590727d9c9053a4c3c43be7cce5e1e417e6e0155f826c73761",
+      "video_seconds": 66.66666666666667,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 66.667,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 66.6877097505669,
+          "playback_seconds": 66.664
+        }
+      ]
+    },
+    {
+      "file": "어밴저스4_12fps.mp4",
+      "bytes": 1313571,
+      "sha256": "0750191bc4c82886ae5f75cb14a734c9c64435ed960af9523bbcc71ece006e07",
+      "video_seconds": 45.666666666666664,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 45.697,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 45.72009070294784,
+          "playback_seconds": 45.697
+        }
+      ]
+    },
+    {
+      "file": "어밴저스vs.mp4",
+      "bytes": 1434314,
+      "sha256": "267a2fab3275bf10bc96c4300df9e396c4207d2d00e2d31128662c01149557a3",
+      "video_seconds": 29.0,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 29.0,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 29.023219954648525,
+          "playback_seconds": 29.0
+        }
+      ]
+    },
+    {
+      "file": "어밴저스엔드.mp4",
+      "bytes": 1565479,
+      "sha256": "5ed75cf52cbe17ac848fc5260c8964aef7206b0049df9cfd0b884653832caace",
+      "video_seconds": 22.833333333333332,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 22.834,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 22.801995464852606,
+          "playback_seconds": 22.778
+        }
+      ]
+    },
+    {
+      "file": "어밴저스엔드3_12fps.mp4",
+      "bytes": 2915821,
+      "sha256": "92fe8e323ad6aaaa806c97797b5a54d8339b27edafefbbdbef0a8839aeb767e5",
+      "video_seconds": 45.333333333333336,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 45.349,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 45.37179138321996,
+          "playback_seconds": 45.348
+        }
+      ]
+    },
+    {
+      "file": "어밴저스첫결성_12fps.mp4",
+      "bytes": 2919452,
+      "sha256": "1e0a700969bb19ee38fd42c08b21986b82f15e474b99e5606c4ad041ce30d182",
+      "video_seconds": 47.333333333333336,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 47.369,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 47.391927437641726,
+          "playback_seconds": 47.368
+        }
+      ]
+    },
+    {
+      "file": "여전사출연2_12fps.mp4",
+      "bytes": 1771640,
+      "sha256": "9b612f49688395fb927a242088e91bc2beb2182e1cdfdf4e9f50dfbfaff6d4cf",
+      "video_seconds": 30.5,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 30.5,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 30.48780045351474,
+          "playback_seconds": 30.464
+        }
+      ]
+    },
+    {
+      "file": "여전사출연3_12fps.mp4",
+      "bytes": 1391410,
+      "sha256": "613b48777924a39004999e6c8eff3e3dce36d80e9f6150f6932872843b3f05fc",
+      "video_seconds": 21.0,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 21.0,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 21.0140589569161,
+          "playback_seconds": 20.991
+        }
+      ]
+    },
+    {
+      "file": "여전사출연4_12fps.mp4",
+      "bytes": 1950048,
+      "sha256": "ba47d0e840da16d0082f8f1c3e86ecd9d1ebe7dc25cd82efe3f413bc9792d642",
+      "video_seconds": 24.666666666666668,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 24.667,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 24.636371882086166,
+          "playback_seconds": 24.613
+        }
+      ]
+    },
+    {
+      "file": "여전사출연5_12fps.mp4",
+      "bytes": 3137751,
+      "sha256": "8ae9e481aee3a76e97160e88cdc5e22c1d30917b10d1dd81909f665a2d1b0766",
+      "video_seconds": 43.75,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 43.75,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 43.769614512471655,
+          "playback_seconds": 43.746
+        }
+      ]
+    },
+    {
+      "file": "여전사출연6_12fps.mp4",
+      "bytes": 2304969,
+      "sha256": "b14d3660e92a2d142b4797aa4a6dfca67e976447620bb9f7a9430bd8968dca68",
+      "video_seconds": 36.0,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 36.038,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 36.060589569160996,
+          "playback_seconds": 36.037
+        }
+      ]
+    },
+    {
+      "file": "여전사출현1_12fps.mp4",
+      "bytes": 1857311,
+      "sha256": "9fd9cfe5ba166e1ace679fd6ecff822baf22c3e8fce3f42acf161e96ff86d4ad",
+      "video_seconds": 35.25,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 35.295,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 35.31755102040816,
+          "playback_seconds": 35.294
+        }
+      ]
+    },
+    {
+      "file": "인피니티스톤.mp4",
+      "bytes": 1096826,
+      "sha256": "5ab1d00149e95f6732c7df9b4b57150794d11e4404d84ca2e2f778d8db954739",
+      "video_seconds": 25.583333333333332,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 25.583333333333332,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 25.56517006802721,
+          "playback_seconds": 25.541950113378686
+        }
+      ]
+    },
+    {
+      "file": "캡틴등장_12fps.mp4",
+      "bytes": 1098700,
+      "sha256": "0bf5917f5aec7200ef748ae77e8fc385233527b27620f0c99025d7ef8bb3d184",
+      "video_seconds": 30.583333333333332,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 30.584,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 30.603900226757368,
+          "playback_seconds": 30.58
+        }
+      ]
+    },
+    {
+      "file": "캡틴토르망치_12fps.mp4",
+      "bytes": 1460686,
+      "sha256": "5f937119830df06525a7f87192d9d46afb0dec653a50b7512c04da6129ba1f94",
+      "video_seconds": 35.166666666666664,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 35.202,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 35.22467120181406,
+          "playback_seconds": 35.201
+        }
+      ]
+    },
+    {
+      "file": "캡틴토르아이언맨.mp4",
+      "bytes": 317055,
+      "sha256": "f85f7de3154e9e035e8adcfb8c822d81427cfed51b8edb9609d86a52ad1f9087",
+      "video_seconds": 6.333333333333333,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 6.334,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 6.339047619047619,
+          "playback_seconds": 6.316
+        }
+      ]
+    },
+    {
+      "file": "토르1.mp4",
+      "bytes": 2220414,
+      "sha256": "ab81602a6b762ef1e17d6663374ba4b2890b00c437ac8f79573a4118ac25f302",
+      "video_seconds": 28.666666666666668,
+      "fps": 12.0,
+      "width": 960,
+      "height": 236,
+      "movie_seconds": 28.667,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 28.65342403628118,
+          "playback_seconds": 28.63
+        }
+      ]
+    },
+    {
+      "file": "토르2.mp4",
+      "bytes": 560567,
+      "sha256": "e99c5571a81823724f91695245cd8e994033861c45d7df8ef915d0f963d2cdbd",
+      "video_seconds": 10.166666666666666,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 10.216009070294785,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 10.239229024943311,
+          "playback_seconds": 10.216009070294785
+        }
+      ]
+    },
+    {
+      "file": "토르로키.mp4",
+      "bytes": 1125740,
+      "sha256": "d7f8c95a0704a32ac609b627013a2af3bb886b4737bcbc9fdc2ddca1a730e2d3",
+      "video_seconds": 23.666666666666668,
+      "fps": 12.0,
+      "width": 960,
+      "height": 226,
+      "movie_seconds": 23.708,
+      "audio": [
+        {
+          "kind": "soun",
+          "encoded_seconds": 23.73079365079365,
+          "playback_seconds": 23.707
+        }
+      ]
+    }
+  ]
+}

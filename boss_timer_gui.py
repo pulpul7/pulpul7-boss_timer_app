@@ -75,6 +75,7 @@ from boss_view_labels import strip_last_hit_marker
 from web_service_manager import WebServiceManager
 from web_service_ui import WebServiceWindow
 from web_schedule_snapshot import collect_snapshot as collect_web_schedule_snapshot
+from web_snapshot_memo import WebSnapshotMemo
 from schedule_query_period import evening_extension_days
 from https_transport import urlopen_verified
 from github_request_policy import GITHUB_REQUEST_GATE, is_rate_limit_response
@@ -3466,6 +3467,7 @@ class BossTimerApp:
         self.web_service_window = None
         self.web_schedule_after_id = None
         self.web_schedule_snapshot_failed = False
+        self.web_snapshot_memo = WebSnapshotMemo()
         try:
             self.web_service_manager = WebServiceManager(get_user_config_dir())
             from web_independent_controller import IndependentWebController
@@ -3490,8 +3492,11 @@ class BossTimerApp:
                     manager.offer_snapshot(payload, origin="delegated")
             elif manager.status()["enabled"] or (relay is not None and relay.needs_local_snapshot()):
                 started = time.monotonic()
-                payload = collect_web_schedule_snapshot(self, boss_orders=RECORD_BOOK_BOSS_ORDER,
-                                                        slot_grid=SCHEDULE_OCR_SLOT_GRID)
+                memo = getattr(self, 'web_snapshot_memo', None)
+                if memo is None:
+                    memo = self.web_snapshot_memo = WebSnapshotMemo()
+                payload = memo.capture(self, collect_web_schedule_snapshot,
+                                       boss_orders=RECORD_BOOK_BOSS_ORDER, slot_grid=SCHEDULE_OCR_SLOT_GRID)
                 if relay is not None:
                     relay.offer_local(payload)
                 manager.offer_snapshot(payload)
@@ -3500,7 +3505,8 @@ class BossTimerApp:
                 self.web_schedule_snapshot_failed = False
                 duration = time.monotonic() - started
                 if duration > 0.2:
-                    manager._log("schedule_snapshot_collection_slow", duration_ms=round(duration * 1000))
+                    manager._log("schedule_snapshot_collection_slow", duration_ms=round(duration * 1000),
+                                 reused=memo.reused)
         except Exception as exc:
             if not self.web_schedule_snapshot_failed:
                 manager._log("schedule_snapshot_collection_failed", error_type=type(exc).__name__)
@@ -3574,6 +3580,8 @@ class BossTimerApp:
                 elif manual_state.get('stage') == 'error':
                     text = '웹 종료 실패' if manual_state.get('operation') == 'stop' else '웹 승계 실패'
                     bg, hover, status_fg = '#b91c1c', '#991b1b', '#b91c1c'
+                elif manual_state.get('stage') == 'confirming':
+                    text, bg, hover, status_fg = '웹 주소 확인 중', '#b45309', '#92400e', '#b45309'
                 elif manual_state.get('stage') == 'stopped':
                     text, status_fg = '웹 대기', '#64748b'
                 elif relay_state.get("role") == "source":
@@ -42904,11 +42912,16 @@ class BossTimerApp:
             return True
         accepted = self._show_centered_messagebox(
             'askyesno', '스케쥴 덮어쓰기 확인', '\n'.join(reasons) + '\n\n현재 스케쥴을 백업하고 다운로드한 자료로 교체할까요?',
-            parent=self.root, default='no')
+            parent=self.schedule_window if self._widget_available(getattr(self, 'schedule_window', None)) else self.root,
+            default='no')
         self._append_debug_log(f"schedule_sync_replace_confirm accepted={int(accepted)} reasons={reasons}")
         return bool(accepted)
 
     def _sync_selected_github_schedule(self) -> None:
+        previous_task = getattr(self, '_schedule_sync_task', None)
+        if previous_task is not None and not previous_task.done:
+            self.schedule_status_var.set('이미 동기화가 진행 중입니다.')
+            return
         if getattr(self, "discord_handover_busy", False):
             return
         sync_remaining_seconds = self._get_schedule_github_sync_cooldown_remaining_seconds()
@@ -42945,7 +42958,8 @@ class BossTimerApp:
         preflight_ms = (time.perf_counter() - sync_started_at) * 1000.0
         self._set_schedule_github_controls_state(False)
         self.schedule_status_var.set(f"{server_name} 스케쥴/보스설정을 GitHub에서 확인 중입니다.")
-        progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(server_name)
+        progress_dialog, progress_status_var, progressbar = self._show_schedule_github_sync_progress_dialog(
+            server_name, footer_text='다운로드 대기는 창 닫기로 취소할 수 있습니다.')
 
         def set_progress_status(message: str) -> None:
             if progress_status_var is None:
@@ -42958,15 +42972,43 @@ class BossTimerApp:
                 pass
 
         def post_progress_status(message: str) -> None:
-            try:
-                self.root.after(0, lambda message=message: set_progress_status(message))
-            except tk.TclError:
-                pass
+            task.post_progress(message)
 
         def close_progress_dialog() -> None:
-            self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar)
+            task.complete()
+
+        def release_sync_controls() -> None:
+            if getattr(self, '_schedule_sync_task', None) is task:
+                self._schedule_sync_task = None
+                self._set_schedule_github_controls_state(True)
+
+        def sync_failure(kind, phase, exc) -> None:
+            error_type = type(exc).__name__ if exc is not None else ''
+            frames = traceback.extract_tb(exc.__traceback__)[-6:] if exc is not None else []
+            locations = ','.join(f'{os.path.basename(frame.filename)}:{frame.lineno}:{frame.name}' for frame in frames)
+            self._append_debug_log(f'schedule_sync_failed stage={phase} kind={kind} error_type={error_type} locations={locations}')
+            if kind == 'cancelled':
+                message = '동기화를 취소했습니다. 다운로드한 자료는 적용하지 않았습니다.'
+            elif kind == 'timeout':
+                message = '동기화 다운로드 대기 시간이 초과되었습니다. 다운로드한 자료는 적용하지 않았습니다. 다시 시도해주세요.'
+            else:
+                stage_name = {'download': '다운로드', 'prepare': '적용 준비', 'apply': '자료 적용'}.get(phase, '처리')
+                message = f'동기화 {stage_name} 중 오류가 발생했습니다. ({error_type}) 진단 로그를 확인해주세요.'
+            self.schedule_status_var.set(message)
+
+        from schedule_sync_task import ScheduleSyncTask
+        from schedule_sync_validation import download_problem, schedule_content_problem
+        task = self._schedule_sync_task = ScheduleSyncTask(self.root,
+            progress=set_progress_status, failure=sync_failure,
+            close=lambda: self._hide_schedule_github_sync_progress_dialog(progress_dialog, progressbar),
+            release=release_sync_controls)
+        if progress_dialog is not None:
+            progress_dialog.protocol('WM_DELETE_WINDOW', task.cancel)
+            progress_dialog.bind('<Escape>', lambda _event: task.cancel())
 
         def worker() -> None:
+            if task.done:
+                return
             schedule_raw_payload = None
             schedule_payload = None
             schedule_error = ""
@@ -42998,6 +43040,8 @@ class BossTimerApp:
             post_progress_status("서버 목록 버전을 확인하는 중입니다.")
             request_started_at = time.perf_counter()
             index_payload, _index_sha, index_error = self._github_get_json_file("data/server_index.json")
+            if task.done:
+                return
             index_ms = (time.perf_counter() - request_started_at) * 1000.0
             if index_error:
                 schedule_error = f"GitHub 서버 목록 확인 실패: {index_error}"
@@ -43026,10 +43070,18 @@ class BossTimerApp:
                 post_progress_status("스케쥴 JSON을 다운로드하는 중입니다.")
                 request_started_at = time.perf_counter()
                 schedule_raw_payload, _schedule_sha, schedule_error = self._github_get_json_file(active_schedule_path)
+                if task.done:
+                    return
                 schedule_download_ms = (time.perf_counter() - request_started_at) * 1000.0
                 post_progress_status("스케쥴 JSON을 해석하는 중입니다.")
                 schedule_payload = None if schedule_error else self._unwrap_github_schedule_payload(schedule_raw_payload)
                 if isinstance(schedule_raw_payload, dict):
+                    if not schedule_error:
+                        schedule_error = download_problem(schedule_raw_payload, label='스케쥴',
+                            index_version=schedule_version, local_version=local_schedule_version,
+                            index_hash=str(active_entry.get('scheduleHash') or '').strip(),
+                            content_hash=self._get_github_schedule_content_hash,
+                            compare_versions=self._compare_github_data_versions)
                     schedule_version = str(schedule_raw_payload.get("dataVersion") or schedule_version).strip()
 
             boss_config_available = bool(active_boss_config_path and boss_config_version)
@@ -43038,16 +43090,23 @@ class BossTimerApp:
                 post_progress_status("보스설정 JSON을 다운로드하는 중입니다.")
                 request_started_at = time.perf_counter()
                 boss_raw_payload, _boss_sha, boss_error = self._github_get_json_file(active_boss_config_path)
+                if task.done:
+                    return
                 boss_download_ms = (time.perf_counter() - request_started_at) * 1000.0
                 post_progress_status("보스설정 JSON을 해석하는 중입니다.")
                 boss_payload = None if boss_error else self._unwrap_github_boss_config_payload(boss_raw_payload)
                 if isinstance(boss_raw_payload, dict):
+                    if not boss_error:
+                        boss_error = download_problem(boss_raw_payload, label='보스설정',
+                            index_version=boss_config_version, local_version=local_boss_config_version,
+                            index_hash=str(active_entry.get('bossConfigHash') or '').strip(),
+                            content_hash=self._get_github_boss_config_content_hash,
+                            compare_versions=self._compare_github_data_versions)
                     boss_config_version = str(boss_raw_payload.get("dataVersion") or boss_config_version).strip()
                 boss_config_available = bool(active_boss_config_path and (boss_config_version or isinstance(boss_payload, dict)))
                 boss_same_version = bool(not boss_config_dirty and boss_config_version and boss_config_version == local_boss_config_version)
 
             def finish() -> None:
-                self._set_schedule_github_controls_state(True)
                 if isinstance(fresh_index_entries, list):
                     self.schedule_github_server_entries = self._merge_local_github_server_entries(fresh_index_entries)
                     self._cache_github_server_entries_from_index(fresh_index_entries)
@@ -43098,12 +43157,30 @@ class BossTimerApp:
                             self._append_debug_log(f'schedule_sync_cancelled reason=profile_changed from={sync_profile_path}')
                             return
                         if not schedule_same_version and isinstance(schedule_payload, dict):
-                            if not self._confirm_schedule_sync_replace(
+                            content_problem = schedule_content_problem(schedule_payload,
+                                self._create_schedule_restore_snapshot(), datetime.now())
+                            if content_problem:
+                                self.schedule_status_var.set(content_problem)
+                                self._append_debug_log('schedule_sync_blocked reason=empty_or_past_only')
+                                return
+                            set_progress_status('스케쥴 교체 확인을 기다리고 있습니다.')
+                            # A permanently topmost progress window can cover a
+                            # confirmation after its temporary topmost expires.
+                            # Release/withdraw it before opening the real modal.
+                            if progress_dialog is not None and progress_dialog.winfo_exists():
+                                progress_dialog.grab_release()
+                                progress_dialog.withdraw()
+                            confirmed = self._confirm_schedule_sync_replace(
                                 schedule_payload, local_version=local_schedule_version,
                                 remote_version=schedule_version,
-                                local_dirty=schedule_dirty or sync_original_signature != self._get_schedule_restore_snapshot_signature(self._create_schedule_restore_snapshot())):
+                                local_dirty=schedule_dirty or sync_original_signature != self._get_schedule_restore_snapshot_signature(self._create_schedule_restore_snapshot()))
+                            if not confirmed:
                                 self.schedule_status_var.set('스케쥴 교체를 취소했습니다. 현재 자료를 유지합니다.')
                                 return
+                            if progress_dialog is not None and progress_dialog.winfo_exists():
+                                progress_dialog.deiconify()
+                                progress_dialog.lift()
+                                progress_dialog.grab_set()
                         applied_parts: list[str] = []
                         skipped_parts: list[str] = []
                         restore_marker_saved = False
@@ -43177,24 +43254,19 @@ class BossTimerApp:
                         else:
                             self._start_schedule_github_sync_cooldown()
                             self.schedule_status_var.set(f"{active_server_name}: 같은 버전입니다. 업데이트하지 않았습니다.")
+                    except Exception as exc:
+                        task._fail('exception', exc)
                     finally:
                         close_progress_dialog()
 
                 try:
-                    self.root.after(20, apply_updates)
+                    self.root.after(20, lambda: task.apply(apply_updates))
                 except tk.TclError:
                     close_progress_dialog()
 
-            try:
-                self.root.after(0, finish)
-            except tk.TclError:
-                try:
-                    self.root.after(0, close_progress_dialog)
-                except tk.TclError:
-                    pass
-                pass
+            task.post_result(finish)
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=lambda: task.run(worker), name='schedule-sync-download', daemon=True).start()
 
     def _load_schedule_from_shared_archive(self) -> None:
         parent = self.schedule_window if self._widget_available(self.schedule_window) else self.root

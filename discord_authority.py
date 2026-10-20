@@ -525,6 +525,7 @@ class DiscordAuthority:
         metadata["web_recovery_protocol"] = 1
         metadata["web_standalone_protocol"] = 1
         metadata["web_update_protocol"] = 1
+        metadata["web_refresh_protocol"] = 1
         metadata["program_update_protocol"] = 1
         return metadata
 
@@ -1443,7 +1444,7 @@ class DiscordAuthority:
         if active():
             done(False, '전체 업데이트 중입니다. 완료 후 다시 요청해주세요.')
             return
-        if payload.get("operation") in {"administrator_web_retry", "administrator_web_stop", "administrator_web_force", "administrator_web_update", "administrator_program_update"}:
+        if payload.get("operation") in {"administrator_web_retry", "administrator_web_stop", "administrator_web_force", "administrator_web_update", "administrator_web_refresh", "administrator_program_update"}:
             self.web_control.request(payload, done)
             return
         if payload.get("operation") in {"readonly_query_route", "readonly_query_wait", "administrator_query_route", "administrator_query_wait"}:

@@ -12,17 +12,16 @@ SCRIPT = r"""(()=>{'use strict';
     const eligible=true;
     const value=localStorage.getItem('BossTimer.webTheme.v1:'+name);
     const solids=['sky','wood','green','blue','magenta','ivory','canary','forsythia','purple','gray'];
-    const theme=eligible && ['sakura','spring','winter','rain',...solids].includes(value) &&
-      (value!=='spring' || ['나츠','수비수','설기','백설기'].includes(name))?value:'default';
+    const theme=eligible && ['sakura','spring','winter','rain','avengers',...solids].includes(value)?value:'default';
     if(eligible) root.setAttribute('data-theme-user','enabled');
     if(theme!=='default') {
-      root.setAttribute('data-theme',theme);root.setAttribute('data-theme-pink','true');
+      root.setAttribute('data-theme',theme);if(theme!=='avengers') root.setAttribute('data-theme-pink','true');
       if(theme==='spring') root.setAttribute('data-theme-photo','true');
-      if(['spring','winter','rain'].includes(theme)) root.setAttribute('data-theme-image','true');
+      if(['spring','winter','rain','avengers'].includes(theme)) root.setAttribute('data-theme-image','true');
       if(solids.includes(theme)) root.setAttribute('data-theme-solid','true');
     }
     const meta=document.querySelector('meta[name="theme-color"]');
-    const colors={sky:'#f2faff',wood:'#faf5ed',green:'#f4faf1',blue:'#f1f5ff',magenta:'#fff1fb',ivory:'#fffdf3',canary:'#fffaf0',forsythia:'#fffef2',purple:'#f7f2ff',gray:'#f5f6f7'};
+    const colors={avengers:'#110b09',sky:'#f2faff',wood:'#faf5ed',green:'#f4faf1',blue:'#f1f5ff',magenta:'#fff1fb',ivory:'#fffdf3',canary:'#fffaf0',forsythia:'#fffef2',purple:'#f7f2ff',gray:'#f5f6f7'};
     if(meta) meta.setAttribute('content',colors[theme] || (theme==='rain'?'#edf3ed':theme==='winter'?'#fff7e8':theme==='spring'?'#fff0f6':theme==='sakura'?'#fff4f9':'#151b24'));
   } catch(_) { /* Storage blocked: retain the normal default, never block entry. */ }
 })();""".encode('utf-8')

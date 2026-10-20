@@ -34,6 +34,10 @@ def alive(value):
             raise OSError('프로세스 종료 확인에 실패했습니다.')
         current = _identity(kernel, handle)
         if current is None:
+            # The process can exit between the first wait and the image query.
+            # Only a signal from this same retained handle proves that exit.
+            if kernel.WaitForSingleObject(handle, 0) == 0:
+                return False
             raise OSError('프로세스 실행 경로를 다시 확인하지 못했습니다.')
         return _path(current[0]) == _path(value['path']) and current[1] == value['created']
     finally:
@@ -42,14 +46,23 @@ def alive(value):
 
 def wait_exited(value, timeout, *, cancelled=None):
     deadline = time.monotonic() + timeout
-    while alive(value):
+    while True:
         if cancelled is not None and cancelled():
             raise ValueError('이전 업데이트 시도가 취소되었습니다.')
+        try:
+            if not alive(value):
+                if cancelled is not None and cancelled():
+                    raise ValueError('이전 업데이트 시도가 취소되었습니다.')
+                return
+            inspection_error = None
+        except OSError as exc:
+            # Shutdown may temporarily make the image unreadable before the
+            # exit handle is signalled. Retry within the existing deadline;
+            # access denied or unreadable identity never counts as success.
+            inspection_error = exc
         if time.monotonic() >= deadline:
-            raise ValueError('이전 프로그램의 종료를 확인하지 못했습니다. 업데이트를 중단했습니다.')
+            raise ValueError('이전 프로그램의 종료를 확인하지 못했습니다. 업데이트를 중단했습니다.') from inspection_error
         time.sleep(.1)
-    if cancelled is not None and cancelled():
-        raise ValueError('이전 업데이트 시도가 취소되었습니다.')
 
 
 def capture_bots(expected_path, roots):

@@ -1,4 +1,4 @@
-/* Public settings access; nickname artwork and limited theme stay separate. */
+/* Public settings and blossom access; nickname artwork stays separate. */
 const checks=[];
 function check(ok,text){if(!ok)throw Error(text);checks.push(text);}
 function fixture(name){
@@ -19,7 +19,13 @@ function fixture(name){
 }
 const ordinary=fixture('일반사용자');
 check(ordinary.api.eligible(),'every user can open settings without nickname taps');
-check(ordinary.api.theme('sky')&&!ordinary.api.theme('spring'),'ordinary themes are public but limited blossom stays restricted');
+check(ordinary.api.theme('sky')&&ordinary.api.theme('spring'),'ordinary users can select blossom alongside other themes');
+for(const name of ['guest','게스트','', '격수','공격수']) {
+  const user=fixture(name);
+  check(user.api.eligible()&&user.api.theme('spring'),'blossom is available without nickname eligibility for '+name);
+  check(user.api.theme('avengers'),'Avengers is available to '+name);
+  check(!user.api.theme('unknown-theme'),'unknown themes remain invalid for '+name);
+}
 for(let i=0;i<16;i++)ordinary.api.tap();
 check(ordinary.values.size===1&&!ordinary.element('viewer-nickname').hidden,'ordinary nickname taps neither unlock nor hide menus or names');
 for(const name of ['수비수','설기','백설기']){

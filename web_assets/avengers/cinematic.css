@@ -1,0 +1,52 @@
+/* Runtime companion of cinematic.js; independent of the page snapshot. */
+.cinematic-boss-settings{min-width:0;margin-top:18px;padding-top:14px;border-top:1px solid #b8823f;color:#fff0b0}
+.cinematic-boss-settings[hidden]{display:none!important}
+.cinematic-boss-settings h3{margin:0 0 6px;font-size:1em}
+.cinematic-boss-settings p{margin:6px 0;line-height:1.6;font-size:.85em;color:#e8d3a5;overflow-wrap:anywhere}
+.cinematic-boss-options{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.cinematic-boss-options label{display:flex;align-items:center;gap:7px;min-height:40px;padding:6px 10px;border:1px solid #926538;background:#140f0c;color:#f5e1b3;line-height:1.5;cursor:pointer}
+.cinematic-boss-options label:has(input:checked){background:linear-gradient(135deg,#6d1b0f,#35130d);border-color:#e7b566}
+.cinematic-boss-options input[type="checkbox"]{appearance:auto;position:static;flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:0;padding:0;accent-color:#e7b566}
+.cinematic-boss-options label:focus-within{outline:2px solid #85e7ff;outline-offset:2px}
+.cinematic-boss-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.cinematic-boss-actions button{white-space:normal;min-height:42px;max-width:100%}
+.ironman-cinematic{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;pointer-events:none;z-index:0;background:#090403}
+html[data-theme="avengers"] .hero .ironman-cinematic:not([hidden]){display:block}
+html[data-theme="avengers"] .hero .ironman-cinematic[hidden]{display:none!important}
+.ironman-cinematic-stage{position:absolute;inset:0;min-width:0;pointer-events:none;z-index:0}
+#cinematic-play{display:none!important}
+html[data-theme="avengers"] .hero[data-cinematic] .hero-name{background:none}
+html[data-theme="avengers"] .schedule-app .hero[data-cinematic] .hero-countdown{justify-content:flex-start;text-align:left;padding-inline:1ch 0!important;background:none}
+html[data-theme="avengers"] .schedule-app .hero[data-cinematic="playing"] .hero-countdown{visibility:hidden!important;pointer-events:none}
+html[data-theme="avengers"] .schedule-app .hero:is([data-cinematic="paused"],[data-cinematic="still"]) .hero-countdown{visibility:visible!important}
+html[data-theme="avengers"] .schedule-app .hero:is(:not([data-cinematic-size="expanded"]),[data-cinematic="paused"]){min-height:0!important;row-gap:4px}
+html[data-theme="avengers"] .schedule-app .hero:is(:not([data-cinematic-size="expanded"]),[data-cinematic="paused"]) .hero-countdown{min-height:54px;font-size:clamp(27px,7vw,45px)}
+.ironman-cinematic-arrival{display:none;position:absolute;left:8px;bottom:5px;z-index:3;font:600 11px/1.4 system-ui,sans-serif;color:#fff2ae;text-shadow:0 1px 2px #000,0 0 3px #000;pointer-events:none}
+html[data-theme="avengers"] .hero[data-cinematic="playing"] .ironman-cinematic-arrival:not([hidden]){display:block;animation:ironman-arrival-blink 1.2s ease-in-out infinite}
+html[data-theme="avengers"] .hero.spawn-blink .hero-countdown{animation:ironman-arrival-blink .8s ease-in-out infinite}
+html[data-theme="avengers"] .schedule-app .hero.spawn-blink{outline:0;animation:none!important}
+html[data-theme="avengers"] .hero.spawn-blink .ironman-cinematic-stage::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;clip-path:polygon(8px 0,calc(100% - 8px) 0,100% 8px,100% calc(100% - 8px),calc(100% - 8px) 100%,8px 100%,0 calc(100% - 8px),0 8px);box-shadow:inset 0 0 12px 3px #ffba49;animation:ironman-boss-frame .8s ease-in-out infinite}
+@keyframes ironman-arrival-blink{0%,100%{opacity:1}50%{opacity:.24}}
+@keyframes ironman-boss-frame{0%,100%{opacity:0}50%{opacity:.95}}
+@media(prefers-reduced-motion:reduce){html[data-theme="avengers"] .ironman-cinematic-arrival{animation-duration:1.6s}html[data-theme="avengers"] .hero.spawn-blink .ironman-cinematic-stage::after,html[data-theme="avengers"] .hero.spawn-blink .hero-countdown{animation-duration:1.4s!important}}
+/* Hidden countdowns and offscreen/background alerts must not keep animating. */
+html[data-theme="avengers"] .schedule-app .hero[data-cinematic="playing"] .hero-countdown,html[data-theme="avengers"] .schedule-app .hero[data-cinematic-visible="false"],html[data-theme="avengers"] .schedule-app .hero[data-cinematic-visible="false"] :is(.hero-countdown,.ironman-cinematic-arrival),html[data-theme="avengers"][data-avengers-awake="false"] .schedule-app :is(.spawn-blink,.hero-countdown,.ironman-cinematic-arrival){animation-play-state:paused!important}
+html[data-theme="avengers"] .hero[data-cinematic-visible="false"] .ironman-cinematic-stage::after,html[data-theme="avengers"][data-avengers-awake="false"] .hero .ironman-cinematic-stage::after{animation-play-state:paused!important}
+.ironman-transport{display:none}
+#ironman-media-dock[hidden],#ironman-media-dock [hidden]{display:none!important}
+html[data-theme="avengers"] #ironman-media-dock::before,html[data-theme="avengers"] #ironman-media-dock::after{display:none!important}
+html[data-theme="avengers"] #ironman-media-dock:not([hidden]){
+ position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:center;margin:-10px 0 5px;padding:22px 0 0;border:0!important;border-image:none!important;border-radius:0;background:transparent!important;box-shadow:none!important;
+}
+html[data-theme="avengers"] .hero:has(+#ironman-media-dock:not([hidden])){margin-bottom:0}
+html[data-theme="avengers"] .schedule-app #ironman-media-dock button[id]{display:flex;align-items:center;justify-content:center;width:34px;height:30px;min-width:0;min-height:30px;flex:none;padding:0!important;border:0!important;border-image:none!important;border-radius:0;background:transparent!important;box-shadow:none!important;color:#f9dfa0!important;cursor:pointer;appearance:none}
+html[data-theme="avengers"] .schedule-app #ironman-media-dock #cinematic-expand{position:absolute;left:50%;top:-1px;transform:translateX(-50%);z-index:3;width:72px;height:30px}
+html[data-theme="avengers"] #ironman-media-dock #cinematic-expand svg{display:block;width:72px;height:26px;pointer-events:none}
+html[data-theme="avengers"] #ironman-media-dock #cinematic-expand[aria-expanded="true"] svg>path:nth-of-type(3){transform:rotate(180deg);transform-origin:36px 13px}
+html[data-theme="avengers"] #ironman-media-dock .ironman-transport-drawer{position:relative;margin-top:1px;width:min(190px,calc(100% - 24px));padding:1px 12px;border:6px solid transparent;border-image:var(--avengers-frame) 12 fill / 6px / 0 stretch;background:linear-gradient(180deg,#321209,#0c1316 40%,#1c0c07);background-clip:padding-box;box-shadow:0 2px 4px #0008}
+html[data-theme="avengers"] #ironman-media-dock .ironman-transport-drawer::after{content:'';position:absolute;left:20%;right:20%;bottom:-2px;height:1px;background:linear-gradient(90deg,transparent,#e6b46a,#61daed,#e6b46a,transparent);pointer-events:none}
+html[data-theme="avengers"] #ironman-media-dock .ironman-transport-buttons{display:flex;align-items:center;justify-content:space-around;gap:8px}
+html[data-theme="avengers"] #ironman-media-dock .ironman-transport-buttons button svg{width:21px;height:21px;flex:none;fill:currentColor;stroke:#a37a43;stroke-width:.7;stroke-linejoin:round;pointer-events:none}
+html[data-theme="avengers"] .schedule-app #ironman-media-dock .ironman-transport-buttons button:hover{color:#d3fbff!important}
+html[data-theme="avengers"] .schedule-app #ironman-media-dock .ironman-transport-buttons button:active{color:#ff8d55!important}
+html[data-theme="avengers"] #ironman-media-dock .ironman-transport-status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;margin:0;padding:0}

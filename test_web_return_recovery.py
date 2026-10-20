@@ -34,6 +34,7 @@ class ReturnTests(unittest.TestCase):
         manager.ddns = NS(active=True, status=Mock(return_value=dict(busy=False, state='ready',
             last_updated=datetime.fromtimestamp(time.time()+1, timezone.utc).isoformat())))
         manager.ddns_status = Mock(return_value=dict(configured=False))
+        manager.publication_ddns_status = Mock(side_effect=lambda: dict(manager.ddns.status(), configured=True))
         manager.https_status = Mock(return_value=dict(https_state='running', domain='example.duckdns.org', port=8766))
         manager.prepare_local_https = Mock()
         bridge = relay.bridge

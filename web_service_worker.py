@@ -10,6 +10,7 @@ import ctypes
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -24,6 +25,7 @@ from web_access_runtime import AccessRuntime, records_visit
 from web_https_server import HTTPSListener
 from web_live_assets import LiveWebAssets
 from web_reload_wait import SCRIPT_SOURCE as RELOAD_SCRIPT_SOURCE, render_reload_wait
+from web_page_refresh import browser_refresh_state, stamp_refresh_page
 
 
 
@@ -116,18 +118,19 @@ class LocalHandler(BaseHTTPRequestHandler):
     def _send(self, code, content, content_type, cookies=(), extra=()):
         from web_asset_store import git_hash
         path = urlsplit(self.path).path
-        etag = '"' + git_hash(content) + '"' if (path in {"/schedule.js", "/login.js", "/style.css", "/nickname-defender.png"} or path.startswith(('/fonts/', '/sounds/', '/themes/'))) and code == 200 else ""
-        if etag and etag in {value.strip() for value in self.headers.get("If-None-Match", "").split(",")}:
+        etag = dict(extra).get('ETag') or ('"' + git_hash(content) + '"' if (path in {"/schedule.js", "/login.js", "/style.css", "/nickname-defender.png"} or path.startswith(('/fonts/', '/sounds/', '/themes/'))) and code == 200 else "")
+        if code == 200 and etag and etag in {value.strip() for value in self.headers.get("If-None-Match", "").split(",")}:
             code, content = 304, b""
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         if code != 304:
             self.send_header("Content-Length", str(len(content)))
-        self.send_header("Cache-Control", "private, no-cache" if etag else "no-store")
+        self.send_header("Cache-Control", dict(extra).get('Cache-Control', "private, no-cache" if etag else "no-store"))
         if etag:
             self.send_header("ETag", etag)
         for name, value in extra:
-            self.send_header(name, value)
+            if name.lower() not in {'etag', 'cache-control'}:
+                self.send_header(name, value)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         from web_theme_bootstrap import SCRIPT_SOURCE
@@ -174,7 +177,8 @@ class LocalHandler(BaseHTTPRequestHandler):
             return
         cookies = context["cookies"]
         source = getattr(self.server, 'asset_source', None)
-        assets = source.snapshot.files if source is not None else self.server.assets
+        snapshot = source.snapshot if source is not None else None
+        assets = snapshot.files if snapshot is not None else self.server.assets
         path = urlsplit(self.path).path
         from web_request_limits import READ_PATHS
         if path in READ_PATHS and (getattr(self, '_record_visit', True) or path in {'/', '/api/boss-spectrum'}):
@@ -184,13 +188,15 @@ class LocalHandler(BaseHTTPRequestHandler):
                 content = (render_reload_wait(wait) if path == "/"
                     else json.dumps(dict(message=message), ensure_ascii=False).encode("utf-8"))
                 self._send(429, content, "text/html; charset=utf-8" if path == "/" else
-                           "application/json; charset=utf-8", cookies, (("Retry-After", str(wait)),))
+                           "application/json; charset=utf-8", cookies, (("Retry-After", str(math.ceil(wait))),))
                 return
         if path == "/":
             from web_font_library import font_developer_allowed
             from web_theme_bootstrap import render_theme_page
             page = render_theme_page(assets["index.html" if context["authenticated"] else "login.html"],
                                      font_developer_allowed(self.server.access, context, self.client_address[0]))
+            if source is not None:
+                page = stamp_refresh_page(page, browser_refresh_state(self.server.access, snapshot))
             self._send(200, page, "text/html; charset=utf-8", cookies)
         elif path == "/schedule.js":
             self._send(200, assets["schedule.js"], "text/javascript; charset=utf-8", cookies)
@@ -207,6 +213,17 @@ class LocalHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 diagnostic(self.server.logger, 'web_boss_spectrum_load_failed', error_type=type(exc).__name__)
                 self._json(503, dict(message='보스 색상을 불러오지 못했습니다. 기존 색상을 사용합니다.'), cookies)
+        elif path.startswith('/cinematic/'):
+            if not self._authorized(context):
+                return
+            try:
+                from web_cinematic import cinematic_response
+                code, body, mime, extra = cinematic_response(path,
+                    self.headers.get('Range', ''), self.headers.get('If-None-Match', ''), self.headers.get('If-Range', ''))
+                self._send(code, body, mime, cookies, extra)
+            except Exception as exc:
+                diagnostic(self.server.logger, 'web_cinematic_failed', error_type=type(exc).__name__)
+                self._json(503, dict(message='영상을 불러오지 못했습니다. 스케줄은 계속 사용할 수 있습니다.'), cookies)
         elif path.startswith('/themes/'):
             if not self._authorized(context):
                 return
@@ -265,6 +282,8 @@ class LocalHandler(BaseHTTPRequestHandler):
                            updated_at=schedule["schedule_updated_at"],
                            started_at=self.server.started_at, phase=PHASE, protocol_version=PROTOCOL,
                            **schedule)
+            if source is not None:
+                payload.update(browser_refresh_state(self.server.access, snapshot))
             self._json(200, payload, cookies)
         elif path == "/api/schedule":
             if not self._authorized(context):
@@ -402,6 +421,7 @@ def main(argv=None):
         server.assets = assets.snapshot.files
         server.asset_source = assets
         state.update(assets.status())
+        state.update(access.page_refresh.status())
         https = HTTPSListener(root, schedule, access, logger, args.port, args.run_id, push=push, asset_source=assets)
         if args.persistent:
             from web_persistent_runtime import WorkerRuntime
@@ -421,6 +441,8 @@ def main(argv=None):
             if time.monotonic() >= next_asset_read:
                 if assets.poll():
                     next_heartbeat = 0  # Acknowledge real swaps immediately, not at the periodic heartbeat.
+                if access.page_refresh.poll():
+                    next_heartbeat = 0
                 next_asset_read = time.monotonic() + .1
             if time.monotonic() >= next_schedule_read:
                 if runtime:
@@ -441,6 +463,7 @@ def main(argv=None):
                 state.update(access.summary())
                 state.update(https.status())
                 state.update(assets.status())
+                state.update(access.page_refresh.status())
                 if runtime:
                     state.update(runtime.status())
                 state["request_count"] += state.get("https_request_count", 0)

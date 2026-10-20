@@ -27,7 +27,7 @@ def version_key(value):
 
 def filename(version):
     version_key(version)
-    return 'bosstimer_update_' + str(version).removeprefix('v') + '.zip'
+    return 'bosstimer_update_v' + str(version).lstrip('vV') + '.zip'
 
 
 def digest_file(path):

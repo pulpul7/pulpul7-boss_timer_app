@@ -22,6 +22,7 @@ from web_certificate_service import CertificateService
 from web_direct_hosting import DirectHostingService
 from web_page_updater import WebPageUpdater
 from web_asset_store import read_version
+from web_worker_identity import SpawnedWorkerIdentity
 from web_persistent_runtime import (RemotePublicService, AttachedProcess, discover,
                                     runtime_version, independent_worker_spawn)
 
@@ -44,6 +45,7 @@ class WebServiceManager:
         self.wake, self.closed = threading.Event(), threading.Event()
         self.thread = None
         self.process = None
+        self.worker_identity = None
         self.logger = None
         self.recent = deque(maxlen=160)
         self.settings = dict(enabled=True, port=DEFAULT_PORT, external_port=None)
@@ -80,6 +82,7 @@ class WebServiceManager:
         self.process_port = None
         self.restart_requested = False
         self.page_update_job = None
+        self.page_refresh_lock = threading.Lock()
         self.access = AccessSettings(self.root)
         self.access_view = dict(self.access.public_view(), visitors=[], failures=[], live=False)
         self.desktop_pins = {}
@@ -332,6 +335,15 @@ class WebServiceManager:
                 return state['ddns_status']
         return self.ddns.status()
 
+    def publication_ddns_status(self):
+        """Runtime proof only; GUI settings cannot substitute for a worker ACK."""
+        if self.process is not None:
+            state = self._read_worker_state() or {}
+            if isinstance(state.get('ddns_status'), dict):
+                return dict(state['ddns_status'])
+            return dict(configured=False, state='waiting', busy=False, last_updated=None)
+        return self.ddns.status()
+
     def background_busy(self):
         if self.process is None:
             return False
@@ -558,6 +570,43 @@ class WebServiceManager:
         if job["error"]:
             raise ValueError(job["error"])
         return job.get('mode', 'restart')
+
+    def request_browser_refresh(self):
+        """Signal the existing worker; never restart or change publication state."""
+        from program_update_guard import web_change
+        with web_change(self):
+            return self._request_browser_refresh()
+
+    def _request_browser_refresh(self):
+        from web_page_refresh import refresh_request_path
+        if not self.page_refresh_lock.acquire(blocking=False):
+            raise ValueError('화면 갱신 요청을 처리 중입니다.')
+        path = None
+        try:
+            generation, run_id = self.generation, self.run_id
+            worker = self._read_worker_state() or {}
+            if worker.get('web_refresh_protocol') != 1 or not self.desired:
+                raise ValueError('실행 중인 웹이 화면 갱신 명령을 지원하지 않습니다. 새 프로그램의 웹을 시작해주세요.')
+            job_id = uuid.uuid4().hex
+            path = refresh_request_path(self.root, run_id)
+            write_json(path, dict(schema=1, run_id=run_id, id=job_id, until=time.time()+10))
+            deadline = time.monotonic()+5
+            pause = threading.Event()
+            while not self.closed.is_set() and time.monotonic() < deadline:
+                if generation != self.generation or run_id != self.run_id or not self.desired:
+                    raise ValueError('웹 실행 상태가 바뀌어 갱신 확인을 취소했습니다.')
+                worker = self._read_worker_state() or {}
+                if worker.get('web_refresh_job') == job_id:
+                    self._log('web_browser_refresh_confirmed', request=job_id)
+                    return '화면 갱신 신호 전달 완료 · 열린 페이지가 다음 상태 확인 때 순서대로 갱신됩니다. 웹서버와 로그인은 유지합니다.'
+                pause.wait(.05)
+            raise ValueError('화면 갱신 신호 응답을 확인하지 못했습니다. 웹서버는 재시작하지 않았습니다.')
+        finally:
+            try:
+                if path is not None:
+                    path.unlink(missing_ok=True)
+            finally:
+                self.page_refresh_lock.release()
 
     def _apply_live_page_assets(self, job, worker, before, pointer_path, generation):
         """Wait for this worker's swap receipt; keep listeners and authority alive."""
@@ -925,8 +974,20 @@ class WebServiceManager:
         try:
             data = read_json(status_path)
             if (data.get("run_id") == self.run_id and data.get("protocol") == PROTOCOL
-                    and data.get("pid") == self.process.pid and data.get("port") == self.status()["port"]):
-                return data
+                    and data.get("port") == self.status()["port"] and self.process is not None):
+                identity = self.worker_identity
+                if identity is None or identity.process is not self.process:
+                    identity = self.worker_identity = SpawnedWorkerIdentity(
+                        self.process, sys.executable, frozen=bool(getattr(sys, 'frozen', False)))
+                accepted = identity.matches(data.get('pid'))
+                receipt = (data.get('pid'), accepted)
+                if identity.reported != receipt:
+                    identity.reported = receipt
+                    self._log('worker_status_identity_verified' if accepted else 'worker_status_identity_rejected',
+                              run_id=self.run_id, launcher_pid=self.process.pid,
+                              worker_pid=data.get('pid') if type(data.get('pid')) is int else None)
+                if accepted:
+                    return data
         except (OSError, ValueError):
             pass
         return None

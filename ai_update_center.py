@@ -86,6 +86,10 @@ class AiUpdateCenter:
         try:
             while True:
                 done, result, error, silent = self.events.get_nowait()
+                preparation = getattr(self, '_full_preparation', None)
+                if preparation is not None:
+                    preparation._close_progress()
+                    self._full_preparation = None
                 self.busy = False
                 if error:
                     self._status(f"업데이트 처리 실패: {error} · 기존 파일은 유지됩니다.")
@@ -97,6 +101,10 @@ class AiUpdateCenter:
                     done(result)
         except queue.Empty:
             pass
+        preparation = getattr(self, '_full_preparation', None)
+        if preparation is not None:
+            preparation._refresh_download_progress()
+            self.full_summary.set(preparation.updater.message)
         if (self.window is not None and self.window.winfo_exists()
                 and getattr(self, "selected_scope", 0) == 1
                 and time.monotonic() >= getattr(self, "web_refresh_at", 0)):
@@ -293,15 +301,23 @@ class AiUpdateCenter:
         self._work('전체 배포 확인 중…', self.app._get_program_update_service().updater.check, done, domain='full')
 
     def _install_full(self):
+        if self.busy:
+            self._status('현재 작업이 끝난 뒤 다시 눌러 주세요.')
+            return
         if not self.app._show_centered_messagebox('askyesno', '전체 업데이트',
                 '검증 완료 후 프로그램과 Discord 봇을 다시 시작할까요?\n'
                 '실행 중인 웹서버와 사용자 설정은 유지합니다.', parent=self.window, default='no'):
             return
         service = self.app._get_program_update_service()
+        service.updater.report_progress('checking', 'GitHub 전체 업데이트 버전을 확인합니다…')
+        service._open_progress('업데이트 다운로드 준비 중…')
+        self._full_preparation = service
         def done(result):
             self._status(result['message'])
             service.schedule(result)
-        self._work('전체 업데이트 다운로드·검증 중…', service.prepare, done, domain='full')
+        if not self._work('전체 업데이트 다운로드·검증 중…', service.prepare, done, domain='full'):
+            service._close_progress()
+            self._full_preparation = None
 
     def _daily_full(self):
         import sys

@@ -5,6 +5,7 @@ from http import HTTPStatus
 import json
 import ipaddress
 import hashlib
+import math
 from urllib.parse import parse_qs
 
 from web_service_common import PHASE, PROTOCOL, diagnostic, timestamp
@@ -14,6 +15,7 @@ from web_access_runtime import records_visit
 from web_theme_bootstrap import SCRIPT_SOURCE, render_theme_page
 from web_live_assets import AssetSnapshot
 from web_reload_wait import SCRIPT_SOURCE as RELOAD_SCRIPT_SOURCE, render_reload_wait
+from web_page_refresh import browser_refresh_state, stamp_refresh_page
 
 
 class HTTPSApplication:
@@ -91,7 +93,7 @@ class HTTPSApplication:
                         message = "요청이 너무 많습니다. 잠시 뒤 다시 시도해주세요."
                         if path == "/":
                             return send(429, render_reload_wait(wait),
-                                "text/html; charset=utf-8", (("Retry-After", str(wait)),))
+                                "text/html; charset=utf-8", (("Retry-After", str(math.ceil(wait))),))
                         return send(429, dict(message=message), extra=(("Retry-After", str(wait)),))
                 snapshot = self.asset_snapshot
                 files, etags = snapshot.files, snapshot.etags
@@ -103,6 +105,7 @@ class HTTPSApplication:
                     if path == '/':
                         from web_font_library import font_developer_allowed
                         page, mime = assets[path]
+                        page = stamp_refresh_page(page, browser_refresh_state(self.access, snapshot))
                         return send(200, render_theme_page(page, font_developer_allowed(self.access, context, ip)), mime)
                     if path in etags:
                         etag = etags[path]
@@ -111,6 +114,17 @@ class HTTPSApplication:
                             return send(304, b"", extra=headers)
                         return send(200, *assets[path], extra=headers)
                     return send(200, *assets[path])
+                if path.startswith('/cinematic/'):
+                    if not context['authenticated']:
+                        return send(401, dict(message='다시 로그인해주세요.'))
+                    try:
+                        from web_cinematic import cinematic_response
+                        code, body, mime, extra = cinematic_response(path,
+                            environ.get('HTTP_RANGE', ''), environ.get('HTTP_IF_NONE_MATCH', ''), environ.get('HTTP_IF_RANGE', ''))
+                        return send(code, body, mime, extra)
+                    except Exception as exc:
+                        diagnostic(self.logger, 'web_cinematic_failed', error_type=type(exc).__name__)
+                        return send(503, dict(message='영상을 불러오지 못했습니다. 스케줄은 계속 사용할 수 있습니다.'))
                 if path.startswith('/themes/'):
                     if not context['authenticated']:
                         return send(401, dict(message='다시 로그인해주세요.'))
@@ -200,7 +214,8 @@ class HTTPSApplication:
                         schedule["push_registered"] = self.push.registered(context)
                     return send(200, dict(online=True, server_time=timestamp(), started_at=self.started_at,
                                          updated_at=schedule["schedule_updated_at"], phase=PHASE,
-                                         protocol_version=PROTOCOL, **schedule))
+                                         protocol_version=PROTOCOL, **schedule,
+                                         **browser_refresh_state(self.access, self.asset_snapshot)))
                 return send(404, dict(message="페이지를 찾지 못했습니다."))
             if method != "POST" or path not in {"/api/login", "/api/logout", "/api/push", "/api/fonts/default-size", "/api/boss-spectrum"}:
                 return send(405, dict(message="조회 전용 웹서비스입니다."))

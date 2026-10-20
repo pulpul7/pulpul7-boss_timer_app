@@ -6,6 +6,45 @@ import ai_update_center as module
 
 
 class UpdateTabTests(unittest.TestCase):
+    def test_manual_full_download_opens_progress_before_worker_and_closes_on_completion(self):
+        import queue
+        center = object.__new__(module.AiUpdateCenter)
+        service = Mock()
+        center.app = Mock()
+        center.app._get_program_update_service.return_value = service
+        center.busy = False
+        center.window = None
+        center.root = Mock()
+        center.events = queue.Queue()
+        center._status = Mock()
+        center._work = Mock(return_value=True)
+        center._install_full()
+        service._open_progress.assert_called_once()
+        self.assertIs(center._full_preparation, service)
+        done = center._work.call_args.args[2]
+        result = {'state': 'prepared', 'message': 'ready'}
+        center.events.put((done, result, None, False))
+        center._poll()
+        service._close_progress.assert_called_once()
+        service.schedule.assert_called_once_with(result)
+        self.assertIsNone(center._full_preparation)
+
+    def test_download_bar_uses_received_bytes_and_verification_switches_to_busy(self):
+        from program_update_service import ProgramUpdateService
+        service = object.__new__(ProgramUpdateService)
+        service.progress = Mock()
+        service.progress.winfo_exists.return_value = True
+        service.progress_message, service.progress_bar = Mock(), Mock()
+        service.progress_mode = 'indeterminate'
+        service.updater = Mock(progress=dict(stage='downloading', message='download', received=25, total=100))
+        service._refresh_download_progress()
+        service.progress_bar.configure.assert_any_call(value=25)
+        service.updater.progress = dict(stage='verifying', message='verify', received=0, total=0)
+        service._refresh_download_progress()
+        service.progress_message.set.assert_called_with('verify')
+        self.assertEqual(service.progress_mode, 'indeterminate')
+        service.progress_bar.start.assert_called_once_with(50)
+
     def setUp(self):
         self.center = object.__new__(module.AiUpdateCenter)
         self.center.update_tab_titles = ("배포 목록 / 패치 설명", "설치 / 실패 내역")

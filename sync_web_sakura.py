@@ -1,17 +1,17 @@
-"""Embed the readable blossom module compactly; does not build or run the app."""
+"""Embed readable web modules compactly; does not build or run the app."""
 from pathlib import Path
 import re
 import hashlib
 
 
-def compact_module(source):
+def compact_module(source, private=None, prefix='$'):
     """Whitespace/comment compaction for this semicolon-delimited, regex-free module.
 
     Strings and template literals stay byte-for-byte intact. Only explicitly
     listed module-local bindings are shortened, never DOM/API fields.
     Functional checks cover readable and embedded versions.
     """
-    private = ('active loaded requested canvas ctx last spawnAt geometryDirty '
+    private = (private or 'active loaded requested canvas ctx last spawnAt geometryDirty '
                'scanned targets byNode petals petalSequence '
                'scanDue attachments butterfly rests nodeSequence '
                'nodeIds wingURL warmFlowers makeTextures butterflyArt moveButterfly '
@@ -20,7 +20,7 @@ def compact_module(source):
                'schedule resize seed compact paintPerch index button context '
                'layoutKey warming warmed headMoment').split()
     alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    names = {name: '$' + alphabet[i] for i, name in enumerate(private)}
+    names = {name: prefix + alphabet[i] for i, name in enumerate(private)}
     # Tokenize identifiers together so replacement cannot touch string contents.
     tokens = re.findall(
         r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`'
@@ -49,7 +49,7 @@ def compact_embedded_indent(source):
     Readable module files stay intact. A multiline template/continued string
     makes the whole block ineligible, rather than risking its visible content.
     """
-    for name in ('FONT', 'NOTICE SOUND', 'BOSS SPECTRUM'):
+    for name in ('FONT', 'NOTICE SOUND', 'BOSS SPECTRUM', 'HIDDEN HELP', 'NOTICE'):
         begin, end = '// BEGIN WEB ' + name + ' MODULE', '// END WEB ' + name + ' MODULE'
         if begin not in source or end not in source:
             continue
@@ -66,9 +66,20 @@ def embed(root):
     module = (root / 'web_limited_sakura.js').read_text(encoding='utf-8')
     script = root / 'web_assets' / 'schedule.js'
     source = script.read_text(encoding='utf-8')
+    begin, end = '// BEGIN WEB FONT MODULE', '// END WEB FONT MODULE'
+    a, b = source.index(begin) + len(begin), source.index(end)
+    source = source[:a] + '\n' + (root / 'web_font_frontend.js').read_text(encoding='utf-8') + '\n' + source[b:]
     begin, end = '// BEGIN WEB LIMITED SAKURA MODULE', '// END WEB LIMITED SAKURA MODULE'
     a, b = source.index(begin) + len(begin), source.index(end)
     source = source[:a] + '\n' + compact_module(module) + '\n' + source[b:]
+    menu = (root / 'web_menu_idle.js').read_text(encoding='utf-8')
+    begin, end = '// BEGIN WEB MENU IDLE', '// END WEB MENU IDLE'
+    a, b = source.index(begin) + len(begin), source.index(end)
+    private = ('root timer last folded pressed y mouseBelow edge measured wheelAt topAt touch nowMillis noteActivity '
+               'stop show blocked fold check pointerActivity wheelInput touchInput '
+               'event box below fresh points point dy left next '
+               'atTop wasFolded dragged revealing startY wheelHold pin holdDown x position stamp inputOptions')
+    source = source[:a] + '\n' + compact_module(menu, private, prefix='') + '\n' + source[b:]
     source = compact_embedded_indent(source)
     if len(source.encode('utf-8')) > 1024 * 1024:
         raise ValueError('schedule.js exceeds the existing 1 MiB asset limit')

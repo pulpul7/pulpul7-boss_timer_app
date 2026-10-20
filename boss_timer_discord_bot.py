@@ -3330,11 +3330,14 @@ class DiscordScheduleBot:
                 ephemeral=True,
             )
 
-        @self.tree.command(name="웹서버", description="웹 실행 / 로그아웃 이름 / 단독 이름 / 업데이트 비밀번호")
-        @self.discord.app_commands.describe(관리자이름="관리자 이름·ID, 로그아웃 이름, 단독 이름, 또는 업데이트 비밀번호")
+        @self.tree.command(name="웹서버", description="웹 실행 / 로그아웃 이름 / 단독 이름 / 업데이트 비밀번호 / 갱신")
+        @self.discord.app_commands.describe(관리자이름="관리자 이름·ID, 로그아웃 이름, 단독 이름, 업데이트 비밀번호, 또는 갱신")
         async def webserver_once(interaction: Any, 관리자이름: str) -> None:
             target = 관리자이름.strip()
             parts = target.split()
+            if target == "갱신":
+                await self._administrator_command(interaction, "administrator_web_refresh")
+                return
             if parts and parts[0] == "업데이트":
                 if parts != ["업데이트", "0714"]:
                     if await self._defer_interaction_once(interaction):

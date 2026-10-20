@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "agent_navigation_index_not_exhaustive_dependency_graph",
-  "verified_on": "2026-10-18",
+  "verified_on": "2026-10-20",
   "usage": {
     "start": [
       "AGENTS.md",
@@ -191,20 +191,31 @@
         "수동 동기화",
         "GitHub",
         "버전 충돌",
-        "네트워크 요청"
+        "네트워크 요청",
+        "??? ?? ?",
+        "???? ??",
+        "??? ???"
       ],
       "read": [
         "github_request_policy.py",
-        "https_transport.py"
+        "https_transport.py",
+        "schedule_sync_task.py",
+        "schedule_sync_validation.py"
       ],
       "at": [
         "boss_timer_gui.py#BossTimerApp._github_get_json_file",
         "boss_timer_gui.py#BossTimerApp._github_put_json_file",
-        "boss_timer_gui.py#BossTimerApp._build_github_schedule_payload"
+        "boss_timer_gui.py#BossTimerApp._build_github_schedule_payload",
+        "boss_timer_gui.py#BossTimerApp._sync_selected_github_schedule",
+        "boss_timer_gui.py#BossTimerApp._confirm_schedule_sync_replace",
+        "schedule_sync_task.py#ScheduleSyncTask",
+        "schedule_sync_validation.py#download_problem",
+        "schedule_sync_validation.py#schedule_content_problem"
       ],
       "tests": [
         "test_github_schedule_safety.py",
-        "test_github_write_efficiency.py"
+        "test_github_write_efficiency.py",
+        "test_schedule_sync_task.py"
       ]
     },
     "discord_connect_authority": {
@@ -231,13 +242,16 @@
         "boss_timer_gui.py#BossTimerApp._ensure_discord_authority",
         "discord_authority.py#DiscordAuthority.start",
         "discord_authority.py#DiscordAuthority._incoming",
-        "discord_authority.py#DiscordAuthority._outgoing"
+        "discord_authority.py#DiscordAuthority._outgoing",
+        "discord_connection_policy.py#ConnectionPolicy.snapshot",
+        "discord_connection_policy.py#ConnectionPolicy.resume"
       ],
       "tests": [
         "test_discord_authority_events.py",
         "test_discord_join_completion.py",
         "test_discord_bot_process_recovery.py",
-        "test_discord_connection_progress.py"
+        "test_discord_connection_progress.py",
+        "test_discord_connection_control.py"
       ]
     },
     "discord_commands_output": {
@@ -276,7 +290,10 @@
         "웹 준비중",
         "공개중",
         "별도 PC",
-        "프로그램 종료 후 웹"
+        "프로그램 종료 후 웹",
+        "?? ? ????",
+        "120? ?? ??",
+        "DDNS ?? ??"
       ],
       "read": [
         "web_service_manager.py",
@@ -285,21 +302,49 @@
         "web_standalone_hosting.py",
         "web_persistent_runtime.py",
         "web_return_recovery.py",
-        "web_authority_gate.py"
+        "web_authority_gate.py",
+        "web_worker_identity.py",
+        "web_publication_confirmation.py"
       ],
       "at": [
         "boss_timer_gui.py#BossTimerApp._start_web_runtime",
         "web_service_manager.py#WebServiceManager.start_saved",
         "web_service_manager.py#WebServiceManager._discover_existing",
-        "web_service_manager.py#WebServiceManager.close"
+        "web_service_manager.py#WebServiceManager.close",
+        "web_service_manager.py#WebServiceManager._read_worker_state",
+        "web_worker_identity.py#SpawnedWorkerIdentity.matches",
+        "web_service_manager.py#WebServiceManager.publication_ddns_status",
+        "web_publication_confirmation.py#address_confirmed",
+        "web_standalone_hosting.py#StandaloneHosting.tick",
+        "web_standalone_hosting.py#StandaloneHosting._restore_previous_locked",
+        "web_standalone_hosting.py#StandaloneHosting._confirm_publication_locked",
+        "web_return_recovery.py#WebReturnRecovery.monitor",
+        "web_return_recovery.py#WebReturnRecovery._rollback"
       ],
       "tests": [
         "test_web_independent.py",
         "test_web_persistent_runtime.py",
         "test_web_standalone_hosting.py",
         "test_web_return_recovery.py",
-        "test_web_departed_host.py"
-      ]
+        "test_web_departed_host.py",
+        "test_web_worker_identity.py",
+        "test_web_publication_confirmation.py"
+      ],
+      "dependencies": {
+        "web_worker_identity.py": [
+          "discord_bot_process_recovery.py#_inspect",
+          "discord_bot_process_recovery.py#_snapshot",
+          "discord_bot_process_recovery.py#_path"
+        ],
+        "web_standalone_hosting.py": [
+          "web_publication_confirmation.py#address_confirmed",
+          "web_service_manager.py#WebServiceManager.publication_ddns_status"
+        ],
+        "web_return_recovery.py": [
+          "web_publication_confirmation.py#address_confirmed",
+          "web_service_manager.py#WebServiceManager.publication_ddns_status"
+        ]
+      }
     },
     "web_snapshot_remote_sync": {
       "match": [
@@ -312,6 +357,7 @@
       ],
       "read": [
         "web_schedule_snapshot.py",
+        "web_snapshot_memo.py",
         "web_schedule_cache.py",
         "web_delegated_hosting.py",
         "web_shared_state.py",
@@ -319,6 +365,11 @@
       ],
       "at": [
         "boss_timer_gui.py#BossTimerApp._publish_web_schedule_snapshot",
+        "web_schedule_snapshot.py#collect_snapshot",
+        "web_snapshot_memo.py#WebSnapshotMemo.capture",
+        "web_snapshot_memo.py#source_key",
+        "boss_timer_gui.py#BossTimerApp._collect_schedule_share_rows",
+        "boss_timer_gui.py#BossTimerApp._collect_schedule_share_base_rows",
         "web_service_manager.py#WebServiceManager.offer_snapshot",
         "web_delegated_hosting.py#DelegatedHosting._source_upload",
         "web_schedule_snapshot.py#_rest_rules"
@@ -326,6 +377,7 @@
       "tests": [
         "test_web_delegated_hosting.py",
         "test_web_boss_catalog.py",
+        "test_web_snapshot_memo.py",
         "test_web_fixed_aliases.js",
         "test_web_filtered_rest_rules.py"
       ]
@@ -360,24 +412,31 @@
         "web_certificate_service.py",
         "web_ddns_service.py",
         "web_reload_wait.py",
+        "web_page_refresh.py",
         "web_assets/schedule.js"
       ],
       "at": [
         "web_service_manager.py#WebServiceManager.diagnostics",
         "web_service_worker.py#main",
-        "web_reload_wait.py#render_reload_wait"
+        "web_reload_wait.py#render_reload_wait",
+        "web_request_limits.py#DocumentQueue.claim",
+        "web_page_refresh.py#PageRefresh.poll",
+        "web_service_manager.py#WebServiceManager.request_browser_refresh"
       ],
       "tests": [
         "test_web_access_handover.py",
         "test_web_session_recovery.js",
         "test_web_request_limits.py",
         "test_web_visitor_tracking.py",
-        "test_web_reload_wait.js"
+        "test_web_reload_wait.js",
+        "test_web_page_refresh.py",
+        "test_web_page_refresh.js"
       ],
       "js_symbols": [
         "request",
         "poll",
-        "accept"
+        "accept",
+        "WebPageRefresh.observe"
       ]
     },
     "web_ui_themes_copy": {
@@ -393,7 +452,47 @@
         "다크모드",
         "설정 펼치기",
         "테마 탭",
-        "개나리"
+        "개나리",
+        "Avengers",
+        "Stark HUD",
+        "아이언맨",
+        "카페24 동동",
+        "버튼 중앙 정렬",
+        "설명 롤오버",
+        "아크 회전",
+        "아이언맨 최적화",
+        "시네마틱 캐시",
+        "시네마틱 음성 겹침",
+        "재생 패널 순서",
+        "시네마틱",
+        "브라우저 영상 저장",
+        "재생/일시정지",
+        "이전 보스 개수",
+        "텍스트 선택",
+        "MP4",
+        "마지막 프레임",
+        "menu idle auto hide",
+        "scroll return to top",
+        "manual custom boss selection save",
+        "mouse below next boss",
+        "wheel inertia stop at next boss",
+        "mobile light tap versus drag",
+        "first downward wheel swipe stop at next boss",
+        "empty custom schedule orphan rest",
+        "hidden menu clock animation work",
+        "selection signature cache",
+        "cinematic cache reset",
+        "cinematic audio duration measurement",
+        "Iron Man major fixed name ink",
+        "major boss portrait",
+        "folded menu spacing",
+        "cinematic compact then restore initial artwork",
+        "per-theme font and size",
+        "default theme save apply all",
+        "portrait contain crop",
+        "cinematic selected boss categories",
+        "personal cinematic checkbox",
+        "automatic cinematic chapter filter"
       ],
       "read": [
         "web_assets/schedule.js",
@@ -405,10 +504,31 @@
         "web_font_frontend.js",
         "web_font_library.py",
         "schedule_order.py",
-        "web_schedule_snapshot.py"
+        "web_schedule_snapshot.py",
+        "web_avengers_theme.css",
+        "sync_web_avengers.py",
+        "web_assets/avengers/README.md",
+        "web_assets/avengers/sources.json",
+        "web_https_app.py",
+        "web_service_worker.py",
+        "web_assets/avengers/frame.svg",
+        "web_assets/avengers/gold-frame.svg",
+        "web_assets/avengers/reactor.svg",
+        "web_assets/avengers/emblem.svg",
+        "web_assets/avengers/outer-frame.svg",
+        "web_assets/avengers/card-frame.svg",
+        "web_assets/avengers/selected-frame.svg",
+        "web_assets/avengers/cinematic.js",
+        "web_cinematic.py",
+        "web_assets/avengers/cinematic.css",
+        "inspect_cinematic_media.py",
+        "web_menu_idle.js",
+        "sync_web_sakura.py",
+        "보스이미지/아이언맨1.jpg"
       ],
       "tests": [
         "test_web_schedule_views.js",
+        "test_web_copy_image_theme.js",
         "test_web_custom_first_use.js",
         "test_web_distribution_defaults.js",
         "test_web_fonts.py",
@@ -419,18 +539,94 @@
         "test_web_visible_updates.js",
         "test_web_theme_tab.js",
         "test_web_settings_idle.js",
-        "test_web_custom_layout.py"
+        "test_web_custom_layout.py",
+        "test_web_avengers_theme.js",
+        "check_web_avengers_browser.py",
+        "check_web_avengers_browser.ps1",
+        "check_web_cinematic.js",
+        "test_web_cinematic_order.js",
+        "test_web_cinematic.py",
+        "test_web_menu_idle.js",
+        "check_web_menu_idle.js",
+        "test_web_custom_manual_save.js",
+        "check_web_empty_custom_rest.js",
+        "check_web_hidden_motion.js",
+        "test_web_cinematic_cache.js",
+        "test_web_avengers_boss_ranks.js",
+        "check_web_avengers_boss_ranks.js",
+        "check_web_idle_gap.js",
+        "test_web_cinematic_panel_restore.js",
+        "test_web_font_themes.js",
+        "check_web_font_themes.js",
+        "test_web_font_defaults.py",
+        "test_web_cinematic_preferences.js",
+        "check_web_cinematic_preferences.js"
       ],
       "js_symbols": [
         "recalculatedRests",
+        "recentBosses",
+        "sharingEvents",
+        "copyImagePalette",
+        "copyImageRow",
+        "drawImage",
+        "openImage",
         "filteredViewEvents",
         "viewRows",
         "visibleRows",
         "refreshHiddenMenuFold",
+        "refreshCustomUI",
         "selectFilter",
         "restoreTabOrder",
         "updateConnection",
-        "fitHeader"
+        "fitHeader",
+        "applyTheme",
+        "prepareAvengersScene",
+        "syncAvengersMotion",
+        "WebIronmanCinematic",
+        "WebHiddenHelp",
+        "web_assets/avengers/cinematic.js#localMedia",
+        "web_assets/avengers/cinematic.js#pauseDecoder",
+        "web_assets/avengers/cinematic.js#paintTransport",
+        "web_assets/avengers/cinematic.js#togglePause",
+        "web_assets/avengers/cinematic.js#automaticPlan",
+        "web_assets/avengers/cinematic.js#choose",
+        "web_assets/avengers/cinematic.js#advanceAutomatic",
+        "web_assets/avengers/cinematic.js#compactAfterEnd",
+        "web_assets/avengers/cinematic.js#clearStill",
+        "web_assets/avengers/cinematic.js#canPresent",
+        "web_assets/avengers/cinematic.js#currentPlayback",
+        "web_assets/avengers/cinematic.js#videoVisible",
+        "web_assets/avengers/cinematic.js#panelIndex",
+        "web_assets/avengers/cinematic.js#verifyPresentedFrame",
+        "web_assets/avengers/cinematic.js#setTransportOpen",
+        "WebMenuIdle",
+        "changeCustomSelection",
+        "saveCustomSelection",
+        "readCustomSelection",
+        "selectionSignature",
+        "web_assets/avengers/cinematic.js#localMedia.storage",
+        "bossRank",
+        "bossName",
+        "applyBackground",
+        "tick",
+        "web_assets/avengers/cinematic.js#restorePanel",
+        "web_assets/avengers/cinematic.js#settlePanel",
+        "web_font_frontend.js#themeChoices",
+        "web_font_frontend.js#chooseSaved",
+        "web_font_frontend.js#restoreChoice",
+        "web_font_frontend.js#saveChoice",
+        "web_font_frontend.js#refreshScope",
+        "web_font_frontend.js#defaultFont",
+        "web_assets/avengers/cinematic.js#selectionPrefs",
+        "web_assets/avengers/cinematic.js#selectionChanged",
+        "WebIronmanCinematic.preferences",
+        "WebIronmanCinematic.selectionDirty",
+        "acceptCatalog"
+      ],
+      "at": [
+        "web_cinematic.py#clips",
+        "web_cinematic.py#video_metadata",
+        "inspect_cinematic_media.py#measure"
       ]
     },
     "web_animation_performance": {
@@ -444,7 +640,8 @@
         "물방울",
         "발열",
         "스크롤 끊김",
-        "애니메이션"
+        "애니메이션",
+        "hidden reactor countdown animation"
       ],
       "read": [
         "web_limited_sakura.js",
@@ -453,14 +650,21 @@
         "web_assets/schedule.js",
         "web_assets/style.css",
         "sync_web_sakura.py",
-        "web_schedule_frontend.py"
+        "web_schedule_frontend.py",
+        "web_avengers_theme.css",
+        "web_assets/avengers/cinematic.js",
+        "web_assets/avengers/cinematic.css",
+        "web_menu_idle.js"
       ],
       "tests": [
         "test_web_limited_sakura.py",
         "test_web_limited_sakura.js",
         "test_web_sakura_butterfly.js",
         "test_web_theme_performance.js",
-        "test_web_visible_updates.js"
+        "test_web_visible_updates.js",
+        "test_web_custom_manual_save.js",
+        "check_web_hidden_motion.js",
+        "check_web_avengers_browser.ps1"
       ],
       "js_symbols": [
         "drawWinterSnow",
@@ -468,7 +672,11 @@
         "observeTimingRows",
         "paintTimingRow",
         "startScheduleClock",
-        "stopScheduleClock"
+        "stopScheduleClock",
+        "syncAvengersMotion",
+        "selectionSignature",
+        "changeCustomSelection",
+        "WebIronmanCinematic"
       ],
       "docs": [
         "docs/web_service.md"
@@ -665,7 +873,13 @@
         "web_page_updater.py#WebPageUpdater._update_local",
         "web_service_manager.py#WebServiceManager.apply_page_update",
         "web_service_manager.py#WebServiceManager._apply_live_page_assets",
-        "web_live_assets.py#LiveWebAssets.poll"
+        "web_live_assets.py#LiveWebAssets.poll",
+        "web_service_manager.py#WebServiceManager.request_browser_refresh",
+        "program_updater.py#ProgramUpdater.report_progress",
+        "program_update_process.py#alive",
+        "program_update_process.py#wait_exited",
+        "ai_update_center.py#AiUpdateCenter._install_full",
+        "program_update_service.py#ProgramUpdateService._refresh_download_progress"
       ],
       "tests": [
         "test_program_update_sequence.py",
@@ -730,6 +944,10 @@
             "test_release_version.py",
             "test_build_metadata_display.py",
             "test_app_patch_notes.py"
+          ],
+          "at": [
+            "release_version.py#resolve_release_version",
+            "program_update_package.py#filename"
           ]
         },
         "distribution_defaults_and_notice": {

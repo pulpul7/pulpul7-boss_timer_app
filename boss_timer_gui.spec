@@ -375,6 +375,7 @@ datas = [
 ]
 datas += collect_tree(project_root / "assets", "assets")
 datas += collect_tree(project_root / "web_assets", "web_assets", excluded_relative_paths={"fonts/size_defaults.json", "boss_spectrum.json"})
+datas += collect_tree(project_root / "시네마틱", "시네마틱")
 # Trusted fallback sources, loaded through notice_runtime rather than Analysis
 # imports. Downloads override these without rebuilding the executable.
 datas += collect_tree(project_root / "notice_module", "notice_module",

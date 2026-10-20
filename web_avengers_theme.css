@@ -1,0 +1,219 @@
+/* IRON MAN ARMOR: shared metal panels; only two visible reactor light layers move. */
+html[data-theme="avengers"]{
+ color-scheme:dark;background:#090706;--bg:#110b09;--panel:#201512;--row:#1b1714;--line:#a6803d;
+ --text:#fff1d2;--muted:#c5b69d;--blue:#ffe1a0;--invasion:#2a171b;
+}
+.avengers-art{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;contain:strict;background:#090706}
+.avengers-art img{display:block;width:100%;height:100%;object-fit:cover;object-position:43% center}
+.avengers-art::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#14070466 0%,#2f08042e 45%,transparent 80%),var(--avengers-heroes-image) 95% top/auto 70% no-repeat;pointer-events:none}
+.avengers-art::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 87% 14%,#d641112b,transparent 42%),linear-gradient(180deg,#0e060344,transparent 35%,#10080580 70%,#0a0605d9)}
+html[data-theme="avengers"] body{background:#090706;color:var(--text);color-scheme:dark}
+html[data-theme="avengers"] .schedule-app{position:relative;z-index:1;padding:34px 30px 86px;--hud-ink:#fff0cc}
+html[data-theme="avengers"] .schedule-app::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;border:26px solid transparent;border-bottom-width:68px;border-image:var(--avengers-outer-frame) 60 fill / 26px 26px 68px / 0 stretch;background:repeating-linear-gradient(0deg,transparent 0 55px,#e3410c0b 55px 56px),repeating-linear-gradient(90deg,transparent 0 55px,#e3410c0b 55px 56px),linear-gradient(110deg,#16060226,#0908071a 55%,#1b070226);background-clip:padding-box}
+html[data-theme="avengers"] .schedule-frame{padding:5px 2px;border:0!important;box-shadow:none!important;background:transparent!important}
+html[data-theme="avengers"] .app-header{
+ position:relative;isolation:isolate;border:12px solid transparent;border-image:var(--avengers-gold-frame) 12 fill / 12px / 1px stretch;
+ background:linear-gradient(115deg,#320a05f7,#190b07f5 67%,#3b1108f7);background-clip:padding-box;
+ padding:7px 5px 7px 62px;margin-bottom:10px;min-height:70px;
+ box-shadow:0 2px 9px #000b,inset 0 0 18px #ba3c122c;
+}
+html[data-theme="avengers"] .app-header::before{content:'';position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:69px;height:69px;background:var(--avengers-reactor) center/contain no-repeat;pointer-events:none;z-index:2}
+html[data-theme="avengers"] .context{background:none;-webkit-text-fill-color:currentColor;color:#ffe8a7;letter-spacing:-.5px;text-shadow:0 1px 2px #000,0 0 5px #ff82234d;font-weight:850}
+html[data-theme="avengers"] :is(.viewer-nickname,#connection){color:#ffe9bb!important;text-shadow:0 1px 2px #000;filter:none}
+html[data-theme="avengers"] #connection[data-offline="true"]{color:#ffb78f!important}
+html[data-theme="avengers"] :is(button,select){
+ border:5px solid transparent;border-image:var(--avengers-frame) 12 fill / 5px / 0 stretch;border-radius:0;
+ background:linear-gradient(180deg,#34302b,#171a19 46%,#0d1112 50%,#29221b);background-clip:padding-box;
+ color:#f5e8cd;box-shadow:inset 0 1px 1px #e6d1a52b,inset 0 -2px 8px #0009,0 2px 4px #0009;
+ font-weight:800;text-shadow:0 1px 2px #000;touch-action:manipulation;
+}
+html[data-theme="avengers"] :is(button,select):focus-visible{outline:2px solid #9eefff;outline-offset:2px}
+html[data-theme="avengers"] .schedule-app :is(#rest-filter,#fixed-filter,#day-today,#day-next){display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:40px;width:74px;min-width:74px;padding:4px 7px;line-height:1.25;white-space:nowrap;flex-shrink:0}
+html[data-theme="avengers"] .theme-controls button{height:auto;min-height:40px;width:auto;min-width:72px;padding:4px 8px;line-height:1.25}
+html[data-theme="avengers"] .schedule-tabs button{display:inline-flex;align-items:center;justify-content:center;line-height:1.25}
+html[data-theme="avengers"] #tab-theme{min-height:40px}
+html[data-theme="avengers"] button:disabled{opacity:.56}
+html[data-theme="avengers"] :is(#copy-open,#logout,#day-today,#day-next,#day-next-bottom,#schedule-top,#rest-filter,#fixed-filter,#push-test,#custom-open){color:#ffe7b6;background:linear-gradient(160deg,#401409,#1c0c07 55%,#311008)}
+html[data-theme="avengers"] #logout .logout-label{color:#ffe7b6!important}
+html[data-theme="avengers"] .day-navigation button{width:64px;white-space:nowrap;font-size:12px;padding:2px 3px}
+html[data-theme="avengers"] :is(.lock-default,.logout-lock){color:#e2b16a}
+html[data-theme="avengers"] .schedule-tabs{gap:3px;border:0;background:transparent;overflow:visible;padding:0 1px 8px}
+html[data-theme="avengers"] .schedule-tabs button{border-width:7px;border-image-width:7px;min-height:38px;padding:5px 8px;font-weight:800;position:relative;overflow:visible;background:linear-gradient(180deg,#373630,#131a1a 50%,#181714);color:#f4e9d3}
+html[data-theme="avengers"] :is(.schedule-tabs button[aria-selected="true"],.theme-controls button[aria-pressed="true"],#rest-filter[aria-pressed="true"],#fixed-filter[aria-pressed="true"]){
+ background:linear-gradient(180deg,#ff6e39 0%,#a91708 18%,#6c0802 52%,#b12309 83%,#4c0b03);
+ border-image-source:var(--avengers-gold-frame);color:#fff6d9;box-shadow:inset 0 0 8px #ff8f3166,0 0 7px #ff391b80;text-shadow:0 0 4px #ffae52,0 1px 2px #4c0900;font-weight:900;
+}
+html[data-theme="avengers"] #tab-theme{color:#ffe6b4;padding-left:9px}
+html[data-theme="avengers"] #tab-theme::before{display:none}
+html[data-theme="avengers"] #tab-theme[aria-selected="true"]{background:linear-gradient(155deg,#e44921,#670b04);border-image-source:var(--avengers-gold-frame)}
+html[data-theme="avengers"] .frame-heading{padding:8px 8px 10px;row-gap:9px;border:8px solid transparent;border-image:var(--avengers-frame) 12 fill / 8px / 0 stretch;background:linear-gradient(90deg,#0b090326,#1609041f 58%,#11080514);background-clip:padding-box;margin-bottom:6px}
+html[data-theme="avengers"] :is(#clock,.schedule-heading,.tomorrow-date){color:#ffe0a0!important;font-weight:850;text-shadow:-1px -1px 0 #0b0604,1px 1px 0 #0b0604,0 1px 3px #000}
+html[data-theme="avengers"] .schedule-app #all-alarm{display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:40px;padding:4px 9px;line-height:1.25}
+html[data-theme="avengers"] .all-alarm{background:linear-gradient(180deg,#34322b,#141818);color:#f3e5c9;border-color:transparent}
+html[data-theme="avengers"] .all-alarm[aria-pressed="true"]{background:linear-gradient(160deg,#b52c0e,#490600);color:#fff0c7}
+html[data-theme="avengers"] .all-alarm[aria-pressed="mixed"]{background:linear-gradient(100deg,#a6240b 0%,#a6240b 43%,#2b2119 58%,#141818 100%);color:#fff0cf}
+html[data-theme="avengers"] .all-alarm #all-alarm-label{color:inherit!important}
+html[data-theme="avengers"] .recent{gap:4px;margin:0 0 8px}
+html[data-theme="avengers"] .recent s{display:block;padding:4px 8px;border:8px solid transparent;border-image:var(--avengers-frame) 12 fill / 8px / 0 stretch;background:linear-gradient(110deg,#252723ed,#1a1e1cec);background-clip:padding-box;color:#aaa79b;box-shadow:0 1px 4px #000a}
+html[data-theme="avengers"] #recent :is(.boss-name,time){color:#aaa79b!important;text-shadow:0 1px 2px #080706}
+html[data-theme="avengers"] #recent .boss-name::before{color:#b7b2a2!important}
+/* Title aligns with row text (16+1 = 12+5 desktop, 13+0 = 10+3 mobile).
+   A separate body row reserves the fixed helmet/reactor footprints when titles wrap. */
+html[data-theme="avengers"] .schedule-app .hero{
+ position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr);row-gap:8px;min-height:164px;margin:4px 0 9px;padding:7px 5px 14px 1px;
+ border:16px solid transparent;border-image:var(--avengers-gold-frame) 12 fill / 16px / 0 stretch;border-radius:0;
+ background:radial-gradient(ellipse at 27% 85%,#af1b063f,transparent 55%),repeating-linear-gradient(0deg,transparent 0 5px,#d7341410 5px 6px),linear-gradient(100deg,#2e0905f5,#140703f5 55%,#250702e8)!important;background-clip:padding-box;
+ box-shadow:0 0 9px #ff8a2940,inset 0 0 20px #d736162c;
+}
+html[data-theme="avengers"] .hero::before{content:'';position:absolute;left:2px;bottom:7px;width:54.6px;height:65px;background:var(--avengers-emblem) center/contain no-repeat;pointer-events:none;z-index:1}
+html[data-theme="avengers"] .hero::after{content:'';position:absolute;right:0;bottom:14px;width:54px;height:54px;background:var(--avengers-reactor) center/contain no-repeat;pointer-events:none;z-index:1}
+.avengers-reactor-energy{display:none;position:absolute;pointer-events:none;border-radius:50%;z-index:2;contain:layout paint}
+html[data-theme="avengers"] .avengers-reactor-energy{display:block}
+html[data-theme="avengers"] .avengers-header-energy{left:-8px;top:50%;transform:translateY(-50%);width:69px;height:69px}
+html[data-theme="avengers"] .avengers-hero-energy{right:0;bottom:14px;width:54px;height:54px}
+html[data-theme="avengers"] .avengers-reactor-energy::before{content:'';position:absolute;inset:3%;box-sizing:border-box;border:2px solid transparent;border-top-color:#efffff;border-right-color:#23dcff;border-radius:50%;background:radial-gradient(circle at 50% 1px,#fff 0 2px,#66f4ffcc 2px 3px,transparent 4px);animation:avengers-reactor-turn 4.5s linear infinite;animation-play-state:paused}
+html[data-theme="avengers"] .avengers-reactor-energy::after{content:'';position:absolute;inset:12%;border-radius:50%;background:radial-gradient(circle,transparent 30%,#a6ffff99 42%,#2bdfff66 56%,transparent 70%);opacity:.25;animation:avengers-reactor-breathe 4.8s ease-in-out infinite;animation-play-state:paused}
+html[data-theme="avengers"][data-avengers-awake="true"] .avengers-reactor-energy[data-in-view="true"]::before,html[data-theme="avengers"][data-avengers-awake="true"] .avengers-reactor-energy[data-in-view="true"]::after{animation-play-state:running}
+html[data-theme="avengers"] .avengers-reactor-energy[data-in-view="false"]::before,html[data-theme="avengers"] .avengers-reactor-energy[data-in-view="false"]::after,html[data-theme="avengers"][data-avengers-awake="false"] .avengers-reactor-energy::before,html[data-theme="avengers"][data-avengers-awake="false"] .avengers-reactor-energy::after{animation-play-state:paused!important}
+@keyframes avengers-reactor-turn{to{transform:rotate(360deg)}}
+@keyframes avengers-reactor-breathe{50%{opacity:.95}}
+/* Folded header motion stops immediately, without waiting for the viewport observer. */
+html[data-theme="avengers"].menus-idle .avengers-header-energy::before,html[data-theme="avengers"].menus-idle .avengers-header-energy::after{animation-play-state:paused!important}
+html[data-theme="avengers"] .hero-top{position:relative;z-index:2;align-items:flex-start;gap:12px}
+html[data-theme="avengers"] .hero-name{display:flex;flex:1;flex-wrap:wrap;column-gap:.3em;min-width:0;font-weight:900;color:#fff0c8;background:linear-gradient(90deg,#170700ad,transparent);padding:2px 0;text-shadow:0 1px 2px #000,0 0 4px #d06416;line-height:1.35}
+html[data-theme="avengers"] .hero-name>time{flex:0 0 auto;white-space:nowrap}
+html[data-theme="avengers"] .hero-name>.boss-name{flex:0 1 auto;max-width:100%;min-width:0;word-break:keep-all;overflow-wrap:anywhere}
+html[data-theme="avengers"] .hero-name :is(.boss-name,time){color:#fff0c8!important;-webkit-text-stroke:0;text-shadow:0 1px 2px #000,0 0 4px #d06416}
+html[data-theme="avengers"] .hero[data-cinematic] .hero-name{background:none}
+html[data-theme="avengers"] .hero-top .alarm{position:relative;right:auto;top:auto;align-self:flex-start}
+html[data-theme="avengers"] .schedule-app .hero .hero-countdown{
+ position:relative;z-index:2;display:flex;align-items:center;justify-content:center;width:100%;max-width:100%;min-width:0;min-height:102px;margin:0;padding:0 54px 0 60px;background:none;
+ font-family:'Bahnschrift','Aptos Display','Arial',sans-serif;font-size:clamp(36px,7.8vw,66px);font-weight:850;
+ font-variant-numeric:tabular-nums;letter-spacing:.3px;line-height:1.08;color:#fff6c9!important;
+ -webkit-text-stroke:.7px #ffd36b;text-shadow:0 0 3px #ffd471,0 0 8px #ff3b05,0 0 15px #ff1700,2px 2px 2px #270300;
+}
+html[data-theme="avengers"] .hero-countdown.long{font-size:clamp(20px,5.6vw,43px)!important;white-space:normal;overflow-wrap:anywhere}
+.avengers-boss-media{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;z-index:0}
+html[data-theme="avengers"] .avengers-boss-media:not([hidden]){display:block}
+.ironman-cinematic{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;pointer-events:none;z-index:0;background:#090403}
+html[data-theme="avengers"] .ironman-cinematic:not([hidden]){display:block}
+html[data-theme="avengers"] .hero[data-cinematic] :is(.avengers-hero-energy,.hero-top .alarm),html[data-theme="avengers"] .hero[data-cinematic="playing"] .hero-countdown{visibility:hidden;pointer-events:none}
+html[data-theme="avengers"] .schedule-app .hero:is([data-cinematic="still"],[data-cinematic="paused"]) .hero-countdown{visibility:visible;padding-inline:0!important;background:none;pointer-events:none}
+html[data-theme="avengers"] .hero[data-cinematic]::before,html[data-theme="avengers"] .hero[data-cinematic]::after{display:none}
+html[data-theme="avengers"] .hero[data-cinematic] .avengers-hero-energy::before,html[data-theme="avengers"] .hero[data-cinematic] .avengers-hero-energy::after{animation-play-state:paused!important}
+.ironman-transport{display:none}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row){
+ position:relative;isolation:isolate;overflow:hidden;border:8px solid transparent;border-image:var(--avengers-frame) 12 fill / 8px / 0 stretch;border-radius:0;
+ padding:3px 6px;margin-top:4px;min-height:39px;background:linear-gradient(90deg,#1a1b17f5,#1e1a16e8 65%,#29140bc7),var(--avengers-heroes-image) right 42%/auto 310% no-repeat!important;background-clip:padding-box;
+ box-shadow:0 1px 4px #000a;
+}
+html[data-theme="avengers"] .schedule-app .event-row:nth-child(3n){background-image:linear-gradient(90deg,#191a17f5,#1d1914e8 60%,#28150ba8),var(--avengers-portals-image)!important}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row) :is(.boss-name,time,.following-state,.event-state){color:#f9ebcf!important;-webkit-text-stroke:0;text-shadow:0 1px 2px #000;position:relative;z-index:1}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row) :is(.following-state,.event-state){color:#d7c6a5!important}
+html[data-theme="avengers"] .schedule-app :is(.hero,.following,.event-row) .boss-name::before{color:#ffd785!important}
+html[data-theme="avengers"] .schedule-app .event-row.elapsed :is(.boss-name,time,.event-state){color:#aaa08f!important}
+html[data-theme="avengers"] .schedule-app .event-row.type-break{background:repeating-linear-gradient(0deg,transparent 0 7px,#c4973520 7px 8px),linear-gradient(100deg,#1c120af5,#20190fed,#130b06f5)!important;background-clip:padding-box;border-image-source:var(--avengers-frame);min-height:max(45px,calc(32px * var(--rest-row-scale,1)));margin-block:6px}
+html[data-theme="avengers"] .type-break .following-main{gap:8px;align-items:center;justify-content:center}
+html[data-theme="avengers"] .type-break .following-main::before{content:'';width:31px;height:31px;flex:0 0 31px;background:var(--avengers-reactor) center/contain no-repeat;pointer-events:none}
+html[data-theme="avengers"] .schedule-app .type-break .boss-name{color:#c5efff!important}
+html[data-theme="avengers"] .alarm{position:relative;z-index:2;min-width:48px;flex-shrink:0;padding:1px 6px!important;min-height:24px!important;border:4px solid transparent!important;border-image:var(--avengers-frame) 12 fill / 4px / 0 stretch!important;border-radius:0;background:linear-gradient(180deg,#323b3c,#111719)!important;background-clip:padding-box!important;box-shadow:inset 0 1px 4px #767c6b2b!important;color:#e7e3d7!important;text-shadow:0 1px 2px #000!important;font-size:11px!important}
+html[data-theme="avengers"] .alarm::before{display:none!important}
+html[data-theme="avengers"] .alarm[aria-pressed="true"]{background:linear-gradient(180deg,#c2411c,#650b03)!important;color:#fff1c4!important;box-shadow:inset 0 0 5px #ff712c77!important}
+html[data-theme="avengers"] .alarm[aria-pressed="mixed"]{background:linear-gradient(100deg,#a22d10 45%,#182020 65%)!important}
+html[data-theme="avengers"] .alarm[aria-pressed="true"]::after{content:'';position:absolute;pointer-events:none;left:-9px;top:50%;transform:translateY(-50%);width:15px;height:15px;background:var(--avengers-reactor) center/contain no-repeat}
+html[data-theme="avengers"] .day-heading{color:#ffe4ad!important;text-shadow:0 1px 3px #0e0602}
+html[data-theme="avengers"] .day-heading::before,html[data-theme="avengers"] .day-heading::after{border-color:#b08c49!important;background-color:#b08c49!important}
+html[data-theme="avengers"] :is(.active-panel,.option-items,.copy-preview,.custom-savebar,.hidden-setting-card,.web-font-controls,.hidden-help-balloon,dialog,.toast,.web-banner){background:#1b100af5;color:#f5e6c4;border-color:#a5803c;backdrop-filter:none}
+/* Shared rounded help chrome must not paint behind the armor frame. */
+html[data-theme="avengers"] .hidden-menu .hidden-help-trigger{border-color:transparent;border-radius:0;background:linear-gradient(180deg,#34302b,#171a19 46%,#0d1112 50%,#29221b);background-clip:padding-box}
+html[data-theme="avengers"] .hidden-menu .hidden-help-trigger[aria-expanded="true"]{border-color:transparent;border-radius:0;background:linear-gradient(180deg,#a72b0c,#4c0b02);color:#fff1c4}
+html[data-theme="avengers"] .hidden-help-balloon{border:6px solid transparent;border-image:var(--avengers-frame) 12 fill / 6px / 0 stretch;border-radius:0;background-clip:padding-box;box-shadow:0 4px 12px #0008}
+html[data-theme="avengers"] .hidden-help-balloon::before{display:none}
+html[data-theme="avengers"] .hidden-help-heading{border-color:#a5803c}
+html[data-theme="avengers"] :is(.hidden-setting-header,.hidden-setting-number){background:linear-gradient(120deg,#5e210f,#261106);color:#ffe3a2;border-color:#ad823c}
+html[data-theme="avengers"] :is(.theme-family-label,.hidden-setting-header h3,.custom-heading h2,.custom-group-heading h3){color:#ffe0a0}
+html[data-theme="avengers"] #theme-avengers{width:auto;min-width:86px;color:#ffe6a8}
+html[data-theme="avengers"] .custom-choice{background:linear-gradient(130deg,#36291a,#171510);border-color:#987332;color:#e9d6ae}
+html[data-theme="avengers"] .custom-choice[aria-pressed="true"]{background:linear-gradient(130deg,#a72b0c,#4c0b02)!important;border-color:#ffe09b!important;color:#fff4d2!important;box-shadow:inset 0 0 10px #d9571b55,0 0 4px #ff5a214d}
+html[data-theme="avengers"] .custom-choice small{color:#c8b08c}
+html[data-theme="avengers"] :is(#custom-save,#alarm-confirm,#logout-confirm){background:linear-gradient(130deg,#9b290d,#480e03);color:#fff0c6;border-color:#cea351}
+html[data-theme="avengers"] :is(.push-controls,.muted,.footnote,#push-note){color:#d2bd96!important;text-shadow:0 1px 2px #000}
+html[data-theme="avengers"] :is(input[type="checkbox"],input[type="range"]){accent-color:#d13d18}
+html[data-theme="avengers"] .schedule-bottom-nav{background:#1c1108ed;border-color:#a17a37}
+html[data-theme="avengers"] .schedule-app :is(.hero,.following,.event-row,.recent s){border-image-source:var(--avengers-card-frame);border-image-slice:20 fill}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row,.recent s){border-width:12px;border-image-width:12px;padding:3px 5px;background-clip:padding-box!important}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row){border-block-width:10px;border-image-width:10px 12px}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row):not(.type-break){background:linear-gradient(105deg,#0c1114f5,#142029f0 67%,#0a1116f2)!important;background-clip:padding-box!important}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row):not(.type-break)::before{content:'';position:absolute;right:51px;top:0;bottom:0;width:51px;z-index:0;pointer-events:none;background:linear-gradient(135deg,transparent 0 31%,#bd8a364d 32% 34%,transparent 35% 100%),linear-gradient(135deg,transparent 0 39%,#45d4ee44 40% 43%,transparent 44% 100%),linear-gradient(315deg,transparent 0 34%,#c28c384d 35% 37%,transparent 38% 100%)}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row):not(.type-break)::after{content:'';position:absolute;right:0;top:0;bottom:0;width:65px;z-index:0;pointer-events:none;background:linear-gradient(135deg,#7b692d 0 2px,transparent 3px 10px,#1b252a 11px,#0c1317 50%);clip-path:polygon(13px 0,100% 0,100% 100%,0 100%,0 13px);border-left:1px solid #ae7a31}
+html[data-theme="avengers"] .schedule-app .event-row.type-break{background:repeating-linear-gradient(60deg,transparent 0 9px,#c7451614 9px 10px),repeating-linear-gradient(-60deg,transparent 0 9px,#c7451614 9px 10px),radial-gradient(ellipse at 50% 25%,#7f1709a1,transparent 75%),linear-gradient(100deg,#250503,#3e0903,#240604)!important;background-clip:padding-box!important;border-image-source:var(--avengers-card-frame)}
+html[data-theme="avengers"] .schedule-app :is(#recent,.hero,.following,.event-row,.copy-preview) .boss-name{color:#fff2ae!important;-webkit-text-fill-color:#fff2ae;-webkit-text-stroke:0;text-shadow:0 1px 2px #000}
+html[data-theme="avengers"] .schedule-app :is(#recent,.hero,.following,.event-row) .boss-name::before{color:#ffe7a1!important;-webkit-text-fill-color:#ffe7a1}
+html[data-theme="avengers"] .schedule-app .spawn-blink{animation:avengers-alert .8s ease-in-out infinite}
+html[data-theme="avengers"] button:not(:disabled):active{background:linear-gradient(180deg,#ff8a44,#b02108 25%,#690600 65%,#ec4317)!important;color:#fff5d5!important;box-shadow:inset 0 0 10px #ffad5377,0 0 8px #ff492a88!important}
+html[data-theme="avengers"] .schedule-app button:is([aria-pressed="true"],[aria-selected="true"]){background:linear-gradient(180deg,#ff6e39 0%,#a91708 18%,#6c0802 52%,#b12309 83%,#4c0b03)!important;color:#fff6d9!important;box-shadow:0 0 5px #ff391b66!important}
+/* Static compact glow on the few primary controls; no blur filters or animation layers. */
+html[data-theme="avengers"] .schedule-app :is(.schedule-tabs button,.day-controls button,.theme-controls button,#all-alarm):is([aria-pressed="true"],[aria-selected="true"]){box-shadow:inset 0 0 7px #ff8f314d,0 0 9px #ff391b99!important}
+/* Transparent frame interior: the one CSS background continues under the inner lip. */
+html[data-theme="avengers"] .schedule-app button:is([aria-pressed="true"],[aria-selected="true"],:active){border-image-source:var(--avengers-selected-frame)!important;background-origin:border-box!important;background-clip:border-box!important}
+@media(hover:hover){html[data-theme="avengers"] button:not(:disabled):hover{filter:brightness(1.13)}}
+@keyframes avengers-alert{50%{box-shadow:0 0 12px #ff521caa,inset 0 0 13px #df321666}}
+@media(max-width:460px){
+ html[data-theme="avengers"] .avengers-art img{height:55svh;min-height:330px;object-position:8% center}
+ html[data-theme="avengers"] .avengers-art::before{background-position:center,95% top;background-size:auto,auto 52svh}
+ html[data-theme="avengers"] .schedule-app{padding:26px 21px 72px}
+ html[data-theme="avengers"] .schedule-app::before{border-width:18px;border-bottom-width:54px;border-image-width:18px 18px 54px}
+ html[data-theme="avengers"] .app-header{padding:4px 1px 4px 40px;min-height:61px;border-width:10px;border-image-width:10px;gap:3px}
+ html[data-theme="avengers"] .app-header::before{left:-10px;width:42px;height:42px}
+ html[data-theme="avengers"] .avengers-header-energy{left:-10px;width:42px;height:42px}
+ html[data-theme="avengers"] .header-context{gap:2px}
+ html[data-theme="avengers"] .context{font-size:13px;letter-spacing:-.6px}
+ html[data-theme="avengers"] .app-header :is(#copy-open,#logout){width:60px;font-size:11px;padding:2px 1px;letter-spacing:-.5px}
+ html[data-theme="avengers"] .viewer-nickname{font-size:12px}
+ html[data-theme="avengers"] .nickname-area{padding-inline:1px}
+ html[data-theme="avengers"] #connection{font-size:8px}
+ html[data-theme="avengers"] .schedule-tabs{gap:2px}
+ html[data-theme="avengers"] .schedule-tabs button{padding:3px 5px;border-width:6px;border-image-width:6px;min-height:35px}
+ html[data-theme="avengers"] #tab-theme{padding-inline:5px}
+ html[data-theme="avengers"] .frame-heading{padding:5px 4px 7px;border-width:7px;border-image-width:7px;row-gap:7px}
+ html[data-theme="avengers"] .hero{min-height:143px!important;padding:5px 3px 10px 0!important;border-width:13px!important;border-image-width:13px!important;row-gap:6px}
+ html[data-theme="avengers"] .hero::before{left:0;bottom:4px;width:49.4px;height:59.8px}
+ html[data-theme="avengers"] .hero::after{right:0;bottom:10px;width:46px;height:46px}
+ html[data-theme="avengers"] .avengers-hero-energy{right:0;bottom:10px;width:46px;height:46px}
+ html[data-theme="avengers"] .hero-name{font-size:max(13px,calc(15px + var(--web-font-size-offset,0px)));padding:0}
+ html[data-theme="avengers"] .schedule-app .hero .hero-countdown{font-size:clamp(30px,9.5vw,42px);min-height:68px;margin:0;padding:0 46px 0 54px}
+ html[data-theme="avengers"] .day-navigation button{width:58px;font-size:11px;padding:2px 3px}
+ html[data-theme="avengers"] .schedule-app :is(.following,.event-row,.recent s){padding:2px 3px;border-width:10px;border-image-width:10px;gap:5px}
+  html[data-theme="avengers"] .schedule-app :is(.following,.event-row){border-block-width:8px;border-image-width:8px 10px}
+ html[data-theme="avengers"] .alarm{min-width:39px;font-size:10px!important;padding:1px 3px!important}
+ html[data-theme="avengers"] .type-break .following-main::before{width:25px;height:25px;flex-basis:25px}
+}
+@media(max-width:360px){
+ html[data-theme="avengers"] .app-header{padding-left:32px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'context nickname' 'copy logout';row-gap:5px}
+ html[data-theme="avengers"] .app-header .header-context{grid-area:context}
+ html[data-theme="avengers"] .app-header .nickname-area{grid-area:nickname}
+ html[data-theme="avengers"] .app-header #copy-open{grid-area:copy;justify-self:end}
+ html[data-theme="avengers"] .app-header #logout{grid-area:logout}
+ html[data-theme="avengers"] .app-header::before{width:45px;height:45px}
+ html[data-theme="avengers"] .avengers-header-energy{width:45px;height:45px}
+ html[data-theme="avengers"] .app-header :is(#copy-open,#logout){width:52px;font-size:10px}
+ html[data-theme="avengers"] .day-controls{flex-wrap:wrap;row-gap:5px}
+ html[data-theme="avengers"] .hero::before{width:41.6px;height:52px}
+ html[data-theme="avengers"] .hero::after{width:38px;height:38px}
+ html[data-theme="avengers"] .avengers-hero-energy{width:38px;height:38px}
+ html[data-theme="avengers"] .schedule-app .hero .hero-countdown{min-height:56px;font-size:28px;padding-left:45px;padding-right:38px}
+ html[data-theme="avengers"] :is(.following,.event-row):not(.type-break) .following-main{display:block}
+ html[data-theme="avengers"] :is(.following,.event-row):not(.type-break) .following-name{font-size:max(12px,calc(15px + var(--web-font-size-offset,0px)))}
+ html[data-theme="avengers"] :is(.following-state,.event-state){display:block;font-size:max(11px,calc(13px + var(--web-font-size-offset,0px)))}
+}
+/* Compact from first paint; only active playback/five-second final hold expands. */
+/* Classification is shared with the major tab; major fixed events take precedence. */
+html[data-theme="avengers"] .schedule-app :is(#recent,.hero,.following,.event-row,.copy-preview,.active-panel) .boss-name[data-boss-rank="fixed"]{color:#79e8ff!important;-webkit-text-fill-color:#79e8ff}
+html[data-theme="avengers"] .schedule-app :is(#recent,.hero,.following,.event-row,.copy-preview,.active-panel) .boss-name[data-boss-rank="major"]{color:#ff715b!important;-webkit-text-fill-color:#ff715b}
+html[data-theme="avengers"] .schedule-app :is(#recent,.hero,.following,.event-row,.copy-preview,.active-panel) .boss-name:is([data-boss-rank="fixed"],[data-boss-rank="major"])::before{color:inherit!important;-webkit-text-fill-color:inherit}
+html[data-theme="avengers"] .schedule-app :is(.hero,.following,.event-row)[data-boss-rank="major"] .alarm{margin-inline-start:54px}
+html[data-theme="avengers"] .schedule-app :is(.hero,.following,.event-row)[data-boss-rank="major"] .alarm::before{content:'';display:block!important;position:absolute;left:-52.4px;top:50%;transform:translateY(-50%);width:38.4px;height:33.6px;border-radius:3px;background:var(--avengers-major-image) center/contain no-repeat!important;box-shadow:none!important;pointer-events:none;opacity:1;filter:none}
+html[data-theme="avengers"] .schedule-app :is(.following,.event-row)[data-boss-rank="major"]:has(.alarm)::before{display:none}
+html[data-theme="avengers"] .schedule-app .hero:is(:not([data-cinematic-size="expanded"]),[data-cinematic="paused"]){min-height:0!important;row-gap:4px}
+html[data-theme="avengers"] .schedule-app .hero:is(:not([data-cinematic-size="expanded"]),[data-cinematic="paused"]) .hero-countdown{min-height:54px;font-size:clamp(27px,7vw,45px)}
+@media(prefers-reduced-motion:reduce){html[data-theme="avengers"] .spawn-blink,html[data-theme="avengers"] .avengers-reactor-energy::after{animation:none!important}html[data-theme="avengers"] .avengers-reactor-energy::before{animation-duration:12s}}

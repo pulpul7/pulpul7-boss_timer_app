@@ -34,6 +34,7 @@ class WebCommandTests(unittest.TestCase):
         for member in repo.data['members'].values():
             member['web_standalone_protocol'] = 1
             member['web_update_protocol'] = 1
+            member['web_refresh_protocol'] = 1
             member['program_update_protocol'] = 1
         public = dict(state='waiting', enabled=True, address='')
         policy = dict(ConnectionPolicy._empty(), protocol=CONTROL_PROTOCOL, runtime_id=HOST_SESSION,
@@ -270,6 +271,47 @@ class WebCommandTests(unittest.TestCase):
         manager.page_updater.request_and_wait.assert_not_called()
         self.assertEqual(repo.writes, 0)
 
+    def test_refresh_targets_web_host_and_never_starts_stops_or_downloads(self):
+        control, _, manager, repo, _ = self.node(role='host')
+        before = AuthorityRecord.owner_stamp(repo.data)
+        manager.request_browser_refresh = Mock(return_value='refresh queued')
+        manager.page_updater = NS(request_and_wait=Mock())
+        done = self.request(control, operation='administrator_web_refresh')
+        self.assertTrue(done.call_args.args[0])
+        self.assertEqual(repo.data['members'][HOST]['web_call']['action'], 'refresh')
+        self.assertEqual(AuthorityRecord.owner_stamp(repo.data), before)
+        manager.request_browser_refresh.assert_called_once_with()
+        manager.retry_public.assert_not_called()
+        manager.stop_web_verified.assert_not_called()
+        manager.page_updater.request_and_wait.assert_not_called()
+
+    def test_refresh_rejects_old_target_and_changed_host_before_execution(self):
+        control, _, manager, repo, _ = self.node()
+        manager.request_browser_refresh = Mock()
+        repo.data['members'][HOST].pop('web_refresh_protocol')
+        done = self.request(control, operation='administrator_web_refresh')
+        self.assertFalse(done.call_args.args[0])
+        self.assertEqual(repo.writes, 0)
+        call = dict(id='1234', runtime=HOST_SESSION, action='refresh', state='pending',
+                    expires=time.time()+30, update_host=[SOURCE, SOURCE_SESSION, 'old'])
+        repo.data['members'][HOST]['web_call'] = deepcopy(call)
+        control._perform(call)
+        manager.request_browser_refresh.assert_not_called()
+        self.assertFalse(repo.data['members'][HOST]['web_call']['ok'])
+
+    def test_actual_slash_refresh_dispatches_without_password_or_target(self):
+        tree = ast.parse(Path('boss_timer_discord_bot.py').read_text(encoding='utf-8-sig'))
+        method = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == 'webserver_once')
+        method.decorator_list = []
+        scope = dict(Any=object)
+        exec(compile(ast.Module(body=[method], type_ignores=[]), 'webserver_once', 'exec'), scope)
+        bot = NS(_administrator_command=AsyncMock())
+        # The registered callback captures self from the enclosing bot method.
+        scope['self'] = bot
+        interaction = object()
+        asyncio.run(scope['webserver_once'](interaction, '\uac31\uc2e0'))
+        bot._administrator_command.assert_awaited_once_with(interaction, 'administrator_web_refresh')
+
     def test_update_reports_apply_failure(self):
         control, _, manager, _, _ = self.node()
         manager.page_updater = NS(request_and_wait=Mock(side_effect=ValueError('파일 검증 실패')))
@@ -313,6 +355,8 @@ class WebCommandTests(unittest.TestCase):
         asyncio.run(callback(interaction,'administrator_web_retry',target='host'))
         bot._queue_local_schedule_request.assert_not_called()
         asyncio.run(callback(interaction,'administrator_web_update'))
+        bot._queue_local_schedule_request.assert_not_called()
+        asyncio.run(callback(interaction,'administrator_web_refresh'))
         bot._queue_local_schedule_request.assert_not_called()
         asyncio.run(callback(interaction,'administrator_program_update'))
         bot._queue_local_schedule_request.assert_not_called()

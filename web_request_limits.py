@@ -2,8 +2,38 @@
 import math
 import threading
 import time
+from collections import OrderedDict
 
 READ_PATHS = frozenset({"/", "/api/status", "/api/schedule", "/api/session", "/api/push", "/api/boss-spectrum"})
+
+
+class DocumentQueue:
+    """Pace document starts across HTTP/HTTPS without holding request threads.
+
+    Retries keep their FIFO position. Missing browsers expire, and the bounded
+    queue never merges different browsers into one admission ticket.
+    """
+    def __init__(self, clock=time.monotonic, spacing=.25, capacity=512):
+        self.clock, self.spacing, self.capacity = clock, spacing, capacity
+        self.lock = threading.Lock()
+        self.pending = OrderedDict()
+        self.next_start = 0.0
+
+    def claim(self, key):
+        now = self.clock()
+        with self.lock:
+            while self.pending and next(iter(self.pending.values())) <= now:
+                self.pending.popitem(last=False)
+            if key not in self.pending:
+                if len(self.pending) >= self.capacity:
+                    return 5
+                self.pending[key] = now + max(10, len(self.pending) * self.spacing + 10)
+            position = list(self.pending).index(key)
+            if position == 0 and now >= self.next_start:
+                self.pending.pop(key)
+                self.next_start = now + self.spacing
+                return 0
+            return round(max(self.spacing, self.next_start - now) + position * self.spacing, 3)
 
 
 class CooldownLimiter:

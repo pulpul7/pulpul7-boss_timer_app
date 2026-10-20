@@ -53,4 +53,22 @@ check(ticks===60&&timers.size===0,'ten hidden minutes have no clock callbacks or
 document.hidden=false;clock.start();clock.start();advance(661000);
 check(ticks===61&&timers.size===1,'resuming starts only one clock without catch-up bursts');
 clock.leave();advance(662000);check(timers.size===0,'leaving the page never perpetuates the clock');
+// Upper clocks/connection stay stale only while invisible, then catch up on show.
+const upperCode=source.slice(source.indexOf("  if(!document.documentElement.classList.contains('menus-idle')) {"),source.indexOf('  const preciseIds=preciseBossIds(now);'));
+const upperNodes=new Map();let upperHidden=true,upperWrites=0,dayRefreshes=0,idleWrites=0;
+const upperElement=id=>{if(!upperNodes.has(id))upperNodes.set(id,{id,textContent:'',hidden:false});return upperNodes.get(id);};
+const upperDocument={documentElement:{classList:{contains:()=>upperHidden}}};
+const upper=new Function('document','element','setText','refreshDays',`
+  let data={},connected=true,lastContact=0,pollInterval=15000,selectedFilter='all';
+  const performance={now:()=>0},clock=String,dateLabel=String,dayStart=x=>x,selectedDay=x=>x,dayKey=x=>x;
+  ${source.slice(source.indexOf('function updateConnection()'),source.indexOf('let scheduleClockTimer='))}
+  return now=>{${upperCode}updateConnection();};
+`)(upperDocument,upperElement,(n,v)=>{if(n.id==='idle-clock')idleWrites++;else upperWrites++;n.textContent=v;},()=>dayRefreshes++);
+for(let i=0;i<600;i++)upper(i*1000);
+check(upperWrites===0&&!upperNodes.has('connection'),'folded menus perform no repeated clock/date/connection writes');
+check(idleWrites===0&&!upperNodes.has('idle-clock'),'removed compact clock performs no folded writes');
+check(dayRefreshes===600,'bottom date navigation remains independent of hidden upper menus');
+upperHidden=false;upper(600000);
+check(upperNodes.get('clock').textContent==='600000'&&upperNodes.get('connection').textContent.length>0,'restored upper menu immediately shows current time and connection');
+check(idleWrites===0,'removed compact clock performs no visible writes');
 return checks;

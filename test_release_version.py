@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 from datetime import datetime
 import io
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import subprocess
@@ -15,6 +16,25 @@ import build_release
 
 
 class ReleaseVersionTests(unittest.TestCase):
+    def test_explicit_build_version_precedes_git_without_changing_tags(self):
+        with patch.dict(os.environ, BOSS_TIMER_BUILD_VERSION="v6.3.1"), \
+                patch("release_version.subprocess.run") as run:
+            self.assertEqual(resolve_release_version("v5.5.1", Path("checkout")), "v6.3.1")
+            self.assertEqual(build_release.build_version(), "v6.3.1")
+            run.assert_not_called()
+
+    def test_invalid_explicit_build_version_is_not_silently_ignored(self):
+        for version in ("6.3.1", "", "v6.3.1/other", "v6.3.1\n"):
+            with patch.dict(os.environ, BOSS_TIMER_BUILD_VERSION=version), self.assertRaises(ValueError):
+                resolve_release_version("v5.5.1", Path("checkout"))
+
+    def test_zip_name_keeps_one_v_and_old_assets_remain_recognized(self):
+        from program_update_package import filename, ASSET, version_key
+        for version in ("v6.3.1", "6.3.1", "V6.3.1"):
+            self.assertEqual(filename(version), "bosstimer_update_v6.3.1.zip")
+        for name in ("bosstimer_update_v6.3.1.zip", "bosstimer_update_6.3.1.zip"):
+            self.assertEqual(version_key(ASSET.fullmatch(name)[1]), version_key("v6.3.1"))
+
     def resolve(self, output="v5.5.5\n", error=None):
         with patch.object(Path, "exists", return_value=True), patch("release_version.subprocess.run",
                 return_value=SimpleNamespace(stdout=output), side_effect=error) as run:
