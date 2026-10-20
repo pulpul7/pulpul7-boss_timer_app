@@ -337,6 +337,8 @@ class WorkerRuntime:
 
     def _still_background(self, config):
         """Discard a reply from before the new GUI attached or rebound its session."""
+        if self.closed.is_set():
+            return False
         try:
             current=read_json(self.root/('background.'+self.run_id+'.json'))
             control=read_json(control_path(self.root,self.run_id))
@@ -400,6 +402,43 @@ class WorkerRuntime:
         for service in (self.ddns,self.certificate):
             if service.thread and service.thread is not threading.current_thread():
                 service.thread.join(timeout=6)
+
+    def acknowledge_manual_stop(self):
+        """After listener cleanup, retire only this worker's exact shared host stamp."""
+        from web_standalone_hosting import web_host_stamp
+        try:
+            if self.remote_thread and self.remote_thread is not threading.current_thread():
+                self.remote_thread.join(timeout=10)
+                if self.remote_thread.is_alive():
+                    raise ValueError('background authority request still running')
+            if any(service.thread and service.thread.is_alive()
+                   for service in (self.public, self.ddns, self.certificate)):
+                raise ValueError('web publication cleanup incomplete')
+            config = self._load_config()
+            stamp = (config['client'], config['runtime'], config['web_id'])
+            for attempt in range(2):
+                data, sha = self.record.read()
+                if web_host_stamp(data) != stamp:
+                    return True  # A newer host must never be overwritten.
+                scope = data['scope']
+                data['web_standalone'] = dict(protocol=1, state='stopped',
+                    owner=stamp[0], runtime=stamp[1], id=stamp[2],
+                    **{k: str(scope[k]) for k in ('guild', 'server', 'season')})
+                data.pop('web_delegate', None)
+                data.pop('web_return_pending', None)
+                data.pop('web_background', None)
+                member = data.setdefault('members', {}).setdefault(stamp[0], {})
+                member.update(web_closed_runtime=stamp[1], web_closed_at=time.time())
+                try:
+                    self.record.write(data, sha)
+                    diagnostic(self.logger, 'web_tray_shared_stop_confirmed', run_id=self.run_id)
+                    return True
+                except Exception:
+                    if attempt:
+                        raise
+        except Exception as exc:
+            diagnostic(self.logger, 'web_tray_shared_stop_pending', error_type=type(exc).__name__)
+        return False
 
 
 def save_background_context(manager, bridge):

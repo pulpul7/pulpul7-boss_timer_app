@@ -26,6 +26,8 @@ from web_https_server import HTTPSListener
 from web_live_assets import LiveWebAssets
 from web_reload_wait import SCRIPT_SOURCE as RELOAD_SCRIPT_SOURCE, render_reload_wait
 from web_page_refresh import browser_refresh_state, stamp_refresh_page
+from web_worker_tray import WebWorkerTray
+from web_manual_stop import request_manual_stop, complete_manual_stop
 
 
 
@@ -394,7 +396,8 @@ def main(argv=None):
     root = Path(args.root)
     status_path, stop_path = worker_paths(root, args.run_id)
     logger = diagnostic_logger(root, "worker")
-    server = parent = access = https = push = runtime = guard = None
+    server = parent = access = https = push = runtime = guard = tray = None
+    tray_stopped = False
     state = dict(run_id=args.run_id, pid=os.getpid(), protocol=PROTOCOL,
                  port=args.port, state="starting", heartbeat=0, request_count=0)
     try:
@@ -433,11 +436,27 @@ def main(argv=None):
         server.timeout = 0.25
         state["state"] = "running"
         diagnostic(logger, "local_listener_ready", run_id=args.run_id, port=args.port)
+        if args.persistent:
+            tray = WebWorkerTray(logger)
+            tray.start()
         next_heartbeat = 0.0
         next_asset_read = 0.0
         next_schedule_read = 0.0
         heartbeat_write_failed = False
         while (parent is None or parent.alive()) and not stop_path.exists():
+            if tray and tray.stop_requested.is_set():
+                try:
+                    request_manual_stop(root, args.run_id, os.getpid())
+                except (OSError, ValueError) as exc:
+                    diagnostic(logger, 'web_tray_stop_record_failed', error_type=type(exc).__name__)
+                    tray.retry_stop()
+                else:
+                    tray_stopped = True
+                    state.update(state='stopping', stop_reason='system_tray')
+                    write_json(root/'authority_lease.json',
+                               dict(schema=1, enabled=False, run_id=args.run_id, valid_until=0))
+                    write_json(status_path, state)
+                    break
             if time.monotonic() >= next_asset_read:
                 if assets.poll():
                     next_heartbeat = 0  # Acknowledge real swaps immediately, not at the periodic heartbeat.
@@ -483,9 +502,9 @@ def main(argv=None):
                     next_heartbeat = time.monotonic() + 2
             access.flush()
             server.handle_request()
-        state["state"] = "stopped"
+        state["state"] = "stopping"
         diagnostic(logger, "worker_stop", run_id=args.run_id,
-                   reason="stop_requested" if stop_path.exists() else
+                   reason="system_tray" if tray_stopped else "stop_requested" if stop_path.exists() else
                        "background_stop_requested" if runtime and runtime.stop_requested else "parent_exited")
         return 0
     except Exception as exc:
@@ -495,25 +514,38 @@ def main(argv=None):
                    errno=getattr(exc, "errno", None), winerror=getattr(exc, "winerror", None))
         return 1
     finally:
-        if runtime:
-            runtime.close()
-        if push:
-            push.close()
-        if https:
-            https.close()
-        if server:
-            server.server_close()
-        if parent:
-            parent.close()
-        if access:
-            access.flush(force=True)
+        cleanup_failed = False
+        for service, method, options in ((runtime, 'close', {}), (push, 'close', {}),
+                (https, 'close', {}), (server, 'server_close', {}),
+                (parent, 'close', {}), (access, 'flush', {'force': True})):
+            if service is None:
+                continue
+            try:
+                getattr(service, method)(**options)
+            except Exception as exc:
+                cleanup_failed = True
+                diagnostic(logger, 'worker_cleanup_failed', component=type(service).__name__,
+                           error_type=type(exc).__name__)
         try:
-            write_json(status_path, state)
-        except OSError:
-            pass
-        close_logger(logger)
-        if guard:
-            guard.__exit__(None,None,None)
+            if tray_stopped:
+                shared_confirmed = (runtime.acknowledge_manual_stop()
+                                    if runtime and not cleanup_failed else False)
+                try:
+                    complete_manual_stop(root, args.run_id, shared_confirmed=shared_confirmed)
+                except OSError as exc:
+                    diagnostic(logger, 'web_tray_stop_complete_failed', error_type=type(exc).__name__)
+            if state['state'] == 'stopping':
+                state['state'] = 'stopped' if not cleanup_failed else 'error'
+            try:
+                write_json(status_path, state)
+            except OSError:
+                pass
+        finally:
+            if tray:
+                tray.close()
+            close_logger(logger)
+            if guard:
+                guard.__exit__(None,None,None)
 
 
 if __name__ == "__main__":

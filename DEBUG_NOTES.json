@@ -2398,6 +2398,42 @@
       "remaining": [
         "Remote publishing left to user. No EXE/ZIP/build or automatic GUI/web restart. User settings, credentials and schedules preserved."
       ]
+    },
+    {
+      "id": "worker_owned_system_tray_shutdown",
+      "recorded_on": "2026-10-20",
+      "status": "source_implemented_nonbuild_verified",
+      "symptom": "User could not identify/stop the independent web process without reopening the main GUI during Git recovery.",
+      "confirmed_facts": [
+        "The persistent web worker owns HTTP/HTTPS, router mapping and background authority checks after GUI exit. No notification-area icon existed.",
+        "Killing only the listener would not express an intentional stop to the GUI or shared web-owner record; existing failure recovery can restore a previous host."
+      ],
+      "resolution": [
+        "Added worker-owned native Windows notification icon with a Web Server Stop menu, a blocking message loop and Explorer TaskbarCreated recovery; no extra package or timer.",
+        "Persist exact run_id/PID stop intent before shutdown; revoke publication, drain normal services, then acknowledge only the matching shared owner/runtime/web ID. Preserve schedule, credentials and Discord ownership.",
+        "GUI initialization, coordinator and monitor honor the durable stop fence; delayed previous-host recovery rechecks it. Only accepted explicit web start clears the fence, after maintenance/configuration/busy checks.",
+        "If shared acknowledgment fails offline, retain local stop and log web_tray_shared_stop_pending. Do not claim global stop confirmation or overwrite a newer host.",
+        "Cleanup errors are logged per component and do not skip remaining listener/tray/guard cleanup. Updated two SimpleNamespace test adapters for current tray predicate and existing emergency-stop web-change wrapper.",
+        "Authority-lease writes also check durable stop intent before the monitor catches up, so a queued renewal cannot reopen publication during shutdown."
+      ],
+      "evidence": [
+        "web_service_worker.py#main",
+        "web_worker_tray.py#WebWorkerTray",
+        "web_manual_stop.py#manual_stop",
+        "web_service_manager.py#WebServiceManager._sync_tray_stop",
+        "web_persistent_runtime.py#WorkerRuntime.acknowledge_manual_stop",
+        "web_standalone_hosting.py#StandaloneHosting._restore_previous_locked"
+      ],
+      "validation": {
+        "tests": "276 passed across test_web_worker_tray, persistent/standalone/independent lifecycle, return/departed-host/publication/worker identity, automatic handover, fast connect, Discord web commands, page update/live assets, push and app patch notes.",
+        "native": "Real Windows hidden-window message loop, callbacks, menu command dispatch and Explorer recreation handling tested with Shell notification calls intercepted; no visible test window or notification icon.",
+        "scope": "Temporary fixtures and mocked services only; no production server/router/GitHub calls, user-data changes, build or ZIP creation."
+      },
+      "remaining": [
+        "Manual packaged-EXE check of actual visible notification icon, hidden-icon overflow, GUI detach and complete listener/router/DDNS shutdown remains for user build.",
+        "Existing workers do not hot-load Python changes. Apply new GUI/worker code by explicit restart; six-file static web patch does not add this feature.",
+        "Offline shared-stop acknowledgment is recorded as pending locally, without claiming network synchronization."
+      ]
     }
   ]
 }

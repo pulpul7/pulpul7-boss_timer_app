@@ -291,6 +291,8 @@
         "공개중",
         "별도 PC",
         "프로그램 종료 후 웹",
+        "시스템 트레이",
+        "작업표시줄 우측 아래",
         "?? ? ????",
         "120? ?? ??",
         "DDNS ?? ??"
@@ -301,6 +303,9 @@
         "web_handover_bridge.py",
         "web_standalone_hosting.py",
         "web_persistent_runtime.py",
+        "web_service_worker.py",
+        "web_worker_tray.py",
+        "web_manual_stop.py",
         "web_return_recovery.py",
         "web_authority_gate.py",
         "web_worker_identity.py",
@@ -309,6 +314,11 @@
       "at": [
         "boss_timer_gui.py#BossTimerApp._start_web_runtime",
         "web_service_manager.py#WebServiceManager.start_saved",
+        "web_service_manager.py#WebServiceManager._sync_tray_stop",
+        "web_service_worker.py#main",
+        "web_worker_tray.py#WebWorkerTray",
+        "web_manual_stop.py#manual_stop",
+        "web_persistent_runtime.py#WorkerRuntime.acknowledge_manual_stop",
         "web_service_manager.py#WebServiceManager._discover_existing",
         "web_service_manager.py#WebServiceManager.close",
         "web_service_manager.py#WebServiceManager._read_worker_state",
@@ -323,6 +333,7 @@
       ],
       "tests": [
         "test_web_independent.py",
+        "test_web_worker_tray.py",
         "test_web_persistent_runtime.py",
         "test_web_standalone_hosting.py",
         "test_web_return_recovery.py",
@@ -343,6 +354,18 @@
         "web_return_recovery.py": [
           "web_publication_confirmation.py#address_confirmed",
           "web_service_manager.py#WebServiceManager.publication_ddns_status"
+        ],
+        "web_service_worker.py": [
+          "web_worker_tray.py#WebWorkerTray",
+          "web_manual_stop.py#request_manual_stop",
+          "web_persistent_runtime.py#WorkerRuntime"
+        ],
+        "web_worker_tray.py": [
+          "Windows Shell_NotifyIconW + hidden top-level window/GetMessageW; worker-owned notification icon"
+        ],
+        "web_manual_stop.py": [
+          "web_service_common.py#file_transaction",
+          "persistent_worker.json + tray_stop.json exact run_id/pid fence"
         ]
       }
     },

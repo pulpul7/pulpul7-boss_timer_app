@@ -23,6 +23,7 @@ from web_direct_hosting import DirectHostingService
 from web_page_updater import WebPageUpdater
 from web_asset_store import read_version
 from web_worker_identity import SpawnedWorkerIdentity
+from web_manual_stop import manual_stop
 from web_persistent_runtime import (RemotePublicService, AttachedProcess, discover,
                                     runtime_version, independent_worker_spawn)
 
@@ -68,6 +69,7 @@ class WebServiceManager:
         self.local_https_preparing = False
         self.authority_snapshot_version = 0
         self.public_paused = False
+        self.tray_shutdown = False
         self.public_resume_serial = 0
         self.authority_message = "웹 대기 · 웹실행 버튼으로 공개할 수 있습니다."
         self.authority_retry = None
@@ -115,6 +117,38 @@ class WebServiceManager:
             self._update(state="error", message=MESSAGES["settings_read_failed"])
             self._log("settings_read_failed", error_type=type(exc).__name__)
         self.page_updater = WebPageUpdater(self)
+        self.tray_stop_stamp = None
+        self._sync_tray_stop()
+
+    def _sync_tray_stop(self):
+        item = manual_stop(self.root, self.run_id)
+        if item is None:
+            return False
+        stamp = (item['run_id'], item['pid'], item['requested_at'])
+        with self.lock:
+            self.tray_shutdown = True
+            self.background_protected = False
+            self.public_paused = True
+            self.authority_ready = False
+            self.authority_key = ()
+            self.desired = False
+            self.settings['enabled'] = False
+            alive = self.process is not None and self.process.poll() is None
+            self.view.update(enabled=False, state='stopping' if alive else 'stopped', address='',
+                             message='트레이에서 웹서버를 종료합니다.' if alive else '트레이에서 웹서버를 종료했습니다.')
+            self.authority_message = '웹 종료 · 웹실행 버튼으로 다시 시작할 수 있습니다.'
+            if self.tray_stop_stamp != stamp:
+                self.tray_stop_stamp = stamp
+                self.generation += 1
+                try:
+                    write_json(self.settings_path, dict(protocol=PROTOCOL, **self.settings))
+                except OSError as exc:
+                    self._log('web_tray_settings_save_failed', error_type=type(exc).__name__)
+                self._log('web_tray_stop_observed', run_id=item['run_id'])
+        return True
+
+    def tray_stop_pending(self):
+        return manual_stop(self.root, self.run_id) is not None
 
     def _log(self, event, **fields):
         if self.logger is None:
@@ -140,6 +174,8 @@ class WebServiceManager:
 
     def has_web_authority(self):
         with self.lock:
+            if getattr(self, 'tray_shutdown', False):
+                return False
             if self.background_protected:
                 return True
             return bool(self.authority_key and self.authority_until > time.monotonic() and not self.public_paused)
@@ -178,7 +214,8 @@ class WebServiceManager:
         if not force and time.monotonic() - self.last_authority_write < 1:
             return
         with self.lock:
-            enabled = self.publication_allowed() and self.desired and not self.closed.is_set()
+            enabled = (self.publication_allowed() and self.desired and not self.closed.is_set()
+                       and not self.tray_stop_pending())
             remaining = max(0, self.authority_until - time.monotonic())
             data = dict(schema=1, enabled=enabled, run_id=self.run_id,
                         valid_until=time.time() + remaining if enabled else 0)
@@ -530,6 +567,7 @@ class WebServiceManager:
         from program_update_guard import active
         if active(self.root.parent):
             return
+        self._sync_tray_stop()
         self.page_updater.start()
         if self.generation == 0 and self.settings["enabled"] and not self.closed.is_set():
             self._request(True)
@@ -537,6 +575,8 @@ class WebServiceManager:
     def set_enabled(self, enabled, *, alternate_port=False):
         if self.closed.is_set():
             return
+        if enabled and self.tray_stop_pending():
+            raise ValueError('트레이에서 종료한 웹서버는 웹실행 버튼으로 다시 시작해주세요.')
         settings = dict(self.settings, enabled=bool(enabled))
         if alternate_port:
             settings["port"] = settings["port"] + 1 if settings["port"] < 65535 else DEFAULT_PORT
@@ -784,6 +824,8 @@ class WebServiceManager:
             self._request_idle(enabled)
 
     def _request_idle(self, enabled):
+        if enabled and self.tray_stop_pending():
+            raise ValueError('트레이에서 종료한 웹서버는 웹실행 버튼으로 다시 시작해주세요.')
         if not enabled:
             self.background_protected = False
         with self.lock:
@@ -817,8 +859,15 @@ class WebServiceManager:
                 if active(self.root.parent):
                     self.closed.wait(.25)
                     continue  # Keep the live worker untouched; no restart or page job during full update.
+                tray_stopped = self._sync_tray_stop()
                 if self.discovery_pending:
                     self._discover_existing()
+                if tray_stopped and self.process is not None and self.process.poll() is None:
+                    # The worker drains router/DDNS jobs and acknowledges the
+                    # shared stop itself. Never force-kill or recover this exit.
+                    self.wake.wait(.25)
+                    self.wake.clear()
+                    continue
                 self._access_jobs()
                 self._refresh_desktop_pins()
                 self._flush_authority()
@@ -993,6 +1042,8 @@ class WebServiceManager:
         return None
 
     def _monitor(self):
+        if self._sync_tray_stop():
+            return
         if self.process is None:
             return
         with self.lock:

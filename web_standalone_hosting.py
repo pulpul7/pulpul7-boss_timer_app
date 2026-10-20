@@ -137,7 +137,8 @@ class StandaloneHosting:
                 self.shared_failures, self.next_shared_check = 0, 0
                 self.stopped_resume_serial = getattr(self.manager, 'public_resume_serial', 0)
         info = standalone_info(data)
-        if (info and info.get('restore_after_failure') and info['owner'] == coordinator.client
+        if (not getattr(self.manager, 'tray_shutdown', False)
+                and info and info.get('restore_after_failure') and info['owner'] == coordinator.client
                 and info['runtime'] == coordinator.runtime and (previous or {}).get('id') != info['id']):
             self.manager.public_paused = False
             if not self.manager.status().get('enabled'):
@@ -227,6 +228,9 @@ class StandaloneHosting:
         with launch_gate(self.manager.root.parent, allow_trial=False), self.lock:
             if self.busy or self.stopping:
                 raise ValueError('웹 단독 실행 또는 종료를 처리 중입니다.')
+            from web_manual_stop import clear_manual_stop
+            clear_manual_stop(self.manager.root)
+            self.manager.tray_shutdown = False
             self.busy = True
             self.cancelled.clear()
             self.operation = 'start'
@@ -560,7 +564,8 @@ class StandaloneHosting:
     def tick(self):
         with self.lock:
             info = standalone_info(self.record)
-        if self.busy or self.stopping or not info or info['state'] != 'active':
+        if (self.busy or self.stopping or getattr(self.manager, 'tray_shutdown', False)
+                or not info or info['state'] != 'active'):
             return
         coordinator = getattr(self.app, 'discord_handover', None)
         if (coordinator is None or info['owner'] != coordinator.client
@@ -645,6 +650,9 @@ class StandaloneHosting:
 
     def _restore_previous_locked(self, coordinator, operation, backup):
         def valid(data):
+            if (getattr(self.manager, 'tray_shutdown', False)
+                    or getattr(self.manager, 'tray_stop_pending', lambda: False)()):
+                return False
             current = standalone_info(data) or {}
             pending = data.get('web_operation') or {}
             if pending and pending.get('id') != operation:

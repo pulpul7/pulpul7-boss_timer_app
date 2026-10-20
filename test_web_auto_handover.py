@@ -1,5 +1,6 @@
 """Automatic handover paths with real guards/preflight and an in-memory repo."""
 from copy import deepcopy
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from types import MethodType, SimpleNamespace as NS
 import threading
@@ -391,7 +392,7 @@ class AutoHandoverTests(unittest.TestCase):
     def test_checked_service_after_logout_clears_hidden_pause_and_allows_auto_handover(self):
         manager = NS(closed=threading.Event(), settings=dict(enabled=False, port=8765),
             root=Mock(), settings_path='in-memory-settings', public_paused=True,
-            page_updater=NS(start=Mock()), _request=Mock())
+            page_updater=NS(start=Mock()), _request=Mock(), tray_stop_pending=lambda: False)
         with patch('web_service_manager.write_json'):
             WebServiceManager.set_enabled(manager, True)
         self.assertFalse(manager.public_paused)
@@ -421,7 +422,9 @@ class AutoHandoverTests(unittest.TestCase):
             authority_until=time.monotonic()+30, _flush_authority=Mock(), set_enabled=Mock(), _log=Mock(),
             ddns=NS(set_active=Mock()), https=NS(set_active=Mock()),
             public=NS(set_active=Mock(), status=lambda: dict(enabled=True)))
-        WebServiceManager.emergency_stop(manager, standby=True)
+        manager._emergency_stop_idle = MethodType(WebServiceManager._emergency_stop_idle, manager)
+        with patch('program_update_guard.web_change', return_value=nullcontext()):
+            WebServiceManager.emergency_stop(manager, standby=True)
         manager.set_enabled.assert_not_called()
         self.assertTrue(manager.settings['enabled'])
         self.assertFalse(WebServiceManager.has_web_authority(manager))
