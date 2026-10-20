@@ -2373,6 +2373,31 @@
       "remaining": [
         "No build/ZIP/deployment, user data changes or production service apply. Operational host needs changed companion player and updated page assets."
       ]
+    },
+    {
+      "id": "git_interrupted_rebase_missing_module_and_crlf_assets",
+      "recorded_on": "2026-10-20",
+      "status": "source_restored_import_and_tests_verified",
+      "symptom": [
+        "Debug startup raised ModuleNotFoundError for web_worker_identity during interrupted pull --rebase with repeated directory deletion prompts."
+      ],
+      "confirmed_causes": [
+        "web_worker_identity existed in original local commit but was absent from the working tree. Interrupted rebase kept original local HEAD and over one hundred unstaged tracked deletions; initial Git writer/index lock prevented safe recovery. User confirmed GUI starts after sources restored.",
+        "Windows core.autocrlf=true converted restored schedule.js from original 1048528 LF bytes to 1051687 CRLF bytes, exceeding existing 1MiB contract. All twelve asset-selection tests initially failed for this actual worktree size. Restoring LF resolved the failures."
+      ],
+      "resolution": [
+        "Verify exact web PID/create time/command-line run ID/state and use normal per-session stop marker; worker exited without terminating unrelated Python/debug processes. User also confirmed web shutdown.",
+        "Preserve original local commit at recovery/interrupted-pull-20261020. After writer/lock cleared, abort interrupted rebase and restore committed files. Rebase/deletions were observed again after an initial abort; exact cause of re-entry was not established. Final recovery used normal merge to avoid checking local resources out to old base.",
+        "Remote-only commit changes four old web assets for public blossom/dedication removal/themed status/revision140. Current local code already contains these and newer revision184. Resolve three content conflicts with reviewed current local files; stylesheet merge equals local. No functional application source change needed.",
+        "Fix JS/CSS/HTML LF attributes and restore all six assets to exact committed bytes. Update current navigation and policy for byte-size/mirror checks. Record recovery in local merge, without push or build."
+      ],
+      "validation": [
+        "web_worker_identity and web_service_manager imports succeed; user confirmed GUI starts. 28 worker-identity/asset-selection tests passed after LF fix.",
+        "No missing tracked files, unmerged entries or rebase state. Six-file size/compatibility and exact PAGE/STYLE/SCRIPT mirrors match revision184. All31 movies present; all six latest +8dB hashes match reports."
+      ],
+      "remaining": [
+        "Remote publishing left to user. No EXE/ZIP/build or automatic GUI/web restart. User settings, credentials and schedules preserved."
+      ]
     }
   ]
 }

@@ -492,7 +492,8 @@
         "portrait contain crop",
         "cinematic selected boss categories",
         "personal cinematic checkbox",
-        "automatic cinematic chapter filter"
+        "automatic cinematic chapter filter",
+        "Windows Git CRLF web asset size"
       ],
       "read": [
         "web_assets/schedule.js",
@@ -524,7 +525,8 @@
         "inspect_cinematic_media.py",
         "web_menu_idle.js",
         "sync_web_sakura.py",
-        "보스이미지/아이언맨1.jpg"
+        "보스이미지/아이언맨1.jpg",
+        ".gitattributes"
       ],
       "tests": [
         "test_web_schedule_views.js",
