@@ -4,16 +4,22 @@
     "areas",
     "boss_definition",
     "fixed",
+    "font_sizes",
+    "notice",
+    "notice_module",
     "spectrum"
   ],
   "hashes": {
+    "init/default_notice_module.json": "7b5ac7e3298fdb4e6edf51c06bae65d77cd8585f29afa6d44b4de970c6b659e7",
+    "init/default_notice_settings.json": "e47a21ce20939e9a156c00865d9b2478ab084a1aa7abce0abc9ffa9dc3c20680",
     "init/default_settings.ini": "ccbf10a57bbf855386336c0efdbf96459771265aae1b9c13f11ba734cc0cbe0f",
     "init/schedule_area_definitions.txt": "1c216102733cfcd3abe077afb1edf96b129646385e34ac3e325b4c493760dcb1",
-    "init/schedule_boss_definitions.txt": "79bf907525c03d14c9b59d98745fb02eaeeb9b2604fd1357f591cf29b7a136df",
-    "init/schedule_fixed_bosses.txt": "c001a5ce7ad73f06d212b5f7cb749bbb130c3856ae7ec376ce7fd6a119a254b0",
-    "web_assets/boss_spectrum.json": "9febb891967e33160acd1adf9b307623fe123c14f2d623b138ff41fde98c9bcd"
+    "init/schedule_boss_definitions.txt": "5f934dd3f1e09c2d1307d9a6ae0ac50441a0364709ef2cb69df225bbd44bb845",
+    "init/schedule_fixed_bosses.txt": "a1bab9ee7e224e59a90a464fe5411e6618e9c75dddfeef8653cf855fd3edafc2",
+    "web_assets/boss_spectrum.json": "9febb891967e33160acd1adf9b307623fe123c14f2d623b138ff41fde98c9bcd",
+    "web_assets/fonts/size_defaults.json": "dbfc20d47c3561641debd8e9a52e84b5137790fc6a07f94767e3778c6fce5b3b"
   },
-  "revision": "20261017T160039_c61c238a",
+  "revision": "20261021T114139_303350b9",
   "schema": 1,
-  "sequence": 1792252839739957100
+  "sequence": 1792582899520407300
 }

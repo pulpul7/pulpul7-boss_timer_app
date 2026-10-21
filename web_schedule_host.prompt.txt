@@ -1,0 +1,6 @@
+Built-in image_gen edit, transparent_background=true.
+
+Edit target: the FIRST of the two latest user images, the small rounded profile avatar with a dark armored fantasy character and a small blue crown badge at its bottom right. The SECOND user image is only a chat layout reference and must NOT be included in the output. Remove ONLY the flat light blue background OUTSIDE the avatar's rounded outer silhouette and outside the blue crown badge; make that exterior genuinely transparent. Preserve the original avatar artwork, original dark border, rounded-square shape, composition, colors, and blue circular crown badge exactly. Do not redraw, reinterpret, sharpen into a different character, add text, add a chat bubble, or add decoration. Output just this one isolated avatar icon with transparent exterior, closely cropped with no outer padding. This is a tiny website chat avatar asset; preserve the simple low-resolution identity of the uploaded image. Prefer 128 by 128 pixel output if supported.
+
+Selected output: web_assets/schedule-host-v1.png
+Result: transparent RGBA PNG; original generated dimensions retained. No further raster editing.

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "agent_navigation_index_not_exhaustive_dependency_graph",
-  "verified_on": "2026-10-20",
+  "verified_on": "2026-10-22",
   "usage": {
     "start": [
       "AGENTS.md",
@@ -407,6 +407,10 @@
     },
     "web_server_network_auth": {
       "match": [
+        "PWA",
+        "앱 설치",
+        "manifest",
+        "standalone",
         "접속 불가",
         "공유기",
         "HTTPS",
@@ -423,6 +427,14 @@
         "?? ???"
       ],
       "read": [
+        "web_push.py",
+        "web_assets/login.html",
+        "web_service_login.py",
+        "web_assets/pwa/icon.svg",
+        "web_assets/pwa/install.js",
+        "web_assets/pwa/install.css",
+        "web_assets/index.html",
+        "web_service_page.py",
         "web_service_worker.py",
         "web_https_app.py",
         "web_https_server.py",
@@ -439,6 +451,7 @@
         "web_assets/schedule.js"
       ],
       "at": [
+        "web_push.py#push_asset",
         "web_service_manager.py#WebServiceManager.diagnostics",
         "web_service_worker.py#main",
         "web_reload_wait.py#render_reload_wait",
@@ -447,6 +460,9 @@
         "web_service_manager.py#WebServiceManager.request_browser_refresh"
       ],
       "tests": [
+        "test_web_pwa.py",
+        "test_web_pwa_install.js",
+        "check_web_pwa_browser.py",
         "test_web_access_handover.py",
         "test_web_session_recovery.js",
         "test_web_request_limits.py",
@@ -494,21 +510,31 @@
         "텍스트 선택",
         "MP4",
         "마지막 프레임",
-        "menu idle auto hide",
-        "scroll return to top",
+        "menu auto hide option top only next boss scroll alignment no menu removal",
+        "phone menus retained downward touch release inertia stop upward free",
+        "PC window mouse enter leave common menu setting",
+        "Iron Man outer frame page viewport height",
+        "downward only next boss top boundary normal upward scroll",
         "manual custom boss selection save",
+        "major boss tab renamed custom legacy today session restore",
+        "checked home boss invasion selection versus all invasions",
+        "major boss release exclusion defaults schema2 one time preference migration future catalog inclusion",
+        "split copy buttons saved legacy TXT category one off tomorrow end period small gear settings",
+        "text notice weekday heading hollow star labels six equals next date bold TXT view",
+        "schedule TXT bulletin plain system font event refresh independent next day 23:59:59 cutoff",
+        "TXT to theme white background hidden schedule view style isolation",
         "mouse below next boss",
         "wheel inertia stop at next boss",
         "mobile light tap versus drag",
         "first downward wheel swipe stop at next boss",
         "empty custom schedule orphan rest",
-        "hidden menu clock animation work",
+        "retained menu clocks existing viewport reactor animation gating",
         "selection signature cache",
         "cinematic cache reset",
         "cinematic audio duration measurement",
         "Iron Man major fixed name ink",
         "major boss portrait",
-        "folded menu spacing",
+        "next boss scroll alignment without collapsed menu spacer",
         "cinematic compact then restore initial artwork",
         "per-theme font and size",
         "default theme save apply all",
@@ -516,7 +542,26 @@
         "cinematic selected boss categories",
         "personal cinematic checkbox",
         "automatic cinematic chapter filter",
-        "Windows Git CRLF web asset size"
+        "Windows Git CRLF web asset size",
+        "Iron Man mixed alarm transparent text fill locked label colors",
+        "TXT expiry one shot deadline transitive web alarm group last boss no polling",
+        "major default revision2 reapply user event unchecked checked invasion spectrum28 checkbox visibility fixed savebar height scroll padding",
+        "gray release default one-time dark migration theme button rotation menu hide delay dropdown 10 seconds compact non-Iron-Man major editor",
+        "schedule TXT Kakao chat speech bubble host portrait sad soul title width wrapping theme surrounding color",
+        "chat body14 speaker plus2 separate minus2 phone only plus4 is-phone compact line height intrinsic longest-line width focus outline hidden copy selection",
+        "TXT theme return delayed zero hidden textarea height shared cached plan no repeated scan formatting",
+        "current tab manual refresh pagehide sessionStorage restore once content height custom TXT phantom scroll no frame padding",
+        "TXT skip unused derived rest calculation independent copy rest checkbox cache",
+        "gray theme system device font default reset personal choice preserved",
+        "major settings compact54x24 clock-controls header no separate flex alarm wrap",
+        "TXT bubble theme colored copy displayed textarea next day 23:59:59 boundary",
+        "copy cutoff notice bold range per-button1000ms capture cooldown independent four buttons major alarm short label",
+        "copy gear wrapper scrollbar width alignment saved copy tomorrow8 release default fixed day2 at08",
+        "copy dialog period then three action buttons notice schedule TXT category label",
+        "split checked invasion canonical catalog ID spectrum28 runtime missing default read-only merge explicit reset marker",
+        "PC auto alignment only from page top mouse leave delay user scroll cancels no mouse enter jump",
+        "all menus previous bosses retained no display none no extra scroll padding on non-scrollable short schedule",
+        "automatic hide UI explanation top only keep10 seconds saved option delay"
       ],
       "read": [
         "web_assets/schedule.js",
@@ -549,12 +594,27 @@
         "web_menu_idle.js",
         "sync_web_sakura.py",
         "보스이미지/아이언맨1.jpg",
-        ".gitattributes"
+        ".gitattributes",
+        "web_schedule_txt.js",
+        "web_notice_frontend.js",
+        "web_assets/boss_spectrum.json",
+        "web_limited_sakura.py",
+        "web_assets/schedule-host-v1.png",
+        "web_schedule_host.prompt.txt",
+        "web_current_tab.js",
+        "web_copy_text.js"
       ],
       "tests": [
         "test_web_schedule_views.js",
         "test_web_copy_image_theme.js",
+        "test_web_quick_copy.js",
+        "test_web_copy_modes.js",
+        "test_web_copy_text_format.js",
+        "test_web_schedule_txt.js",
         "test_web_custom_first_use.js",
+        "test_web_custom_invasion.js",
+        "test_web_custom_defaults.js",
+        "test_web_boss_catalog.py",
         "test_web_distribution_defaults.js",
         "test_web_fonts.py",
         "test_web_theme_bootstrap.py",
@@ -567,6 +627,7 @@
         "test_web_custom_layout.py",
         "test_web_avengers_theme.js",
         "check_web_avengers_browser.py",
+        "check_web_theme_frame_isolation.py",
         "check_web_avengers_browser.ps1",
         "check_web_cinematic.js",
         "test_web_cinematic_order.js",
@@ -585,12 +646,25 @@
         "check_web_font_themes.js",
         "test_web_font_defaults.py",
         "test_web_cinematic_preferences.js",
-        "check_web_cinematic_preferences.js"
+        "check_web_cinematic_preferences.js",
+        "test_web_boss_spectrum.py",
+        "test_web_theme_defaults.js",
+        "test_web_theme_bootstrap.js",
+        "test_web_limited_sakura.py",
+        "test_web_current_tab.js",
+        "test_web_txt_rest_work.js",
+        "test_web_copy_feedback.js"
       ],
       "js_symbols": [
         "recalculatedRests",
         "recentBosses",
         "sharingEvents",
+        "legacyTxtIncluded",
+        "refreshCopyMode",
+        "shareText",
+        "renderScheduleTXT",
+        "web_copy_text.js#copyText",
+        "openCopyDialog",
         "copyImagePalette",
         "copyImageRow",
         "drawImage",
@@ -626,6 +700,11 @@
         "web_assets/avengers/cinematic.js#setTransportOpen",
         "WebMenuIdle",
         "changeCustomSelection",
+        "acceptCatalog",
+        "customRowSelected",
+        "customDefaultSelected",
+        "customPolicySelection",
+        "customSelectionPolicy",
         "saveCustomSelection",
         "readCustomSelection",
         "selectionSignature",
@@ -646,12 +725,34 @@
         "web_assets/avengers/cinematic.js#selectionChanged",
         "WebIronmanCinematic.preferences",
         "WebIronmanCinematic.selectionDirty",
-        "acceptCatalog"
+        "web_schedule_txt.js#WebScheduleTXT",
+        "WebScheduleTXT.refresh",
+        "WebScheduleTXT.stop",
+        "WebNotices.groupGap",
+        "renderCustomEditor",
+        "web_theme_bootstrap.py#THEME_PREFERENCE",
+        "readThemePreference",
+        "WebScheduleTXT.fit",
+        "web_current_tab.js#WebCurrentTab",
+        "web_copy_text.js#copyUntil",
+        "toast",
+        "periodEnd",
+        "web_menu_idle.js#pointerActivity",
+        "web_menu_idle.js#edge",
+        "web_menu_idle.js#check",
+        "web_menu_idle.js#pin",
+        "web_menu_idle.js#touchInput",
+        "web_menu_idle.js#touchStop"
       ],
       "at": [
         "web_cinematic.py#clips",
         "web_cinematic.py#video_metadata",
-        "inspect_cinematic_media.py#measure"
+        "inspect_cinematic_media.py#measure",
+        "web_theme_bootstrap.py#render_theme_page",
+        "web_limited_sakura.py#theme_asset",
+        "web_limited_sakura.py#_checked_host",
+        "web_boss_spectrum.py#BossSpectrumStore._resolved",
+        "web_boss_spectrum.py#BossSpectrumStore.save"
       ]
     },
     "web_animation_performance": {
@@ -744,7 +845,11 @@
         "web schedule updated announcement",
         "third participation announcement",
         "remaining major bosses",
-        "0130 dawn boundary"
+        "0130 dawn boundary",
+        "regular maintenance notice to prerecorded alarm schedule",
+        "per-client AppData discovery notice polling and Discord text delivery",
+        "onefile bootloader service PID notice context adopted bot",
+        "future last_attempt clock rollback auto manual collection timestamps"
       ],
       "read": [
         "notice_runtime.py",
@@ -759,7 +864,14 @@
         "notice_web_publication.py",
         "notice_module/payload/notice_remaining.py",
         "notice_module/payload/notice_management.py",
-        "notice_module/payload/notice_templates.py"
+        "notice_module/payload/notice_templates.py",
+        "notice_module/payload/notice_maintenance_import.py",
+        "notice_module/payload/notice_polling.py",
+        "notice_module/payload/cafe_source.py",
+        "boss_timer_discord_bot.py",
+        "notice_module/payload/notice_server_open.py",
+        "notice_module/payload/notice_preparation.py",
+        "notice_module/payload/notice_management_ui.py"
       ],
       "at": [
         "boss_timer_gui.py#BossTimerApp._ensure_notice_runtime",
@@ -773,7 +885,24 @@
         "notice_module/payload/notice_remaining.py#third_notices",
         "notice_module/payload/notice_remaining.py#remaining_message",
         "notice_module/payload/notice_participation.py#slot_allowed",
-        "notice_module/payload/notice_management.py#NoticeStore.complete_delivery"
+        "notice_module/payload/notice_management.py#NoticeStore.complete_delivery",
+        "notice_module/payload/notice_maintenance_import.py#regular_maintenance_candidate",
+        "notice_module/payload/notice_maintenance_import.py#import_regular_maintenance",
+        "notice_module/payload/main.py#NoticePlugin._schedule_tick",
+        "boss_timer_gui.py#BossTimerApp._apply_notice_regular_maintenance",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_maintenance_alarm_candidates",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_share_maintenance_rows",
+        "notice_module/payload/notice_management.py#NoticeStore.claim_collection",
+        "notice_module/payload/notice_analysis.py#notice_events",
+        "boss_timer_discord_bot.py#DiscordScheduleBot._queue_notice_text",
+        "boss_timer_discord_bot.py#DiscordScheduleBot._send_notice_text",
+        "boss_timer_gui.py#BossTimerApp._get_notice_output_context",
+        "notice_module/payload/main.py#NoticePlugin._collection_tick",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_server_open_alarm_datetime",
+        "notice_module/payload/notice_server_open.py#server_open_alarm",
+        "notice_module/payload/main.py#NoticePlugin.output_status",
+        "notice_module/payload/notice_management_ui.py#NoticeManagementWindow._refresh_sources",
+        "notice_module/payload/notice_polling.py#polling_plan"
       ],
       "tests": [
         "test_notice_maintenance_extensions.py",
@@ -789,7 +918,14 @@
         "test_notice_daily_slots.py",
         "test_notice_morning_groups.py",
         "test_notice_templates.py",
-        "test_notice_playback_display.py"
+        "test_notice_playback_display.py",
+        "test_notice_regular_maintenance.py",
+        "test_notice_output_context.py",
+        "test_notice_collection_tick.py",
+        "test_notice_polling.py",
+        "test_notice_collection.py",
+        "test_notice_server_open.py",
+        "test_notice_output_diagnostics.py"
       ],
       "docs": [
         "docs/ai_module_updates.md",
@@ -805,7 +941,8 @@
         "초읽기",
         "음소거",
         "알람 음성",
-        "차임벨"
+        "차임벨",
+        "TTS synthesis endpoint change"
       ],
       "read": [
         "audio_pipeline.py",
@@ -815,18 +952,22 @@
         "notice_module/payload/notice_preview.py",
         "notice_module/payload/notice_audio.py",
         "notice_output_bridge.py",
-        "alarm_settings_storage.py"
+        "alarm_settings_storage.py",
+        "notice_module/payload/notice_preparation.py"
       ],
       "at": [
         "boss_timer_gui.py#BossTimerApp._save_schedule_alarm_settings_async",
-        "boss_timer_gui.py#BossTimerApp._append_discord_voice_bridge_request"
+        "boss_timer_gui.py#BossTimerApp._append_discord_voice_bridge_request",
+        "edge_tts_voice.py#_apply_edge_tts_endpoint_compat",
+        "edge_tts_voice.py#_configure_edge_tts_module"
       ],
       "tests": [
         "test_audio_pipeline.py",
         "test_notice_preview.py",
         "test_edge_tts_endpoint.py",
         "test_edge_tts_tls.py",
-        "test_alarm_settings_storage.py"
+        "test_alarm_settings_storage.py",
+        "test_notice_preparation.py"
       ]
     },
     "capture_precision": {
@@ -1015,6 +1156,9 @@
             "test_web_asset_selection.py",
             "test_web_limited_sakura.py",
             "test_web_schedule_views.js"
+          ],
+          "at": [
+            "sync_web_sakura.py#compact_embedded_indent"
           ]
         },
         "schedule_order_and_data_preservation": {

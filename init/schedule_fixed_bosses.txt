@@ -4,13 +4,13 @@
 점령전 신청|12:00:00|금|weekly||1|#FFFFFF|#FF7979|1796326fd7cd4ff7050071e7
 발할라 대전|13:00:00|월,화,수,목,금,토,일|weekly||1|#FFFFFF|#09A2A6|69b5f985da885ac16f080196
 핏빛고블린|13:00:00|수|weekly||1|#FF0000|#FFFF68|dea9ef8e529712474390b0b2
-황금고블린|13:30:00|월,화,수,목,금,토,일|weekly||1|#D12CCD|#FFFF80|f5b72fad02de573d99d35541
+황금고블린|13:30:00|월,화,수,목,금,토,일|weekly||0|#D12CCD|#FFFF80|f5b72fad02de573d99d35541
 핏빛고블린|15:00:00|수|weekly||1|#FF0000|#FFFF68|dea9ef8e529712474390b0b2
 방어전 신청마감|17:59:50|월|weekly||1|#FFFFFF|#FF9191|a12db1945a60829a603645a1
 점령전 신청마감|17:59:50|금|weekly||1|#FFFFFF|#FF9191|ace7138df35711168ab8c224
 발할라 대전|18:00:00|월,화,수,목,금,토,일|weekly||1|#FFFFFF|#09A2A6|69b5f985da885ac16f080196
 니다 닻|18:30:00|수|weekly||1|#FFB3FF|#A6063F|0a5d9b528f7991bc0d16ff62
-황금고블린|18:30:00|월,화,수,목,금,토,일|weekly||1|#D12CCD|#FFFF80|f5b72fad02de573d99d35541
+황금고블린|18:30:00|월,화,수,목,금,토,일|weekly||0|#D12CCD|#FFFF80|f5b72fad02de573d99d35541
 지옥성채 정예|19:00:00|월,화,수,목,금,토,일|weekly||1|#FFFFFF|#FF80FF|f5acf3cfadd8f1f14ef28969
 핏빛고블린|19:00:00|수|weekly||1|#FF0000|#FFFF68|dea9ef8e529712474390b0b2
 공성전 공격대상 선택|20:00:00|토|biweekly_next|2026-07-11|1|#FFFFFF|#FF4F4F|804535015e9b0b188fc50bbe
@@ -27,5 +27,5 @@
 무스펠 닻|22:30:00|수|weekly||1|#FFB3FF|#A6063F|98ec16b88e9bea129d7119b4
 지옥 성채|22:30:00|목|weekly||1|#FF0000|#FF80FF|0a57c333ef760fc3d8e9330f
 트리니티 리그|22:30:00|일|biweekly_current|2026-10-18|1|#00CA33|#DF0000|2b9d513fb7802a7c98df67ab
-황금고블린|23:30:00|월,화,수,목,금,토,일|weekly||1|#D12CCD|#FFFF80|f5b72fad02de573d99d35541
+황금고블린|23:30:00|월,화,수,목,금,토,일|weekly||0|#D12CCD|#FFFF80|f5b72fad02de573d99d35541
 길드 쟁탈전 신청마감|23:59:50|일|weekly||1|#FFFFFF|#FF8282|13526cebbd68da309fcc04c0

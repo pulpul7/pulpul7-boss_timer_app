@@ -53,8 +53,8 @@ check(ticks===60&&timers.size===0,'ten hidden minutes have no clock callbacks or
 document.hidden=false;clock.start();clock.start();advance(661000);
 check(ticks===61&&timers.size===1,'resuming starts only one clock without catch-up bursts');
 clock.leave();advance(662000);check(timers.size===0,'leaving the page never perpetuates the clock');
-// Upper clocks/connection stay stale only while invisible, then catch up on show.
-const upperCode=source.slice(source.indexOf("  if(!document.documentElement.classList.contains('menus-idle')) {"),source.indexOf('  const preciseIds=preciseBossIds(now);'));
+// Retained menus keep their ordinary clock/connection updates.
+const upperCode=source.slice(source.indexOf("setText(element('clock'),clock(now));",source.indexOf("element('overview').hidden=",source.indexOf('function tick()'))),source.indexOf('const preciseIds=preciseBossIds(now);'));
 const upperNodes=new Map();let upperHidden=true,upperWrites=0,dayRefreshes=0,idleWrites=0;
 const upperElement=id=>{if(!upperNodes.has(id))upperNodes.set(id,{id,textContent:'',hidden:false});return upperNodes.get(id);};
 const upperDocument={documentElement:{classList:{contains:()=>upperHidden}}};
@@ -65,7 +65,7 @@ const upper=new Function('document','element','setText','refreshDays',`
   return now=>{${upperCode}updateConnection();};
 `)(upperDocument,upperElement,(n,v)=>{if(n.id==='idle-clock')idleWrites++;else upperWrites++;n.textContent=v;},()=>dayRefreshes++);
 for(let i=0;i<600;i++)upper(i*1000);
-check(upperWrites===0&&!upperNodes.has('connection'),'folded menus perform no repeated clock/date/connection writes');
+check(upperWrites>0&&upperNodes.has('connection'),'retained menus keep their normal clock/date/connection writes');
 check(idleWrites===0&&!upperNodes.has('idle-clock'),'removed compact clock performs no folded writes');
 check(dayRefreshes===600,'bottom date navigation remains independent of hidden upper menus');
 upperHidden=false;upper(600000);

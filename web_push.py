@@ -10,7 +10,10 @@ import hmac
 import json
 import math
 import os
+from functools import lru_cache
+from pathlib import Path
 import re
+import sys
 import threading
 import time
 from urllib.parse import urlsplit
@@ -34,7 +37,12 @@ def validate_notice_times(value):
     return list(value)
 MANIFEST = json.dumps(dict(name="보스 스케줄", short_name="보스 스케줄", id="/", start_url="/",
                           scope="/", display="standalone", background_color="#151b24",
-                          theme_color="#151b24"), ensure_ascii=False).encode("utf-8")
+                          theme_color="#151b24", lang="ko", prefer_related_applications=False,
+                          related_applications=[dict(platform="webapp", url="/manifest.webmanifest", id="/")],
+                          icons=[dict(src=f"/pwa/icon-{size}.png", sizes=f"{size}x{size}",
+                                      type="image/png", purpose="any") for size in (192, 512)] +
+                                [dict(src="/pwa/icon-512.png", sizes="512x512", type="image/png", purpose="maskable")]),
+                      ensure_ascii=False).encode("utf-8")
 SERVICE_WORKER = r"""'use strict';
 self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
@@ -56,7 +64,23 @@ self.addEventListener('notificationclick',event=>{
 """.encode("utf-8")
 
 
+@lru_cache(maxsize=2)
+def _app_icon(size):
+    root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    return (root / 'web_assets' / 'pwa' / f'icon-{size}.png').read_bytes()
+
+
+@lru_cache(maxsize=2)
+def _install_asset(name):
+    root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    return (root / 'web_assets' / 'pwa' / name).read_bytes()
+
+
 def push_asset(path):
+    if path in {"/pwa/install.js", "/pwa/install.css"}:
+        return _install_asset(path.rsplit('/', 1)[1]), ("text/javascript; charset=utf-8" if path.endswith('.js') else "text/css; charset=utf-8")
+    if path in {"/pwa/icon-192.png", "/pwa/icon-512.png"}:
+        return _app_icon(192 if path.endswith('192.png') else 512), "image/png"
     if path == "/nickname-defender.png":
         from web_nickname_badge import BADGE_PNG
         return BADGE_PNG, "image/png"

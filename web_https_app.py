@@ -176,7 +176,7 @@ class HTTPSApplication:
                 from web_push import push_asset
                 resource = push_asset(path)
                 if resource:
-                    if path == "/nickname-defender.png":
+                    if path in {"/nickname-defender.png", "/pwa/icon-192.png", "/pwa/icon-512.png", "/pwa/install.js", "/pwa/install.css"}:
                         etag = '"' + hashlib.sha256(resource[0]).hexdigest() + '"'
                         extra = (("ETag", etag), ("Cache-Control", "private, no-cache"))
                         if etag in {v.strip() for v in environ.get("HTTP_IF_NONE_MATCH", "").split(",")}:

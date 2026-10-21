@@ -27,7 +27,7 @@ const WebFonts=(()=>{
     catch(_) {note('글꼴 설정을 저장하지 못했습니다. 브라우저 저장 권한을 확인해주세요.');}
   }
   function baseSize(id=state.selected) {return state.sizeDefaults[id] ?? 0;}
-  function defaultFont() {return state.theme==='avengers'&&state.catalog.some(r=>r.id==='suit')?'suit':state.default;}
+  function defaultFont() {return state.theme==='gray'?'system':state.theme==='avengers'&&state.catalog.some(r=>r.id==='suit')?'suit':state.default;}
   function sizeOverrides() {
     try {
       const data=JSON.parse(localStorage.getItem(sizeKey()) || '{}'),result={};

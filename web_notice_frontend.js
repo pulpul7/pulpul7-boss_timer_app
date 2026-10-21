@@ -142,5 +142,5 @@ const WebNotices=(()=>{
       try {const saved=JSON.parse(event.newValue || '{}');if(valid(saved.times)) times=saved.times;enabled=typeof saved.banner==='boolean'?saved.banner:true;drawSettings();paint();schedulePushSync();} catch(_) {}
     } else if(event.key===scope+':sent') loadSeen();
   });
-  return {refresh,invalidate,paint,tick,toggle,test,times:()=>[...times]};
+  return {refresh,invalidate,paint,tick,toggle,test,times:()=>[...times],groupGap:gap};
 })();

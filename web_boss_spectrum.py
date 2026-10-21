@@ -9,12 +9,13 @@ import sys
 
 from web_font_library import font_developer_allowed
 from web_service_common import file_transaction, read_json, write_json
-from fixed_boss_aliases import migrate_spectrum_numbers
+from fixed_boss_aliases import catalog_id, migrate_spectrum_numbers
 
 THEMES = {'sakura', 'spring', 'winter', 'rain', 'sky', 'wood', 'green', 'blue', 'magenta', 'ivory', 'canary', 'forsythia', 'purple', 'gray'}
 MAX_BOSSES = 4000
 MAX_COLOR = 30
 MAX_BYTES = 1024 * 1024
+CHECKED_INVASION = catalog_id('boss', '체크된침공')
 
 
 def validate_themes(value):
@@ -65,9 +66,20 @@ class BossSpectrumStore:
         self.path = Path(root) / 'boss_spectrum.json'
         self.bundled = Path(bundled) if bundled is not None else bundle_path()
 
+    def _resolved(self):
+        bundled = read_numbers(self.bundled)
+        runtime = self.path.exists()
+        numbers = migrate_spectrum_numbers(read_numbers(self.path) if runtime else bundled)
+        # The old single invasion color never covered the newly split choice.
+        # Add only this missing release default, without read-side disk writes.
+        seeded = bundled.get(CHECKED_INVASION) == 28
+        applied = runtime and read_json(self.path).get('checked_invasion_default') == 1
+        if seeded and not applied:
+            numbers.setdefault(CHECKED_INVASION, 28)
+        return numbers, seeded
+
     def numbers(self):
-        # Runtime data fully overrides the bundle, including explicit removals.
-        return migrate_spectrum_numbers(read_numbers(self.path if self.path.exists() else self.bundled))
+        return self._resolved()[0]
 
     def public(self, allowed=False):
         numbers = self.numbers()
@@ -88,14 +100,18 @@ class BossSpectrumStore:
         if set(bosses) - known:
             raise ValueError('보스 목록이 변경되었습니다. 새로고침 후 다시 선택해주세요.')
         with file_transaction(self.path):
-            mapping = self.numbers()
+            mapping, seeded = self._resolved()
             for key in bosses:
                 if number:
                     mapping[key] = number
                 else:
                     mapping.pop(key, None)
             validate_numbers(mapping)
-            write_json(self.path, dict(schema=2, target='background', numbers=mapping))
+            stored = dict(schema=2, target='background', numbers=mapping)
+            if seeded:
+                # An explicit later reset/change must survive future reads.
+                stored['checked_invasion_default'] = 1
+            write_json(self.path, stored)
         return self.public(True)
 
 

@@ -295,7 +295,7 @@ function mount(){
  hero=document.getElementById('next-name')?.closest('.hero');
  if(!hero)return false;
  video=document.createElement('video');still=document.createElement('canvas');
- stage=document.createElement('div');stage.className='ironman-cinematic-stage';stage.setAttribute('aria-hidden','true');hero.append(stage);
+ stage=document.createElement('div');stage.className='ironman-cinematic-stage';stage.hidden=!enabled;stage.setAttribute('aria-hidden','true');hero.append(stage);
  arrival=document.createElement('span');arrival.className='ironman-cinematic-arrival';arrival.textContent='곧 보스가 출연 합니다.';arrival.setAttribute('aria-hidden','true');hero.append(arrival);
  still.width=still.height=0;
  video.id='ironman-cinematic-video';still.id='ironman-cinematic-still';
@@ -549,7 +549,7 @@ async function previewStep(step){
  if(enabled&&library?.length)return previewAt(panelIndex(step));
 }
 globalThis.WebIronmanCinematic={
-  enable(value,alarm,owner,catalog,isMajor){const entering=Boolean(value)&&!enabled;enabled=Boolean(value);if(Array.isArray(catalog))selectionPrefs.refresh(owner,catalog,isMajor);selectionPrefs.visibility();if(typeof alarm==='function')canSound=alarm;paintButton();if(enabled){mount();groups(latestRows,latestVersion);expireStill(now(),scheduledRow);catalogue(entering);if(!catalogueLoading)localMedia.start();pump();}else{localMedia.stop();cancel();release(false);preview=null;paused=false;pausedAt=0;row=scheduledRow;key=rowKey(row);paintTransport();}},
+  enable(value,alarm,owner,catalog,isMajor){const entering=Boolean(value)&&!enabled;enabled=Boolean(value);if(stage)stage.hidden=!enabled;if(Array.isArray(catalog))selectionPrefs.refresh(owner,catalog,isMajor);selectionPrefs.visibility();if(typeof alarm==='function')canSound=alarm;paintButton();if(enabled){mount();groups(latestRows,latestVersion);expireStill(now(),scheduledRow);catalogue(entering);if(!catalogueLoading)localMedia.start();pump();}else{localMedia.stop();cancel();release(false);preview=null;paused=false;pausedAt=0;row=scheduledRow;key=rowKey(row);paintTransport();}},
  preferences(owner,catalog,isMajor){selectionPrefs.refresh(owner,catalog,isMajor);},
  selectionDirty(){return selectionPrefs.dirty();},
  refreshAudio(){audio();},

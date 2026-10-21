@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-15 22:08:30",
+  "updated_at": "2026-10-21 19:20:56",
   "files": {
     "c:\\mycode\\bosstimer\\voice\\boss\\10층.wav": {
       "signature": [
@@ -1678,6 +1678,13 @@
     "c:\\mycode\\bosstimer\\voice\\min_after\\10min_after.mp3": {
       "signature": [
         1789146937363700900,
+        42675
+      ],
+      "duration_ms": null
+    },
+    "c:\\mycode\\bosstimer\\voice\\min_after\\8min_after.mp3": {
+      "signature": [
+        1789146768536804000,
         42675
       ],
       "duration_ms": null

@@ -7,8 +7,8 @@ html[data-theme="avengers"]{
 .avengers-art img{display:block;width:100%;height:100%;object-fit:cover;object-position:43% center}
 .avengers-art::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#14070466 0%,#2f08042e 45%,transparent 80%),var(--avengers-heroes-image) 95% top/auto 70% no-repeat;pointer-events:none}
 .avengers-art::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 87% 14%,#d641112b,transparent 42%),linear-gradient(180deg,#0e060344,transparent 35%,#10080580 70%,#0a0605d9)}
-html[data-theme="avengers"] body{background:#090706;color:var(--text);color-scheme:dark}
-html[data-theme="avengers"] .schedule-app{position:relative;z-index:1;padding:34px 30px 86px;--hud-ink:#fff0cc}
+html[data-theme="avengers"] body{background:#090706;color:var(--text);color-scheme:dark;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
+html[data-theme="avengers"] .schedule-app{position:relative;z-index:1;flex:1 0 auto;width:100%;padding:34px 30px 86px;--hud-ink:#fff0cc}
 html[data-theme="avengers"] .schedule-app::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;border:26px solid transparent;border-bottom-width:68px;border-image:var(--avengers-outer-frame) 60 fill / 26px 26px 68px / 0 stretch;background:repeating-linear-gradient(0deg,transparent 0 55px,#e3410c0b 55px 56px),repeating-linear-gradient(90deg,transparent 0 55px,#e3410c0b 55px 56px),linear-gradient(110deg,#16060226,#0908071a 55%,#1b070226);background-clip:padding-box}
 html[data-theme="avengers"] .schedule-frame{padding:5px 2px;border:0!important;box-shadow:none!important;background:transparent!important}
 html[data-theme="avengers"] .app-header{
@@ -34,6 +34,7 @@ html[data-theme="avengers"] .schedule-tabs button{display:inline-flex;align-item
 html[data-theme="avengers"] #tab-theme{min-height:40px}
 html[data-theme="avengers"] button:disabled{opacity:.56}
 html[data-theme="avengers"] :is(#copy-open,#logout,#day-today,#day-next,#day-next-bottom,#schedule-top,#rest-filter,#fixed-filter,#push-test,#custom-open){color:#ffe7b6;background:linear-gradient(160deg,#401409,#1c0c07 55%,#311008)}
+html[data-theme="avengers"] .custom-clock-actions #custom-open{border-width:3px;border-image-width:3px;padding:1px 5px}
 html[data-theme="avengers"] #logout .logout-label{color:#ffe7b6!important}
 html[data-theme="avengers"] .day-navigation button{width:64px;white-space:nowrap;font-size:12px;padding:2px 3px}
 html[data-theme="avengers"] :is(.lock-default,.logout-lock){color:#e2b16a}
@@ -49,10 +50,11 @@ html[data-theme="avengers"] #tab-theme[aria-selected="true"]{background:linear-g
 html[data-theme="avengers"] .frame-heading{padding:8px 8px 10px;row-gap:9px;border:8px solid transparent;border-image:var(--avengers-frame) 12 fill / 8px / 0 stretch;background:linear-gradient(90deg,#0b090326,#1609041f 58%,#11080514);background-clip:padding-box;margin-bottom:6px}
 html[data-theme="avengers"] :is(#clock,.schedule-heading,.tomorrow-date){color:#ffe0a0!important;font-weight:850;text-shadow:-1px -1px 0 #0b0604,1px 1px 0 #0b0604,0 1px 3px #000}
 html[data-theme="avengers"] .schedule-app #all-alarm{display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:40px;padding:4px 9px;line-height:1.25}
-html[data-theme="avengers"] .all-alarm{background:linear-gradient(180deg,#34322b,#141818);color:#f3e5c9;border-color:transparent}
+html[data-theme="avengers"] .all-alarm{--master-on:#a6240b;--master-off:#141818;--master-on-ink:#fff0cf;--master-off-ink:#fff0cf;background:linear-gradient(180deg,#34322b,#141818);color:#f3e5c9;border-color:transparent}
 html[data-theme="avengers"] .all-alarm[aria-pressed="true"]{background:linear-gradient(160deg,#b52c0e,#490600);color:#fff0c7}
 html[data-theme="avengers"] .all-alarm[aria-pressed="mixed"]{background:linear-gradient(100deg,#a6240b 0%,#a6240b 43%,#2b2119 58%,#141818 100%);color:#fff0cf}
 html[data-theme="avengers"] .all-alarm #all-alarm-label{color:inherit!important}
+html[data-theme="avengers"] #all-alarm[aria-pressed="mixed"] #all-alarm-label{background:none;-webkit-text-fill-color:currentColor;opacity:1}
 html[data-theme="avengers"] .recent{gap:4px;margin:0 0 8px}
 html[data-theme="avengers"] .recent s{display:block;padding:4px 8px;border:8px solid transparent;border-image:var(--avengers-frame) 12 fill / 8px / 0 stretch;background:linear-gradient(110deg,#252723ed,#1a1e1cec);background-clip:padding-box;color:#aaa79b;box-shadow:0 1px 4px #000a}
 html[data-theme="avengers"] #recent :is(.boss-name,time){color:#aaa79b!important;text-shadow:0 1px 2px #080706}
@@ -77,8 +79,6 @@ html[data-theme="avengers"][data-avengers-awake="true"] .avengers-reactor-energy
 html[data-theme="avengers"] .avengers-reactor-energy[data-in-view="false"]::before,html[data-theme="avengers"] .avengers-reactor-energy[data-in-view="false"]::after,html[data-theme="avengers"][data-avengers-awake="false"] .avengers-reactor-energy::before,html[data-theme="avengers"][data-avengers-awake="false"] .avengers-reactor-energy::after{animation-play-state:paused!important}
 @keyframes avengers-reactor-turn{to{transform:rotate(360deg)}}
 @keyframes avengers-reactor-breathe{50%{opacity:.95}}
-/* Folded header motion stops immediately, without waiting for the viewport observer. */
-html[data-theme="avengers"].menus-idle .avengers-header-energy::before,html[data-theme="avengers"].menus-idle .avengers-header-energy::after{animation-play-state:paused!important}
 html[data-theme="avengers"] .hero-top{position:relative;z-index:2;align-items:flex-start;gap:12px}
 html[data-theme="avengers"] .hero-name{display:flex;flex:1;flex-wrap:wrap;column-gap:.3em;min-width:0;font-weight:900;color:#fff0c8;background:linear-gradient(90deg,#170700ad,transparent);padding:2px 0;text-shadow:0 1px 2px #000,0 0 4px #d06416;line-height:1.35}
 html[data-theme="avengers"] .hero-name>time{flex:0 0 auto;white-space:nowrap}
@@ -102,6 +102,8 @@ html[data-theme="avengers"] .schedule-app .hero:is([data-cinematic="still"],[dat
 html[data-theme="avengers"] .hero[data-cinematic]::before,html[data-theme="avengers"] .hero[data-cinematic]::after{display:none}
 html[data-theme="avengers"] .hero[data-cinematic] .avengers-hero-energy::before,html[data-theme="avengers"] .hero[data-cinematic] .avengers-hero-energy::after{animation-play-state:paused!important}
 .ironman-transport{display:none}
+/* Retained runtime nodes never paint outside the Iron Man theme, even with older player CSS. */
+html:not([data-theme="avengers"]) :is(.ironman-cinematic-stage,.ironman-cinematic-arrival,#ironman-media-dock){display:none!important}
 html[data-theme="avengers"] .schedule-app :is(.following,.event-row){
  position:relative;isolation:isolate;overflow:hidden;border:8px solid transparent;border-image:var(--avengers-frame) 12 fill / 8px / 0 stretch;border-radius:0;
  padding:3px 6px;margin-top:4px;min-height:39px;background:linear-gradient(90deg,#1a1b17f5,#1e1a16e8 65%,#29140bc7),var(--avengers-heroes-image) right 42%/auto 310% no-repeat!important;background-clip:padding-box;
@@ -192,7 +194,7 @@ html[data-theme="avengers"] .schedule-app button:is([aria-pressed="true"],[aria-
  html[data-theme="avengers"] .app-header{padding-left:32px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'context nickname' 'copy logout';row-gap:5px}
  html[data-theme="avengers"] .app-header .header-context{grid-area:context}
  html[data-theme="avengers"] .app-header .nickname-area{grid-area:nickname}
- html[data-theme="avengers"] .app-header #copy-open{grid-area:copy;justify-self:end}
+  html[data-theme="avengers"] .app-header .copy-tools{grid-area:copy;justify-self:end}
  html[data-theme="avengers"] .app-header #logout{grid-area:logout}
  html[data-theme="avengers"] .app-header::before{width:45px;height:45px}
  html[data-theme="avengers"] .avengers-header-energy{width:45px;height:45px}

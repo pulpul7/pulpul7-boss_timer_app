@@ -691,6 +691,11 @@ class NoticeStore:
             interval = plan["minutes"]
             previous = state.get("collection", {})
             last = parse_time(previous.get("last_attempt"))
+            future_attempt = last if last and last > now else None
+            if future_attempt:
+                # A copied backup or corrected PC clock must not suppress
+                # automatic collection until that future wall-clock timestamp.
+                last = None
             boundary = parse_time(plan["boundary"])
             first_after_extension = (plan["mode"] == "extension_followup" and (not last or last < boundary))
             if not manual and (interval is None or (last and not first_after_extension and now - last < timedelta(minutes=interval))):
@@ -698,6 +703,11 @@ class NoticeStore:
             token = uuid.uuid4().hex
             state["collection"] = dict(previous, token=token, last_attempt=encode_time(now), status="수집 중",
                                        polling_mode=plan["mode"], message="상단 공지 조회 중")
+            status = state['collection']
+            status['last_trigger'] = 'manual' if manual else 'automatic'
+            status['last_manual_attempt' if manual else 'last_automatic_attempt'] = encode_time(now)
+            if future_attempt:
+                status['recovered_future_attempt'] = encode_time(future_attempt)
             return token, deepcopy(state)
 
     def fail_collection(self, token, message):

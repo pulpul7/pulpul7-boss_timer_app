@@ -14,7 +14,7 @@ const api=new Function('element','localStorage',`
  let stamp=100;const performance={now:()=>stamp},setText=(node,text)=>node.textContent=text;
  let paints=0;const WebBossSpectrum={refresh(){paints++;}},renderCustomEditor=()=>{},tick=()=>{},refreshAlarms=()=>{};
  ${state}\n${read}\n${ui}
- const id='a'.repeat(24);customById=new Map([[id,{kind:'boss'}]]);customCatalogReady=true;
+ const id='a'.repeat(24);customCatalog=[{id,kind:'boss'}];customById=new Map([[id,customCatalog[0]]]);customCatalogReady=true;
  return {load(){customScope='';readCustomSelection('prefs');refreshCustomUI();},
   refresh(){refreshCustomUI();},open(){customEditing=true;refreshCustomUI();},select(){customDraft.add(id);refreshCustomUI();},time(value){stamp=value;refreshCustomUI();},
   save(){saveCustomSelection();},back(){customEditing=false;refreshCustomUI();},

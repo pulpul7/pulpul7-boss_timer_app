@@ -3692,8 +3692,10 @@ class BossTimerApp:
                 preview_synthesizer=lambda: self._get_notice_preparation_profile()["factory"](),
                 get_schedule_snapshot=self._get_notice_schedule_snapshot,
                 apply_temporary_maintenance=self._apply_notice_temporary_maintenance,
+                apply_regular_maintenance=self._apply_notice_regular_maintenance,
                 get_preparation_profile=self._get_notice_preparation_profile,
                 get_output_context=self._get_notice_output_context,
+                get_output_wait_reason=lambda: getattr(self, 'notice_output_wait_reason', ''),
             )
             self.notice_runtime = NoticeRuntime(host, get_user_config_dir(), get_resource_root(), APP_VERSION)
         self.notice_runtime.start()
@@ -3720,19 +3722,50 @@ class BossTimerApp:
         server_id = str(getattr(self, 'schedule_server_profile_id', '') or '')
         season = str(self.current_season_no)
         payload = getattr(self, 'discord_bot_last_status_payload', {}) or {}
-        if (not process or process.poll() is not None or not secret or not server_id
-                or getattr(self, 'discord_handover_busy', False)
-                or self._handover_audio_blocked() or not payload.get('voice_connected')
-                or payload.get('pid') != process.pid
-                or getattr(self, 'discord_bot_process_profile', '') != profile):
+        pid = payload.get('pid')
+        def wait(reason):
+            previous = getattr(self, 'notice_output_wait_reason', '')
+            self.notice_output_wait_reason = reason
+            if reason != previous:
+                self._append_debug_log(f'notice_output_wait {reason}')
             return None
-        pid, guild_id = process.pid, str(payload.get('guild_id') or '')
+        # A onefile launcher PID differs from the actual bot's HTTP-service PID.
+        # A matching adopted bot may have no Popen handle in this GUI at all.
+        # Authenticate the existing status/profile, then address the service PID;
+        # the bot also verifies its PID and per-launch secret on every request.
+        if not server_id:
+            return wait('서버 선택 대기')
+        if type(pid) is not int or pid <= 0:
+            return wait('봇 상태 응답 대기')
+        if process is not None and process.poll() is not None:
+            return wait('봇 프로세스 종료 · 재연결 대기')
+        if process is None and not getattr(self, 'discord_bot_running', False):
+            return wait('봇 실행 대기')
+        if not secret:
+            return wait('알리미 인증 정보 확인 필요')
+        if getattr(self, 'discord_handover_busy', False) or self._handover_audio_blocked():
+            return wait('송출권 인계 완료 대기')
+        if not payload.get('online'):
+            return wait('디코 로그인 완료 대기')
+        if not payload.get('voice_connected'):
+            return wait('음성 채널 연결 대기')
+        if not self._discord_bot_status_matches(payload):
+            return wait('봇 관리자·서버·설정 일치 확인 필요')
+        if getattr(self, 'discord_bot_process_profile', '') != profile:
+            return wait('선택 프로필의 봇 연결 대기')
+        self.notice_output_wait_reason = ''
+        guild_id = str(payload.get('guild_id') or '')
         def request(command):
             from notice_output_bridge import request_notice
-            if command.get('action') == 'stop' and process.poll() is not None:
+            if command.get('action') == 'stop' and process is not None and process.poll() is not None:
                 return dict(pid=pid, id=command['id'], accepted=True, state='stopped')
+            current = getattr(self, 'discord_bot_last_status_payload', {}) or {}
             if command.get('action') != 'stop' and (
-                    getattr(self, 'discord_bot_process', None) is not process or process.poll() is not None
+                    getattr(self, 'discord_bot_process', None) is not process
+                    or (process is not None and process.poll() is not None)
+                    or current.get('pid') != pid or not current.get('online') or not current.get('voice_connected')
+                    or not self._discord_bot_status_matches(current)
+                    or getattr(self, 'notice_output_secret', '') != secret
                     or getattr(self, 'discord_handover_busy', False)
                     or self._handover_audio_blocked()
                     or str(self.current_season_no) != season
@@ -3799,6 +3832,51 @@ class BossTimerApp:
                     web_schedule_published=schedule_published(self),
                     important_names=[name for name, item in self.schedule_boss_definitions.items() if item.get('star')],
                     regular_maintenance=maintenance.isoformat() if maintenance else None)
+
+    def _apply_notice_regular_maintenance(self, request):
+        if (getattr(self, 'discord_handover_busy', False)
+                or getattr(self, 'schedule_input_window_busy', False)
+                or request.get('server_id') != str(getattr(self, 'schedule_server_profile_id', '') or '')
+                or str(request.get('season')) != str(self.current_season_no)):
+            return 'deferred'
+        from program_update_guard import active
+        if active():
+            return 'deferred'
+        from datetime import timezone
+        def local(value):
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                raise ValueError('점검 공지에 시간대가 없습니다.')
+            return parsed.astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None)
+        start, end = local(request['scheduled_at']), local(request['event_until'])
+        now = self._get_schedule_reference_datetime()
+        # This is the notice's actual calendar occurrence, not "next 07:00".
+        # Retain today's elapsed start even when collection finishes after the end.
+        if (not start < end < start + timedelta(days=7)
+                or now < start - timedelta(days=7)
+                or (now >= end and start.date() != now.date())):
+            return 'conflict'
+        variables = (self.schedule_maintenance_weekday_var, self.schedule_maintenance_hour_var,
+                     self.schedule_maintenance_minute_var)
+        previous = tuple(var.get() for var in variables)
+        if (re.sub(r'[^0-9]', '', previous[1]) in {'0', '00'}
+                and re.sub(r'[^0-9]', '', previous[2]) in {'0', '00'}):
+            return 'conflict'  # Preserve explicitly disabled regular maintenance.
+        desired = (('월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일')[start.weekday()],
+                   f'{start.hour:02d}시', f'{start.minute:02d}분')
+        if previous == desired:
+            return 'existing'
+        try:
+            for var, value in zip(variables, desired):
+                var.set(value)
+            self._save_schedule_state(mark_github_dirty=True, raise_on_error=True)
+        except Exception:
+            for var, value in zip(variables, previous):
+                var.set(value)
+            raise
+        self._refresh_schedule_tree_scope()
+        self._append_debug_log(f'notice_regular_maintenance_applied start={start.isoformat()}')
+        return 'applied'
 
     def _apply_notice_temporary_maintenance(self, request):
         if (getattr(self, 'discord_handover_busy', False)

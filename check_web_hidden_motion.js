@@ -33,14 +33,15 @@
     root.setAttribute('data-avengers-awake','true');
     await moving(header,'visible header reactor advances its native animation');
     document.dispatchEvent(new WheelEvent('wheel',{deltaY:100,cancelable:true,bubbles:true}));
-    await stopped(header,'folded header has no running reactor animation',true);
+    await stopped(header,'offscreen header has no running reactor animation',true);
     const clockNode=document.getElementById('clock'),clockText=clockNode.textContent;
     let upperMutations=0;const upperObserver=new MutationObserver(entries=>upperMutations+=entries.length);
     for(const id of ['clock','schedule-title','connection'])upperObserver.observe(document.getElementById(id),{attributes:true,childList:true,characterData:true,subtree:true});
     await wait(1200);upperObserver.disconnect();
-    check(upperMutations===0&&clockNode.textContent===clockText,'folded upper clock and connection have no repeated DOM writes');
+    check(upperMutations>0&&clockNode.textContent!==clockText,'retained menu clock continues updating offscreen');
     document.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,cancelable:true,bubbles:true}));
-    check(!root.classList.contains('menus-idle')&&clockNode.textContent===clock(serverNow()),'restored menu immediately catches up its clock');
+    window.scrollTo(0,0);
+    check(!root.classList.contains('menus-idle'),'scroll alignment never hides menu elements');
     await wait(100);
     await moving(header,'restored menu resumes header reactor');
     await stopped(energy,'cinematic-hidden hero reactor timeline is stopped');
@@ -62,6 +63,8 @@
     await moving(energy,'normal boss card resumes its reactor');
     // The runtime observer supplies the visibility flag; no extra frame/poll loop.
     const spacer=document.createElement('div');spacer.style.height='1500px';document.querySelector('main').append(spacer);
+    window.scrollTo(0,document.documentElement.scrollHeight);await wait(200);
+    // The first downward crossing stops at the boss; the next scroll continues.
     window.scrollTo(0,document.documentElement.scrollHeight);await wait(200);
     check(realHero.dataset.cinematicVisible==='false','actual runtime observer marks offscreen hero');
     window.scrollTo(0,0);await wait(200);

@@ -246,6 +246,10 @@ class NoticeManagementWindow:
             self.source_tree.selection_set(self.source_tree.get_children()[0])
         collection = state.get("collection", {})
         message = f"{collection.get('status', '수집 대기')} · 마지막 성공: {display_time(collection.get('last_success'))}\n{collection.get('message', '조회 시간표에 따라 자동 수집하거나 지금 공지 수집을 눌러 주세요.')}"
+        if collection.get('last_automatic_attempt') or collection.get('last_manual_attempt'):
+            automatic = display_time(collection['last_automatic_attempt']) if collection.get('last_automatic_attempt') else '별도 기록 없음'
+            manual = display_time(collection['last_manual_attempt']) if collection.get('last_manual_attempt') else '별도 기록 없음'
+            message += f'\n최근 자동 시도: {automatic} · 최근 수동 시도: {manual}'
         self.source_summary.set(message)
         plan = polling_plan(state, local_now()) if state.get("settings") else None
         if plan:
@@ -266,6 +270,15 @@ class NoticeManagementWindow:
                         'applied': '스케줄 등록 완료', 'existing': '이미 스케줄에 있음',
                         'conflict': '기존 임시점검과 충돌 · 수동 확인 필요', 'failed': '등록 실패 · 수동 확인 필요'}
             facts.append('임시점검 1회 등록: ' + statuses.get(imported.get('status'), '확인 필요')
+                         + ' / ' + display_time(imported.get('scheduled_at')))
+        regular = [row for row in getattr(self, 'source_state', {}).get('regular_maintenance_imports', {}).values()
+                   if row.get('article_id') == selected[0]]
+        if regular:
+            imported = regular[-1]
+            statuses = {'pending': '반영 중 중단 가능 · 스케줄 확인 필요',
+                        'applied': '스케줄·녹음 알람 기준 반영 완료', 'existing': '동일 시각으로 설정되어 있음',
+                        'conflict': '미적용 · 사용 안 함 설정 또는 기간 확인 필요', 'failed': '저장 실패 · 수동 확인 필요'}
+            facts.append('정기점검 자동 반영: ' + statuses.get(imported.get('status'), '확인 필요')
                          + ' / ' + display_time(imported.get('scheduled_at')))
         if (item.get("uncertain_first_seen") and item.get("category") in {"maintenance", "transfer", "class_change", "event"}
                 and (not analysis.get('windows') or any(fact.get('issue') for fact in analysis['windows']))):

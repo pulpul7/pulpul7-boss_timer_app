@@ -13,7 +13,9 @@
 .ironman-cinematic{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;pointer-events:none;z-index:0;background:#090403}
 html[data-theme="avengers"] .hero .ironman-cinematic:not([hidden]){display:block}
 html[data-theme="avengers"] .hero .ironman-cinematic[hidden]{display:none!important}
-.ironman-cinematic-stage{position:absolute;inset:0;min-width:0;pointer-events:none;z-index:0}
+.ironman-cinematic-stage{display:none;position:absolute;inset:0;min-width:0;pointer-events:none;z-index:0}
+html[data-theme="avengers"] .hero .ironman-cinematic-stage{display:block}
+html:not([data-theme="avengers"]) :is(.ironman-cinematic-stage,.ironman-cinematic-arrival,#ironman-media-dock){display:none!important}
 #cinematic-play{display:none!important}
 html[data-theme="avengers"] .hero[data-cinematic] .hero-name{background:none}
 html[data-theme="avengers"] .schedule-app .hero[data-cinematic] .hero-countdown{justify-content:flex-start;text-align:left;padding-inline:1ch 0!important;background:none}

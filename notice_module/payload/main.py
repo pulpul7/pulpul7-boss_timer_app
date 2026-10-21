@@ -1,5 +1,6 @@
 """API v1 entry point. Import and health checks must be side-effect free."""
 import json
+import re
 import threading
 
 from .notice_management import NoticeStore, prune_all_servers
@@ -55,6 +56,7 @@ class NoticePlugin:
         self.observed = None
         self.observed_store = None
         self.store_stamp = None
+        self.regular_observed = None
         self.unsubscribe = None
         self.retry = None
         self.retry_count = 0
@@ -97,6 +99,8 @@ class NoticePlugin:
             return
         try:
             context = self.host.get_output_context()  # Only this capture touches Tk-owned state.
+            get_reason = getattr(self.host, 'get_output_wait_reason', None)
+            wait_reason = get_reason() if not context and callable(get_reason) else ''
             snapshot = self.host.get_schedule_snapshot() if context else None
             if self.audio_worker is not None and self.audio_worker.is_alive():
                 return
@@ -113,7 +117,7 @@ class NoticePlugin:
                         self.audio_controller = None
                         self.audio_identity = None
                     if self.stopped or not context:
-                        self.audio_status = '디코 연결/인계 완료 대기'
+                        self.audio_status = wait_reason or '디코 연결/인계 완료 대기'
                         return
                     if self.audio_controller is None:
                         store = NoticeStore(self.host.data_root, identity[0])
@@ -156,6 +160,16 @@ class NoticePlugin:
                 self.prepared_audio.invalidate()
                 self.retry = None
                 self.retry_count = 0
+
+    def output_status(self):
+        """Read existing state only; never synthesize/play while refreshing UI."""
+        with self.prepared_audio.lock:
+            error = self.prepared_audio.last_error
+        if not error:
+            return self.audio_status
+        # Endpoint exception strings may contain URL query authentication data.
+        error = re.sub(r'''(?:https?|wss?)://[^\s'"<>]+''', '<접속 주소>', error)
+        return f'{self.audio_status} · 음성 생성/변환 오류: {error}'
 
     @staticmethod
     def _file_stamp(path):
@@ -222,6 +236,17 @@ class NoticePlugin:
                     if stamp != self.store_stamp:  # External edits/another process.
                         self.store_stamp = stamp
                         self.notify_schedule_changed()
+            # Correct recorded alarm timing as soon as confirmed facts change;
+            # never wait for the speech-preparation worker or its 5-second debounce.
+            regular_key = (server_id, str((snapshot or {}).get('season', '')), self.store_stamp)
+            apply_regular = getattr(self.host, 'apply_regular_maintenance', None)
+            if usable and callable(apply_regular) and self.regular_observed != regular_key:
+                from .notice_maintenance_import import import_regular_maintenance
+                revision_before = self.change_gate.revision
+                import_regular_maintenance(NoticeStore(self.host.data_root, server_id), snapshot, apply_regular)
+                self.regular_observed = regular_key
+                if not self.change_gate.current(revision_before):
+                    return  # Re-capture the newly saved schedule before preparing audio.
             if usable and (not self.schedule_worker or not self.schedule_worker.is_alive()):
                 with self.observation_lock:
                     revision = self.change_gate.take()
@@ -268,12 +293,20 @@ class NoticePlugin:
                 self.schedule_after_id = self.host.call_later(1000, self._schedule_tick)
 
     def _collection_tick(self):
+        self.collection_after_id = None
         if self.stopped:
             return
-        server_id = self.host.get_server()[0]  # Capture on the GUI thread.
-        if server_id:
-            self._launch_collection(server_id)
-        self.collection_after_id = self.host.call_later(10_000, self._collection_tick)
+        try:
+            server_id = self.host.get_server()[0]  # Capture on the GUI thread.
+            if server_id:
+                self._launch_collection(server_id)
+        except Exception as exc:
+            self.host.log(f"notice_collection_tick_failed {type(exc).__name__}")
+        finally:
+            # A transient dispatch error must not disable all future automatic
+            # collection while leaving the manual button functional.
+            if not self.stopped:
+                self.collection_after_id = self.host.call_later(10_000, self._collection_tick)
 
     def _launch_collection(self, server_id, *, manual=False):
         if self.stopped or not server_id or (self.collection_worker and self.collection_worker.is_alive()):
@@ -314,7 +347,7 @@ class NoticePlugin:
                 return
             self.window.window.destroy()
         self.window = NoticeManagementWindow(UiAdapter(self.host, self.request_collection,
-            lambda: self.audio_status), self.host.data_root)
+            self.output_status), self.host.data_root)
 
     def restore_settings(self, payload):
         server_id = self.host.get_server()[0]

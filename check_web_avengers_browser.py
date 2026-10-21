@@ -12,7 +12,7 @@ from web_https_app import HTTPSApplication
 from web_theme_bootstrap import render_theme_page
 
 
-def check():
+def create_fixture_server():
     root = Path(__file__).resolve().parent
     files = {name: (root / 'web_assets' / name).read_bytes() for name in FILES}
     validate_assets(files)
@@ -90,6 +90,14 @@ window.addEventListener('load',async()=>{
 
         def do_GET(self):
             path = self.path.split('?')[0]
+            if path == '/themes/schedule-host-v1.png':
+                from web_limited_sakura import theme_asset
+                raw, mime = theme_asset(path)
+                self.send_response(200)
+                self.send_header('Content-Type', mime)
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers(); self.wfile.write(raw)
+                return
             if path.startswith('/cinematic/'):
                 from web_cinematic import cinematic_response
                 code, raw, mime, extra = cinematic_response(path, self.headers.get('Range', ''))
@@ -120,6 +128,11 @@ html[data-theme="avengers"] .schedule-app .ironman-transport-status{position:sta
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def check():
+    server = create_fixture_server()
     try:
         print('http://127.0.0.1:' + str(server.server_port) + '/', flush=True)
         threading.Event().wait()

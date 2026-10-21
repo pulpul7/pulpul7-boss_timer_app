@@ -1,106 +1,95 @@
-// Shared upper-menu visibility; embedded by sync_web_sakura.py.
+// Shared next-boss scroll alignment; embedded by sync_web_sakura.py.
 const WebMenuIdle=(()=>{
-  const root=document.documentElement;
-  const inputOptions={capture:true,passive:true};
-  let timer=null,last=nowMillis(),folded=false,pressed=false;
-  let y=position(),mouseBelow=false,edge=Infinity,measured=-Infinity;
-  let wheelAt=-Infinity,topAt=-Infinity,touch=null,wheelHold=false;
-
+  const desktop=deviceProfile().pc,phone=deviceProfile()['phone'];
+  const input=document.getElementById('menu-mouse-hide'),key='BossTimer.menuMouseHide.v1';
+  const delayInput=document.getElementById('menu-mouse-delay'),delayKey='BossTimer.menuMouseDelay.v1';
+  const delayOptions=[1,3,5,10,15,30,60];
+  let delayValue=10,hover=true;
+  try{const value=Number(localStorage.getItem(delayKey));if(delayOptions.includes(value))delayValue=value;}catch(_){}
+  try{hover=localStorage.getItem(key)!=='false';}catch(_){}
+  if(input)input.checked=hover;
+  if(delayInput){delayInput.value=String(delayValue);delayInput.disabled=!hover;}
+  let timer=null,pressed=false,mouseOutside=false,wheelAt=-Infinity,wheelHold=null,touch=null;
+  let y=position();
   function position(){return Math.max(0,window.scrollY);}
-  function nowMillis(){return performance.now();}
   function stop(){clearTimeout(timer);timer=null;}
-  function pin(){window.scrollTo(0,0);y=0;topAt=nowMillis();}
-  function show(){
-    if(!folded)return;
-    folded=false;root.classList.remove('menus-idle');window.scrollTo(0,0);
-    y=0;mouseBelow=false;measured=-Infinity;noteActivity();tick();
+  function blocked(){return !data||!hiddenMenuCollapsed||customEditing||document.querySelector(
+    'dialog[open],input:focus,select:focus,textarea:focus,[contenteditable="true"]:focus');}
+  function edge(){
+    if(document.documentElement.scrollHeight<=window.innerHeight+1)return null;
+    const hero=document.querySelector('.hero'),box=hero?.getBoundingClientRect();
+    return box?.height>0?Math.max(0,box.top+position()):null;
   }
-  function blocked(){
-    return !data||!hiddenMenuCollapsed||customEditing||document.querySelector(
-      'dialog[open],input:focus,select:focus,textarea:focus,[contenteditable="true"]:focus');
-  }
-  function fold(){
-    if(folded)return;
-    stop();folded=true;root.classList.add('menus-idle');y=position();
+  function pin(next){
+    if(Math.abs(position()-next)<=1)return;
+    window.scrollTo(0,next);y=position();
   }
   function check(){
-    timer=null;if(document.hidden||folded)return;
-    const left=3000-(nowMillis()-last);
-    if(left>0){timer=setTimeout(check,left);return;}
-    if(pressed||blocked()){timer=setTimeout(check,3000);return;}
-    fold();
-  }
-  function noteActivity(){
-    if(folded)return;
-    last=nowMillis();if(timer===null&&!document.hidden)timer=setTimeout(check,3000);
+    timer=null;
+    if(!desktop||!hover||!mouseOutside||document.hidden||pressed||position()>1||blocked())return;
+    const next=edge();if(next!==null)pin(next);
   }
   function pointerActivity(event){
-    if(folded||document.hidden)return;
-    if(event.pointerType&&event.pointerType!=='mouse'){mouseBelow=false;noteActivity();return;}
-    const stamp=nowMillis();
-    if(stamp-measured>=200){
-      const box=document.querySelector('.hero')?.getBoundingClientRect();
-      edge=box?.height>0?box.bottom:Infinity;measured=stamp;
-    }
-    const below=Number.isFinite(event.clientY)&&event.clientY>=edge;
-    if(below!==mouseBelow){mouseBelow=below;noteActivity();}else if(!below)noteActivity();
+    if(!desktop||!hover||document.hidden||event.pointerType&&event.pointerType!=='mouse')return;
+    mouseOutside=event.type.endsWith('leave');
+    if(!mouseOutside)stop();
+    else if(timer===null&&!pressed&&position()<=1&&!blocked())timer=setTimeout(check,delayValue*1000);
   }
   function wheelInput(event){
-    if(event.ctrlKey||!event.deltaY)return;
-    const stamp=nowMillis(),fresh=stamp-wheelAt>300;
-    wheelAt=stamp;
-    if(fresh)wheelHold=false;
-    if(event.deltaY>0&&!folded&&!blocked()){fold();pin();wheelHold=true;}
-    if(wheelHold){event.preventDefault();return;}
-    // One scroll gesture stops at the next boss. Only a fresh gesture opens menus.
-    if(fresh&&stamp-topAt>300&&event.deltaY<0&&position()<=1&&y<=1)show();
+    if(phone||event.ctrlKey||!event.deltaY)return;
+    touch=null;
+    if(event.deltaY<0){wheelHold=null;if(touch)touch.holdDown=false;stop();return;}
+    if(blocked())return;
+    const stamp=performance.now();if(stamp-wheelAt>300)wheelHold=null;wheelAt=stamp;
+    if(wheelHold===null){const next=edge();if(next!==null&&position()<next-2){wheelHold=next;pin(next);}}
+    if(wheelHold!==null)event.preventDefault();
+  }
+  function touchStop(){
+    if(!touch||pressed||!touch.dragged||blocked())return;
+    const next=position();
+    if(next<touch.edge){touch.holdDown=false;return;}
+    if(touch.holdDown||touch.at<touch.edge-2&&next>=touch.edge){touch.holdDown=true;pin(touch.edge);}
   }
   function touchInput(event){
-    const points=event.touches,point=points[0]||event.changedTouches?.[0];
-    pressed=points.length>0;
+    const point=event.touches[0]||event.changedTouches?.[0];pressed=event.touches.length>0;
     if(event.type==='touchstart'){
-      wheelHold=false;
-      touch=points.length===1?{x:point.clientX,startY:point.clientY,at:nowMillis(),
-        atTop:position()<=1,wasFolded:folded,dragged:false,revealing:false,holdDown:false}:null;
+      stop();touch=null;wheelHold=null;
+      if(event.touches.length!==1||blocked()||event.target?.closest?.('dialog,#theme-panel,input,select,textarea,[contenteditable="true"]'))return;
+      const next=edge();if(next!==null)touch={x:point.clientX,startY:point.clientY,at:position(),edge:next,dragged:false,holdDown:false};
+    }else if(event.type==='touchcancel'||event.touches.length>1){touch=false;
     }else if(touch&&point){
       const dy=point.clientY-touch.startY;
-      if(Math.abs(point.clientX-touch.x)>10||Math.abs(dy)>10)touch.dragged=true;
-      if(event.type==='touchmove'&&!touch.wasFolded&&!folded&&dy< -12&&Math.abs(dy)>Math.abs(point.clientX-touch.x)&&!blocked()){
-        fold();pin();touch.holdDown=true;
-      }
-      if(event.type==='touchmove'&&touch.atTop&&touch.wasFolded&&dy>12){
-        touch.revealing=true;show();
-      }
-      if(event.type==='touchend'&&!pressed&&!touch.dragged&&nowMillis()-touch.at<=450&&folded){
-        touch.revealing=true;show();
-      }
-      // The reveal gesture must not also refresh the page or click a boss alarm.
-      if((touch.revealing||touch.holdDown)&&event.cancelable)event.preventDefault();
+      if(event.type==='touchmove')touch.dragged=Math.abs(dy)>12&&Math.abs(dy)>Math.abs(point.clientX-touch.x);
+      if(dy>12)touch.holdDown=false;
+      if(event.type==='touchend')touchStop();
     }
-    if(!pressed||event.type==='touchcancel')touch=null;
-    noteActivity();
   }
-
-  document.addEventListener(window.PointerEvent?'pointermove':'mousemove',pointerActivity,inputOptions);
+  input?.addEventListener('change',()=>{
+    const next=input.checked;try{localStorage.setItem(key,String(next));}catch(_){input.checked=hover;return;}
+    hover=next;stop();mouseOutside=false;if(delayInput)delayInput.disabled=!hover;
+  });
+  delayInput?.addEventListener('change',()=>{
+    const value=Number(delayInput.value);if(!delayOptions.includes(value)){delayInput.value=String(delayValue);return;}
+    try{localStorage.setItem(delayKey,String(value));}catch(_){delayInput.value=String(delayValue);return;}
+    delayValue=value;stop();if(mouseOutside)pointerActivity({type:'mouseleave'});
+  });
+  const root=document.documentElement;
+  root.addEventListener(window.PointerEvent?'pointerenter':'mouseenter',pointerActivity);
+  root.addEventListener(window.PointerEvent?'pointerleave':'mouseleave',pointerActivity);
   document.addEventListener('scroll',()=>{
-    const next=position();
-    if(next>1&&(touch?.holdDown||wheelHold&&nowMillis()-wheelAt<=300)){pin();return;}
-    if(next>y&&!folded&&!blocked())fold();
-    // Passive wheel events can arrive after compositor scrolling.
-    if(next<=1&&y>1)topAt=nowMillis();
+    const next=position();if(next>1)stop();
+    if(touch!==null){touchStop();y=position();return;}
+    if(wheelHold!==null&&performance.now()-wheelAt<=300){
+      if(next<wheelHold-1)wheelHold=null;else if(next>wheelHold+1)pin(wheelHold);
+    }else if(!phone&&next>y&&!blocked()){
+      const target=edge();if(target!==null&&y<target-2&&next>=target)pin(target);
+    }
     y=position();
   },{passive:true});
-  for(const type of ['pointerdown','pointerup','pointercancel'])document.addEventListener(type,()=>{
-    pressed=type==='pointerdown';noteActivity();
-  },inputOptions);
-  for(const type of ['click','keydown','input','change','focusin','focusout','wheel'])document.addEventListener(type,noteActivity,inputOptions);
+  for(const type of ['pointerdown','pointerup','pointercancel'])document.addEventListener(type,()=>{pressed=type==='pointerdown';},{capture:true,passive:true});
   document.addEventListener('wheel',wheelInput,{passive:false});
-  for(const type of ['touchstart','touchmove','touchend','touchcancel'])document.addEventListener(type,touchInput,
-    {capture:true,passive:type==='touchstart'||type==='touchcancel'});
-  document.addEventListener('visibilitychange',()=>{stop();pressed=false;touch=null;if(!document.hidden)noteActivity();});
-  window.addEventListener('blur',()=>{pressed=false;touch=null;});
-  window.addEventListener('pagehide',stop);
-  window.addEventListener('pageshow',noteActivity);
-  noteActivity();
-  return {activity:noteActivity};
+  for(const type of ['touchstart','touchmove','touchend','touchcancel'])document.addEventListener(type,touchInput,{capture:true,passive:true});
+  const reset=()=>{stop();pressed=false;touch=null;wheelHold=null;};
+  document.addEventListener('visibilitychange',reset);window.addEventListener('blur',reset);window.addEventListener('pagehide',reset);
+  return {activity:()=>{}};
 })();

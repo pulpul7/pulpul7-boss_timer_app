@@ -7,12 +7,37 @@ import unittest
 from unittest.mock import Mock, patch
 
 from web_https_app import HTTPSApplication
-from web_limited_sakura import ASSET_PATH, ATLAS_SHA256, BUTTERFLY_PATH, BUTTERFLY_SHA256, theme_asset
+from web_limited_sakura import ASSET_PATH, ATLAS_SHA256, BUTTERFLY_PATH, BUTTERFLY_SHA256, HOST_PATH, HOST_SHA256, theme_asset
 from web_service_worker import LocalHandler
 from sync_web_sakura import compact_module, compact_embedded_indent
 
 
 class LimitedSakuraTests(unittest.TestCase):
+    def test_chat_host_is_rgba_and_uses_authenticated_cache(self):
+        raw, mime = theme_asset(HOST_PATH)
+        self.assertEqual(mime, 'image/png')
+        self.assertEqual(raw[25], 6)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), HOST_SHA256)
+        self.assertLessEqual(len(raw), 2 * 1024 * 1024)
+        self.assertEqual(self.call(self.app(False), HOST_PATH)['code'], 401)
+        app = self.app(); reply = self.call(app, HOST_PATH)
+        self.assertEqual(reply['code'], 200)
+        self.assertEqual(reply['headers']['ETag'], '"' + HOST_SHA256 + '"')
+        self.assertEqual(self.call(app, HOST_PATH, {'HTTP_IF_NONE_MATCH': reply['headers']['ETag']})['code'], 304)
+        self.assertIsNone(theme_asset(HOST_PATH + '/extra'))
+
+    def test_local_listener_serves_chat_host_through_existing_theme_assets(self):
+        handler = object.__new__(LocalHandler)
+        handler.server = SimpleNamespace(assets={}, logger=None)
+        handler._context = Mock(return_value=dict(authenticated=True, cookies=[]))
+        handler._authorized = Mock(return_value=True)
+        handler._send = Mock(); handler._json = Mock()
+        handler.path = HOST_PATH; handler._record_visit = False
+        handler.do_GET()
+        self.assertEqual(handler._send.call_args.args[:3], (200, *theme_asset(HOST_PATH)))
+        handler._send.reset_mock(); handler._authorized.return_value = False
+        handler.do_GET(); handler._send.assert_not_called()
+
     def test_readable_animation_matches_compact_web_module(self):
         root = Path(__file__).resolve().parent
         script = (root / 'web_assets/schedule.js').read_text(encoding='utf-8')

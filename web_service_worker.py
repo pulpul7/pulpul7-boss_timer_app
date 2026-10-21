@@ -267,7 +267,8 @@ class LocalHandler(BaseHTTPRequestHandler):
                 self._json(503, dict(message='폰트를 불러오지 못했습니다. 기본 글꼴로 표시합니다.'), cookies)
         elif path == "/api/session":
             self._json(200, {key: context[key] for key in ("authenticated", "configured", "available", "reauth_required")}, cookies)
-        elif path in {"/manifest.webmanifest", "/push-worker.js", "/nickname-defender.png"}:
+        elif path in {"/manifest.webmanifest", "/push-worker.js", "/nickname-defender.png",
+                      "/pwa/icon-192.png", "/pwa/icon-512.png", "/pwa/install.js", "/pwa/install.css"}:
             from web_push import push_asset
             raw, mime = push_asset(path)
             self._send(200, raw, mime, cookies)

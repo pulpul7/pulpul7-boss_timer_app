@@ -5,14 +5,29 @@ import base64
 import hashlib
 import re
 
-SCRIPT = r"""(()=>{'use strict';
+THEME_PREFERENCE = r"""function readThemePreference(name){
+  let value='gray';
+  try{
+    const key='BossTimer.webTheme.v1:'+name,marker='BossTimer.webTheme.gray.v1:'+name;
+    value=localStorage.getItem(key);
+    if(!localStorage.getItem(marker)){
+      if(value===null||value==='default'){value='gray';localStorage.setItem(key,value);}
+      localStorage.setItem(marker,'1');
+    }
+  }catch(_){if(value==='default')value='gray';}
+  return value||'gray';
+}
+"""
+
+SCRIPT = (THEME_PREFERENCE + r"""(()=>{'use strict';
   try {
     const root=document.documentElement;
     const name=(localStorage.getItem('bt_nickname') || 'guest').replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,40) || 'guest';
     const eligible=true;
-    const value=localStorage.getItem('BossTimer.webTheme.v1:'+name);
+    const value=readThemePreference(name);
     const solids=['sky','wood','green','blue','magenta','ivory','canary','forsythia','purple','gray'];
-    const theme=eligible && ['sakura','spring','winter','rain','avengers',...solids].includes(value)?value:'default';
+    const theme=eligible && ['default','sakura','spring','winter','rain','avengers',...solids].includes(value)?value:'gray';
+    for(const key of ['data-theme','data-theme-pink','data-theme-photo','data-theme-image','data-theme-solid'])root.removeAttribute(key);
     if(eligible) root.setAttribute('data-theme-user','enabled');
     if(theme!=='default') {
       root.setAttribute('data-theme',theme);if(theme!=='avengers') root.setAttribute('data-theme-pink','true');
@@ -24,7 +39,7 @@ SCRIPT = r"""(()=>{'use strict';
     const colors={avengers:'#110b09',sky:'#f2faff',wood:'#faf5ed',green:'#f4faf1',blue:'#f1f5ff',magenta:'#fff1fb',ivory:'#fffdf3',canary:'#fffaf0',forsythia:'#fffef2',purple:'#f7f2ff',gray:'#f5f6f7'};
     if(meta) meta.setAttribute('content',colors[theme] || (theme==='rain'?'#edf3ed':theme==='winter'?'#fff7e8':theme==='spring'?'#fff0f6':theme==='sakura'?'#fff4f9':'#151b24'));
   } catch(_) { /* Storage blocked: retain the normal default, never block entry. */ }
-})();""".encode('utf-8')
+})();""").encode('utf-8')
 
 SCRIPT_SOURCE = "'sha256-" + base64.b64encode(hashlib.sha256(SCRIPT).digest()).decode('ascii') + "'"
 

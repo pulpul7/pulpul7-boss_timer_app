@@ -70,4 +70,10 @@ const prior=fixture({[legacy]:'font-b'},true);await prior.api.refreshScope('alic
 check(prior.font()==='font-b','legacy personal font remains preferred over theme deployment default');
 const absent=fixture();await absent.api.refreshScope('alice',true,'avengers');
 check(absent.font()==='font-a','unavailable SUIT retains safe catalog fallback');
+const gray=fixture();await gray.api.refreshScope('alice',true,'gray');
+check(gray.font()==='system'&&gray.size()==='0px','fresh gray theme defaults to device system font without downloading a face');
+await gray.pick('font-b');await gray.el('web-font-size-save').fire();await gray.api.refreshScope('alice',true,'winter');await gray.api.refreshScope('alice',true,'gray');
+check(gray.font()==='font-b','explicit personal gray font remains saved until the user resets it');
+await gray.el('web-font-size-default').fire();
+check(gray.font()==='system'&&gray.size()==='0px'&&JSON.parse(gray.values.get(key)).themes.gray.font==='system','gray Default resets and saves device font and its default size');
 return {checks:checks.length};

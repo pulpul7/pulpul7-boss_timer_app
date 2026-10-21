@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "debugging_evidence_and_resolution_log_not_code_navigation_tree",
-  "updated_on": "2026-10-20",
+  "updated_on": "2026-10-22",
   "rules": [
     "Record only investigated facts; user reports, hypotheses, confirmed causes and resolutions are distinct.",
     "No credentials, private user data or raw production logs. Reference code symbols/tests and sanitized event names.",
@@ -11,6 +11,1015 @@
     "After debugging review route coverage: extend an existing route first, add a distinct route only when needed, merge duplicates and remove stale current-code claims from CODEMAP.json. Historical entries here retain their original context and must not be used as current dependencies without revalidation."
   ],
   "entries": [
+    {
+      "id": "menu_preserved_top_only_next_boss_scroll_alignment",
+      "recorded_on": "2026-10-22",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Keep automatic-hide UI/default10 seconds, but replace DOM hiding with next-boss scroll alignment. Automatic action only at page top; never move a user already scrolled down. PC and phone stop only on downward scrolling. Non-scrollable pages remain unchanged; explain behavior in settings.",
+      "confirmed": [
+        "The old controller removed header/live bar/date controls/recent bosses via menus-idle and forced upward reveal to zero. It also trapped both directions at the boss boundary. These paths conflicted with the final requested normal-document scrolling.",
+        "Final user clarification explicitly rejects adding scroll range to short pages. No temporary spacer/min-height/padding extension remains in the implementation.",
+        "Menu-mouse preference keys and selected delay already provide per-browser opt-out and default10 seconds; preserving these does not require AppData migration."
+      ],
+      "resolution": [
+        "Replaced controller internals with next-boss edge/pin checks. PC mouse leave starts a single selected-delay timer only from scrollY<=1. Mouse reentry cancels without jumping; user scrolling below top cancels, and timeout rechecks top, visibility, pressed input and editing/dialog/loading guards.",
+        "No menus-idle class is added; removed collapsing CSS, obsolete empty gap and stale clock/connection suppression. Menus and previous bosses remain in document flow, so ordinary upward scrolling reaches them without forced top jumps.",
+        "First downward PC wheel aligns to the next visible boss and holds only that wheel gesture; upward wheel immediately releases hold and remains native. New downward gestures continue. Touch release/downward inertia stops only when crossing from above; upward touch/inertia remains free. Cancel/pinch/controls retain ordinary input handling.",
+        "If document scrollHeight is no greater than viewport height, edge returns null: automatic, wheel and touch alignment do nothing. Existing small scroll ranges use browser clamping; no blank scroll range is created.",
+        "Kept original checkbox/delay UI labels, default10 and saved preferences. Updated visible explanation with top-only alignment, already-scrolled/no-overflow exclusions, retained menus and downward-only stop.",
+        "Page revision222 and PAGE/STYLE/SCRIPT/fallback mirrors synchronized. Narrow menu embedding uses explicit private identifiers only; DOM value/target fields are excluded from identifier shortening. Existing observer pauses offscreen reactor animations; no new polling/animation loop is introduced.",
+        "Updated fixture literal and movement expectations. Chrome startup now retries transient DevToolsActivePort file locking/partial writes until the original deadline; no production server behavior was changed for that test-only race."
+      ],
+      "validation": [
+        "Readable and embedded menu module64 deterministic checks each pass: saved/default delays, all seven values, timer cancellation, top-only mouse action, opt-out/storage failure, first downward wheel hold/fresh continuation/immediate upward release, touch release/inertia/cancel in phone and nonphone profiles, form/loading/hidden-card guards, natural clamp and no-overflow no-op.",
+        "Visible updates17, schedule views109, TXT47, theme defaults27 checks passed. Python asset/live/custom-layout/literal-compaction45 tests pass. Full SCRIPT syntax, byte mirrors, compaction idempotence, JSON/Python parsing and six-file1MiB validation pass.",
+        "Final isolated Chrome PC fixture passes native mouse leave automatic alignment, entry without jump, native upward wheel freedom, selected-delay cancellation after user scrolling, disabled setting, downward-only stop and18 theme transitions.",
+        "Actual short-page Chrome case confirms no overflow, no movement, retained header and no added spacer. Motion fixture21 checks confirms offscreen header reactor stops, retained clock updates normally, cinematic-hidden effects remain paused and viewport/background gating still works.",
+        "Final Android Mobile UA fixture passes unchanged menu visibility, downward release/inertia stop, fresh continuation, free upward crossing and normal return to top, plus18 theme transitions. Physical devices remain unmeasured.",
+        "Some fixture reloads produced server-side Win10053 cancelled-request traces; production-page error collection stayed empty and all assertions passed. These traces were not treated as application faults."
+      ],
+      "remaining": [
+        "No build/archive/deployment, live-service restart or user AppData/schedule/media changes. Reload updated web assets to use the new controller.",
+        "Prior release preflight findings remain: recreate the deployment declaration after final default saves, and choose the next program release version. This UI task does not alter those choices."
+      ]
+    },
+    {
+      "id": "pc_menu_reentry_requires_page_top_release_preflight",
+      "recorded_on": "2026-10-22",
+      "status": "source_changed_nonbuild_verified_release_declaration_pending",
+      "request": "PC pointer reentry must not reveal folded menus below page top. Also inspect remaining requirements before confirming a release.",
+      "confirmed": [
+        "pointerActivity previously called show unconditionally on mouse entry; show also scrolls to zero and ticks. This revealed menus and changed position even while browsing below the top.",
+        "Release declaration hashes mismatch current init/default_settings.ini and web_assets/boss_spectrum.json. read_declaration raises its stale-declaration error before packaging. No declaration or user data was modified by this audit.",
+        "Actual release resolver returns v6.4.1 from the reachable tag with no explicit version override. Source build_metadata also reports v6.4.1; choosing a new release version remains a user decision.",
+        "Initial365-test preflight passed363 tests and exposed2 errors: compact_embedded_indent unconditionally indexed function sections absent from standalone literal test snippets. This was an existing source-tool failure, separate from menu behavior."
+      ],
+      "resolution": [
+        "PC mouse entry still cancels pending hide timers, but calls show only when position<=1, matching existing wheel top tolerance. Hidden menus and scroll position remain unchanged below top, with no extra tick, layout measurement, loop or request. Top reentry and fresh upward wheel remain supported; phone/tablet touch paths are unchanged.",
+        "Embedded only the readable menu block using the existing compaction settings and synchronized SCRIPT. Bumped web page revision220 and fallback metadata; program/module release versions were not changed.",
+        "Compactor now skips a section when its begin or following end marker is absent. Full-bundle output remains idempotent and no literal-rewriting behavior was added."
+      ],
+      "validation": [
+        "Readable and embedded menu modules each pass111 deterministic checks, including PointerEvent and legacy mouse fallback, lower-page entry without reveal/jump/tick, continued hidden state without timers, top entry, and fresh upward wheel recovery.",
+        "Complete isolated Chrome --mouse-menu fixture passed native lower-page leave/entry preserving fold and scroll; return-to-top reentry; old leave delay, grace cancellation, default delay, checkbox and no generic idle hiding; eighteen theme transitions and existing copy/TXT/spectrum checks.",
+        "After the compactor fix, reran85 tests covering literal safety, release preflight/version/metadata/patch notes, declaration selection/default handling and web asset selection: all passed. Other280 checks in the original365 run passed before this tool-only change.",
+        "FFmpeg is present. All eight requirements-gui installed versions meet declared ranges; every spec prerequisite import succeeds. Actual spec or PyInstaller was not executed. No matching current-version ZIP was found directly in dist.",
+        "PAGE/STYLE/SCRIPT mirrors, compactor idempotence, relevant Python/JSON parsing and six-file1MiB limits pass. schedule.js is1048390 bytes, leaving186 bytes. Scoped git diff --check passed apart from a line-ending normalization notice."
+      ],
+      "remaining": [
+        "Before manual build: save final intended defaults and recreate the deployment declaration through existing controls; do not merely patch hashes. Choose and explicitly set the new program version. Neither operation was inferred or performed.",
+        "Binary startup, updater restart/web persistence/tray lifetime, actual Discord notice voice/chat and physical mobile PWA/cinematic behavior require the user manual build and real-device smoke test. Source checks do not prove those binary outcomes.",
+        "No build/ZIP/deployment, repository mutation, package install, AppData/schedule/media changes or live-service restart."
+      ]
+    },
+    {
+      "id": "web_copy_settings_anchor_defaults_checked_invasion_spectrum",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Finish drifting copy gear and new copy defaults; rename category to notice schedule TXT; put three copy actions below period; assign checked invasion spectrum28 and matching selected fill.",
+      "confirmed": [
+        "Gear coordinates were measured relative to the header only when fitHeader ran, so native scrollbar width changes could leave stale absolute coordinates. A common copy-tools wrapper now anchors the gear with CSS.",
+        "The actual checked invasion catalog_id is a254f002f2e41a83e299f49c. Both the bundled and read-only inspected runtime maps assigned28 to8342eabe36e4b872a1be5075, which is the separate whole-invasion entry. Checked invasion had no assignment. A no-spectrum choice receives the ordinary selected gray fill, while spectrum choices share the selected green fill.",
+        "Runtime spectrum files override the bundle entirely, so only adding the new source assignment would not repair existing runtime files. The initial runtime-override hypothesis alone did not explain the incorrect source map; actual canonical IDs confirmed the missing source assignment."
+      ],
+      "resolution": [
+        "copy-tools retains the split copy footprint; gear CSS is right/bottom anchored and fitHeader no longer sets left/top. Narrow Iron Man grid uses the wrapper in the copy area.",
+        "Fresh copy controls select tomorrow8 first and notice schedule TXT checked. Saved personal period/category remain authoritative. Old default is labeled day-after-tomorrow08 and uses that fixed copy boundary; nonsharing evening extension and TXT next-day end remain unchanged.",
+        "Renamed visible category/help text and moved text copy/image copy/TXT save into a separate toolbar immediately below the period control.",
+        "Added checked invasion28 to the bundle. BossSpectrumStore._resolved fills only a missing checked default when the bundled assignment is28; existing assignments and all other runtime colors remain authoritative. Reads do not write. Explicit saves store checked_invasion_default=1 so subsequent resets stay removed.",
+        "Page revision219; HTML/CSS/JS mirrors and metadata fallback synchronized. No frontend spectrum or selected CSS rewrite was needed."
+      ],
+      "validation": [
+        "Python spectrum17 tests, including real canonical ID28, legacy runtime HTTP response without writes, future explicit color/reset persistence and unrelated color preservation. Combined asset/live/custom-layout/spectrum44 tests passed.",
+        "Copy mode23, copy feedback36 across readable/embedded helper, TXT47, theme tab17 and schedule views109 checks passed. Full schedule script parses.",
+        "Isolated Chrome PC and Android UA passed complete theme-frame fixture, 320/390/1280px copy dialog actions below period with renamed label and no horizontal overflow; fresh defaults correct. PC36 scrollbar-width cases retain relative gear alignment.",
+        "Actual browser production spectrum module shows checked28 badge, assigned class, same selected green fill as a24 reference, and28 background after deselection. Android scroll stop behavior and18 theme transitions remain passing.",
+        "PAGE/STYLE/SCRIPT byte mirrors, Python/JSON parsers, embed compaction idempotence and existing six-file1MiB validation passed. No build/archive/deployment or user data mutation."
+      ],
+      "remaining": [
+        "Runtime color merge needs the changed Python web server and color seed. Static six-file update alone cannot apply it; an already running older server is not automatically restarted. Page must reload after updated server code is running.",
+        "Physical PC/phone live-service rendering and deployment were not performed; browser uses an isolated fixture and mocked spectrum response, while Python tests cover real store/API behavior."
+      ]
+    },
+    {
+      "id": "web_copy_cutoff_feedback_button_cooldown",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Show actual copy end time in bold for top/TXT copying; shorten major alarm label; disable only the clicked copy button for one second.",
+      "confirmed": [
+        "All copy actions previously used the same generic success toast. Copy text and copy period could differ for TXT because it displays an independently grouped/cutoff snapshot.",
+        "Top left/right, TXT whole-copy and dialog text-copy had no per-button rapid-click guard. Major tab label came from refreshAlarms."
+      ],
+      "resolution": [
+        "New readable web_copy_text.js is embedded into the existing schedule.js. Copy captures now and the bounded end before awaiting clipboard permission, and emits a strong DOM range plus a plain success suffix via toast.replaceChildren. No HTML interpolation.",
+        "TXT passes its displayed text plus the end computed from the rendered-plan timestamp. Other copy actions retain saved/one-off period behavior. Range labels include relative day or absolute date and nonzero minutes/seconds; failures keep the manual-copy path.",
+        "Capture-phase button-local WeakSet disables only the clicked copy action for1000ms, blocks duplicates even if another render reenables that button, then restores it. Other copy buttons remain independent. No queue or always-running cooldown timer.",
+        "Major master label is now major alarm ON/OFF in Korean; mixed-alarm label remains unchanged.",
+        "Page revision217, source mirrors and embed tooling synchronized within the existing1MiB limit. Limited safe code sections received whitespace/local-name compaction; template-based private references were avoided in the new helper because the existing compactor preserves template literal contents."
+      ],
+      "validation": [
+        "34 readable/embedded copy-feedback checks cover cutoff snapshots, before/after17:00 defaults, next-day end,24/48-hour periods, bounded/all ranges, TXT midnight reuse, delayed clipboard, denial and independent1000ms guards.",
+        "TXT47, period19, tab restore36, theme tab17, schedule views109, quick copy11, auto refresh15, and readable/embedded fonts32 each passed.",
+        "Isolated Chrome PC and Android UA verified all four native clicks execute once, immediate repeats are blocked, forced reenable remains blocked, buttons reenable after one second, another button runs independently, toast range is strong and accurate, and both major alarm ON/OFF labels are correct. Existing TXT fallback/cache/expiry/reload and18 theme transitions passed.",
+        "Longer browser checks now pause the fixture status poll after reload assertions so intentionally injected schedules cannot be overwritten by normal polling during expiry checks. This is test-only.",
+        "Python asset/live/custom-layout27 tests passed. PAGE/STYLE/SCRIPT byte mirrors, readable module embedding, re-compaction idempotence, Python/JSON parsers and all six update file size limits passed."
+      ],
+      "remaining": [
+        "No physical device clipboard permission prompt verification. Browser tests mock clipboard; deterministic tests cover permission delays and failure. No build/archive/deployment or user data changes."
+      ]
+    },
+    {
+      "id": "web_compact_major_header_txt_copy_next_day_end",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "user_report": "Major settings button still enlarged date/time area. Also requested a theme-colored whole-copy button on TXT bubble and next-day23:59:59 display cutoff.",
+      "confirmed": [
+        "Inline settings retained min-width80/min-height40 and a separate header sibling. Its :has rule replaced base header grid with flex. At390px gray/sakura header grew72 to120px; at1280px grew72 to80px.",
+        "TXT previously had independent day-after-tomorrow08:00 cutoff while sharing copy row-selection and formatting settings. There was no whole-copy action on its bubble."
+      ],
+      "resolution": [
+        "Moved #custom-clock-actions inside .clock-controls, reduced minimum button to54x24 with smaller gear/padding, removed the special sibling flex-header rules. Iron Man compact settings border reduced to3px. Wide-PC header returns to base height; narrow screens may wrap date/time naturally.",
+        "TXT now selects tomorrow-end independent of copy period. Added theme-colored absolute-position whole-copy button above bubble right edge without reducing text width. copyText accepts an explicit displayed value; shared clipboard/fallback uses that exact value.",
+        "Period boundary and accessibility label updated. Readable TXT, bundled script, PAGE/STYLE mirrors and page revision216 synchronized. Other copy buttons continue their original saved/one-off periods."
+      ],
+      "validation": [
+        "JS TXT45, copy modes/KST cutoff19, rest-work6, quick-copy11 and theme-tab17 checks passed; script compilation passed.",
+        "Actual isolated Chrome PC and Android UA measured320/390/500/1280 widths across gray/sakura/Iron Man. Button height24 and width at most59; contained in clock group, no alarm overlap or horizontal overflow. Wide1280 all/custom heights equal; neutral themes also equal at500.",
+        "Chrome verified whole-copy exact text, theme colors, correct Korean label, manual fallback after clipboard denial, independent period, expiry/cache/selection/reload and18 theme transitions. Phone screenshot inspected. A fixture request canceled during repeated reload emitted ConnectionAbortedError at socket write; browser assertions completed with exit0.",
+        "Python custom-layout and asset tests, parser/mirror checks and existing six-file1MiB contract checked."
+      ],
+      "remaining": [
+        "No physical phone/browser-toolbar test and no build/archive/deployment. Larger personal font choices and insufficient width can naturally wrap the date/time row."
+      ]
+    },
+    {
+      "id": "web_gray_system_default_font",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Use device default font for gray theme and its Default action.",
+      "confirmed": [
+        "Gray previously inherited the server catalog default. Both unsaved selection and the Default button already use WebFonts.defaultFont, so a theme-specific system branch covers both paths.",
+        "The system row is the device font; existing catalog numbering is unchanged. Explicit personal/all-theme saved choices still take priority until reset."
+      ],
+      "resolution": [
+        "defaultFont returns system for gray. Other themes retain catalog default and Iron Man retains SUIT. Readable and bundled font code synchronized; page revision215."
+      ],
+      "validation": [
+        "Readable and embedded full font-module tests each passed32 checks, including new gray unsaved default, personal choice preservation and Default persistence. Existing theme/all-theme/nickname/race/default behavior passed.",
+        "Entire schedule JS parsed; Python/JSON parse, script byte mirror and existing six-file1MiB limits verified."
+      ],
+      "remaining": [
+        "No browser/device visual retest for this selection-only change. No build, archive or deployment."
+      ]
+    },
+    {
+      "id": "web_schedule_txt_skip_unused_rest_work",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Review recent schedule-tab additions for optimization; user clarified the bottom gap can be natural when menus hide and requested no further gap changes.",
+      "confirmed": [
+        "TXT called sharingEvents with default copy rest preference, potentially executing recalculatedRests (barrier scans, timeline sort and rest generation), immediately discarding all generated rest rows.",
+        "Its cached plan signature included include-break even though TXT never displays rests, causing unnecessary scans and formatting when this copy-only preference changed.",
+        "Tab persistence uses sessionStorage only on lifecycle events and no extra requests. TXT already skips per-second formatting, caches theme returns, uses one expiry deadline and stops hidden-page work. Existing status polling remains shared for schedule/major/catalog freshness."
+      ],
+      "resolution": [
+        "sharingEvents accepts an optional rest flag defaulting to the same saved copy checkbox. Only TXT passes false, bypassing unused derived-rest work without changing selection/filter/format behavior.",
+        "TXT cache signature ignores include-break. Copy preview and output retain their own saved rest preference. No layout, gap or scroll behavior changed in this task.",
+        "Page revision214 and embedded script mirror synchronized; existing update file contract and1MiB limit preserved."
+      ],
+      "validation": [
+        "Actual production functions with2000 bosses: TXT0 rest derivations, same boss/invasion/fixed/maintenance/open rows as previous rest-enabled output with rests removed. Copy still derives rests after returning from TXT.6 checks passed.",
+        "Readable and embedded TXT45, copy-mode19, schedule views109 and current-tab36 checks passed; complete schedule JS compiled.",
+        "Isolated Chrome passed actual tab reload, TXT copy/format/expiry/selection, theme cache0 scan/0 format return, natural short/long view bounds and18 theme transition checks. One earlier run emitted a loopback handler traceback during reload with browser assertions passing; its cause was not established. A repeat with captured stdout/stderr passed with exit0 and empty stderr."
+      ],
+      "remaining": [
+        "No build, archive, deployment or user-data modifications. Work-count reduction was measured; end-to-end time or battery improvement was not measured."
+      ]
+    },
+    {
+      "id": "web_current_tab_reload_and_short_view_height",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "user_report": "Manual reload always selected All; short Major/TXT views could scroll into empty bottom space. User refined that Iron Man also appeared to have space masked by its outer frame.",
+      "confirmed": [
+        "Initial selectedFilter was always all. Existing WebPageRefresh saved state only before its own automatic navigation; ordinary browser reload had no current-tab save path.",
+        "Theme background art uses fixed positioning and does not set document flow height. Light theme body min-height100vh, idle body viewport+4px and Iron Man flex growth could stretch short views. TXT hid outer frame artwork but retained Iron Man72px mobile/86px desktop bottom padding.",
+        "Empty fixture pages initially had viewport-sized body; the exact extra scroll length on the user device was not reproduced or measured."
+      ],
+      "resolution": [
+        "Readable web_current_tab.js is embedded into existing schedule.js. It snapshots filter and theme-open state to per-window sessionStorage on pagehide, restores once after first accepted payload, handles unavailable/invalid storage and leaves existing automatic refresh restore last.",
+        "Visible custom/TXT schedule views disable forced body min-height and flex expansion. TXT sets top14/bottom8 padding instead of frame clearance. All and theme settings retain existing outer frame behavior; long content is not clipped.",
+        "Page revision213 and bundled script/PAGE/STYLE mirrors synchronized. A few nonfunctional bundle comments were removed to preserve the existing1MiB file limit; no new browser request or update contract change."
+      ],
+      "validation": [
+        "36 readable/embedded tab lifecycle checks, existing tab17, view109 and auto-refresh15 checks passed. Entire schedule script parsed in Node.",
+        "Isolated Chrome PC and Android UA reloaded actual documents for custom/TXT/theme/all and restored selected tab with no preview errors. Short gray/sakura/dark/Iron Man custom/TXT pages, including idle menus, used natural body height and no overflow beyond viewport; synthetic long content remained scrollable to the app bottom.",
+        "Existing font/copy/cache/expiry/theme isolation and phone menu checks passed. All-tab Iron Man frame height at390/500/1280 widths, banner and long-content boundaries passed.",
+        "Python asset selection/live asset/custom layout/filtered rest31 tests passed. JSON/Python parse, readable-to-embedded source equality, PAGE/STYLE/SCRIPT byte equality and six-file1MiB limits passed."
+      ],
+      "remaining": [
+        "No build/archive/deployment or production data changes. Physical phone browser toolbar/overscroll behavior remains for user verification."
+      ]
+    },
+    {
+      "id": "web_txt_font_correction_phone_only_boost",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Body minus2; separate host-name minus2 correction; phone-only plus4 with no PC boost.",
+      "confirmed": [
+        "Previous chat body16/name18. CSS now uses body14 and speaker calc(body+2px+separate -2px), yielding both14 on PC/tablet.",
+        "Existing deviceProfile is-phone class alone overrides shared body size to18, yielding both18 on phones independently of viewport width. Tight line-height1.2 and intrinsic bubble expansion remain.",
+        "No schedule data, copy strings, cache keys, update structure or device detection logic changed. Page revision212 and bundled CSS mirror synchronized."
+      ],
+      "validation": [
+        "Isolated Chrome default PC UA and Android phone UA both passed browser fixture. At320/390/1280px computed body/name were14/14 on PC and18/18 on phone, without horizontal page overflow.",
+        "Existing wrapping/height expansion, copying/selection, focus-outline removal, expiry, theme restoration and no-scan/no-format cached return passed in both runs. Phone menu regression checks passed; phone screenshot visually inspected.",
+        "Bundled PAGE/STYLE byte equality, JSON/Python parse and six-file update size limit verified."
+      ],
+      "remaining": [
+        "No executable, archive, build or deployment performed. Physical phone/tablet testing was not performed; phone checks used isolated Chrome Android UA emulation."
+      ]
+    },
+    {
+      "id": "web_txt_cached_theme_return_hidden_height",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "user_report": "TXT appeared only after a long wait when returning from selecting a theme; user requested reuse across themes.",
+      "confirmed_cause": [
+        "The bubble DOM was already retained, but each refresh still filtered, grouped, sorted and formatted all eligible events before comparing text.",
+        "fitHeader measured textarea scrollHeight whenever selectedFilter was txt, even while theme settings hid its ancestor. That hidden measurement could replace the visible height with0; unchanged-value refresh did not restore the height."
+      ],
+      "resolution": [
+        "WebScheduleTXT caches the plan across themes by payload identity, major/catalog versions, fixed TXT period boundary and copy checkbox values. Unexpired cached entries only restore visible fit if needed and rearm a single deadline. Date/horizon changes, clock rollback, expiry or changed content dependencies rebuild it.",
+        "WebScheduleTXT.fit ignores hidden theme/document states and zero width, preserving the previous height. Header fitting delegates to this helper, and visible width changes refit height without rebuilding contents. Same-width returns retain layout and selection.",
+        "Page revision211 and bundled script mirror synchronized within1MiB. Only source and non-build fixtures changed."
+      ],
+      "validation": [
+        "41 deterministic readable/embedded TXT checks passed, including cached no-scan/no-format reuse, stale callback invalidation, hidden height protection, changed-width fit, settings invalidation and expiry/lifecycle behavior.",
+        "Isolated Chrome switched through5 themes and immediately returned to the same visible textarea with selection retained:0 sharingEvents scans,0 shareText calls, hidden height preserved. Existing text/font/wrap/copy/expiry/six-theme restoration/18 theme transitions passed.",
+        "JS tab17, settings36, views109, quick-copy11 checks and Python asset/live/custom/rest31 tests passed."
+      ],
+      "remaining": [
+        "No build, archive or deployment performed. The exact production wait duration was not measured; identified redundant processing and hidden-height paths were corrected and verified locally."
+      ]
+    },
+    {
+      "id": "web_txt_fonts_intrinsic_growth_focus_outline",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Increase chat body font by2, keep host name always body+2, tighten vertical spacing, expand the bubble before wrapping, hide the focus border while preserving copying.",
+      "confirmed": [
+        "Chat-local --txt-font-size is16px. Both textarea and width probe inherit this size; speaker is calc(body+2px), currently18px. Body line-height1.2 produces19.2px lines and speaker margin-bottom is3px.",
+        "On an actual text change WebScheduleTXT refresh mirrors plain text into #txt-width before auto-height calculation. CSS intrinsic sizing uses the widest title/body line and expands horizontally up to available thread width. Only overflow beyond that limit wraps. Unchanged content never rewrites the probe and clock ticks do no TXT work.",
+        "Textarea focus outline, border and shadow are suppressed without disabling focus, readonly selection or copying. Page revision210 and byte mirrors updated."
+      ],
+      "validation": [
+        "33 deterministic readable/embedded TXT checks include full-text width-probe updates, unchanged-content no writes/layout and existing deadline lifecycle. Python asset/live/custom layout/rest tests:31 passed.",
+        "Isolated Chrome verified16px body,18px name,19.2px line-height and name following a temporary20px body as22px; a longer row increased bubble width without adding a text row when screen space was available.",
+        "At320/390/1280px, bubble clamped to available space without horizontal page overflow; existing theme/clipboard/TXT expiry, no-polling, selection and focus-outline checks passed. Rendered screenshot visually reviewed."
+      ],
+      "remaining": [
+        "No build, archive or deployment performed."
+      ]
+    },
+    {
+      "id": "web_txt_host_chat_bubble",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Make TXT look like the supplied chat reference: a transparent host avatar, speaker label, left-indented white speech bubble sized to the bulletin title, wrapped rows growing vertically, theme-colored surroundings.",
+      "confirmed": [
+        "Avatar exterior was removed with the built-in image_gen tool, retaining the character and blue crown badge. Selected RGBA output is saved at web_assets/schedule-host-v1.png; exact prompt/provenance is saved in web_schedule_host.prompt.txt. Generated raster output was copied without further image editing.",
+        "TXT now uses a grid avatar/thread layout with a static speaker label and CSS speech tail. An invisible title-sized grid item sets the intrinsic bubble width without JavaScript measurements; the existing textarea auto-height handles row wrapping. Its one-row default removes the previous viewport-height minimum.",
+        "Body retains 14px bold system font, white background, black text, selection, shareText content, independent horizon, event/deadline-only rendering and group expiry. Surrounding frame and speaker use the active theme panel/text colors and styles remain scoped to visible TXT.",
+        "Existing authenticated /themes serving handles the bounded hash-verified host image with ETag caching. Lazy image loading avoids fetching the hidden portrait at initial page load. Build collection already includes web_assets; the existing six-file web-update contract and server routing structure are preserved.",
+        "Page revision209 and HTML/CSS fallback mirrors updated within existing file-size limits. Redundant button-type attributes were omitted only in the form-free page to retain the HTML size contract."
+      ],
+      "validation": [
+        "Python49 tests passed, including avatar RGBA/hash/size, authenticated HTTPS and local serving, cached304, existing theme asset integrity, live asset selection, custom layout and rest rules.",
+        "Isolated Chrome confirmed the image loads and its corner alpha is zero; long boss text increases textarea height without inner scrolling; body copy formatting/selection/no polling and deadline expiry remain correct.",
+        "At viewport widths320/390/1280, bubble widths225/227/227px fit the title and remain within the thread without page overflow. Gray/pink surroundings differ and six-theme background restoration plus18 theme transitions passed.",
+        "Local rendered chat screenshot visually reviewed. Final JSON, Python syntax, byte mirrors and asset bounds checked."
+      ],
+      "remaining": [
+        "No executable, ZIP, test build or deployment generated. New avatar resource must be included with these source changes; compatibility with a previous EXE receiving only the six web-update files was not tested."
+      ]
+    },
+    {
+      "id": "web_gray_default_menu_delay_and_compact_major_editor",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Compact major-boss settings outside Iron Man; allow 1/3/5/10/15/30/60 second mouse-leave delays with 10-second release default; default to gray, rotate gray/dark/pink positions, migrate only current dark users.",
+      "confirmed": [
+        "Non-avengers CSS reduces editor/group/tool spacing, choice min-height from 48 to 40px, vertical choice padding from 9 to 6px and savebar padding. Iron Man keeps its prior sizes; user font preferences are preserved.",
+        "web_menu_idle.js reads BossTimer.menuMouseDelay.v1 with a validated seven-value whitelist and defaults to 10 seconds for missing/invalid values. Dropdown updates replace the one-shot pending reservation. Existing enabled/disabled preference, reentry cancellation, mobile exclusions and scroll behavior are preserved.",
+        "web_theme_bootstrap.THEME_PREFERENCE is shared with the embedded main-script helper through the source synchronizer. Per-nickname BossTimer.webTheme.gray.v1 marks one-time migration: missing or previous default/dark becomes gray; other themes remain; explicitly choosing dark after migration remains dark.",
+        "Static HTML and first-paint restoration start gray; the bootstrap clears stale gray attributes for explicit dark. Theme identities are unchanged while positions rotate gray first, dark second, pink in the old gray position.",
+        "Page revision 208 and Python byte mirrors synchronized within the existing per-file 1MiB limits. Audited JS whitespace compaction and removal of redundant type attributes from form-free theme buttons preserve the six-file asset contract."
+      ],
+      "validation": [
+        "103 deterministic menu checks cover all seven delays, 10-second default, invalid stored/input values, storage failure, pending replacement, mouse reentry, hidden-document cancellation, unchanged mobile gesture and scroll behavior. Theme-default helper 27 checks and actual first-paint script 12 checks passed.",
+        "Existing schedule views 109, theme tabs 17, TXT 31, copy modes 19, visible updates 17, copy formatter 12, quick copy 11, page refresh 15, custom defaults 19, manual save 19, first use 14, invasion 20 and settings visibility 36 checks passed.",
+        "Python first-paint CSP/bootstrap, asset selection/live assets, custom layout and rest-rule tests: 36 passed after asset-size verification caught and resolved initial oversized HTML.",
+        "Isolated Chrome at 320x480 with large type: Iron Man choice 91px/savebar240px preserved; dark/gray/pink choices66.5px/savebar174px, with all selection markers visible and choices clickable. Browser also confirmed default delay10, selected delay1 and native mouse leave/enter, existing TXT/no-polling/copy/background restoration and18 theme transitions."
+      ],
+      "remaining": [
+        "No build, archive, deployment or live user-data mutation performed. Production device verification remains with the user after applying the source changes."
+      ]
+    },
+    {
+      "id": "web_major_default_reapply_and_checked_invasion_visibility",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "user_report": "User events remained selected in the major-boss defaults and checked-invasion selection was difficult to see after clicking. User also requested checked-invasion spectrum 28 and reapplication of release defaults.",
+      "confirmed": [
+        "customDefaultSelected excluded only the all-invasion special category, so user events inherited true. User events now default off; checked invasion and guild dungeon remain on. Existing chapter, absolute, dungeon, fixed and future-boss rules are preserved.",
+        "Browser major selection policy revision increased from 1 to 2. Prior choices reset to these release defaults once after receiving a valid catalog; later explicit saves remain personal exceptions. Unrelated storage is preserved.",
+        "The savebar used a fixed 190px editor spacer while its measured height could reach 274.5px at 320px viewport width with large type. Its height is now observed only when resized, reserved in editor/root scroll padding, and limited to 50dvh. Clicked choices scroll to the nearest unobscured viewport area. Selected choices receive an explicit check mark.",
+        "Checked-invasion stable catalog ID a254f002f2e41a83e299f49c is assigned spectrum 28 in the release seed, with its declaration source hash synchronized. The invasion color grouping hook now routes to checked-invasion colors unless all-invasion mode takes precedence. Existing runtime color override behavior is preserved.",
+        "Page revision 207, bundled JS/CSS mirrors and existing 1MiB script contract retained. No update transfer/apply/restart structure change."
+      ],
+      "validation": [
+        "Major defaults 19 checks include prior revision-1 reapplication and later explicit user-event selection surviving reload; invasion 20 includes color-group inheritance. Manual save, first use, copy, visible updates and TXT timer checks passed.",
+        "Python spectrum, catalog, custom layout, asset selection/live assets and distribution-default tests: 67 passed. Release declaration read/seed hash validation passed.",
+        "Isolated Chrome 320x480 large-font picker confirmed user events off, checked invasion selected, visible check marker and unobscured clickable choice. Existing TXT expiry/no-polling/copy/theme-background/layout/theme-transition checks passed."
+      ],
+      "remaining": [
+        "No build, archive, deployment or real AppData mutation performed. User device screenshot conditions were not available; responsive behavior was verified with a local fixture."
+      ]
+    },
+    {
+      "id": "web_txt_alarm_group_deadline_expiry",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Remove elapsed TXT bosses without per-second scans; follow the existing alarm grouping and refresh at the last boss in a connected group.",
+      "confirmed": [
+        "WebNotices uses adjacent gaps of at most 121000ms as a transitive chain, matching web_push.GROUP_SECONDS=121. The exported groupGap is now shared by TXT expiry; alarm behavior is unchanged.",
+        "TXT previously included the last two past bosses through visibleRows and had no scheduled expiry. WebScheduleTXT now groups its independently selected eligible bosses, retains a chain until its last timestamp, then removes it together. A single boss expires at its own timestamp. Copy output retains its existing past-boss behavior.",
+        "One local timeout targets the earliest group expiry. Tab exit, opening theme settings, document hiding and pagehide cancel it; return refreshes overdue rows. Generation checks invalidate stale callbacks after data/settings replacement. Early callbacks rearm the remaining delay.",
+        "No per-second TXT scan, formatting or layout measurement and no added network requests. Page revision 206, bundled script mirrored within the existing 1MiB limit. Audited whitespace/private-name compaction preserves the asset contract."
+      ],
+      "validation": [
+        "31 deterministic TXT checks cover readable and embedded modules, inclusive gap boundary, transitive grouping, singleton expiry, early callback, stale callbacks, lifecycle cancellation, return refresh, unchanged text selection/layout, independent horizon and no per-second formatting.",
+        "Existing copy modes 19, formatter 12, quick copy 11, theme tabs 17, page refresh 15, custom defaults 18, invasion 17, manual save 19, first use 14, schedule views 109, visible updates 17, settings visibility 36 and distribution defaults 13 checks passed.",
+        "Python asset selection/live assets/custom layout/filtered rest/notice audio/push tests: 67 passed. Isolated Chrome confirmed actual timed batch expiry, TXT text selection/no polling, copy settings, six-theme background restoration, responsive gear placement and 18 theme transitions.",
+        "JavaScript syntax, compaction idempotence, asset byte mirrors and JSON checked."
+      ],
+      "remaining": [
+        "No executable, archive, test build or deployment generated. Production browser timing was not exercised; background timer throttling is handled by refresh on return."
+      ]
+    },
+    {
+      "id": "web_txt_tighter_line_spacing",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Slightly reduce vertical text spacing and the gap after the bulletin heading.",
+      "confirmed": [
+        "TXT-only line height reduced from 1.6 to 1.4 (22.4px to 19.6px at the existing 14px bold system font). The heading blank row is retained with the same reduced row height. Clipboard/TXT strings and all other views are unchanged.",
+        "Page revision 205 and bundled CSS synchronized."
+      ],
+      "validation": [
+        "Existing isolated Chrome TXT, copy, selection/no-polling, six-theme background restoration, layout and theme-transition checks passed. Byte mirrors and JSON verified."
+      ],
+      "remaining": [
+        "No build, archive or deployment performed."
+      ]
+    },
+    {
+      "id": "web_txt_white_background_leaking_into_theme_panel",
+      "recorded_on": "2026-10-21",
+      "status": "reproduced_fixed_nonbuild_verified",
+      "symptom": "After opening TXT, the theme panel retained a white frame background and low-contrast heading, matching the user screenshot.",
+      "confirmed_cause": [
+        "A later duplicate TXT frame selector matched data-view=txt without checking that schedule-view was visible. It overrode theme background, border and shadow while the TXT ancestor was hidden.",
+        "The neighboring tab-width/decorative visibility rules and one panel-hidden assignment were duplicated."
+      ],
+      "fix": [
+        "Removed the broad selector and redundant copies; retained one visible-TXT-only frame selector. Removed duplicate hidden assignment. Page revision 204 and bundled assets synchronized."
+      ],
+      "validation": [
+        "Chrome regression compares frame background color/image, border, shadow and backdrop before TXT versus after TXT-to-theme. Before fix it failed in all six tested themes.",
+        "After fix it passed in dark, pink, blossom, winter, rain and IronMan, together with existing TXT, independent period, typography, clipboard, layout, alarm-color and theme-transition checks.",
+        "Web asset selection/live assets unittest suites: 24 passed. Mirrors, JSON and size limit verified."
+      ],
+      "remaining": [
+        "No build, archive, deployment or operational service restart performed."
+      ]
+    },
+    {
+      "id": "web_txt_independent_day_after_tomorrow_08_period",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Show TXT through the day after tomorrow at 08:00 independently of copy period.",
+      "confirmed": [
+        "Added an internal day-after-8 period using local calendar date plus two and exact 08:00, bounded by available snapshot end. renderScheduleTXT always supplies this period.",
+        "Clipboard left/right keep existing periods and no longer overwrite TXT. Copy period changes do not regenerate TXT; category/seconds changes and real schedule refreshes still do.",
+        "Page revision 203 and bundled HTML/CSS/JS synchronized; accessible TXT label reflects the fixed range."
+      ],
+      "validation": [
+        "Copy/period 19 checks include calendar cutoff from morning/evening, exact 08 inclusion/one millisecond after exclusion, independence from saved all period and KST morning/evening cases.",
+        "TXT event refresh 9, formatter 12, independent rules 11 and schedule views 109 checks passed. Whole script compiles in V8.",
+        "Disposable Chrome verified fixed-range formatter output, unchanged TXT across period changes and both copy buttons, settings updates, publication refresh, plain bold font, no periodic formatting and existing layout/theme tests.",
+        "Mirrors, valid JSON and size limit passed."
+      ],
+      "remaining": [
+        "No build, archive or deployment performed."
+      ]
+    },
+    {
+      "id": "web_txt_bold_and_six_equals_date_suffix",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Bold the text and add one space plus exactly six equals signs after subsequent-day dates.",
+      "confirmed": [
+        "Schedule TXT textarea uses system font 14px weight 700. Plain clipboard/TXT strings use the shared formatter and append the six-equals suffix to subsequent-date headings only; no markup characters are added for bold styling.",
+        "Page revision 202 and bundled HTML/CSS/JS synchronized."
+      ],
+      "validation": [
+        "Formatter 12, independent selection 11, copy modes 13 and TXT event checks 9 passed; whole-script V8 syntax passed.",
+        "Disposable Chrome verified weight 700 with system font in dark/sakura/IronMan, plain styling, clipboard equality, no per-second formatting and existing split-button/gear/theme checks.",
+        "Byte-identical mirrors, JSON and 1MiB limit passed."
+      ],
+      "remaining": [
+        "No build, archive or deployment performed."
+      ]
+    },
+    {
+      "id": "web_copy_remove_star_run_dividers",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Remove hyphen divider lines from the text notice.",
+      "confirmed": [
+        "Removed divider state and output from the shared shareText formatter. Hollow star prefixes, heading, blank lines between dates, last-hit suffix and seconds preference remain unchanged. Applies to clipboard, TXT download and schedule TXT panel.",
+        "Page revision 201 and bundled script synchronized."
+      ],
+      "validation": [
+        "Formatter 11, independent selection 11, copy modes 13 and TXT event updates 9 production-source checks passed. Whole-script V8 syntax, mirror byte equality and size limit passed."
+      ],
+      "remaining": [
+        "No build, archive or deployment performed."
+      ]
+    },
+    {
+      "id": "web_plain_schedule_txt_bulletin_event_refresh",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Add a schedule TXT tab beside major bosses. Show exactly the left-copy text in the default font, keep only date/time, hide schedule controls and effects. User clarified this recreates a static KakaoTalk bulletin and must not inspect or regenerate text each second.",
+      "confirmed": [
+        "tab-txt uses its own labelled panel and readonly textarea. The regular schedule panel is natively hidden in TXT mode, preventing hidden boss cards and cinematic presentation. Alarm/day/rest/fixed/test controls are hidden; date and current clock remain.",
+        "Body text is system font 14px, normal weight, black on white with no themed text shadow, animation, filter or frame. Personal font family and size do not affect it; decorative outer layers are suppressed while the plain view is visible.",
+        "renderScheduleTXT shares the left-copy formatter and selected copy settings. It runs on tab entry, accepted schedule/major/catalog changes, copy-option changes and normal copy actions. Right-copy period override does not replace the default bulletin.",
+        "The normal clock tick never calls shareText or measures/writes TXT content. It updates only the retained date/clock and existing connection/notice duties. No new polling requests or TXT timer were added.",
+        "Unchanged text does not reset selection. Window resize only adjusts height. Legacy tab order inserts the new tab beside custom; explicit new order and automatic refresh restoration support txt.",
+        "Existing 1MiB asset contract retained by compacting audited embedded modules while preserving public API and literals. Page revision 200 and bundled HTML/CSS/JS mirrors synchronized."
+      ],
+      "validation": [
+        "Production-source TXT event/tick tests 9, tab navigation/order 17, automatic page restore 15 passed.",
+        "Existing JS checks: copy modes 13, independent rules 11, text format 11, release defaults 18, invasion 17, manual save 19, first use 14, schedule views 109, visible updates 17, settings 36, embedded notice/sound defaults 13, copy image 15 passed.",
+        "Python web asset selection/live assets/custom layout/rest rules/notice sound access unittest suite: 37 passed.",
+        "Disposable Chrome verified exact clipboard equality, hidden controls, visible date/time, fixed system font despite personal overrides, plain styling in dark/sakura/IronMan, selection retention, no formatter calls across clock ticks, copy-setting changes, actual schedule publication and restoration of regular cards.",
+        "Existing browser split-copy/clipboard failure fallback, three width/three theme geometry, six alarm styles and 18 theme transitions passed.",
+        "Whole-script V8 syntax, JSON, byte-identical mirrors, compaction idempotency and script size 1048526 bytes passed."
+      ],
+      "remaining": [
+        "No build, archive, executable, deployment, operational process restart, real clipboard or user schedule mutation performed."
+      ]
+    },
+    {
+      "id": "web_copy_notice_heading_and_starred_runs",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Change plain-text notice heading and blank line; wrap consecutive starred bosses with exactly ten hyphens; preserve subsequent-day date headings.",
+      "confirmed": [
+        "shareText replaces only the first date heading with the weekday notice title and a blank line.",
+        "important===true rows receive a hollow star prefix. Consecutive starred rows share one ten-ASCII-hyphen pair. Normal rows and day changes close the run; a final run is closed at output end.",
+        "Subsequent dates retain the original month/day/weekday heading. The last-hit marker is attached to the boss name. Existing seconds, mode, filtering, periods, clipboard and TXT paths remain shared; canvas output was not changed.",
+        "Page revision 199 and bundled script synchronized."
+      ],
+      "validation": [
+        "Shared formatter checks: 11 passed for exact requested examples, mixed/separate/star-only runs, cross-day groups, seconds, empty input and ten-character separators.",
+        "Existing copy mode/period checks 13 and independent selection/format checks 11 passed; whole script compiles in V8.",
+        "Web asset selection/live asset unittest suite: 24 passed.",
+        "Disposable local Chrome retained split-copy, settings, independent selection, period persistence, clipboard-denial fallback, three widths across three themes, six alarm styles and 18 theme transitions.",
+        "HTML/CSS/JS byte mirrors, JSON, compaction idempotency and 1MiB script limit passed; script 1048477 bytes."
+      ],
+      "remaining": [
+        "No build, executable, archive, deployment, live service restart, user clipboard or schedule change performed."
+      ]
+    },
+    {
+      "id": "web_split_copy_saved_legacy_category_and_one_off_period",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Move the previous quick-copy boss rules into a separate legacy TXT checkbox. Split the copy area into two character buttons: left follows settings; right follows settings with only the period overridden through tomorrow end.",
+      "confirmed": [
+        "The legacy TXT checkbox defaults checked to preserve the prior direct-copy boss set; it is persisted with existing copy options. Legacy mode temporarily disables conflicting major-only/include-fixed inputs without changing their values; turning it off restores ordinary selection.",
+        "legacyTxtIncluded owns the independent boss exclusions, with no dependency on major-tab selection or default-policy functions. sharingEvents applies the selected mode to preview, text, TXT and image paths.",
+        "copy-left uses current options; copy-right passes tomorrow-end through visibleRows/sharingEvents/periodEnd without mutating controls or stored preferences. The cutoff includes next-day 23:59:59.999 and excludes following midnight.",
+        "The original copy area contains two equally sized native buttons within the existing theme frame. The gear remains an independent absolute button. Formatting, seconds, period options and clipboard fallback are shared.",
+        "Page revision 198 and bundled HTML/CSS/JS mirrors synchronized; obsolete quickCopyRows path removed and CODEMAP updated."
+      ],
+      "validation": [
+        "Production-source category/period/persistence/cache checks 13 and independent legacy rules/formatting 11 passed.",
+        "Existing selection/save/tab/schedule JS checks 193, visible updates 17, settings 36, copy image 15 passed.",
+        "Web assets/live assets/custom layout/rest rules: 31 Python unittest tests passed.",
+        "Disposable local Chrome verified current-settings left copy, one-off extended right copy with saved period unchanged, settings-dialog text equality, personal selection independence and clipboard rejection fallback.",
+        "Chrome 320/390/1280px across dark/sakura/IronMan verified equal touching halves, gear target/alignment/18px dimensions, unchanged surrounding layout; six alarm styles and 18 theme transitions passed.",
+        "Whole-script V8 syntax, byte-identical mirrors, valid JSON, compaction idempotency and existing 1MiB script limit passed."
+      ],
+      "remaining": [
+        "No build, archive, deployment, live process restart, real clipboard access or user schedule change performed."
+      ]
+    },
+    {
+      "id": "web_independent_quick_clipboard_copy_and_gear",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Place a tiny gear at the copy button lower right without layout changes; gear opens the existing dialog. Main copy uses independently owned release-style exclusions and the existing plain-text clipboard format.",
+      "confirmed": [
+        "User explicitly chose direct clipboard text rather than TXT download and requested the same format as settings copy.",
+        "quickCopyIncluded and quickCopyRows own their exclusions; they do not call the major policy function or read personal selection/major filters. The original dialog row filter remains unchanged.",
+        "Both paths use shareText for date headings, day separators, time and boss labels; existing copy period and seconds options are shared. Quick selection keeps two past bosses and excludes ordinary chapter 2/3, dungeon fourth floor, four whitespace-normalized event names; eligible home-boss invasions are included.",
+        "copy-settings is an accessible SVG gear button, absolutely positioned at 18px; existing copy and logout nodes stay direct header children. Event-driven size observation aligns the gear without a recurring timer.",
+        "Main button calls clipboard copy directly; gear opens the original settings dialog. Clipboard rejection opens the dialog with the exact quick-copy text selected for manual copying.",
+        "Page revision 197 and bundled HTML/CSS/JS mirrors synchronized."
+      ],
+      "validation": [
+        "Production-source quick-copy checks: 12 passed including independent policy, aliases, invasions, time range, past limit and text format.",
+        "Existing production-source JS selection, persistence, tabs and schedule checks: 193 passed; visibility 17, settings 36, async copy image 15 passed.",
+        "Web assets, live assets, custom layout and rest rules: 31 Python unittest tests passed.",
+        "Disposable local Chrome with stubbed clipboard verified gear opening, direct copy, unchanged result after personal selection clear, original dialog copy, and rejection fallback.",
+        "Chrome 320/390/1280px by dark/sakura/IronMan verified gear hit target, lower-right alignment, 18px dimensions and identical copy/logout/context/nickname layout with and without the gear. Six alarm styles and 18 theme transitions passed.",
+        "Whole-script V8 syntax, byte mirrors, JSON, compaction idempotency and existing 1MiB limit passed."
+      ],
+      "remaining": [
+        "No build, deployment, archive, live service restart, user schedule changes or real user clipboard access was performed."
+      ]
+    },
+    {
+      "id": "web_major_release_exclusion_defaults_and_one_time_migration",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Set major-boss release defaults using exclusions, apply to existing personal choices once, and include future bosses automatically. User explicitly chose checked invasions only.",
+      "confirmed": [
+        "Default policy starts included. Ordinary chapter 2/3 bosses are excluded with absolute bosses retained; dungeon fourth floor and the four specified event names are excluded using whitespace-insensitive canonical names. All-invasion mode is off and checked-invasion mode on.",
+        "Schema 1 or missing preferences switch to schema 2 revision 1 only after a nonempty catalog. Only that server/guild boss selection storage is rewritten; major fixed display is turned on once. Cookies, media caches, alarms, schedules and AppData are not reset.",
+        "Schema 2 stores personal excluded/included exceptions rather than a frozen selected list. New chapters, upper dungeons and fixed entries automatically follow the default policy. Subsequent catalog refreshes preserve personal saved changes and unsaved drafts; unavailable exceptions remain stored.",
+        "Explicit save remains required for personal changes; storage failure retains the committed policy and draft. Alias migration uses existing catalog identities.",
+        "Page revision 196 and bundled script synchronized. Safe indentation compaction was expanded to fit the existing 1MiB contract; module boundary comments were explicitly preserved."
+      ],
+      "validation": [
+        "Production-source JS: default rules/migration/future growth 18; invasion 17; manual save 19; entry screen 14; tab 16; schedule views 109 checks passed.",
+        "Additional production-source JS: visible updates 17; settings 36; async copy image 15; embedded notice/sound and saved default overrides 13 checks passed.",
+        "Python catalog, web asset selection, live assets, custom layout and rest rules: 44 unittest tests passed.",
+        "Disposable local Chrome verified actual schema 1 to 2 transition, fixed display OFF to ON, major tab and editor navigation, no page errors, six alarm color states and 18 theme transitions.",
+        "Byte-identical HTML/CSS/JS mirrors, JSON, compaction idempotency, copy-image module boundaries and script size limit verified."
+      ],
+      "remaining": [
+        "No executable, archive, build, deployment, live process restart or real user browser storage mutation was performed."
+      ]
+    },
+    {
+      "id": "web_personal_checked_and_all_invasion_modes",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Split invasion selection into invasions of selected home-server bosses and all invasions before configuring distribution defaults.",
+      "confirmed": [
+        "Prior customRowSelected accepted an invasion solely from its shared home catalog_id or the global invasion choice.",
+        "The existing invasion catalog identity is preserved and relabeled as all invasions. A separate checked-invasion catalog choice is supplied by _collect_catalog.",
+        "Invasions require the all option, or the checked option plus a selected matching ordinary home boss. Fixed and special-event selections do not enable checked invasions. Both options selected means all; neither means no invasion.",
+        "Matching uses catalog identity rather than display aliases; home boss changes update the filtered view and its alarm targets through the existing selection invalidation path.",
+        "Manual save, undo and saved preference schema remain intact. Distribution defaults and user files were not changed.",
+        "Page revision 195 and bundled script mirror synchronized; safe indentation compaction covers the selection section without changing string literals."
+      ],
+      "validation": [
+        "JavaScript production-source checks: invasion 17, explicit save 19, first use 14, tab navigation 16, schedule views 109 passed.",
+        "Python catalog, assets, live selection, custom layout and filtered-rest unittest suites: 44 passed.",
+        "Disposable local Chrome: two tabs, editor entry, no page errors; six alarm styles and 18 theme transitions passed.",
+        "HTML/CSS/JS byte mirrors, metadata JSON, compaction idempotency and 1MiB script limit passed; script 1048459 bytes."
+      ],
+      "remaining": [
+        "No build, deployment, live process restart or deployment-default configuration performed. Updated snapshot producer supplies the new catalog option."
+      ]
+    },
+    {
+      "id": "web_major_tab_uses_existing_personal_selection",
+      "recorded_on": "2026-10-21",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Remove automatic major-boss tab and rename personal user tab to major bosses.",
+      "confirmed": [
+        "index.html removes tab-today; tab-custom retains its ID and custom filter with the new major-boss label.",
+        "selectFilter maps legacy today session restores to custom; saved tab ordering ignores the removed node.",
+        "Custom boss selection storage, manual save and per-tab rest/fixed preferences remain unchanged. Existing internal legacy filter helpers and stored today preferences are retained for compatibility.",
+        "Alarm and editor labels use the major-boss name. Page revision 194 and bundled HTML/CSS/JS mirrors are synchronized."
+      ],
+      "validation": [
+        "JavaScript production-source regressions: theme/tab navigation 16, custom first use 14, schedule views 109 checks passed.",
+        "unittest web_asset_selection, web_live_assets, web_custom_layout, web_filtered_rest_rules: 31 passed.",
+        "Disposable local Chrome: all/custom tabs, renamed label, selected panel linkage and editor entry; no page errors. Six alarm styles and 18 theme transitions passed.",
+        "Bundle mirror byte equality and script size limit verified."
+      ],
+      "remaining": [
+        "No build, deployment, live service restart or user data changes performed."
+      ]
+    },
+    {
+      "id": "administrator_notice_investigation_deferred_user_reset_plan",
+      "recorded_on": "2026-10-21",
+      "status": "investigation_deferred_at_user_request",
+      "user_decision": "User explicitly sets aside the unresolved administrator-only notice incident, plans manual GitHub schedule upload and administrator AppData reset, and wants further investigation only if a problem recurs.",
+      "resolution_scope": "Stop active incident investigation. Retain completed source hardening and validation records. Recommend retaining an original AppData backup for recovery and stopping GUI, bot and independent web writer before a full-folder reset. Do not reset this user PC or perform GitHub upload/deletion remotely.",
+      "remaining": [
+        "Actual administrator cause was not established. Do not label reset successful until user reports its result.",
+        "No AppData reset, backup, schedule upload, process stop, build or deployment was performed by the agent.",
+        "Previous source changes remain unbuilt; they were not reverted or asserted deployed."
+      ]
+    },
+    {
+      "id": "notice_future_last_attempt_blocks_automatic_collection",
+      "recorded_on": "2026-10-21",
+      "status": "reproduced_source_fixed_remote_value_unconfirmed",
+      "symptom": "User asks which past saved setting can block automatic collection while manual collection works on administrator machine and another PC running same previous version works.",
+      "confirmed_cause": "claim_collection compared now-last_attempt against the interval without rejecting future last_attempt. A future stored wall-clock timestamp yielded a negative elapsed time and prevented automatic claims until the future timestamp plus interval. Fake-clock saved-data test reproduced this before the fix; manual bypass remained possible. No administrator last_attempt value was available to establish this as the incident cause.",
+      "other_relevant_state": [
+        "settings.rules may retain a long interval or outside-hours rule.",
+        "Cached pinned maintenance extension facts may set polling_plan to extension_wait.",
+        "Current workspace distribution declaration contains areas/boss_definition/fixed/spectrum and excludes notice. Existing notice preferences therefore remain. Even a declared notice preference overwrite preserves collection state/history."
+      ],
+      "resolution": "Ignore only a future last-attempt value for recency gating; leave collection disable, timetable and extension-wait policy intact. On an allowed claim preserve the former future value as recovered_future_attempt. Record last_trigger and separate last_automatic_attempt/last_manual_attempt, and display available separate times from existing UI snapshot. No extra fetch/IO on UI reads, preference reset or deployment selection change.",
+      "validation": [
+        "Future saved-attempt regression failed before edit and passes after; automatic follow-up interval and preference preservation checked.",
+        "Future timestamp cannot bypass extension wait or disabled collection. Manual attempt retains the earlier automatic timestamp.",
+        "88 polling/collector/callback/maintenance-extension/distribution-selection/runtime tests passed."
+      ],
+      "remaining": [
+        "Actual administrator saved state and automatic plan are still unavailable; do not claim a proven remote AppData corruption.",
+        "No live collection, AppData edits, settings reset, build, ZIP, deployment or Discord output."
+      ]
+    },
+    {
+      "id": "notice_admin_machine_difference_preserve_before_reset",
+      "recorded_on": "2026-10-21",
+      "status": "comparison_pending_no_user_data_changed",
+      "user_report": "Another PC using the same previous-version files automatically collected the notice and preview worked. Administrator office environment prevents immediate audible testing. User plans manual GitHub schedule upload and considers AppData reset, while still requesting root-cause investigation.",
+      "confirmed_facts": [
+        "Same EXE does not guarantee identical per-server notice settings, recent collection timestamps, extension-wait state, independently installed notice modules, TTS modules, bot process/session identity or network/clock conditions.",
+        "The successful comparison PC collection/preview is not proof that administrator data is corrupt; it narrows the investigation to differing persisted state/environment or runtime connection state.",
+        "Schedule upload alone does not preserve Discord configuration, administrator identity, web certificates/keys, optional module installation and local notice evidence."
+      ],
+      "plan": "Preserve the original BossTimer AppData folder before any reset. Prefer one-change-at-a-time rename of notice_data to test notice settings/history while preserving all other app configuration. Restore the saved folder if that does not isolate the cause; inspect update_ai/module selection and transport/TTS state separately. Full-directory reset requires stopping all writers including the independent web worker and preserving all original data.",
+      "remaining": [
+        "No administrator files received or changed; no reset, schedule upload, module install, live output, build or deployment performed by the agent.",
+        "Need the preserved old data and the corresponding fresh-run outcome to establish a specific AppData cause."
+      ]
+    },
+    {
+      "id": "notice_connection_and_speech_diagnostics_without_audio",
+      "recorded_on": "2026-10-21",
+      "status": "source_diagnostics_added_nonbuild_verified",
+      "symptom": "Administrator office environment prevents audible preview checks. User asks to cover both TTS and notice-specific Discord path and plans another-PC previous-version test.",
+      "confirmed_cause": "UI previously collapsed multiple host output-context gates into connection/handover waiting, and exposed only audio-controller state without PreparedSpeechPool.last_error. This hid distinctions between transport and synthesis/conversion failure.",
+      "resolution": "Keep all existing host authorization gates; name their failure reasons and log only changes without secrets. Optional NoticeHost.get_output_wait_reason is captured on GUI before worker start; legacy host fallback remains. NoticePlugin.output_status reads existing prepared errors and redacts endpoint URLs before UI display. No synthesis, send, disk read or network request on status reads. Existing endpoint migration remains unchanged.",
+      "validation": [
+        "63 targeted tests passed covering context identity and scope, specific/recovered wait reason, changed-only logging, optional host fallback, GUI-before-worker reason capture, error visibility/URL redaction, no preparation/context work on status reads, endpoint compatibility, preparation, preview and runtime loading."
+      ],
+      "remaining": [
+        "No administrator runtime/microphone/speaker test, live TTS probe, Discord send, build/ZIP or deployment.",
+        "The previous-version test cannot show new diagnostic strings. Record original auto-plan/last-success and footer status before manual collection.",
+        "Original automatic collection delay cause and administrator actual PID/TTS result remain unconfirmed."
+      ]
+    },
+    {
+      "id": "notice_tts_endpoint_investigation_preview_muted",
+      "recorded_on": "2026-10-21",
+      "status": "local_preview_working_remote_tts_unverified",
+      "symptom": "User recalls synthesis endpoint change and suspects manager notice failure is related. Initial local preview no-sound report was corrected: local output was muted and preview is audible.",
+      "confirmed_facts": [
+        "Current edge_tts_voice._apply_edge_tts_endpoint_compat rewrites only the legacy speech.platform.bing.com synthesis WSS host/path to api.msedgeservices.com at installed-engine, development-fallback and reused-engine load paths. It does not rewrite future/custom endpoints.",
+        "Local Git history contains this helper in 2026-10-15 revision 203cf88 and later sampled revisions; October 12 and October 1 sampled revisions lack it. This is source history, not proof of an administrator EXE payload.",
+        "Two local 2026-10-21 13:57 log failures report WSServerHandshakeError HTTP 429 on api.msedgeservices.com; later preparation success records exist. These historical transient errors do not explain the latest local preview silence, corrected by the user as muted output. No URL query credentials retained here.",
+        "Local preview uses a separate temporary synthesizer and local player, no Discord send or notice completion. User confirms local preview plays once mute is corrected.",
+        "TTS failure can prevent new speech and consequently its Discord notice text, while cached/prerecorded boss audio remains available. TTS does not control cafe article collection/registration."
+      ],
+      "validation": [
+        "21 existing endpoint-compatibility and notice-preparation tests passed.",
+        "Source and sanitized existing-log inspection only; no live synthesis requests, AppData changes, audio output or deployment initiated by the agent."
+      ],
+      "remaining": [
+        "Administrator preview result/version/endpoint are not yet established. Do not transfer the local muted-preview finding or historical 429 errors to the administrator PC.",
+        "Earlier notice context PID defect and auto-callback rearm fixes remain source-only; original remote automatic collection timing remains unconfirmed."
+      ]
+    },
+    {
+      "id": "notice_auto_collection_callback_exception_rearm",
+      "recorded_on": "2026-10-21",
+      "status": "source_hardened_remote_incident_unconfirmed",
+      "symptom": "User asks whether successful manual collection but absent automatic discovery is fixed separately from notice-output PID issue.",
+      "confirmed_cause": "The original _collection_tick scheduled its next callback only after GUI server capture and worker dispatch succeeded. A synchronous exception skipped rearming, leaving manual request_collection callable. Fake server-capture and worker-start errors reproduced this gap; no evidence yet that either happened on administrator PC.",
+      "resolution": "Clear the consumed callback token; catch/log the dispatch exception type and rearm the existing 10-second scheduling callback in finally unless stopped. Preserve collection intervals, user rules/categories and maintenance-extension quiet policy; do not force an extra network fetch.",
+      "validation": [
+        "6 focused callback tests include injected launch/server errors, busy worker, missing server and stopped lifecycle. Original method failed 3 cases; patched method passed.",
+        "60 callback/polling/collector/runtime tests passed; no production fetch, output, settings change, build or deployment."
+      ],
+      "remaining": [
+        "Automatic polling plan and pre-manual last-attempt/success/error on administrator PC remain unknown; actual cause of original delayed notice is not established.",
+        "Schedule-update notices are generated from local schedule projection independently of cafe collection. User supplied a retired-history screenshot; awaiting whether it was actual administrator Discord broadcast or history-only and which PC.",
+        "Payload changed; module version/package must be finalized for a future authorized distribution."
+      ]
+    },
+    {
+      "id": "notice_context_onefile_service_pid",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_fake_process_verified_remote_confirmation_pending",
+      "symptom": "Administrator bot is broadcasting normal boss voice/chat but notice UI says collection completed and waiting for Discord connection/handover. Local debug execution can publish the same notice.",
+      "confirmed_cause": "Source _get_notice_output_context rejected any status PID unequal to subprocess.Popen.pid and required Popen even when _start_discord_bot_runtime accepted an existing matching bot. Onefile packaged bot has launcher/runtime process separation. Fake launcher PID 100 + service PID 101 reproduced notice context rejection before fix. This is a reproduced code defect, not a measurement of the remote process tree.",
+      "resolution": "Use the positive integer service PID from a status response matching existing protocol/client/config/guild/application validation. Keep live managed-process/profile/secret and voice/online gates; allow a running matching adopted bot without Popen. Revalidate service PID, status identity, process identity, secret, scope and handover before non-stop commands. Keep authenticated old-scope stop and dead-managed-process cleanup. No AppData settings/reset, send authority policy, bot restart or update sequence changes.",
+      "validation": [
+        "Original method rejected onefile launcher/service PID mismatch and missing-Popen adoption; regression reproduced before source edit.",
+        "121 targeted tests passed: notice output context/chat/runtime, bot process recovery/launch and authority events.",
+        "Syntax and diff whitespace checks; no real GUI, network/audio/Discord output or production process changes."
+      ],
+      "remaining": [
+        "Actual administrator executable process IDs and post-fix audio/chat not measured. No production output, build, ZIP, deployment or process restart.",
+        "Host GUI source changed; a notice-only module update or static web update cannot deliver this fix."
+      ]
+    },
+    {
+      "id": "administrator_previous_version_general_notice_missing_investigation",
+      "recorded_on": "2026-10-21",
+      "status": "local_path_verified_remote_evidence_pending",
+      "symptom": "User reports another administrator running an older distribution did not show the PC Google Play Games prerequisite notice after five minutes; whether voice played is unknown.",
+      "confirmed_facts": [
+        "NoticeRuntime is a separately updateable in-process plugin; its per-PC/per-server preferences, articles, events and delivery records persist under AppData/BossTimer/notice_data. Higher independently installed modules can override bundled code.",
+        "Default midday collection interval is 10 minutes; a 5-minute observation alone cannot establish missed collection. Polling may also follow user rules or maintenance extension policy.",
+        "The exact reported title classifies as general and generates one immediate discovery event valid for 24 hours. AppData category, output and template switches, prior delivery and suppression affect it.",
+        "Discord text is queued only after an accepted audio play/resume, not at article discovery. Send failures are logged separately from successful audio delivery.",
+        "Read-only local inspection found this article collected at 12:09 and a notice_chat_sent at 12:23, followed by recorded audio completion and one-shot retirement. This proves only the current local PC path, not the administrator PC.",
+        "NoticeStore._load reads an existing per-server AppData JSON unchanged after validation; bundled preference defaults are read only when that file does not exist.",
+        "NoticeCollector skips body fetch for a disabled article category; finish_collection also skips inserting a new article for that category. categories.general=false therefore explains both absent original and absent event for this exact general-category title.",
+        "output_enabled=false, a disabled speech template, missing Discord chat permissions or a busy audio slot do not by themselves hide a successfully collected original article.",
+        "Four locally available historical source revisions from October 1 through October 18 contain general-category fallback and general-discovery event generation. Old source alone is not sufficient evidence of unsupported general notices.",
+        "Manual collection success with general enabled supersedes the earlier disabled-general hypothesis. Active category filtering is not supported as the cause in this reported state; no evidence yet that AppData overwrote notification generation.",
+        "Registered-list screenshot (PC attribution not established) shows an existing enabled event, not successful audio output. event_status uses a generic valid/waiting label for any enabled, unexpired and not-completed event; actual runtime gate/candidate/audio failures are shown separately in the bottom notice_output_status. Cannot infer a specific output failure or original automatic collection success from that row.",
+        "Accurate collected server-opening time is evidence that maintenance facts were available; it contradicts a blanket claim that all automatic cafe collection never worked.",
+        "Server-opening host alarm reads saved/cached maintenance facts through NoticeRuntime.get_server_open_alarm -> server_open_alarm -> _get_schedule_server_open_alarm_datetime -> ordinary maintenance/time alarm candidates. It does not obtain the notice-specific output context.",
+        "General-discovery announcements use the distinct notice-specific context/output path. A normal opening embed cannot prove that notice-specific playback/chat can acquire that context.",
+        "User confirms schedule-update announcement was seen only in retired history. Actual broadcast must be established through last_delivery/retirement reason or bot sent/playback logs, not list presence."
+      ],
+      "validation": [
+        "67 existing notice chat/runtime/template/maintenance-extension tests passed without production output.",
+        "Exact-title pure in-memory category/event generation check passed; no live fetch, audio, Discord sending or user data changes."
+      ],
+      "resolution": "No production behavior or settings changed. Narrowed investigation to automatic collection schedule/wait/loop after successful manual collection. Asked for the automatic-plan text shown below the original-article list.",
+      "remaining": [
+        "Actual reason for the general article not appearing until manual collection remains undetermined without automatic polling-plan/timing/error evidence on administrator PC. Successful prior maintenance collection does not identify latest general fetch timing.",
+        "Two reproduced source defects were fixed separately (notice-output PID gating and exception-induced auto callback loss). Neither is established as the full remote incident cause without actual process/timing evidence."
+      ],
+      "user_followup": "Administrator normal boss voice/chat works; footer says notice output awaiting connection/handover. User supplied normal server-opening alarm embed at noon and states opening time was accurately collected. The web-schedule-update announcement was confirmed present only in administrator retired history, not confirmed actually broadcast.",
+      "hypotheses_ranked": [
+        "Confirmed source defect reproduced in fake-process tests: strict launcher PID equality blocks notice context when onefile bot service has a child PID; missing Popen blocks matching adopted bot. Exact remote PID relationship is not yet measured.",
+        "Whether automatic collection originally lagged behind manual fetch is separate and remains unproven. General category is enabled; AppData overwrite was not established."
+      ]
+    },
+    {
+      "id": "ironman_mixed_alarm_label_transparent_fill",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified",
+      "symptom": "User reports the partially enabled alarm label appears gray, like a disabled control, in the Iron Man theme.",
+      "confirmed_cause": "The common #all-alarm[aria-pressed=mixed] label uses a clipped background with transparent WebKit text fill. Iron Man only overrode color, leaving that painting mode and the dark text shadow. Shared master ON/OFF palette variables also lacked Iron Man values, despite a theme-specific mixed background declaration with lower selector specificity.",
+      "resolution": "Scope a solid currentColor text fill and no label background to the Iron Man mixed state, retain bright pale gold text at opacity 1 even under the touch safety lock, and define Iron Man red/dark-metal master palette variables. Real button disabled opacity and all notification logic remain unchanged. Revision 193; readable theme CSS, shipped stylesheet and Python fallback synchronized.",
+      "validation": [
+        "Isolated Chrome with Android Mobile UA sampled locked/unlocked OFF/mixed/ON: both mixed labels have rgb(255,240,207) fill/color, no clipped background, full enabled opacity and red/dark split button background",
+        "Phone scrolling regression and 18 theme transitions passed",
+        "24 Python asset tests; mirrors, revision and 1 MiB asset size checks passed"
+      ],
+      "remaining": [
+        "No physical-phone pixel comparison; original gray appearance was user-reported and paint-rule collision was established from source.",
+        "No build, deployment or production restart."
+      ]
+    },
+    {
+      "id": "phone_menu_preserved_release_boundary_scroll_stop",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified",
+      "symptom": "User reports phone menu folding and upward restoration are sluggish and misread gestures; requests retained menus and a stop at next boss after releasing a scroll in either direction.",
+      "confirmed_cause": "Phone touchInput and the shared document scroll listener called fold(), hiding menus and recent bosses and requiring a separate restoration gesture.",
+      "resolution": "Phone-only path never folds menus. Measure the hero document top once per eligible single-finger gesture. A crossing stops at release or subsequent inertia and stays held until the next touch; gestures starting at the boundary remain free. Settings, editing, dialogs, form fields, horizontal input, pinch, cancellation and lifecycle exits do not retain a stop. Keep PC and tablet paths. Revision 192; readable/embedded JS and Python mirror synchronized. Trim guarded embedded helper indentation/comments to retain the existing 1 MiB contract.",
+      "validation": [
+        "80 state checks each for readable and compacted controllers",
+        "Android Mobile UA headless Chrome: no folding, down/up release and post-release inertia crossing, fresh touch continuation, top reach; 18 theme transitions",
+        "PC Chrome: default option, delay cancellation, native mouse leave/enter; 18 theme transitions",
+        "32 Python asset/PWA checks passed"
+      ],
+      "remaining": [
+        "No actual phone hardware gesture timing test; browser fixture uses explicit touch and scroll events.",
+        "No build, ZIP, deployment or live process restart."
+      ]
+    },
+    {
+      "id": "ironman_outer_frame_fill_short_page_height",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified",
+      "symptom": "Phone/PC screenshot shows the outer armor frame ending near the alert-test controls while the background continues below, especially with no upcoming boss and menus folded.",
+      "confirmed_cause": "The outer frame pseudo-element correctly uses inset:0 on schedule-app, but schedule-app had only content height. Body/viewport remainder therefore remained outside its frame.",
+      "resolution": "Scope a viewport-minimum flex-column body to the Iron Man theme and let schedule-app grow to fill remaining height, retaining its existing maximum width. Content still grows naturally for long schedules. Preserve the existing folded-menu 4px scroll-access allowance. CSS only, no viewport measurement loop or new request; content revision 191 and embedded CSS mirror updated.",
+      "evidence": [
+        "web_avengers_theme.css",
+        "web_assets/style.css",
+        "web_service_page.py#STYLE",
+        "check_web_theme_frame_isolation.py#check"
+      ],
+      "validation": {
+        "reproduction": "390x844 fixture with empty schedule and 48px flow banner: before the change app+banner height was 734.25px, short of viewport height.",
+        "browser": "Headless Chrome layout checks at 390x844, 500x560 and 1280x900, each with visible/folded menus and short/long content (12 cases). Frame remains present, fills at least viewport, ends at body bottom, grows with content and adds no horizontal overflow.",
+        "related": "24 asset-selection/live-page checks pass; HTML/CSS/JS embedded mirrors and existing file limits verified. Android-UA scroll-stop/reveal and theme-transition checks remain passing."
+      },
+      "remaining": "No build/deploy/live restart or user-data changes. Physical phone/PC visual confirmation after manual application remains."
+    },
+    {
+      "id": "pc_common_window_boundary_menu_option",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified",
+      "request": "Replace PC inactivity hiding with a common optional window-boundary rule. User clarified the entire page area, not the menu/next-boss boundary: leave -> hide after 1 second, enter -> show, stay inside -> remain visible. Preserve staged scrolling. Common option and distribution default must be checked.",
+      "resolution": [
+        "Add a separate Menu Display Settings card in the theme tab, visible only on PC across all themes. Checkbox is checked in bundled HTML and defaults on when storage has no explicit false.",
+        "Store the browser-local preference as BossTimer.menuMouseHide.v1; preserve saved opt-out and revert checkbox on write failure.",
+        "Listen on the root element for mouse pointerenter/pointerleave (legacy mouse fallback), avoiding child transitions and all pointermove/layout work. Cancel a pending 1-second timeout on reentry; no generic inactivity deadline remains on any device.",
+        "Keep wheel/touch/scroll stop, fold, restoration, tap and editing guards. Phones ignore the optional mouse rule. Synchronize readable controller, compact embedded block, Python mirror and content revision 190."
+      ],
+      "evidence": [
+        "web_menu_idle.js#WebMenuIdle",
+        "sync_web_sakura.py#embed",
+        "web_assets/index.html#menu-mouse-settings",
+        "web_assets/style.css",
+        "test_web_menu_idle.js",
+        "check_web_theme_frame_isolation.py"
+      ],
+      "validation": {
+        "controller": "72 checks each against readable and embedded modules: checked distribution default, saved opt-out, leave timing/cancel/reentry/inside stability, child-event isolation, zero geometry reads, storage failure, editing/press/background safeguards, PC legacy fallback and staged phone/PC scrolling.",
+        "chrome_pc": "Isolated Chrome: default checked and no 3.2s inactivity fold; one-second exit, return-before-deadline cancellation, reentry restoration and staying inside all pass. Native CDP mouse moves outside/inside the viewport also pass. 18 theme transitions pass.",
+        "assets": "32 asset/live-page/PWA tests pass. HTML/CSS/JS mirrors match, static checkbox checked exactly once and script remains 1048393 bytes within the 1 MiB contract."
+      },
+      "remaining": "No build, deploy or production restart. Physical PC/browser confirmation after manual application remains; window refers to website content, excluding browser chrome."
+    },
+    {
+      "id": "pc_common_window_boundary_menu_option",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified",
+      "request": "Replace PC inactivity hiding with a common optional window-boundary rule. User clarified the entire page area, not the menu/next-boss boundary: leave -> hide after 1 second, enter -> show, stay inside -> remain visible. Preserve staged scrolling. Common option and distribution default must be checked.",
+      "resolution": [
+        "Add a separate Menu Display Settings card in the theme tab, visible only on PC across all themes. Checkbox is checked in bundled HTML and defaults on when storage has no explicit false.",
+        "Store the browser-local preference as BossTimer.menuMouseHide.v1; preserve saved opt-out and revert checkbox on write failure.",
+        "Listen on the root element for mouse pointerenter/pointerleave (legacy mouse fallback), avoiding child transitions and all pointermove/layout work. Cancel a pending 1-second timeout on reentry; no generic inactivity deadline remains on any device.",
+        "Keep wheel/touch/scroll stop, fold, restoration, tap and editing guards. Phones ignore the optional mouse rule. Synchronize readable controller, compact embedded block, Python mirror and content revision 190."
+      ],
+      "evidence": [
+        "web_menu_idle.js#WebMenuIdle",
+        "sync_web_sakura.py#embed",
+        "web_assets/index.html#menu-mouse-settings",
+        "web_assets/style.css",
+        "test_web_menu_idle.js",
+        "check_web_theme_frame_isolation.py"
+      ],
+      "validation": {
+        "controller": "72 checks each against readable and embedded modules: checked distribution default, saved opt-out, leave timing/cancel/reentry/inside stability, child-event isolation, zero geometry reads, storage failure, editing/press/background safeguards, PC legacy fallback and staged phone/PC scrolling.",
+        "chrome_pc": "Isolated Chrome: default checked and no 3.2s inactivity fold; one-second exit, return-before-deadline cancellation, reentry restoration and staying inside all pass. Native CDP mouse moves outside/inside the viewport also pass. 18 theme transitions pass.",
+        "assets": "32 asset/live-page/PWA tests pass. HTML/CSS/JS mirrors match, static checkbox checked exactly once and script remains 1048393 bytes within the 1 MiB contract."
+      },
+      "remaining": "No build, deploy or production restart. Physical PC/browser confirmation after manual application remains; window refers to website content, excluding browser chrome."
+    },
+    {
+      "id": "phone_menu_idle_timer_disabled_scroll_stop_preserved",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified",
+      "request": "On phones remove only elapsed-time menu hiding; preserve downward first-gesture fold/stop and upward restoration. Desktop timed hiding stays enabled.",
+      "resolution": "Cache the existing deviceProfile().phone result at controller initialization. Phone noteActivity does not arm the idle timer; fold/show, wheel/touch/scroll and tap handlers are unchanged. Synchronize only the compact menu block and embedded script mirror; content revision 189.",
+      "evidence": [
+        "web_menu_idle.js#WebMenuIdle",
+        "web_assets/schedule.js",
+        "web_schedule_frontend.py",
+        "test_web_menu_idle.js",
+        "check_web_theme_frame_isolation.py"
+      ],
+      "validation": {
+        "controller": "84 checks each against readable and embedded controllers. Phone remains visible after 60 idle seconds with no timer, first downward swipe folds/pins, second swipe scrolls, upward arrival stops, next upward gesture/tap restores without rearming idle. Existing desktop tests pass.",
+        "browser": "Isolated Chrome with Android Mobile UA at 390px: confirmed phone classification, visible after 3.2s, downward stop, continued list scroll, upward stop/reveal and another 3.2s still visible; 18 theme transitions also pass.",
+        "assets": "24 asset-selection/live-asset checks passed. All web mirrors match; schedule.js is 1048565 bytes within the existing 1 MiB bound."
+      },
+      "remaining": "Source-only. No build, deploy or live restart; physical-phone verification after manual application remains. Tablet/desktop time behavior is unchanged by the existing phone classifier."
+    },
+    {
+      "id": "cross_theme_cinematic_stage_retained_and_white_band_report",
+      "recorded_on": "2026-10-21",
+      "status": "retained_stage_fixed_reported_white_band_not_reproduced",
+      "symptom": "User reports a thick white band beneath the alert-test controls in the blossom theme, possibly common to all themes. Initial description of a yellow flashing frame was corrected; flashing is unconfirmed.",
+      "confirmed_facts": [
+        "Iron Man outer frame and alert pseudo-elements already require html[data-theme=avengers]; the mobile fixture did not reproduce them painting under the alert-test controls in other themes.",
+        "After switching away, the runtime cinematic stage remained display:block. In the default dark theme its absolute positioning resolved to a 390x844 viewport-sized box; video children themselves were hidden.",
+        "The exact thick white band was not reproduced. A connection to compositor behavior, browser controls or the retained stage is a hypothesis, not a confirmed root cause."
+      ],
+      "resolution": [
+        "Hide the stage via runtime hidden state when disabling Iron Man and restore it when enabling; default stage CSS is hidden and only the Iron Man hero enables display.",
+        "Add scoped non-Iron-Man guards for retained stage/arrival/media-dock in runtime CSS and shared theme CSS plus embedded mirrors. No animation loop, request or timer added.",
+        "Content revision 188; six-file update contract, schedules and server lifecycle unchanged."
+      ],
+      "evidence": [
+        "web_assets/avengers/cinematic.js#WebIronmanCinematic.enable",
+        "web_assets/avengers/cinematic.css",
+        "web_avengers_theme.css",
+        "check_web_theme_frame_isolation.py",
+        "check_web_avengers_browser.py#create_fixture_server"
+      ],
+      "validation": {
+        "browser": "Isolated headless Chrome at 390 CSS px, production fixture HTML/CSS/runtime, movie catalogue disabled locally: 18 theme transitions passed. Non-Iron-Man stage display:none and zero geometry, media dock hidden, no Iron Man outer border image and no document horizontal overflow. Returning to Iron Man restores the stage and frame.",
+        "related": "32 cinematic/asset-selection/live-asset tests passed; HTML/CSS embedded mirrors and existing 1 MiB script bound verified."
+      },
+      "remaining": [
+        "Reported thick white band still needs an actual-device capture or reproducible timing. Do not label that symptom resolved based on the retained-stage fix alone.",
+        "No build, deploy, production restart or user-data mutation; runtime companion JS/CSS must be applied together with updated page assets."
+      ]
+    },
+    {
+      "id": "duplicate_mobile_install_banner_script_links",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_verified",
+      "symptom": "User sees two app-install entries on Galaxy.",
+      "confirmed_cause": "Both web_assets/index.html and the PAGE fallback contained two identical install.js/install.css tags. The IIFE had no once-per-document guard, so each load created a banner and registered listeners.",
+      "resolution": "Remove duplicate tags in both mirrors, add window.__btPwaInstallStarted before listeners/mount, advance content revision to 187 without changing the update contract.",
+      "evidence": [
+        "web_assets/index.html",
+        "web_service_page.py#PAGE",
+        "web_assets/pwa/install.js",
+        "test_web_pwa.py",
+        "test_web_pwa_install.js"
+      ],
+      "validation": "32 Python checks passed; all four bundled/fallback pages contain exactly one JS and CSS link. Node VM duplicate script execution inserts one banner; cancellation, retry and installed-state checks pass. Chrome 155 loopback HTTPS with Android UA confirms a visible, styled banner count=1 and no installability errors.",
+      "remaining": "No build, deployment or production restart. Actual phone needs the corrected source/resources applied."
+    },
+    {
+      "id": "persistent_mobile_pwa_install_entry",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_verified_device_pending",
+      "symptom": "Chrome's initial install banner no longer appears after dismissal. User chose persistent guidance with unrestricted web access; also requested Apple support.",
+      "confirmed_facts": [
+        "Browser-owned dismissal throttling cannot be cleared by page script. A deferred beforeinstallprompt event is single-use and prompt requires a user action.",
+        "Apple installation uses the share/home-screen flow rather than beforeinstallprompt. Safari browser tabs do not provide a reliable general installed-app query."
+      ],
+      "resolution": [
+        "Persistent scoped mobile banner with click-only prompt and manual-menu fallback. Cancelling, missing event or prompt failure keeps the entry available; no install gate.",
+        "Hide on appinstalled, standalone mode (including navigator.standalone), or same-PWA installed query in Android Chrome. Self-related manifest entry enables the query.",
+        "Do not store permanent installed/dismissed cookies or clear user data. Initial/pageshow/visible checks use browser API only; no polling or new timers.",
+        "Apple/iPadOS detection shows share-to-home-screen guidance. Existing six-file update contract and server lifecycle remain unchanged; new JS/CSS use existing public asset dispatch."
+      ],
+      "evidence": [
+        "web_assets/pwa/install.js",
+        "web_assets/pwa/install.css",
+        "web_push.py#push_asset",
+        "test_web_pwa_install.js"
+      ],
+      "validation": {
+        "python": "86 related tests passed, including production HTTP/HTTPS handlers, asset mirrors, public MIME, push and theme bootstrap.",
+        "javascript": "Isolated Node VM checks cancellation/retry/single-use, manual fallback, installed/uninstalled state, API rejection, async races, desktop exclusion and Apple/iPadOS guidance.",
+        "chrome": "Chrome 155 loopback HTTPS: no manifest/installability errors, standalone app mode true; Android UA loads the visible CSS-styled install entry. Actual mobile installation was not performed."
+      },
+      "remaining": [
+        "No build/deploy/live server restart. New server resources and linked HTML must be applied together.",
+        "Verify actual Galaxy and iPhone home-screen installation. Safari regular tab may still show guidance after installation; standalone app hides it."
+      ]
+    },
+    {
+      "id": "galaxy_chrome_pwa_manifest_icons_missing",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_browser_verified_device_pending",
+      "symptom": "Galaxy Chrome reports the HTTPS website cannot be installed; shortcut creation remains available.",
+      "confirmed_facts": [
+        "Existing manifest already had id/start_url/scope=/ and display=standalone, but no icons.",
+        "Schedule HTML linked the manifest; login HTML and its fallback mirror did not.",
+        "Existing push worker only handles push/notificationclick. Current Chrome menu installation does not require a fetch handler."
+      ],
+      "resolution": [
+        "Declare real 192/512 PNG icons and a maskable 512 icon; serve exact allowlisted paths through existing resource handlers without login.",
+        "Link the same manifest from login HTML and fallback. Advance page content revision to 185; package version and six-file update contract unchanged.",
+        "Keep push worker, browser scripts, schedule data, server lifecycle and update algorithms unchanged. No offline fetch cache or background polling added."
+      ],
+      "evidence": [
+        "web_push.py#MANIFEST",
+        "web_push.py#push_asset",
+        "web_assets/pwa/icon.svg",
+        "web_assets/login.html",
+        "web_service_login.py#LOGIN_PAGE",
+        "web_https_app.py#HTTPSApplication.__call__",
+        "web_service_worker.py#LocalHandler.do_GET"
+      ],
+      "validation": {
+        "related": "81 tests passed: test_web_pwa, test_web_push, test_web_asset_selection, test_web_live_assets, test_web_request_limits.",
+        "browser": "Isolated loopback HTTPS production-handler fixture, Chrome 155.0.8059.40: secure context true, manifest errors=[], installability errors=[], renderer decoded 192/512 icons; --app run matched standalone=true. No registered SW was needed.",
+        "limits": "Probe uses temporary certificate SPKI pin and isolated headless profile. Restricted test runner required per-process GPU/sandbox exceptions; user browser security and OS trust were not changed. Desktop --app check is not actual Android WebAPK installation."
+      },
+      "remaining": [
+        "No build, ZIP, deployment, live data mutation or production web restart. Server code and icon resources must be applied together; static six-file update alone cannot add them.",
+        "After manual application, verify public HTTPS certificate and Galaxy Chrome home-screen installation plus address-bar-free launch on the actual phone."
+      ]
+    },
     {
       "id": "delegated_web_sync_90s",
       "recorded_on": "2026-10-17",
@@ -2433,6 +3442,51 @@
         "Manual packaged-EXE check of actual visible notification icon, hidden-icon overflow, GUI detach and complete listener/router/DDNS shutdown remains for user build.",
         "Existing workers do not hot-load Python changes. Apply new GUI/worker code by explicit restart; six-file static web patch does not add this feature.",
         "Offline shared-stop acknowledgment is recorded as pending locally, without claiming network synchronization."
+      ]
+    },
+    {
+      "id": "regular_maintenance_notice_did_not_update_recorded_alarm_schedule",
+      "recorded_on": "2026-10-21",
+      "status": "source_fixed_nonbuild_verified",
+      "symptom": "User heard prerecorded regular-maintenance speech and found the schedule registered at 08:00 although the notice starts at 07:00.",
+      "confirmed_facts": [
+        "Read-only inspection of the current cached notice found an explicit 2026-10-21 07:00-12:00 period; both stored analysis and generated notice speech already used 07:00.",
+        "Prerecorded maintenance alarms use the regular schedule weekday/hour/minute variables, which default to Wednesday 08:00 and are loaded from schedule state.",
+        "Only temporary-maintenance automatic schedule import existed; regular notice analysis had no host callback to save the recurring schedule settings."
+      ],
+      "resolution": [
+        "Added optional NoticeHost.apply_regular_maintenance and GUI-thread application guarded by server, season, handover, input activity and full-update state.",
+        "Apply only confirmed upcoming/ongoing pinned regular-maintenance facts. Keep explicitly disabled 00:00 settings; hold conflicting, cancelled or unreadable notices.",
+        "Observe server/season/file changes in the existing schedule tick, independently of audio preparation and its debounce. No added network request or timer.",
+        "Save through the existing server schedule/shared-export/dirty-state path with raise_on_error; restore prior weekday/hour/minute on save failure. Schedule and prerecorded alarms then read the same fields.",
+        "Persist intent/result receipts; repeated identical starts or end extensions do not override manual adjustments. Actual start corrections, including reverting to an earlier start, apply again. Deferred requests retry; failed/interrupted identical requests require review.",
+        "Display the regular import result in collected-notice details; preserve temporary import and server-opening handling.",
+        "Date-retention follow-up: preserve the official elapsed occurrence instead of routing it through next-occurrence lookup. Include completed notices on the same local calendar day; older completed days remain excluded. Verify Oct 21 08:10/13:10/23:10 imports project an elapsed Oct 21 07:00 schedule row and no Oct 22 row/alarm."
+      ],
+      "evidence": [
+        "notice_module/payload/notice_maintenance_import.py#regular_maintenance_candidate",
+        "notice_module/payload/notice_maintenance_import.py#import_regular_maintenance",
+        "notice_module/payload/main.py#NoticePlugin._schedule_tick",
+        "notice_runtime.py#NoticeHost",
+        "boss_timer_gui.py#BossTimerApp._apply_notice_regular_maintenance",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_maintenance_alarm_candidates",
+        "boss_timer_gui.py#BossTimerApp._process_schedule_maintenance_alarm_tick"
+      ],
+      "validation": {
+        "cached_notice": "Read-only reproduction selects 2026-10-21 07:00 KST from the actual cached facts. No production schedule/settings mutation.",
+        "targeted": "test_notice_regular_maintenance: tests cover saved 08->07 transition, prerecorded voice submission at 06:59 targeting 07:00 and no 07:59/08:00 candidate, ongoing import without retroactive speech, profile/season/update/handover deferral, disabled settings, persistence failure, corrections/extension/deduplication and GUI-thread callback while audio preparation is busy.",
+        "related": "194 core related checks passed after final source changes. Earlier UI-inclusive suite: 203 tests, 202 passed and 1 Tk integration check skipped for environment limitations. No live voice or UI operation claimed.",
+        "date_retention": "58 related tests passed after the date-retention changes: regular notice/host integration, server opening, shared schedule rows/text and input defaults. No live user-data mutation or audio playback."
+      },
+      "remaining": [
+        "Source-only change; no real Discord/recorded audio playback, executable/ZIP generation or live AppData edit.",
+        "Updated host and module are both required. An older separately installed module can lack the callback usage; verify actual loaded module selection for distribution.",
+        "The live program must reload the changed code; a completed previous-day maintenance notice is not retroactively imported. Explicit failed/pending receipts remain visible for manual review."
+      ],
+      "followup_evidence": [
+        "User supplied a Discord screenshot from another administrator on an older version: prerecorded maintenance one-minute/due lines with a 07:00 header. This confirms the displayed broadcast occurred at that time; it does not prove automatic notice-to-schedule import existed on that PC.",
+        "This PC first collected the 2026-10-21 notice at 07:49:56 KST, after its 07:00 start, while its persisted regular-maintenance hour was still 08:00.",
+        "BossTimerDiscordBot._build_boss_notice_embed uses the last announcement time in the header, not an independently fetched official maintenance time. The other administrator schedule/loaded module/receipt logs were not inspected; their exact source of the 07:00 setting remains unknown."
       ]
     }
   ]

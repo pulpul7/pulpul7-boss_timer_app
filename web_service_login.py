@@ -3,6 +3,8 @@
 LOGIN_PAGE = r"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#151b24">
+<link rel="stylesheet" href="/pwa/install.css"><script src="/pwa/install.js" defer></script>
 <title>BossTimer 스케줄 입장</title><link rel="stylesheet" href="/style.css">
 <script src="/login.js" defer></script></head><body><main>
 <h1>BossTimer 스케줄</h1><p>관리자가 알려준 네 자리 비밀번호로 입장하세요.</p>

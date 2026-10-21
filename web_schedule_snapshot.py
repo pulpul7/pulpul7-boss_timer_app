@@ -165,8 +165,9 @@ def _collect_catalog(app, *, boss_orders=None, slot_grid=None):
     for row in fixed.values():
         row.pop("_anchor_time", None)
     result.extend(fixed.values())
-    for order, name in enumerate(("길던", "사용자이벤트", "침공")):
-        result.append(dict(id=_catalog_id("boss", name), kind="boss", name=name, label=name,
+    for order, name in enumerate(("길던", "사용자이벤트", "체크된침공", "침공")):
+        result.append(dict(id=_catalog_id("boss", name), kind="boss", name=name,
+                           label="전체침공" if name == "침공" else name,
                            group="특수 이벤트", group_order=10500, order=order, absolute=False,
                            important=False, major=name == "길던"))
     for row in result:

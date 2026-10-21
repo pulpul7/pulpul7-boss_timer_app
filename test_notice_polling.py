@@ -101,6 +101,38 @@ class ClaimTests(unittest.TestCase):
         self.assertIsNotNone(other.claim_collection())
         self.assertIsNone(self.store.claim_collection())
 
+    def test_future_saved_attempt_recovers_without_resetting_preferences(self):
+        self.now = at(12, 45)
+        with self.store._transaction() as state:
+            state['collection'] = {'last_attempt': at(22).isoformat()}
+        before = self.store.snapshot()['settings']
+        claimed = self.store.claim_collection()
+        self.assertIsNotNone(claimed)
+        state = self.store.snapshot()
+        self.assertEqual(state['settings'], before)
+        self.assertEqual(state['collection']['recovered_future_attempt'], at(22).isoformat())
+        self.assertEqual(state['collection']['last_trigger'], 'automatic')
+        self.assertIsNone(self.store.claim_collection())  # Respect interval after recovery.
+
+    def test_future_attempt_cannot_override_extension_wait_or_disabled_collection(self):
+        with self.store._transaction() as state:
+            state['collection'] = {'last_attempt': at(22).isoformat()}
+        self.assertIsNone(self.store.claim_collection())  # 11:29 extension wait.
+        settings = self.store.snapshot()['settings'];settings['collection_enabled'] = False
+        self.store.configure(settings)
+        self.assertIsNone(self.store.claim_collection())
+        self.assertIsNone(self.store.claim_collection(manual=True))
+
+    def test_manual_attempt_does_not_erase_last_automatic_attempt(self):
+        self.now = at(12, 45)
+        self.assertIsNotNone(self.store.claim_collection())
+        self.now += timedelta(minutes=1)
+        self.assertIsNotNone(self.store.claim_collection(manual=True))
+        state = self.store.snapshot()['collection']
+        self.assertEqual(state['last_automatic_attempt'], at(12, 45).isoformat())
+        self.assertEqual(state['last_manual_attempt'], at(12, 46).isoformat())
+        self.assertEqual(state['last_trigger'], 'manual')
+
 
 if __name__ == "__main__":
     unittest.main()

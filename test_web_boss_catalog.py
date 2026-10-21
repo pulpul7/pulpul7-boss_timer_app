@@ -53,7 +53,8 @@ class BossCatalogTests(unittest.TestCase):
         anchors = [row for row in rows if row["kind"] == "fixed" and row["name"].endswith("닻")]
         self.assertEqual([row["label"] for row in anchors], ["니다벨 닻", "알브 닻", "무스펠 닻"])
         special = [row for row in rows if row["group"] == "특수 이벤트"]
-        self.assertEqual([row["name"] for row in special], ["길던", "사용자이벤트", "침공"])
+        self.assertEqual([row["name"] for row in special], ["길던", "사용자이벤트", "체크된침공", "침공"])
+        self.assertEqual([row["label"] for row in special][-2:], ["체크된침공", "전체침공"])
         self.assertEqual(next(row for row in special if row['name'] == '침공')['id'], _catalog_id('boss', '침공'))
         self.assertEqual(len({row["id"] for row in anchors}), 3)
         app.fixed_boss_entries = [dict(boss_name="닻", time_text="18:30:00"), dict(boss_name="닻", time_text="20:30:00")]

@@ -45,4 +45,6 @@ const restore=fixture({saved:{at:Date.now(),filter:'custom',day:'2026-10-20',scr
 check(restore.api.view().day==='2026-10-20'&&restore.scrolls[0][1]===120&&restore.storage.size===0,'automatic refresh restores tab/date/scroll once');
 const stale=fixture({saved:{at:Date.now()-400000,filter:'all',scroll:999}});stale.api.restore();stale.fire();
 check(stale.scrolls.length===0,'stale restoration state is discarded');
+const text=fixture({saved:{at:Date.now(),filter:'txt',scroll:0}});text.api.restore();
+check(text.api.view().filter==='txt','automatic page refresh restores the text tab');
 return checks;

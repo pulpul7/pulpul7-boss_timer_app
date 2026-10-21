@@ -17,6 +17,12 @@ from web_service_worker import LocalHandler as Handler
 
 
 class BossSpectrumTests(unittest.TestCase):
+    def test_checked_invasion_distribution_color_is_28(self):
+        from web_schedule_snapshot import _catalog_id
+        from web_boss_spectrum import read_numbers
+        numbers = read_numbers(Path('web_assets/boss_spectrum.json'))
+        self.assertEqual(numbers[_catalog_id('boss', '체크된침공')], 28)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='boss-spectrum-unit-')
         self.addCleanup(temporary.cleanup)
@@ -64,6 +70,35 @@ class BossSpectrumTests(unittest.TestCase):
         self.store.save('spring', [self.a], 0, self.catalog)
         self.assertEqual(BossSpectrumStore(self.root).numbers(), {self.b: 8})
         self.assertEqual(self.store.numbers(), {self.b: 8})
+
+    def checked_seed(self):
+        from web_boss_spectrum import CHECKED_INVASION
+        write_json(self.seed, dict(schema=2, numbers={self.a: 4, CHECKED_INVASION: 28}))
+        self.catalog.append(dict(id=CHECKED_INVASION))
+        return CHECKED_INVASION
+
+    def test_split_checked_invasion_missing_runtime_default_is_visible_without_writes(self):
+        from fixed_boss_aliases import catalog_id
+        checked = self.checked_seed()
+        whole = catalog_id('boss', '침공')
+        write_json(self.store.path, dict(schema=2, numbers={self.a: 12, self.b: 8, whole: 28}))
+        before = self.store.path.read_bytes()
+        self.assertEqual(self.call()['body']['numbers'], {self.a: 12, self.b: 8, whole: 28, checked: 28})
+        self.assertEqual(self.store.path.read_bytes(), before)
+
+    def test_checked_invasion_explicit_change_and_reset_survive_new_store(self):
+        checked = self.checked_seed()
+        self.store.save('gray', [checked], 15, self.catalog)
+        self.assertEqual(BossSpectrumStore(self.root).numbers()[checked], 15)
+        self.store.save('gray', [checked], 0, self.catalog)
+        self.assertEqual(BossSpectrumStore(self.root).numbers(), {self.a: 4})
+
+    def test_checked_default_preserves_existing_assignment_and_other_save(self):
+        checked = self.checked_seed()
+        write_json(self.store.path, dict(schema=2, numbers={checked: 17, self.b: 8}))
+        self.assertEqual(self.store.numbers(), {checked: 17, self.b: 8})
+        self.store.save('gray', [self.b], 24, self.catalog)
+        self.assertEqual(BossSpectrumStore(self.root).numbers(), {checked: 17, self.b: 24})
 
     def test_renamed_fixed_color_is_migrated_without_read_writes_and_reset_sticks(self):
         from fixed_boss_aliases import catalog_id

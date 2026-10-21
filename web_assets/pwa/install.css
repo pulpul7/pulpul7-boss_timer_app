@@ -1,0 +1,6 @@
+#bt-pwa-install{position:relative;z-index:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;margin:0;padding:8px 12px;background:var(--panel,#253346);color:var(--text,#edf1f7);border-bottom:1px solid var(--line,#41516a);font:13px/1.45 system-ui,sans-serif}
+#bt-pwa-install[hidden],#bt-pwa-install-help[hidden]{display:none!important}
+#bt-pwa-install>span{flex:1 1 180px}
+#bt-pwa-install>button{flex:0 0 auto;min-height:36px;margin:0;padding:6px 12px;background:var(--bg,#151b24);color:inherit;border:1px solid currentColor;border-radius:6px;font:600 13px/1.4 system-ui,sans-serif;cursor:pointer}
+#bt-pwa-install>button:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+#bt-pwa-install>p{flex-basis:100%;margin:0;font:12px/1.5 system-ui,sans-serif}
