@@ -411,6 +411,8 @@ def check(restricted=False,phone_menu=False,mouse_menu=False,frame_height=False,
                         assert any(r['viewport']<500 for r in anchored if r['mode']=='scroll'),anchored
                         print(json.dumps(dict(copy_gear_scrollbar=anchored)))
                     cdp.call('Emulation.setDeviceMetricsOverride',dict(width=390,height=844,deviceScaleFactor=1,mobile=True),session)
+                    cinematic_ui=evaluate(Path('check_web_cinematic_layout.js').read_text(encoding='utf-8'))
+                    print(json.dumps(dict(cinematic_ui=cinematic_ui)))
                     alarm_colors=evaluate("""(()=>{
  document.getElementById('theme-avengers').click();
  const button=document.getElementById('all-alarm'),label=document.getElementById('all-alarm-label');

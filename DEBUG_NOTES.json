@@ -12,6 +12,37 @@
   ],
   "entries": [
     {
+      "id": "cinematic_controls_skin_recovery_caption_gating",
+      "recorded_on": "2026-10-22",
+      "status": "source_changed_nonbuild_verified",
+      "user_report": "Iron Man next-boss transport panel and triangle artwork disappeared; arrival message appeared behind the helmet.",
+      "confirmed": [
+        "The runtime hid the dock until its companion CSS load event, with no error or timeout recovery. One failed stylesheet request could leave controlsReady false indefinitely.",
+        "Arrival was appended without hidden=true, and regular upcoming-boss updates cleared hidden before actual playback. With companion CSS unavailable it could become an ordinary-flow span behind artwork. The existing playing CSS already places caption at z-index3 and suppresses helmet/reactor pseudo-elements.",
+        "mount returned immediately for an existing decoder, so a detached dock had no runtime reattachment path. Main schedule renderer normally retains it, but a detached or older-page render could not self-repair.",
+        "Read-only probes of the current loopback cinematic endpoints timed out. This did not establish the actual user-session cause; the confirmed failure paths were reproduced through deterministic tests and isolated browser DOM changes."
+      ],
+      "resolution": [
+        "loadSkin allows three total attempts, five-second per-request deadlines and one/two-second retry delays. Removed/expired link callbacks cannot mark controls ready. Success clears the watchdog. Normal updates do not retry exhausted loads; explicit theme reentry/page return can retry.",
+        "paintArrival requires controlsReady, enabled theme, playing hero state and an upcoming scheduled boss. Caption is hidden from creation, and paintTransport/regular updates synchronize it. Paused/still/waiting/disabled/spawned states hide the caption.",
+        "Added the default caption display:none rule to source/main theme CSS as a safe baseline when companion CSS is absent. Playing companion rules keep the foreground announcement; no playback or grouping timing was changed.",
+        "restoreTransport reuses the existing dock/SVG and places it directly after the connected hero. mount, transport paint and detached-node updates use this path without creating another decoder or stylesheet.",
+        "Page revision223, static CSS/Python mirror and fallback metadata synchronized. Player JS remains a separate runtime resource outside the six-file static updater contract."
+      ],
+      "validation": [
+        "New cinematic UI25 deterministic checks cover error/stall retries, bounded requests, theme reentry, stale callbacks, no success-side background timer, caption states/spawn cutoff and dock identity restoration.",
+        "Cinematic order51, final-frame restore12, preferences42, cache10 and Python cinematic/asset32 tests passed. Single decoder and existing scheduling/cache behaviors are retained.",
+        "Isolated Chrome default and Android UA each passed12 production-page layout checks: visible72x26 metal triangle, attached dock, open panel/three icons/metal frame, waiting caption hidden, playing caption foreground with helmet/reactor suppressed, paused caption hidden, detached dock repair and same video/style identity.",
+        "Both browser runs passed18 theme transitions; Android retained downward-only touch stop/upward freedom. Some fixture reloads logged benign cancelled-request Win10053; production page errors stayed empty and assertions passed.",
+        "PAGE/STYLE/SCRIPT byte mirrors, six-file size validation, Python/JSON parsing and current release declaration validation passed. No build/ZIP/deployment or live-service restart."
+      ],
+      "remaining": [
+        "No live reproduction of the reported client session or physical-device verification. Updated companion player JS must reach the serving runtime and the page must reload; static six-file update alone does not deliver it.",
+        "If an existing EXE worker serves old bundled resources, user must apply the new build and explicitly restart that web runtime. Source-mode runtime reads changed player resources directly on page reload.",
+        "No user settings, schedule, cinematic media or AppData were changed."
+      ]
+    },
+    {
       "id": "distribution_declaration_refresh_current_selection",
       "recorded_on": "2026-10-22",
       "status": "declaration_regenerated_verified_alarm_scope_pending",

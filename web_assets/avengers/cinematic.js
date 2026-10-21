@@ -23,6 +23,7 @@ let groupedRows=[],leaders=new Set(),byGroup=new Map(),holdGroup=null,holdOwner=
 let latestRows=[],latestVersion;
 let currentIndex=-1,transport,statusLine,playToggle,drawer,expand,paused=false,pausedAt=0,localURL='',controlsReady=false;
 let transportDisabled=null,transportPlaying=null;
+let skin=null,skinLoading=false,skinAttempts=0,skinTimer=0;
 let automaticCursor=-1;
 const automaticMovies=new Map();
 const rowKey=r=>r?String(r.id)+'|'+r.at:'';
@@ -290,13 +291,42 @@ function release(keepStill=true){
  if(keepStill&&still.width){still.hidden=false;hero.dataset.cinematic='still';}else delete hero.dataset.cinematic;
  paintTransport();
 }
+function paintArrival(at=now()){
+ if(!arrival)return;
+ const hidden=!controlsReady||!enabled||hero?.dataset.cinematic!=='playing'||!scheduledRow||at>=scheduledRow.at;
+ if(arrival.hidden!==hidden)arrival.hidden=hidden;
+}
+function restoreTransport(){
+ if(transport&&hero?.isConnected&&hero.nextElementSibling!==transport)hero.after(transport);
+}
+function loadSkin(reset=false){
+ if(!video||controlsReady||skinLoading||skinTimer)return;
+ if(reset)skinAttempts=0;
+ if(skinAttempts>=3)return;
+ skinLoading=true;++skinAttempts;
+ const link=document.createElement('link');skin=link;link.rel='stylesheet';link.href='/cinematic/player.css';
+ link.addEventListener('load',()=>{
+  if(skin!==link)return;
+  clearTimeout(skinTimer);skinTimer=0;
+  skinLoading=false;controlsReady=true;paintTransport();paintArrival();
+  if(!video.paused&&!video.hidden)setTransportOpen(true);pump();
+ },{once:true});
+ const fail=()=>{
+  if(skin!==link)return;
+  clearTimeout(skinTimer);skinTimer=0;
+  skinLoading=false;skin=null;link.remove();paintArrival();
+  if(skinAttempts<3)skinTimer=setTimeout(()=>{skinTimer=0;if(enabled)loadSkin();},skinAttempts*1000);
+ };
+ link.addEventListener('error',fail,{once:true});skinTimer=setTimeout(fail,5000);
+ document.head.append(link);
+}
 function mount(){
- if(video)return true;
+ if(video){restoreTransport();return true;}
  hero=document.getElementById('next-name')?.closest('.hero');
  if(!hero)return false;
  video=document.createElement('video');still=document.createElement('canvas');
  stage=document.createElement('div');stage.className='ironman-cinematic-stage';stage.hidden=!enabled;stage.setAttribute('aria-hidden','true');hero.append(stage);
- arrival=document.createElement('span');arrival.className='ironman-cinematic-arrival';arrival.textContent='곧 보스가 출연 합니다.';arrival.setAttribute('aria-hidden','true');hero.append(arrival);
+ arrival=document.createElement('span');arrival.className='ironman-cinematic-arrival';arrival.hidden=true;arrival.textContent='곧 보스가 출연 합니다.';arrival.setAttribute('aria-hidden','true');hero.append(arrival);
  still.width=still.height=0;
  video.id='ironman-cinematic-video';still.id='ironman-cinematic-still';
  for(const n of [video,still]){n.className='ironman-cinematic';n.hidden=true;n.setAttribute('aria-hidden','true');stage.append(n);}
@@ -320,9 +350,7 @@ function mount(){
  });
  transport=document.createElement('section');transport.id='ironman-media-dock';transport.className='ironman-transport';transport.hidden=true;transport.setAttribute('aria-label','시네마틱 재생');
  // The page CSS is an immutable snapshot; keep runtime UI and its CSS together.
- const skin=document.createElement('link');skin.rel='stylesheet';skin.href='/cinematic/player.css';
- skin.addEventListener('load',()=>{controlsReady=true;paintTransport();if(!video.paused&&!video.hidden)setTransportOpen(true);pump();},{once:true});
- document.head.append(skin);
+ loadSkin();
  expand=document.createElement('button');expand.type='button';expand.id='cinematic-expand';expand.setAttribute('aria-label','시네마틱 조작부 펼치기');expand.setAttribute('aria-expanded','false');expand.setAttribute('aria-controls','cinematic-drawer');
  const tab=document.createElementNS('http://www.w3.org/2000/svg','svg');tab.setAttribute('viewBox','0 0 72 26');tab.setAttribute('aria-hidden','true');
  tab.innerHTML='<defs><linearGradient id="cinematic-metal" x2="0" y2="1"><stop stop-color="#fff0b4"/><stop offset=".3" stop-color="#986329"/><stop offset=".55" stop-color="#e9c67a"/><stop offset="1" stop-color="#674014"/></linearGradient><linearGradient id="cinematic-red" x2="0" y2="1"><stop stop-color="#681408"/><stop offset="1" stop-color="#160906"/></linearGradient></defs><path d="M1 1H71L60 12H49L36 25 23 12H12Z" fill="#100d09" stroke="url(#cinematic-metal)" stroke-width="1.5"/><path d="M6 3H66L58 10H47L36 21 25 10H14Z" fill="url(#cinematic-red)" stroke="#d2a45d" stroke-width=".6"/><path d="M28 9H44L36 17Z" fill="#6dd8f3" stroke="#e6fbff" stroke-width=".6"/><path d="M11 5H23M49 5H61" stroke="#ecbd68" stroke-width="1"/><g fill="#211a12" stroke="#d4b46d" stroke-width=".5"><circle cx="15" cy="7" r="1.4"/><circle cx="57" cy="7" r="1.4"/></g>';
@@ -370,6 +398,7 @@ function paintButton(){
 }
 function paintTransport(){
  if(!transport)return;
+ restoreTransport();paintArrival();
  const hidden=!controlsReady||!enabled||hero.hidden;
  if(transport.hidden!==hidden)transport.hidden=hidden;
  if(transport.hidden&&drawer&&!drawer.hidden)setTransportOpen(false);
@@ -521,7 +550,7 @@ function pump(){
  if(video.hidden)video.hidden=false;if(!still.hidden)still.hidden=true;
  if(hero.dataset.cinematic!=='playing')hero.dataset.cinematic='playing';
  if(!running){clearCompaction();running=true;busyStart=t;hero.dataset.cinematicSize='expanded';currentIndex=library.indexOf(clip);if(preview)discardOverlaps(t,t);paintButton();}
- const hideArrival=!scheduledRow||t>=scheduledRow.at;if(arrival.hidden!==hideArrival)arrival.hidden=hideArrival;
+ paintArrival(t);
  verifyPresentedFrame();
  audio();
  if(video.paused&&!playing){
@@ -549,7 +578,7 @@ async function previewStep(step){
  if(enabled&&library?.length)return previewAt(panelIndex(step));
 }
 globalThis.WebIronmanCinematic={
-  enable(value,alarm,owner,catalog,isMajor){const entering=Boolean(value)&&!enabled;enabled=Boolean(value);if(stage)stage.hidden=!enabled;if(Array.isArray(catalog))selectionPrefs.refresh(owner,catalog,isMajor);selectionPrefs.visibility();if(typeof alarm==='function')canSound=alarm;paintButton();if(enabled){mount();groups(latestRows,latestVersion);expireStill(now(),scheduledRow);catalogue(entering);if(!catalogueLoading)localMedia.start();pump();}else{localMedia.stop();cancel();release(false);preview=null;paused=false;pausedAt=0;row=scheduledRow;key=rowKey(row);paintTransport();}},
+  enable(value,alarm,owner,catalog,isMajor){const entering=Boolean(value)&&!enabled;enabled=Boolean(value);if(stage)stage.hidden=!enabled;if(Array.isArray(catalog))selectionPrefs.refresh(owner,catalog,isMajor);selectionPrefs.visibility();if(typeof alarm==='function')canSound=alarm;paintButton();if(enabled){mount();if(entering)loadSkin(true);groups(latestRows,latestVersion);expireStill(now(),scheduledRow);catalogue(entering);if(!catalogueLoading)localMedia.start();pump();}else{localMedia.stop();cancel();release(false);preview=null;paused=false;pausedAt=0;row=scheduledRow;key=rowKey(row);paintTransport();}},
  preferences(owner,catalog,isMajor){selectionPrefs.refresh(owner,catalog,isMajor);},
  selectionDirty(){return selectionPrefs.dirty();},
  refreshAudio(){audio();},
@@ -560,7 +589,7 @@ globalThis.WebIronmanCinematic={
   latestRows=rows;latestVersion=version;scheduledRow=next;
   if(!enabled){row=next;key=rowKey(next);return;}
   groups(rows,version);expireStill(at,next);
-  if(arrival){const hidden=!next||at>=next.at;if(arrival.hidden!==hidden)arrival.hidden=hidden;}
+  paintArrival(at);if(transport&&!transport.isConnected)restoreTransport();
   settlePanel();
   if(correction>=250)cancel();
   // Native playback and existing deadlines do not need a per-second pump.
@@ -586,6 +615,6 @@ function gesture(){
 document.addEventListener('pointerdown',gesture,{passive:true});
 document.addEventListener('keydown',gesture);
 for(const event of ['pointerdown','pointermove','click','keydown','scroll'])document.addEventListener(event,recordTransportActivity,{passive:true,capture:event==='scroll'});
- window.addEventListener('pagehide',()=>{setTransportOpen(false);localMedia.stop();cancel();release(false);});
-window.addEventListener('pageshow',()=>{if(enabled)localMedia.start();pump();});
+ window.addEventListener('pagehide',()=>{clearTimeout(skinTimer);skinTimer=0;if(skinLoading){skin?.remove();skin=null;skinLoading=false;}setTransportOpen(false);localMedia.stop();cancel();release(false);});
+window.addEventListener('pageshow',()=>{if(enabled){loadSkin(true);localMedia.start();}pump();});
 })();

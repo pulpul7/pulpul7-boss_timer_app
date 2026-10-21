@@ -102,6 +102,7 @@ html[data-theme="avengers"] .schedule-app .hero:is([data-cinematic="still"],[dat
 html[data-theme="avengers"] .hero[data-cinematic]::before,html[data-theme="avengers"] .hero[data-cinematic]::after{display:none}
 html[data-theme="avengers"] .hero[data-cinematic] .avengers-hero-energy::before,html[data-theme="avengers"] .hero[data-cinematic] .avengers-hero-energy::after{animation-play-state:paused!important}
 .ironman-transport{display:none}
+.ironman-cinematic-arrival{display:none}
 /* Retained runtime nodes never paint outside the Iron Man theme, even with older player CSS. */
 html:not([data-theme="avengers"]) :is(.ironman-cinematic-stage,.ironman-cinematic-arrival,#ironman-media-dock){display:none!important}
 html[data-theme="avengers"] .schedule-app :is(.following,.event-row){

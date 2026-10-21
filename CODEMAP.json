@@ -561,7 +561,8 @@
         "split checked invasion canonical catalog ID spectrum28 runtime missing default read-only merge explicit reset marker",
         "PC auto alignment only from page top mouse leave delay user scroll cancels no mouse enter jump",
         "all menus previous bosses retained no display none no extra scroll padding on non-scrollable short schedule",
-        "automatic hide UI explanation top only keep10 seconds saved option delay"
+        "automatic hide UI explanation top only keep10 seconds saved option delay",
+        "Iron Man cinematic transport triangle missing companion stylesheet failed stalled bounded retry waiting caption behind helmet detached dock restore"
       ],
       "read": [
         "web_assets/schedule.js",
@@ -653,7 +654,9 @@
         "test_web_limited_sakura.py",
         "test_web_current_tab.js",
         "test_web_txt_rest_work.js",
-        "test_web_copy_feedback.js"
+        "test_web_copy_feedback.js",
+        "test_web_cinematic_ui.js",
+        "check_web_cinematic_layout.js"
       ],
       "js_symbols": [
         "recalculatedRests",
@@ -742,7 +745,10 @@
         "web_menu_idle.js#check",
         "web_menu_idle.js#pin",
         "web_menu_idle.js#touchInput",
-        "web_menu_idle.js#touchStop"
+        "web_menu_idle.js#touchStop",
+        "web_assets/avengers/cinematic.js#loadSkin",
+        "web_assets/avengers/cinematic.js#paintArrival",
+        "web_assets/avengers/cinematic.js#restoreTransport"
       ],
       "at": [
         "web_cinematic.py#clips",
