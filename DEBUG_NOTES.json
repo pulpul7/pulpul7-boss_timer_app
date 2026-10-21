@@ -12,6 +12,31 @@
   ],
   "entries": [
     {
+      "id": "distribution_declaration_refresh_current_selection",
+      "recorded_on": "2026-10-22",
+      "status": "declaration_regenerated_verified_alarm_scope_pending",
+      "user_report": "Manual build stopped with stale declaration ValueError; user also mentioned changed fixed-boss and alert settings.",
+      "confirmed": [
+        "read_declaration recomputes seed_hash for selected source data. Actual mismatch was only web_assets/boss_spectrum.json after the checked-invasion28 seed change.",
+        "default_settings.ini uses a normalized hash of declared config_keys, not whole-file bytes. Earlier preflight whole-file hashing falsely flagged that INI; corrected the earlier record and BUILD_HANDOFF.",
+        "Existing declaration selects areas,boss_definition,fixed,font_sizes,notice,notice_module,spectrum. It does not select boss alarm settings.",
+        "Read-only comparison against the currently saved active profile shows fixed bosses and normalized notice preferences already equal their deployment seeds; saved boss-alarm data differs. Unsaved GUI state was not read."
+      ],
+      "resolution": [
+        "Preserved the exact seven selected groups and all eight source files. Backed up the prior declaration under settings_seed_backups/distribution_declaration_20261022_012548.",
+        "Ran the existing declare_distribution_defaults.py --groups with those groups --apply. This creates a new revision/sequence from validated sources; no manual hash replacement or validation bypass.",
+        "Added the verified CLI/read_declaration/seed_hash entrypoints to the existing navigation route. No runtime/update-policy behavior changed."
+      ],
+      "validation": [
+        "read_declaration now succeeds; groups/enabled match the old declaration, revision differs and sequence increases. All eight source bytes are unchanged.",
+        "test_distribution_defaults and test_distribution_selection:29 tests passed. No actual spec, compiler or build command executed."
+      ],
+      "remaining": [
+        "User clarification requested: whether changed alert settings mean notice preferences, boss alarm settings or both. Do not add alarm to the deployment scope or copy its runtime file until that is determined.",
+        "Next program release version and manual EXE smoke tests remain separate. No build/ZIP/deployment, AppData mutation, runtime settings reset, schedule/media change or live-service restart."
+      ]
+    },
+    {
       "id": "menu_preserved_top_only_next_boss_scroll_alignment",
       "recorded_on": "2026-10-22",
       "status": "source_changed_nonbuild_verified",
@@ -50,7 +75,7 @@
       "request": "PC pointer reentry must not reveal folded menus below page top. Also inspect remaining requirements before confirming a release.",
       "confirmed": [
         "pointerActivity previously called show unconditionally on mouse entry; show also scrolls to zero and ticks. This revealed menus and changed position even while browsing below the top.",
-        "Release declaration hashes mismatch current init/default_settings.ini and web_assets/boss_spectrum.json. read_declaration raises its stale-declaration error before packaging. No declaration or user data was modified by this audit.",
+        "Initial preflight flagged default_settings.ini and spectrum by comparing whole-file hashes. Follow-up using the actual declaration seed_hash confirmed only web_assets/boss_spectrum.json mismatched; selected settings INI keys still matched. Declaration was subsequently regenerated via the existing CLI.",
         "Actual release resolver returns v6.4.1 from the reachable tag with no explicit version override. Source build_metadata also reports v6.4.1; choosing a new release version remains a user decision.",
         "Initial365-test preflight passed363 tests and exposed2 errors: compact_embedded_indent unconditionally indexed function sections absent from standalone literal test snippets. This was an existing source-tool failure, separate from menu behavior."
       ],
@@ -70,7 +95,8 @@
         "Before manual build: save final intended defaults and recreate the deployment declaration through existing controls; do not merely patch hashes. Choose and explicitly set the new program version. Neither operation was inferred or performed.",
         "Binary startup, updater restart/web persistence/tray lifetime, actual Discord notice voice/chat and physical mobile PWA/cinematic behavior require the user manual build and real-device smoke test. Source checks do not prove those binary outcomes.",
         "No build/ZIP/deployment, repository mutation, package install, AppData/schedule/media changes or live-service restart."
-      ]
+      ],
+      "correction_2026_10_22": "Settings INI declaration hashes normalize only selected config_keys; whole-file SHA256 is not a valid mismatch test for that file. See distribution_declaration_refresh_current_selection."
     },
     {
       "id": "web_copy_settings_anchor_defaults_checked_invasion_spectrum",

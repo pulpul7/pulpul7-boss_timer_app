@@ -16,10 +16,10 @@
     "init/schedule_area_definitions.txt": "1c216102733cfcd3abe077afb1edf96b129646385e34ac3e325b4c493760dcb1",
     "init/schedule_boss_definitions.txt": "5f934dd3f1e09c2d1307d9a6ae0ac50441a0364709ef2cb69df225bbd44bb845",
     "init/schedule_fixed_bosses.txt": "a1bab9ee7e224e59a90a464fe5411e6618e9c75dddfeef8653cf855fd3edafc2",
-    "web_assets/boss_spectrum.json": "9febb891967e33160acd1adf9b307623fe123c14f2d623b138ff41fde98c9bcd",
+    "web_assets/boss_spectrum.json": "7072b77576ba73906881951205f7e6830d68c9247674cfefe74bbd1021316df9",
     "web_assets/fonts/size_defaults.json": "dbfc20d47c3561641debd8e9a52e84b5137790fc6a07f94767e3778c6fce5b3b"
   },
-  "revision": "20261021T114139_303350b9",
+  "revision": "20261021T162549_93ca8cd5",
   "schema": 1,
-  "sequence": 1792582899520407300
+  "sequence": 1792599949073788300
 }

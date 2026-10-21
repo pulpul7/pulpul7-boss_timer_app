@@ -1027,7 +1027,9 @@
         "web_live_assets.py",
         "web_service_worker.py",
         "web_https_server.py",
-        "web_https_app.py"
+        "web_https_app.py",
+        "declare_distribution_defaults.py",
+        "distribution_publish.py"
       ],
       "at": [
         "ai_update_center.py#AiUpdateCenter._open_update_policy",
@@ -1045,7 +1047,10 @@
         "program_update_process.py#alive",
         "program_update_process.py#wait_exited",
         "ai_update_center.py#AiUpdateCenter._install_full",
-        "program_update_service.py#ProgramUpdateService._refresh_download_progress"
+        "program_update_service.py#ProgramUpdateService._refresh_download_progress",
+        "distribution_defaults.py#read_declaration",
+        "distribution_defaults.py#seed_hash",
+        "declare_distribution_defaults.py#main"
       ],
       "tests": [
         "test_program_update_sequence.py",
