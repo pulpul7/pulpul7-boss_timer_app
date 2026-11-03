@@ -110,6 +110,7 @@ class ScheduleNoticeTests(unittest.TestCase):
         flags['participation.morning'] = False
         self.store.save_tts_templates({key: item['text'] for key, item in TEMPLATES.items()},
                                      expected_revision=state.get('tts_templates_revision', 0), enabled=flags)
+        synchronize_schedule(self.store, self.snapshot)
         planned = self.planned()
         self.now = self.now.replace(hour=23)
         context = dict(id='one', server_id='odin9', at=self.now, kind='boss', chapter=7, star=True, phase='one_minute_complete')
@@ -140,11 +141,11 @@ class ScheduleNoticeTests(unittest.TestCase):
         synchronize_schedule(self.store, self.snapshot)
         self.assertNotIn(morning['id'], self.store.snapshot()['events'])
 
-    def test_wednesday_morning_is_not_added_on_other_days(self):
+    def test_morning_is_added_on_other_days(self):
         self.now = self.now.replace(day=21)
         self.snapshot['regular_maintenance'] = '2026-09-22T08:00:00+09:00'
         self.snapshot['events'] = [self.row('morning', '22T06:30:00')]
-        self.assertEqual(self.planned(), [])
+        self.assertEqual([event['tts_template'] for event in self.planned()], ['participation.morning'])
 
     def test_registration_idempotence_disable_edit_remove_and_reappear(self):
         self.snapshot['events'] = [self.row('히로킨', '22T22:00:00')]

@@ -79,6 +79,7 @@ class NoticePlugin:
         from .notice_host_opportunities import completed_opportunities
         from .notice_template_ui import NoticeTemplateWindow
         from .notice_schedule import synchronize_schedule
+        from .notice_schedule_pairing import pair_candidates
         from .notice_server_open import server_open_override
         return {"ok": callable(NoticeManagementWindow), "api_version": MODULE_API,
                 "features": ["notice_management", "validity", "history", "public_notice_collection", "notice_period_analysis", "extension_polling", "boss_opportunity_policy", "schedule_participation", "relative_date_templates", "speech_preparation", "discord_automatic_output"]}
@@ -122,7 +123,8 @@ class NoticePlugin:
                     if self.audio_controller is None:
                         store = NoticeStore(self.host.data_root, identity[0])
                         self.audio_controller = NoticeAudioController(store,
-                            DiscordNoticeTransport(context['request']), prepared_audio=self.prepared_audio)
+                            DiscordNoticeTransport(context['request']), prepared_audio=self.prepared_audio,
+                            log=self.host.log)
                         self.audio_identity = identity
                     # The bot atomically arbitrates its playback slot; a busy
                     # boss never gets preempted by this low-priority request.

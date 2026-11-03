@@ -63,6 +63,7 @@ class NoticeRuntimeTests(unittest.TestCase):
         self.assertIn("payload/notice_polling.py", manifest["files"])
         self.assertIn("payload/notice_opportunities.py", manifest["files"])
         self.assertIn("payload/notice_schedule.py", manifest["files"])
+        self.assertIn("payload/notice_schedule_pairing.py", manifest["files"])
         self.assertIn("payload/notice_server_open.py", manifest["files"])
         self.assertIn("payload/notice_maintenance_import.py", manifest["files"])
         self.assertIn("payload/notice_participation.py", manifest["files"])

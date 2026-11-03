@@ -224,6 +224,132 @@ class PreparationTests(unittest.TestCase):
         self.assertFalse(self.pool.cache)
         self.assertEqual(self.factory.call_count, 1)
 
+    def playing_notice(self):
+        from notice_module.payload.notice_audio import NoticeAudioController
+        from test_notice_audio import FakeTransport
+        plugin, host, store, now = self.plugin()
+        plugin._schedule_tick()
+        now[0] = 5
+        plugin._schedule_tick()
+        plugin.schedule_worker.join(timeout=3)
+        transport = FakeTransport()
+        leases = {}
+        def prepare(lease):
+            handle = transport.prepare(lease.text)
+            leases[handle] = lease
+            return handle
+        transport.prepare_prepared = prepare
+        original_stop = transport.stop
+        def stop(handle):
+            accepted = original_stop(handle)
+            if accepted:
+                leases[handle].stop()
+            return accepted
+        transport.stop = stop
+        controller = NoticeAudioController(store, transport, clock=lambda: now[0], prepared_audio=self.pool, log=Mock())
+        self.addCleanup(controller.close)
+        controller.step(boss_busy=False)
+        handle = controller.active['handle']
+        transport.states[handle] = 'ready'
+        controller.step(boss_busy=False)
+        return plugin, host, store, now, transport, controller, handle
+
+    def test_unrelated_schedule_change_resumes_same_notice_without_replaying(self):
+        plugin, host, store, now, transport, controller, handle = self.playing_notice()
+        host.get_schedule_snapshot.return_value['events'].append(dict(
+            boss_name='unrelated elapsed boss', precision='minute', state='elapsed',
+            scheduled_at=(datetime.now(KST) - timedelta(hours=1)).isoformat()))
+        plugin._schedule_tick()
+        controller.step(boss_busy=False)
+        self.assertIsNotNone(controller.active)
+        self.assertEqual(transport.states[handle], 'paused')
+        now[0] = 10
+        plugin._schedule_tick()
+        plugin.schedule_worker.join(timeout=3)
+        controller.step(boss_busy=False)
+        controller.step(boss_busy=False)
+        self.assertEqual(controller.active['handle'], handle)
+        self.assertEqual(transport.states[handle], 'playing')
+        self.assertEqual([call[0] for call in transport.calls].count('prepare'), 1)
+        self.assertEqual([call[0] for call in transport.calls].count('play'), 1)
+        self.assertEqual([call[0] for call in transport.calls].count('resume'), 1)
+        transport.states[handle] = 'completed'
+        controller.step(boss_busy=False)
+        self.assertIsNotNone(store.snapshot()['events']['notice']['last_delivery'])
+        trace = [call.args[0] for call in controller.log.call_args_list]
+        self.assertEqual(sum('action=play ' in line for line in trace), 1)
+        self.assertEqual(sum('action=resume ' in line for line in trace), 1)
+        self.assertEqual(sum('action=delivered ' in line for line in trace), 1)
+
+    def test_changed_text_never_resumes_the_old_decoder(self):
+        plugin, _, store, now, transport, controller, handle = self.playing_notice()
+        store.edit_tts('notice', '다른 공지 문구')
+        controller.step(boss_busy=False)
+        self.assertEqual(transport.states[handle], 'paused')
+        now[0] = 10
+        plugin._schedule_tick()
+        plugin.schedule_worker.join(timeout=3)
+        controller.step(boss_busy=False)
+        self.assertIsNone(controller.active)
+        self.assertEqual(transport.states[handle], 'stopped')
+        self.assertNotIn(('resume', handle), transport.calls)
+        self.assertIsNone(store.snapshot()['events']['notice']['last_delivery'])
+
+    def test_changed_voice_never_resumes_the_old_decoder_even_with_same_text(self):
+        plugin, host, _, now, transport, controller, handle = self.playing_notice()
+        host.get_preparation_profile = lambda: dict(enabled=True, signature='new-voice', factory=self.factory)
+        plugin._schedule_tick()
+        controller.step(boss_busy=False)
+        self.assertEqual(transport.states[handle], 'paused')
+        now[0] = 10
+        plugin._schedule_tick()
+        plugin.schedule_worker.join(timeout=3)
+        controller.step(boss_busy=False)
+        self.assertIsNone(controller.active)
+        self.assertNotIn(('resume', handle), transport.calls)
+        self.assertEqual(self.factory.call_count, 2)
+
+    def test_disabled_notice_is_stopped_while_revalidation_is_pending(self):
+        plugin, _, store, _, transport, controller, handle = self.playing_notice()
+        plugin.notify_schedule_changed()
+        controller.step(boss_busy=False)
+        self.assertEqual(transport.states[handle], 'paused')
+        settings = store.snapshot()['settings']
+        settings['output_enabled'] = False
+        store.configure(settings)
+        controller.step(boss_busy=False)
+        self.assertIsNone(controller.active)
+        self.assertEqual(transport.states[handle], 'stopped')
+        self.assertIsNone(store.snapshot()['events']['notice']['last_delivery'])
+
+    def test_disabled_voice_profile_does_not_retain_a_decoder_indefinitely(self):
+        plugin, host, _, now, transport, controller, handle = self.playing_notice()
+        host.get_preparation_profile = lambda: dict(enabled=False, signature='voice', factory=self.factory)
+        plugin._schedule_tick()
+        controller.step(boss_busy=False)
+        self.assertEqual(transport.states[handle], 'paused')
+        now[0] = 10
+        plugin._schedule_tick()
+        plugin.schedule_worker.join(timeout=3)
+        controller.step(boss_busy=False)
+        self.assertIsNone(controller.active)
+        self.assertEqual(transport.states[handle], 'stopped')
+
+    def test_eof_during_revalidation_completes_once_without_new_play(self):
+        plugin, _, store, now, transport, controller, handle = self.playing_notice()
+        transport.states[handle] = 'completed'
+        plugin.notify_schedule_changed()
+        controller.step(boss_busy=False)
+        self.assertIsNone(store.snapshot()['events']['notice']['last_delivery'])
+        now[0] = 10
+        plugin._schedule_tick()
+        plugin.schedule_worker.join(timeout=3)
+        controller.step(boss_busy=False)
+        controller.step(boss_busy=False)
+        self.assertIsNotNone(store.snapshot()['events']['notice']['last_delivery'])
+        self.assertEqual([call[0] for call in transport.calls].count('prepare'), 1)
+        self.assertEqual([call[0] for call in transport.calls].count('play'), 1)
+
     def test_handover_suppresses_generation_until_snapshot_available(self):
         plugin, host, _, now = self.plugin()
         host.get_schedule_snapshot.return_value = None

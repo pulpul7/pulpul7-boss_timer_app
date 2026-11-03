@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "debugging_evidence_and_resolution_log_not_code_navigation_tree",
-  "updated_on": "2026-11-03",
+  "updated_on": "2026-11-04",
   "rules": [
     "Record only investigated facts; user reports, hypotheses, confirmed causes and resolutions are distinct.",
     "No credentials, private user data or raw production logs. Reference code symbols/tests and sanitized event names.",
@@ -11,6 +11,100 @@
     "After debugging review route coverage: extend an existing route first, add a distinct route only when needed, merge duplicates and remove stale current-code claims from CODEMAP.json. Historical entries here retain their original context and must not be used as current dependencies without revalidation."
   ],
   "entries": [
+    {
+      "id": "daily_morning_selection_and_paired_dawn_output",
+      "recorded_on": "2026-11-04",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Keep dawn and morning classifications independent but announce both once with each time when both are registered. Remove Wednesday-only morning selection. User selected daily 06:00-08:00, then clarified it should start exactly when dawn ends, with no boundary overlap.",
+      "confirmed": [
+        "Current dawn selection ends strictly before 06:00, not 05:30. Old morning selection required Wednesday and the two hours before a confirmed/default maintenance cutoff.",
+        "Old independently prepared dawn and morning records can consume separate boss announcement opportunities, matching the two notices in the screenshot."
+      ],
+      "changes": [
+        "Daily dawn range remains 01:30:01 inclusive to 06:00 exclusive. Morning is daily 06:00 inclusive to 08:00 exclusive, clipped at a confirmed same-date maintenance start. Both use the same 06:00 boundary and existing precision/star/cut/invasion/elapsed filters.",
+        "New notice_schedule_pairing links unsent enabled default dawn/morning candidates without merging record IDs, target lists, template switches or per-period 30-minute speech grouping. Dawn text contains both time clauses with one shared calendar prefix and closing sentence.",
+        "Hold the linked morning from independent automatic preparation/output. Use dawn's existing boss opportunity or 23:00 fallback; retain the morning record through the fallback's two-minute output window without extending standalone morning sending hours.",
+        "After confirmed EOF, atomically record both logical deliveries in one transaction and retire both, preserving the actually spoken combined text. Reject stale pairing after companion edits/disable, preserve quotas and prevent restart/reprojection/next-opportunity replay.",
+        "One-sided absence/disable retains standalone output. Previously sent, manually edited text/period or nondefault literal templates are not recombined or overwritten. Add management descriptions and load/package validation for the new module."
+      ],
+      "verification": [
+        "427 broad notice/collection/maintenance/template/runtime/output tests passed before the final extra boundary checks.",
+        "Final focused integration/runtime/audio run: 244 passed, including one physical prepare/play for two logical receipts, both times, separate record lists, settings independence, stale token rejection, reload, 23:00 fallback, all seven weekdays and 06:00/08:00 half-open boundaries with duplicate input and fractional seconds.",
+        "Normalized pairing signatures to the store's encoded period fields so fractional source timestamps remain valid after JSON persistence. Raw target timestamps remain intact.",
+        "Existing Wednesday-only tests updated to the newly requested daily rule."
+      ],
+      "limits": [
+        "Custom literal speech/manual periods stay separate to preserve user edits; automatic default clauses are paired.",
+        "Current source only; no live AppData edits, schedule mutation, actual TTS/Discord output, service/module restart, EXE/ZIP/build/deployment. Existing distribution seed declaration remains unchanged by this feature."
+      ]
+    },
+    {
+      "id": "notice_catalog_and_packaged_preferences_natural_wording_review",
+      "recorded_on": "2026-11-04",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Review other notice wording and improve unnatural expressions.",
+      "confirmed": [
+        "All 43 scenario defaults were reviewed alongside packaged overrides. Several actual overrides used awkward purchase/use deadline grammar, separated words and a fixed ten-minutes-remaining sentence despite a ten-minute eligibility interval.",
+        "The packaged participation.general still used the legacy representative-time template, which could attach one time to a summary of multiple schedules despite the catalog using the current generated summary.",
+        "Catalog-only wording changes do not replace packaged overrides or per-server personal templates; template_text prioritizes those stored values."
+      ],
+      "resolution": [
+        "Clarify maintenance duration, class purchase availability and purchase/use deadlines; replace item-deadline subject particle and awkward hardcoded ten-minute text with an imminent-close statement plus the actual deadline.",
+        "Use the current generated participation summary in distribution/module defaults and correct the web-schedule update sentence. Keep unknown-period notices conservative; natural discovery/season messages were left alone.",
+        "Update init and packaged preferences together. Confirm the enabled distribution declaration was valid beforehand and only the notice seed hash changed; regenerate its revision with exactly the same selected groups. No AppData application, promotion from live settings, build or deployment.",
+        "Keep actual period analysis, eligibility, count-aware boss grouping, send timing/quotas and custom literal user templates unchanged. Update current implementation/policy docs and existing navigation route for packaged override precedence."
+      ],
+      "verification": [
+        "All 86 catalog/packaged-default sample renderings succeeded and both preference JSON files validate and match semantically.",
+        "Initial 134-test run found one assertion still expecting the old maintenance sentence ending; adjusted it to the new wording while preserving its date-deduplication assertions.",
+        "Declaration read/seed integrity validation succeeded with existing selected groups preserved.",
+        "Broader validation covered 421 tests: 420 passed and one purchase-reminder assertion still expected the superseded phrase. Updated only that assertion to the natural purchase-close sentence, preserving separate purchase/use deadline checks; all 120 tests in the final affected-suite rerun passed."
+      ],
+      "limits": [
+        "Existing personal AppData text is not auto-migrated. A future user build applies exported defaults only under the already selected distribution policy.",
+        "No real TTS/Discord output, live data edits, module restart, executable/ZIP/test distribution build or publication."
+      ]
+    },
+    {
+      "id": "remaining_notice_natural_korean_wording",
+      "recorded_on": "2026-11-04",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Remove the repetitive wording combining 'remaining today' with 'remain' in the remaining-boss notice.",
+      "resolution": "Generated text now uses '오늘 남은 주요보스는 {listing}입니다.' for one boss, multiple bosses and class summaries. Removed obsolete subject-particle selection; selection, grouping, timing and delivery are unchanged.",
+      "verification": "57 remaining/third-slot/template tests passed with updated sentence expectations. Catalog example and current implementation documentation updated. Existing notice route already covers all affected paths.",
+      "limits": "Source only; no live notices/user text edited, audio/Discord playback, restart, build or deployment."
+    },
+    {
+      "id": "duplicate_notice_audio_chat_after_preparation_revalidation",
+      "recorded_on": "2026-11-04",
+      "status": "source_fixed_nonbuild_verified_incident_audio_count_unconfirmed",
+      "user_report": "Two screenshots show identical manager notices posted consecutively around 22:31 and 18:00/18:01. User asks whether audio also repeats, requests a fix and review of other notice kinds.",
+      "confirmed": [
+        "Chat has a per-output notice_text_announced flag and normal pause/resume does not resend. Preparing a new output creates a new scope and resets that flag.",
+        "An unrelated elapsed-boss snapshot change invalidates all preparation bindings. NoticeAudioController previously dropped the active decoder immediately when validation failed, even if the refreshed notice text was identical. A later preparation starts that same text from the beginning with a new output scope; this can repeat both audio and chat.",
+        "A real plugin/preparation/controller regression reproduced the old active-decoder loss before the fix. This is a shared automatic-output path, not a schedule-summary-only formatter issue.",
+        "A second retry path lost confirmed EOF when a status response failed: stop always reported stopped, so the controller could not recover successful completion and could retry the same speech.",
+        "This PC's available retained records did not supply matching administrator delivery/audio traces. Screenshot text/timestamps alone do not establish how many times listeners heard the historical audio."
+      ],
+      "resolution": [
+        "PreparedSpeechPool.binding_status distinguishes pending validation, unchanged current binding and changed/excluded preparation. A settled epoch prevents retaining a decoder indefinitely after voice disable, failed preparation or candidate exclusion.",
+        "While validation is pending, confirm silence and retain the same decoder. Revalidate the latest delivery token, exact text and retained prepared path before resuming. Actual text/voice changes, disable, expiry and invalid permissions do not reuse old output.",
+        "Preserve confirmed completed state in the owned output stop ACK. The transport exposes final EOF and the controller retries receipt recording with the original valid token instead of starting audio again. Old generic stopped responses remain insufficient evidence of EOF.",
+        "Add bounded notice_playback prepare/play/pause/revalidate/resume/EOF/delivery traces using event revision/generation and output scope; no raw message, credentials or prepared paths logged. Scope correlates with existing notice_chat_sent.",
+        "Extend the existing notice route and implementation/policy documentation; preserve update structure, protocol 1, quotas, handover and user settings."
+      ],
+      "verification": [
+        "Before fix: unrelated snapshot change caused active decoder to become None in the new real-pipeline regression.",
+        "After fix: original decoder has one prepare, one initial play, one resume and one confirmed delivery. Existing chat resume/repeated-request checks confirm one publication; decoder frame-position tests also pass.",
+        "Added changed-text, changed-voice, disabled notice, disabled voice profile, EOF-during-validation and lost-status/final-stop-EOF regressions. Confirmed only the owned output can acknowledge EOF.",
+        "302 related tests passed across schedule/types/templates, preparation, audio, chat, runtime/defaults, management/collection, bridge/output and local transport. Final focused checks run after trace formatting."
+      ],
+      "remaining": [
+        "No claim that the administrator definitely heard two historical broadcasts; their actual trace/loaded module remains unavailable.",
+        "Same-decoder validation/resume requires the updated payload. Final stop-EOF recovery additionally needs the updated Python bot bridge; older bots remain compatible but cannot provide that additional acknowledgment.",
+        "Source only: no live audio/Discord sends, AppData/schedule edits, running module/service restart, EXE/ZIP/build/deployment. Genuine playback failures without proven EOF retain existing retry behavior."
+      ]
+    },
     {
       "id": "singleton_chapter_absolute_names_and_combined_seven_eight_summary",
       "recorded_on": "2026-11-03",

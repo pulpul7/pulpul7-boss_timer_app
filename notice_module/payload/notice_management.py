@@ -546,6 +546,11 @@ class NoticeStore:
                 or not event.get("tts_text", "").strip()
                 or event_status(event, self.clock()) != "유효 · 송출 조건 대기"):
             return False
+        from .notice_schedule_pairing import held_for_dawn, paired_morning
+        if event.get('tts_values', {}).get('_morning_pair') and not paired_morning(state, event, parse_time(self.clock())):
+            return False
+        if held_for_dawn(state, event, parse_time(self.clock())):
+            return False
         if (event['id'].startswith('manual-') and event.get('category') == 'participation'
                 and event.get('tts_template', '') in {'', 'participation.general'}):
             return False  # Manual targets feed the daily summary, not extra standalone reminders.
@@ -633,6 +638,11 @@ class NoticeStore:
                     continue
                 if event['id'].startswith('manual-') and event.get('category') == 'participation':
                     continue  # Source target, not an independent utterance.
+                from .notice_schedule_pairing import held_for_dawn, paired_morning
+                if held_for_dawn(state, event, now):
+                    continue
+                if event.get('tts_values', {}).get('_morning_pair') and not paired_morning(state, event, now):
+                    continue
                 slot = event.get('tts_values', {}).get('_slot')
                 if slot and any(row.get('slot') == slot and
                                 (row.get('event_id') == event['id'] if slot == 'evening_third'
@@ -644,7 +654,7 @@ class NoticeStore:
             return sorted(result, key=lambda row: (row['valid_from'], row['id']))
 
     def complete_delivery(self, token):
-        from .notice_opportunities import normalize_opportunity, requires_opportunity, group_of
+        from .notice_opportunities import normalize_opportunity
 
         if not isinstance(token, (tuple, list)) or len(token) not in {4, 5}:
             return False
@@ -659,24 +669,38 @@ class NoticeStore:
             if (server_id != self.server_id or generation != state["generation"] or not event
                     or event["revision"] != revision or not self._can_deliver(state, event, context)):
                 return False
-            event.update(delivered_revision=revision, last_delivery=encode_time(self.clock()))
-            if event.get("season_number") is not None:
-                state.setdefault("season_announced", {})[str(event["season_number"])] = True
-                state["generation"] += 1
-            if requires_opportunity(event) or event.get('policy') == 'participation_slot':
-                state.setdefault("delivery_ledger", []).append({"at": encode_time(self.clock()), "event_id": key,
-                                                               "opportunity_id": context['id'] if context else 'timer/' + str(event.get('tts_values', {}).get('_slot')) + '/' + parse_time(self.clock()).date().isoformat(),
-                                                               "group": group_of(event), 'slot': event.get('tts_values', {}).get('_slot')})
-                representative = event.get('tts_values', {}).get('_representative')
-                if event.get('tts_values', {}).get('_slot') in {'evening_first', 'evening_second'} and representative:
-                    state['delivery_ledger'][-1]['representative'] = deepcopy(representative)
-                state["generation"] += 1  # Revalidate every pending notice against the shared quota.
-            if event.get("policy", "once") != "once":
-                event["delivered_revision"] = None
-                event["revision"] += 1
-            if event.get("retire_after_delivery"):
-                self._retire(state, event, "1회 안내 완료 · 자동 폐기", self.clock())
+            from .notice_schedule_pairing import paired_morning
+            morning = paired_morning(state, event, parse_time(self.clock()))
+            if morning:
+                self._record_delivery(state, morning, context)
+                state['delivery_ledger'][-1]['paired_with'] = event['id']
+                self._retire(state, morning, '새벽 안내와 함께 방송 완료', self.clock())
+            self._record_delivery(state, event, context)
+            if morning:
+                self._retire(state, event, '새벽·아침 함께 방송 완료', self.clock())
             return True
+
+    def _record_delivery(self, state, event, context):
+        from .notice_opportunities import requires_opportunity, group_of
+        key, revision = event['id'], event['revision']
+        event.update(delivered_revision=revision, last_delivery=encode_time(self.clock()))
+        if event.get("season_number") is not None:
+            state.setdefault("season_announced", {})[str(event["season_number"])] = True
+            state["generation"] += 1
+        if requires_opportunity(event) or event.get('policy') == 'participation_slot':
+            opportunity_id = context['id'] if context else 'timer/' + str(event.get('tts_values', {}).get('_slot')) + '/' + parse_time(self.clock()).date().isoformat()
+            state.setdefault("delivery_ledger", []).append({"at": encode_time(self.clock()), "event_id": key,
+                                                           "opportunity_id": opportunity_id,
+                                                           "group": group_of(event), 'slot': event.get('tts_values', {}).get('_slot')})
+            representative = event.get('tts_values', {}).get('_representative')
+            if event.get('tts_values', {}).get('_slot') in {'evening_first', 'evening_second'} and representative:
+                state['delivery_ledger'][-1]['representative'] = deepcopy(representative)
+            state["generation"] += 1  # Revalidate every pending notice against the shared quota.
+        if event.get("policy", "once") != "once":
+            event["delivered_revision"] = None
+            event["revision"] += 1
+        if event.get("retire_after_delivery"):
+            self._retire(state, event, "1회 안내 완료 · 자동 폐기", self.clock())
 
     def claim_collection(self, *, manual=False):
         """Persistent per-server due check. Manual bypasses hours, not disable."""

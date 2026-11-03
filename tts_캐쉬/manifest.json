@@ -3144,6 +3144,14 @@
       "updated_at": 1790563203,
       "volume_steps": 0
     },
+    "885e99b588c6153ea432e4c25e7380c2b2080df392ecbd0c5b26c6d28a100fc5": {
+      "path": "message/885e99b588c6153ea432e4c25e7380c2b2080df392ecbd0c5b26c6d28a100fc5.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 11분 후 우로보로스.",
+      "updated_at": 1793697535,
+      "volume_steps": 0
+    },
     "889b79d23d986adc7dc767aee7918735b571030de4c579bb86cc491ec711b7e8": {
       "path": "message/8b6f8438f6f29d3a401463f9.mp3",
       "rate_steps": 1,
@@ -3630,6 +3638,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "수르트 헤르가름",
       "updated_at": 1792007756,
+      "volume_steps": 0
+    },
+    "9d370ed7aa15a06fde3ddebdd8eb4d3edd867b71f5d8f27949c2f082ce325945": {
+      "path": "message/9d370ed7aa15a06fde3ddebdd8eb4d3edd867b71f5d8f27949c2f082ce325945.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 발할라 대전이 종료합니다. 다음 보스는 11분 후 우로보로스.",
+      "updated_at": 1793697536,
       "volume_steps": 0
     },
     "9e1030a07c6cbf6dd2f197c54b1053ad239742a86ef1ddd3463623f1092595c7": {

@@ -11,7 +11,7 @@
   ],
   "hashes": {
     "init/default_notice_module.json": "7b5ac7e3298fdb4e6edf51c06bae65d77cd8585f29afa6d44b4de970c6b659e7",
-    "init/default_notice_settings.json": "e47a21ce20939e9a156c00865d9b2478ab084a1aa7abce0abc9ffa9dc3c20680",
+    "init/default_notice_settings.json": "433200df3c03d32a8a580de9933d8be775c805d01cceaeaa65e3f3519b89d145",
     "init/default_settings.ini": "eb6b09f89b0a8e2e69c344595aca3c17a76b87c7d1663d1c73469ff5204ed756",
     "init/schedule_area_definitions.txt": "1c216102733cfcd3abe077afb1edf96b129646385e34ac3e325b4c493760dcb1",
     "init/schedule_boss_definitions.txt": "5f934dd3f1e09c2d1307d9a6ae0ac50441a0364709ef2cb69df225bbd44bb845",
@@ -19,7 +19,7 @@
     "web_assets/boss_spectrum.json": "7072b77576ba73906881951205f7e6830d68c9247674cfefe74bbd1021316df9",
     "web_assets/fonts/size_defaults.json": "dbfc20d47c3561641debd8e9a52e84b5137790fc6a07f94767e3778c6fce5b3b"
   },
-  "revision": "20261029T212759_b2876301",
+  "revision": "20261103T181521_88dcf932",
   "schema": 1,
-  "sequence": 1793309279341629500
+  "sequence": 1793729721536861600
 }

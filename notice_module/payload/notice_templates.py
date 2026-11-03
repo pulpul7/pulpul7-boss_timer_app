@@ -27,7 +27,7 @@ for kind, label in (("regular", "정기점검"), ("temporary", "임시점검"), 
         name = label + (" 연장" if extended else "")
         suffix = kind + (".extension" if extended else "")
         _add("maintenance." + suffix, "점검", name + " · 기간 확인",
-             name + " 공지가 올라왔습니다. 점검은 {시작시간}부터 {종료시간}까지입니다.",
+             name + " 안내입니다. 점검은 {시작시간}부터 {종료시간}까지 진행됩니다.",
              "기간을 확인한 점검 공지 발견 시 1회", ("시작시간", "종료시간"))
         _add("unknown.maintenance." + suffix, "기간 미확정", name,
              name + " 공지가 올라왔습니다.", "기간 미확정 공지 발견 후 24시간 이내 1회 · 완료 후 폐기")
@@ -43,24 +43,24 @@ for key, label in (("update", "업데이트"), ("issue", "업데이트 후 확�
 
 for key, name, text, condition in (
     ("preview", "판매 전날 예고", "서버이전권이 {시작시간}부터 판매됩니다. 꼭 구매해 주세요.", "판매 전날 18시부터 판매 시작 전 · 주요 보스 안내 후 1회"),
-    ("start", "판매 시작", "서버이전권 판매가 시작됐습니다. {종료시간}까지 꼭 구매해 주세요.", "판매 시작 후 유효 구간에서 1회"),
+    ("start", "판매 시작", "서버이전권 판매가 시작되었습니다. {종료시간}까지 구매해 주세요.", "판매 시작 후 유효 구간에서 1회"),
     ("deadline_60", "판매 종료 1시간 전", "서버이전권 판매가 {종료시간}에 종료됩니다. 꼭 구매해 주세요.", "마감 1시간 전부터 10분 전까지 1회"),
-    ("deadline_10", "판매 종료 10분 전", "서버이전권 판매가 곧 종료됩니다. {종료시간}까지 꼭 구매해 주세요.", "마감 10분 전부터 종료 전까지 1회"),
+    ("deadline_10", "판매 종료 10분 전", "서버이전권 판매가 곧 종료됩니다. {종료시간}까지 구매해 주세요.", "마감 10분 전부터 종료 전까지 1회"),
     ("boss_reminder", "판매 중 구매 독려", "서버이전권을 {종료시간}까지 꼭 구매해 주세요.", "판매 중 주요 보스 안내 후 · 최소 30분 간격 · 하루 횟수 상한 없음")):
     _add("transfer." + key, "서버이전권", name, text, condition, ("시작시간", "종료시간"))
 
-for key, name, verb, condition in (
-    ("purchase", "구매 안내", "구매", "확인된 구매 기간 내 1회"),
-    ("purchase_deadline", "구매 마감", "구매", "마감 24시간 이내 주요 보스 안내 후 · 같은 공지 합계 하루 2회"),
-    ("use_deadline", "사용 마감", "사용", "마감 24시간 이내 주요 보스 안내 후 · 같은 공지 합계 하루 2회")):
-    _add("class." + key, "클래스 변경권", name, "클래스 변경권을 {종료시간}까지 꼭 " + verb + "해 주세요.",
+for key, name, text, condition in (
+    ("purchase", "구매 안내", "클래스 변경권은 {종료시간}까지 구매할 수 있습니다.", "확인된 구매 기간 내 1회"),
+    ("purchase_deadline", "구매 마감", "클래스 변경권 구매가 {종료시간}에 마감됩니다.", "마감 24시간 이내 주요 보스 안내 후 · 같은 공지 합계 하루 2회"),
+    ("use_deadline", "사용 마감", "클래스 변경권은 {종료시간}까지 사용해 주세요.", "마감 24시간 이내 주요 보스 안내 후 · 같은 공지 합계 하루 2회")):
+    _add("class." + key, "클래스 변경권", name, text,
          condition, ("시작시간", "종료시간"))
 
 for key, label in (("item_drop", "아이템 획득"), ("item_exchange", "아이템 교환/조합"),
                    ("item_use", "아이템 사용"), ("item_delete", "아이템 삭제")):
     # Actual labels are supplied by the analyzer, not guessed by the template.
     text = ("{공지제목}. {기한종류} 시각은 {종료시간}입니다. 삭제 전에 아이템을 확인해 주세요." if key == "item_delete"
-            else "{공지제목}. {기한종류} 기한이 {종료시간}까지입니다. 잊지 말고 확인해 주세요.")
+            else "{공지제목}. {기한종류} 기한은 {종료시간}까지입니다. 잊지 말고 확인해 주세요.")
     _add(key + ".deadline", "이벤트 아이템", label, text,
          "마감 24시간 이내 주요 보스 안내 후 · 같은 공지 합계 하루 2회", ("공지제목", "기한종류", "종료시간"))
 EXAMPLES["기한종류"] = "아이템 사용"
@@ -85,15 +85,15 @@ _add("manual.general", "직접 등록", "수동 일반 안내", "{알림제목} 
 
 for key, name in (
     ('dawn', '다음 날 새벽 보스 안내'),
-    ('morning', '점검 전 아침 보스 안내')):
+    ('morning', '다음 날 아침 보스 안내')):
     _add('participation.' + key, '자동 참여 독려', name,
          '{보스목록} 일정이 있습니다. 많은 참여 부탁드립니다.',
-         ('다음 날 01:30:01~06:00 미만 주요 보스 · 21:30~24시 주요·연타임 보스 1분 전 안내 뒤 / 없으면 23시 대기열 · 별도 하루 1회'
-          if key == 'dawn' else '분/초 확정 스케줄에서 자동 등록 · 기존 참여 독려와 합계 하루 2회'),
+          ('다음 날 01:30:01~06:00 미만 · 21:30~24시 보스 안내 뒤 / 없으면 23시 · 아침과 동시 등록 시 함께 1회'
+           if key == 'dawn' else '매일 다음 날 06:00~08:00 미만 · 점검 시작 이후 제외 · 새벽과 동시 등록 시 새벽 안내에 함께 송출'),
          ('알림제목', '시작시간', '보스목록'))
 EXAMPLES['보스목록'] = '내일 새벽 2시 30분 최하층 강글'
 EXAMPLES['참여안내'] = '오늘은 공성전, 길던 외 7, 8챕, 절대자 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.'
-EXAMPLES['남은주요안내'] = '오늘 남은 주요보스 호드, 스카디, 오딘, 최하층굴베가 남았습니다.'
+EXAMPLES['남은주요안내'] = '오늘 남은 주요보스는 호드, 스카디, 오딘, 최하층굴베입니다.'
 
 
 def migrate_participation_templates(state):
@@ -265,6 +265,14 @@ def date_time_values(values, now=None):
         if now is not None:
             rows = [row for row in rows if parse_time(row['scheduled_at']) > parse_time(now)]
         result['남은주요안내'] = remaining_message(rows)
+    if values.get('_morning_pair'):
+        morning_values = values['_morning_pair']['values']
+        morning = date_time_values(morning_values, now)
+        clause = morning.get('보스목록', '')
+        day_prefix = morning.get('시작날짜', '') + ' '
+        if values.get('_start_date') == morning_values.get('_start_date') and clause.startswith(day_prefix):
+            clause = clause[len(day_prefix):]
+        result['보스목록'] += ', ' + clause
     return result
 
 

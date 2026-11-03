@@ -16,9 +16,7 @@ def remaining_message(rows):
         return ''
     names = [group['label'] for group in groups]
     listing = ', '.join(names)
-    last = listing[-1]
-    particle = '이' if '가' <= last <= '힣' and (ord(last) - 0xAC00) % 28 else '가'
-    return f'오늘 남은 주요보스 {listing}{particle} 남았습니다.'
+    return f'오늘 남은 주요보스는 {listing}입니다.'
 
 
 def third_notices(snapshot, state, now):

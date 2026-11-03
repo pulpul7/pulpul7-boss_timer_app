@@ -32,7 +32,8 @@ async def handle_notice_command(bot, command, status, *, clock=time.monotonic):
     accepted = False
     if action == 'stop':
         accepted = await output.stop() if owns else True
-        return dict(pid=status.pid, id=identity, accepted=accepted, state='stopped' if accepted else 'failed')
+        state = 'completed' if owns and accepted and output.state == 'completed' else 'stopped'
+        return dict(pid=status.pid, id=identity, accepted=accepted, state=state if accepted else 'failed')
     blocked = (not bot._send_allowed() or status.standby or status.handover_hold or status.shutdown_requested.is_set()
                or not status.voice_connected or not status.online
                or command.get('guild_id') != status.guild_id)

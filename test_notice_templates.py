@@ -72,7 +72,7 @@ class CatalogTests(unittest.TestCase):
         values = dict(EXAMPLES)
         before = dict(values)
         text = render_template({}, "maintenance.regular", values)
-        self.assertIn("09월 20일 18시 30분부터 23시 59분까지입니다.", text)
+        self.assertIn("09월 20일 18시 30분부터 23시 59분까지 진행됩니다.", text)
         self.assertEqual(values, before)
 
     def test_different_day_month_or_year_keeps_end_date(self):

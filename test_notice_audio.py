@@ -89,6 +89,37 @@ class AudioTests(unittest.TestCase):
         self.controller.step(boss_busy=False)
         self.assertEqual(sum(call[0] == "prepare" for call in self.transport.calls), 1)
 
+    def test_lost_eof_status_is_recovered_by_stop_ack_without_replaying(self):
+        from types import SimpleNamespace
+        from notice_module.payload.notice_discord_transport import DiscordNoticeTransport
+        calls = []
+        state = ['ready']
+        def request(command):
+            action = command['action']
+            calls.append(action)
+            if action == 'status' and state[0] == 'playing':
+                raise TimeoutError('status response lost after actual EOF')
+            if action == 'play':
+                state[0] = 'playing'
+            if action == 'stop':
+                state[0] = 'completed'
+            return dict(accepted=True, state=state[0])
+        pool = Mock()
+        pool.acquire.return_value = SimpleNamespace(path='fake.mp3', text='공지입니다.', stop=Mock())
+        controller = NoticeAudioController(self.store, DiscordNoticeTransport(request),
+                                           clock=lambda: self.seconds, prepared_audio=pool)
+        self.addCleanup(controller.close)
+        controller.step(boss_busy=False)
+        controller.step(boss_busy=False)
+        controller.step(boss_busy=False)
+        self.assertIsNotNone(controller.pending_completion)
+        controller.step(boss_busy=False)
+        self.assertIsNotNone(self.store.snapshot()['events']['notice']['last_delivery'])
+        self.seconds = 60
+        controller.step(boss_busy=False)
+        self.assertEqual(calls.count('prepare'), 1)
+        self.assertEqual(calls.count('play'), 1)
+
     def test_missing_prepared_audio_never_synthesizes_at_playback(self):
         pool = Mock()
         pool.acquire.return_value = None

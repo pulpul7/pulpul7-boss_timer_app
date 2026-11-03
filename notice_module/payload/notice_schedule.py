@@ -40,7 +40,10 @@ def schedule_notices(snapshot, state, now):
     evening = midnight - timedelta(hours=3)
     valid_from = midnight - timedelta(hours=6)  # 18:00
     valid_until = midnight - timedelta(hours=1)  # Existing 23:00 quiet policy.
-    cutoff = maintenance_start(snapshot, state, midnight.date()) if day.weekday() == 1 else None
+    cutoff = maintenance_start(snapshot, state, midnight.date())
+    morning_start, morning_end = midnight + timedelta(hours=6), midnight + timedelta(hours=8)
+    if cutoff:
+        morning_end = min(morning_end, cutoff)
     groups = {'evening': [], 'overnight': [], 'morning': []}
     seen = set()
     for item in snapshot.get('events', []):
@@ -56,10 +59,9 @@ def schedule_notices(snapshot, state, now):
         compact = ''.join(name.split())
         overnight = major
         period = None
-        if overnight and midnight + timedelta(hours=1, minutes=30, seconds=1) <= when < midnight + timedelta(hours=6):
+        if overnight and midnight + timedelta(hours=1, minutes=30, seconds=1) <= when < morning_start:
             group, period = 'overnight', '새벽'
-        elif (overnight and cutoff and midnight.date().weekday() == 2
-              and max(midnight, cutoff - timedelta(hours=2)) <= when < cutoff):
+        elif overnight and morning_start <= when < morning_end:
             group, period = 'morning', '아침'
         if period is None or not name or (cutoff and when.date() == cutoff.date() and when >= cutoff):
             continue
@@ -90,12 +92,16 @@ def schedule_notices(snapshot, state, now):
             policy = 'participation_slot'
             trigger = 'immediate' if plan['kind'] == 'timer' else 'major_boss_after'
             slot_values = dict(_slot='overnight_once', _slot_plan=plan)
+        elif group == 'morning':
+            dawn = next((event for event in result if event.get('tts_template') == 'participation.dawn'), None)
+            if dawn:
+                event_valid_until = max(event_valid_until, parse_time(dawn['valid_until']))
         if now >= event_valid_until:
             continue
         key = f"schedule/{snapshot['season']}/{day.isoformat()}/{group}"
         result.append(dict(id=key, source_key=key, category='participation',
             title={'evening': '저녁 주요 보스 참여 독려', 'overnight': '다음 날 새벽 보스 안내',
-                   'morning': '점검 전 아침 보스 안내'}[group],
+                   'morning': '다음 날 아침 보스 안내'}[group],
             tts_template='participation.' + rule,
             tts_values={'알림제목': ', '.join(e['name'] for e in entries), '_boss_entries': entries,
                         '시작시간': start.strftime('%m월 %d일 %H시 %M분'), '_start_date': start.date().isoformat(), **slot_values},
@@ -104,10 +110,12 @@ def schedule_notices(snapshot, state, now):
             policy=policy, trigger=trigger,
             body='\n'.join(f"{e['at']} {e['name']} ({e['period'] or '저녁'})" for e in entries),
             analysis_evidence='스케줄 분/초 확정 · 저녁 21:00~24:00 / 새벽 01:30:01~05:59:59 · '
-                              + (f'정기점검 {cutoff.isoformat()} 직전 2시간' if cutoff else '점검 전 추가 구간 없음')
+                              + '매일 아침 06:00~08:00 미만'
+                              + (f' · 점검 {cutoff.isoformat()} 이후 제외' if cutoff else '')
                               + (' · 새벽 안내 별도 하루 1회: 21:30~24시 주요·연타임 보스 안내 후 / 없으면 23시 대기열'
                                  if group == 'overnight' else '')))
-    return result
+    from .notice_schedule_pairing import pair_candidates
+    return pair_candidates(result, state, now)
 
 
 def recover_wrongly_unpinned_schedule(state, candidate, now):

@@ -55,6 +55,7 @@ class PreparedSpeechPool:
         self.bindings = {}
         self.wanted = set()
         self.epoch = 0
+        self.settled_epoch = -1
         self.closed = False
         self.status = '사전 음성 준비 대기'
         self.last_error = ''
@@ -139,16 +140,31 @@ class PreparedSpeechPool:
                     self.bindings[(scope[0], request['id'])] = (tuple(request['stamp']), key)
         with self.lock:
             if epoch == self.epoch and not self.closed:
+                self.settled_epoch = epoch
                 self.status = f'사전 음성 준비 완료 · {len(desired) - failed}문장 / 실패 {failed}'
                 if failed and self.last_error:
                     self.status += f' · 마지막 오류: {self.last_error}'
         return failed
 
-    def current(self, server_id, request):
+    def binding_status(self, server_id, request):
+        """Pending validation must be silent; changed speech cannot reuse a decoder."""
         with self.lock:
+            if self.closed:
+                return 'changed'
             binding = self.bindings.get((server_id, request['id']))
-            return bool(not self.closed and binding and binding[0] == tuple(request['token'][2:4])
-                        and binding[1][2] == request['tts_text'])
+            if not binding:
+                return 'changed' if self.settled_epoch == self.epoch else 'pending'
+            if binding[0] != tuple(request['token'][2:4]):
+                return 'pending'
+            entry = self.cache.get(binding[1])
+            if (binding[1][2] != request['tts_text'] or not entry
+                    or (request.get('_prepared_path') is not None
+                        and str(entry['path']) != request['_prepared_path'])):
+                return 'changed'
+            return 'current'
+
+    def current(self, server_id, request):
+        return self.binding_status(server_id, request) == 'current'
 
     def acquire(self, server_id, request):
         """Playback still needs a current delivery token; this grants no speech."""

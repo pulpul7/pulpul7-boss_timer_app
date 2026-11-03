@@ -46,3 +46,7 @@ class DiscordNoticeTransport:
             handle['lease'].stop()
             return True
         return False
+
+    def completed(self, handle):
+        """A final stop ACK may recover EOF after a lost status response."""
+        return handle['state'] == 'completed'

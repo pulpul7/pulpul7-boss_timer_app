@@ -49,7 +49,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(result["windows"][0]["start"], "2026-09-09T07:00:00+09:00")
         events = notice_events(article, result)
         self.assertEqual(len(events), 1)
-        self.assertIn("정기점검 연장 공지가", events[0]["tts_text"])
+        self.assertIn("정기점검 연장 안내입니다.", events[0]["tts_text"])
         self.assertEqual(events[0]["valid_until"].hour, 11)
 
     def test_ended_maintenance_does_not_announce_discovery(self):

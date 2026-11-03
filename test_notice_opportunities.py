@@ -175,7 +175,8 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(len(events), 3)
         deadlines = [e for e in events if e.get("policy") == "deadline_repeat"]
         self.assertEqual(len(deadlines), 2)
-        self.assertIn("구매해 주세요", deadlines[0]["tts_text"])
+        self.assertIn("클래스 변경권 구매가", deadlines[0]["tts_text"])
+        self.assertIn("에 마감됩니다.", deadlines[0]["tts_text"])
         self.assertIn("사용해 주세요", deadlines[1]["tts_text"])
         self.assertNotEqual(deadlines[0]["valid_until"], deadlines[1]["valid_until"])
 

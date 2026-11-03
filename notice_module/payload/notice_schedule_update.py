@@ -5,7 +5,7 @@ from .notice_management import encode_time, parse_time
 from .notice_text import compact
 
 PREFIX = 'schedule-update/'
-MESSAGE = '웹 서비스 스케쥴이 업데이트 되었습니다'
+MESSAGE = '웹 스케줄이 업데이트되었습니다.'
 
 
 def _time(value):

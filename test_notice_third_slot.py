@@ -54,7 +54,7 @@ class ThirdSlotTests(unittest.TestCase):
         third = self.event('evening_third')
         self.assertEqual(third['valid_from'], self.day.replace(hour=22).isoformat())
         self.assertIsNone(self.store.delivery_token(third['id']))
-        self.assertEqual(third['tts_text'], '오늘 남은 주요보스 히로킨, 티르가 남았습니다.')
+        self.assertEqual(third['tts_text'], '오늘 남은 주요보스는 히로킨, 티르입니다.')
 
     def test_start_trigger_all_remaining_to_0130_and_dawn_starts_013001(self):
         self.announce_first()
@@ -85,7 +85,7 @@ class ThirdSlotTests(unittest.TestCase):
         self.refresh()
         third = self.event('evening_third')
         self.assertEqual(third['valid_from'], self.day.replace(hour=23, minute=30).isoformat())
-        self.assertEqual(third['tts_text'], '오늘 남은 주요보스 티르가 남았습니다.')
+        self.assertEqual(third['tts_text'], '오늘 남은 주요보스는 티르입니다.')
 
     def test_completion_receipt_prevents_anchor_drifting_with_current_source(self):
         self.announce_first()
@@ -111,7 +111,7 @@ class ThirdSlotTests(unittest.TestCase):
         self.now = self.day.replace(hour=21, minute=35)
         self.refresh()
         third = self.event('evening_third')
-        self.assertEqual(third['tts_text'], '오늘 남은 주요보스 엘디르, 오딘이 남았습니다.')
+        self.assertEqual(third['tts_text'], '오늘 남은 주요보스는 엘디르, 오딘입니다.')
         self.assertIsNotNone(self.store.delivery_token(third['id']))
 
     def test_older_completion_record_can_use_retained_representative_entry(self):
@@ -185,15 +185,15 @@ class ThirdSlotTests(unittest.TestCase):
         self.assertEqual([r['boss_name'] for r in entries], ['히로킨', '티르'])
         text = render_template({}, 'participation.remaining', {'_remaining_entries': entries},
                                now=self.day.replace(hour=23, minute=45))
-        self.assertEqual(text, '오늘 남은 주요보스 티르가 남았습니다.')
+        self.assertEqual(text, '오늘 남은 주요보스는 티르입니다.')
 
-    def test_no_additional_weekday_morning_rule_was_added(self):
+    def test_weekday_morning_is_checked_daily(self):
         # Sunday evening -> Monday morning 7-chapter/absolute/8-chapter bosses.
         self.now = datetime(2026, 10, 18, 18, tzinfo=KST)
         self.snapshot['events'] = [dict(boss_name='아침', scheduled_at='2026-10-19T07:00:00+09:00',
                                        precision='second', area='니플하임', absolute=True, star=True)]
         planned = schedule_notices(self.snapshot, self.store.snapshot(), self.now)
-        self.assertFalse(any(e.get('tts_template') == 'participation.morning' for e in planned))
+        self.assertTrue(any(e.get('tts_template') == 'participation.morning' for e in planned))
 
     def test_0130_seconds_are_covered_without_overlap_or_missing_fraction(self):
         self.snapshot['events'].append(dict(self.row('소수초', 1, 30, tomorrow=True, star=True, area='니플하임'),

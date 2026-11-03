@@ -15,30 +15,30 @@ def boss(name, chapter=7, minute=0, **extra):
 class RemainingSpeechTests(unittest.TestCase):
     def test_single_boss_per_chapter_keeps_names_and_three_combine(self):
         self.assertEqual(remaining_message([boss('히로킨'), boss('티르', 8)]),
-                         '오늘 남은 주요보스 히로킨, 티르가 남았습니다.')
+                         '오늘 남은 주요보스는 히로킨, 티르입니다.')
         self.assertEqual(remaining_message([boss('히로킨'), boss('호드', minute=50), boss('티르', 8)]),
-                         '오늘 남은 주요보스 7, 8챕이 남았습니다.')
+                         '오늘 남은 주요보스는 7, 8챕입니다.')
 
     def test_absolute_overrides_chapter_membership_and_each_boss_is_classified_once(self):
         rows = [boss('절대자A', 7, absolute=True), boss('절대자B', 8, absolute=True),
                 boss('히로킨'), boss('호드'), boss('티르', 8)]
-        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스 절대자, 7, 8챕이 남았습니다.')
+        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스는 절대자, 7, 8챕입니다.')
         self.assertEqual(len(classified_targets(rows)), 2)
 
     def test_spawn_time_precedes_absolute_and_chapter_priority(self):
         rows = [dict(boss('오딘', 4, absolute=True), scheduled_at='2026-11-01T23:15:00+09:00'),
                 dict(boss('엘디르', 8), scheduled_at='2026-11-01T21:40:00+09:00')]
         original = deepcopy(rows)
-        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스 엘디르, 오딘이 남았습니다.')
+        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스는 엘디르, 오딘입니다.')
         self.assertEqual(rows, original)
 
     def test_all_classes_use_earliest_spawn_order(self):
         rows = [boss('절대자A', absolute=True, minute=50), boss('절대자B', absolute=True, minute=55),
                 boss('7챕A', minute=20), boss('7챕B', minute=25),
                 boss('8챕A', 8, minute=10), boss('8챕B', 8, minute=15)]
-        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스 7, 8챕, 절대자가 남았습니다.')
+        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스는 7, 8챕, 절대자입니다.')
         rows.append(boss('던전A', 0, minute=30, area='던전'))
-        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스 7, 8챕, 던전, 절대자가 남았습니다.')
+        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스는 7, 8챕, 던전, 절대자입니다.')
 
     def test_four_or_more_classes_remain_explicit(self):
         rows = [boss('절대자A', absolute=True), boss('절대자B', absolute=True),
@@ -46,18 +46,18 @@ class RemainingSpeechTests(unittest.TestCase):
                 boss('최하층굴베', 0, area='던전'), boss('최하층스네르', 0, area='던전'),
                 boss('최하층강글', 0, area='던전')]
         self.assertEqual(remaining_message(rows),
-            '오늘 남은 주요보스 절대자, 7, 8챕, 던전, 최하층굴베, 최하층스네르, 최하층강글이 남았습니다.')
+            '오늘 남은 주요보스는 절대자, 7, 8챕, 던전, 최하층굴베, 최하층스네르, 최하층강글입니다.')
 
     def test_deduplicates_recurring_names_without_losing_other_names(self):
         rows = [boss('히로킨'), boss('히로킨', minute=40), boss('티르', 8)]
         original = deepcopy(rows)
-        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스 히로킨, 티르가 남았습니다.')
+        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스는 히로킨, 티르입니다.')
         self.assertEqual(rows, original)
 
-    def test_empty_alias_and_particle(self):
+    def test_empty_and_fixed_alias(self):
         self.assertEqual(remaining_message([]), '')
         self.assertEqual(remaining_message([boss('원래이름', display_name='별칭', fixed=True)]),
-                         '오늘 남은 주요보스 별칭이 남았습니다.')
+                         '오늘 남은 주요보스는 별칭입니다.')
 
     def test_depth_classes_stay_distinct_and_fixed_names_never_become_chapters(self):
         rows = [boss('히로킨'), boss('티르', 8, minute=5), boss('오딘', 4, minute=10, absolute=True),
@@ -66,11 +66,11 @@ class RemainingSpeechTests(unittest.TestCase):
                 boss('최하층 강글', 0, minute=25, area='던전'),
                 boss('방어전', 7, minute=30, fixed=True, absolute=True)]
         self.assertEqual(remaining_message(rows),
-            '오늘 남은 주요보스 히로킨, 티르, 오딘, 최하층굴베, 최하층스네르, 최하층강글, 방어전이 남았습니다.')
+            '오늘 남은 주요보스는 히로킨, 티르, 오딘, 최하층굴베, 최하층스네르, 최하층강글, 방어전입니다.')
 
     def test_new_chapter_and_fixed_event_alias_deduplication(self):
         rows = [boss('새보스', 9), boss('길던', fixed=True, minute=5), boss('길드던전', fixed=True, minute=10)]
-        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스 9챕, 길던이 남았습니다.')
+        self.assertEqual(remaining_message(rows), '오늘 남은 주요보스는 9챕, 길던입니다.')
 
     def test_seven_eight_count_matrix_uses_distinct_bosses(self):
         for seven, eight, labels in [
@@ -107,8 +107,8 @@ class RemainingSpeechTests(unittest.TestCase):
                                   now=datetime(2026, 10, 17, 23, 5, tzinfo=KST))
         later = render_template({}, 'participation.remaining', {'_remaining_entries': rows},
                                 now=datetime(2026, 10, 17, 23, 15, tzinfo=KST))
-        self.assertEqual(initial, '오늘 남은 주요보스 7, 8챕, 절대자가 남았습니다.')
-        self.assertEqual(later, '오늘 남은 주요보스 히로킨, 스카디, 오딘이 남았습니다.')
+        self.assertEqual(initial, '오늘 남은 주요보스는 7, 8챕, 절대자입니다.')
+        self.assertEqual(later, '오늘 남은 주요보스는 히로킨, 스카디, 오딘입니다.')
         self.assertEqual(rows, before)
 
 

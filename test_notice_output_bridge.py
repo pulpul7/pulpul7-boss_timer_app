@@ -57,6 +57,13 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         await handle_notice_command(self.bot, self.command('stop'), self.status)
         self.output.stop.assert_awaited_once()
 
+    async def test_stop_preserves_confirmed_eof_only_for_the_owned_output(self):
+        self.output.state = 'completed'
+        result = await handle_notice_command(self.bot, self.command('stop'), self.status)
+        self.assertEqual(result['state'], 'completed')
+        result = await handle_notice_command(self.bot, dict(self.command('stop'), id='other'), self.status)
+        self.assertEqual(result['state'], 'stopped')
+
     async def test_heartbeat_renews_short_deadline_and_busy_play_stays_ready(self):
         self.output.play.return_value = False
         result = await handle_notice_command(self.bot, self.command('play'), self.status, clock=lambda: 10)

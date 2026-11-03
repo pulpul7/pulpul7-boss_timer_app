@@ -21,7 +21,7 @@ STOP_RETRY_SECONDS = 2
 
 
 class NoticeAudioController:
-    def __init__(self, store, transport, *, clock=time.monotonic, prepared_audio=None):
+    def __init__(self, store, transport, *, clock=time.monotonic, prepared_audio=None, log=None):
         if getattr(transport, "notice_audio_protocol", None) != 1:
             raise ValueError("재생 완료 확인·보스 우선 제어를 지원하는 알리미 출력 경로가 필요합니다.")
         self.store = store
@@ -36,6 +36,21 @@ class NoticeAudioController:
         self.stop_retry_at = 0.0
         self.state = "대기"
         self.pending_completion = None
+        self.log = log
+
+    def _trace(self, action, request=None):
+        if not callable(self.log):
+            return
+        request = request or (self.active['request'] if self.active else {})
+        token = request.get('token', ())
+        identity = ' '.join(str(request.get('id', '')).split())[:240]
+        handle = self.active['handle'] if self.active else None
+        scope = 'notice:' + str(handle.get('id', '')) if isinstance(handle, dict) else ''
+        try:
+            self.log(f'notice_playback action={action} event={identity} scope={scope} '
+                     f'revision={token[2] if len(token) > 2 else ""} generation={token[3] if len(token) > 3 else ""}')
+        except Exception:
+            pass  # Diagnostics must never change playback or delivery receipts.
 
     def _valid(self):
         request = self.active["request"]
@@ -44,6 +59,37 @@ class NoticeAudioController:
         token = request["token"]
         context = json.loads(token[4]) if len(token) == 5 else None
         return self.store.delivery_token(request["id"], opportunity=context) == token
+
+    def _wait_for_preparation(self):
+        """Keep one silent decoder until unchanged speech is revalidated."""
+        status_method = getattr(self.prepared_audio, 'binding_status', None)
+        if not callable(status_method):
+            return False
+        request = self.active['request']
+        old_token = request['token']
+        context = json.loads(old_token[4]) if len(old_token) == 5 else None
+        token = self.store.delivery_token(request['id'], opportunity=context)
+        if token is None:
+            return False  # Disabled, expired, edited out or no longer authorized.
+        refreshed = dict(request, token=token)
+        validation = status_method(self.store.server_id, refreshed)
+        if validation not in {'current', 'pending'}:
+            return False  # Changed text/voice/file or a legacy pool.
+        handle = self.active['handle']
+        status = self.transport.status(handle)
+        if status == 'playing':
+            if self.transport.pause(handle) is not True:
+                return False
+            self._trace('pause_for_validation')
+        elif status not in {'preparing', 'ready', 'paused', 'completed'}:
+            return False
+        if validation == 'current':
+            self.active['request'] = refreshed
+            self._trace('revalidated')
+            self.state = '동일 안내 재검증 완료 · 이어 재생 대기'
+        else:
+            self.state = '안내 변경 확인 중 · 일시정지'
+        return True
 
     def _drop(self, *, retry=False):
         if not self.active:
@@ -58,6 +104,12 @@ class NoticeAudioController:
             self.stop_retry_at = self.clock() + STOP_RETRY_SECONDS
             self.state = "출력 정지 확인 실패 · 자동 안내 차단"
             return False
+        completed = getattr(self.transport, 'completed', None)
+        if not self.closed and self.pending_completion is None and callable(completed):
+            if completed(self.active['handle']) is True:
+                self.pending_completion = self.active['request']['token']
+                self._trace('eof_recovered')
+        self._trace('stop')
         if retry:
             self.cooldowns[self.active["request"]["id"]] = self.clock() + RETRY_SECONDS
         self.active = None
@@ -77,6 +129,7 @@ class NoticeAudioController:
                 if status in {"preparing", "ready", "paused", "completed", "failed", "stopped"}:
                     return True
                 if status == "playing" and self.transport.pause(self.active["handle"]) is True:
+                    self._trace('pause_for_boss')
                     self.state = "보스 안내 우선 · 일시정지"
                     return True
                 return self._drop(retry=True)
@@ -105,11 +158,15 @@ class NoticeAudioController:
             try:
                 if self.pending_completion is not None:
                     done = self.store.complete_delivery(self.pending_completion)
+                    self._trace('delivered' if done else 'completion_rejected',
+                                dict(id=self.pending_completion[1], token=self.pending_completion))
                     self.pending_completion = None
                     self.state = "안내 완료" if done else "변경된 완료 신호 무시"
                     return
                 if self.active:
                     if not self._valid():
+                        if self._wait_for_preparation():
+                            return
                         self._drop()
                         self.state = self.state if self.fault else "변경/만료된 안내 폐기"
                         return
@@ -119,9 +176,11 @@ class NoticeAudioController:
                         # Take the success token only after confirmed EOF, then
                         # release this player's resources before advancing queue.
                         token = self.active["request"]["token"]
+                        self._trace('eof')
                         self.pending_completion = token
                         if self._drop():
                             done = self.store.complete_delivery(token)
+                            self._trace('delivered' if done else 'completion_rejected', dict(id=token[1], token=token))
                             self.pending_completion = None
                             self.state = "안내 완료" if done else "변경된 완료 신호 무시"
                         return
@@ -139,6 +198,7 @@ class NoticeAudioController:
                         if self._valid():
                             method = self.transport.resume if status == "paused" else self.transport.play
                             if method(handle) is True:
+                                self._trace('resume' if status == 'paused' else 'play')
                                 self.state = "알리미 재생 중"
                         return
                     self.state = "음성 준비 중" if status == "preparing" else "알리미 재생 중"
@@ -156,6 +216,8 @@ class NoticeAudioController:
                     lease = (self.prepared_audio.acquire(self.store.server_id, request)
                              if self.prepared_audio is not None else None)
                     if self.prepared_audio is None or lease is not None:
+                        if lease is not None:
+                            request['_prepared_path'] = str(lease.path)
                         break
                     # Skip unprepared speech briefly, so a ready notice can use
                     # this opportunity. Never synthesize on the playback path.
@@ -178,6 +240,7 @@ class NoticeAudioController:
                         lease.stop()
                     raise RuntimeError("음성 준비 요청을 처리하지 못했습니다.")
                 self.active = {"request": request, "handle": handle}
+                self._trace('prepare')
                 self.state = "음성 준비 중"
             except Exception as exc:
                 self._drop(retry=True)

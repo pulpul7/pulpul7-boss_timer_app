@@ -112,6 +112,8 @@ def playback_description(event):
     if (event.get('id', '').startswith('manual-') and event.get('category') == 'participation'
             and event.get('tts_template', '') in {'', 'participation.general'}):
         return '대상 선정용 · 1·2·3차 알림 참조'
+    if event.get('tts_values', {}).get('_paired_dawn'):
+        return '새벽 안내와 함께 · 새벽·아침 시각 각각 안내'
     try:
         beginning = parse_time(event.get('valid_from'))
         ending = parse_time(event.get('valid_until'))
@@ -148,8 +150,12 @@ def playback_description(event):
 
 def policy_description(event):
     policy = event.get("policy", "once")
+    if event.get('tts_values', {}).get('_paired_dawn'):
+        return '새벽 안내에 함께 송출 · 완료 시 두 분류 모두 기록 · 별도 중복 방송 없음'
     if policy == 'participation_slot':
         slot = event.get('tts_values', {}).get('_slot')
+        if slot == 'overnight_once' and event.get('tts_values', {}).get('_morning_pair'):
+            return '새벽 송출 시점에 새벽·아침 시간 각각 안내 · 두 분류 함께 1회 완료'
         return {'evening_first': '1차 · 18~19시 선택된 5챕 이상 보스 안내 뒤 / 없으면 18시 · 하루 1회',
                 'evening_second': '2차 · 20시 월드보스 1분 전 안내 완료 후 · 하루 1회',
                 'evening_third': '3차 · 1·2차 실제 안내 대표 일정 시작 직후 · 다음 날 01:30까지 남은 주요보스 · 별도 1회',
