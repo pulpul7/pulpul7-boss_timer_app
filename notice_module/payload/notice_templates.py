@@ -71,14 +71,14 @@ for index, text in enumerate(CHEERS, 1):
 
 _add("participation.general", "참여 독려", "보스 / 길던 참여 독려",
      "{참여안내}",
-     "별 체크·지정 행사 중 21~24시 대표 대상 · 1차 18~19시 / 2차 20시 월드보스 안내 뒤 · 각 1회",
+     "21~24시 지정 행사 전체 이름·별 체크 주요보스 분류 요약 · 1차 18~19시 / 2차 20시 월드보스 안내 뒤 · 각 1회",
      ("알림제목", "시작시간", "보스목록", "참여안내"))
 _add('participation.siege_noon', '참여 독려', '공성전 당일 정오 추가 안내',
      '오늘은 공성전이 있는 날입니다. 많은 참여 부탁드립니다.',
      '공성전 당일 12시 월드보스 1분 전 안내 완료 후 1회 · 저녁 1·2·3차와 별도')
 _add('participation.remaining', '참여 독려', '3차 · 남은 주요보스 안내',
      '{남은주요안내}',
-     '1·2차 대표 일정 시작 직후 · 다음 날 01:30까지 남은 주요보스 · 같은 분류 2개 이상 요약 · 4분류 이상은 2분류와 외 다수 · 1회',
+     '1·2차 대표 일정 시작 직후 · 다음 날 01:30까지 · 7/8챕·절대자 단일은 이름 / 복수는 분류 / 7·8챕 합계 3개 이상 통합 · 고정보스 이름 유지 · 1회',
      ('남은주요안내',))
 _add("manual.general", "직접 등록", "수동 일반 안내", "{알림제목} 안내입니다.",
      "수동 알림의 유효기간 내 1회 · 개별 문장 입력 시 개별 문장 우선", ("알림제목",))
@@ -92,8 +92,8 @@ for key, name in (
           if key == 'dawn' else '분/초 확정 스케줄에서 자동 등록 · 기존 참여 독려와 합계 하루 2회'),
          ('알림제목', '시작시간', '보스목록'))
 EXAMPLES['보스목록'] = '내일 새벽 2시 30분 최하층 강글'
-EXAMPLES['참여안내'] = '오늘 저녁 22시 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.'
-EXAMPLES['남은주요안내'] = '오늘 남은 주요보스 7챕보스, 티르가 남았습니다.'
+EXAMPLES['참여안내'] = '오늘은 공성전, 길던 외 7, 8챕, 절대자 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.'
+EXAMPLES['남은주요안내'] = '오늘 남은 주요보스 호드, 스카디, 오딘, 최하층굴베가 남았습니다.'
 
 
 def migrate_participation_templates(state):
@@ -162,6 +162,10 @@ def _boss_speech_group(source):
 
 
 def _boss_group_names(group):
+    if group and all('boss_name' in entry for entry in group):
+        from .notice_remaining import classified_targets
+        rows = [dict(entry, scheduled_at=entry['at'], display_name=entry['name']) for entry in group]
+        return ', '.join(item['label'] for item in classified_targets(rows))
     names = list(dict.fromkeys(entry['name'] for entry in group))
     return ', '.join(names) if len(names) <= 2 else f'{names[0]} 외 {len(names) - 1}개'
 
@@ -247,6 +251,13 @@ def date_time_values(values, now=None):
         result['참여안내'] = values.get('_manual_participation') or automatic
     elif not result.get('참여안내') and result.get('보스목록'):
         result['참여안내'] = result['보스목록'] + ' 일정이 있습니다. 많은 참여 부탁드립니다.'
+    if '_evening_entries' in values:
+        from .notice_participation import evening_summary
+        listing = evening_summary(values['_evening_entries'], now)
+        result['알림제목'] = listing
+        result['보스목록'] = '오늘은 ' + listing if listing else ''
+        result['참여안내'] = values.get('_manual_participation') or (
+            result['보스목록'] + ' 일정이 있습니다. 많은 참여 부탁드립니다.' if listing else '')
     if '_remaining_entries' in values:
         from .notice_remaining import remaining_message
         from .notice_management import parse_time

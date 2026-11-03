@@ -474,6 +474,13 @@ class WebServiceManager:
             return
         job, operation, value = task
         try:
+            if operation == "admin_add":
+                row = next((row for row in self.access_status()["visitors"]
+                            if row["id"] == value and row.get("role") == "member"
+                            and row.get("state") == "조회 중"), None)
+                if row is None:
+                    raise ValueError("먼저 해당 기기에서 일반 비밀번호로 웹에 로그인한 뒤 다시 선택해주세요.")
+                value = dict(id=row["id"], nickname=row.get("nickname", "guest"))
             message = self.access.change(operation, value)
             result = dict(ok=True, message=message)
             self._log("access_settings_changed", operation=operation, revision=self.access.data["revision"])

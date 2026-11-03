@@ -52,6 +52,21 @@ class MorningGroupTests(unittest.TestCase):
         self.assertEqual(date_time_values({'_boss_entries': rows}, self.now)['보스목록'],
                          '내일 새벽 2시 강글, 굴베')
 
+    def test_current_dawn_and_morning_payloads_share_explicit_boss_classes(self):
+        for key, period, hour in [('participation.dawn', '새벽', 2), ('participation.morning', '아침', 6)]:
+            with self.subTest(key=key):
+                specs = [('히로킨', dict(area='니플하임')), ('호드', dict(area='니플하임')),
+                    ('엘디르', dict(area='바나하임')), ('오딘', dict(area='알브하임', absolute=True)),
+                    ('최하층 굴베', dict(area='던전')), ('최하층스네르', dict(area='던전')),
+                    ('최하층 강글', dict(area='던전')), ('길던', dict(area='니플하임', absolute=True, fixed=True))]
+                rows = [dict(name=name, boss_name=name, period=period,
+                             at=f'2026-09-23T{hour:02d}:{index:02d}:00+09:00', **facts)
+                        for index, (name, facts) in enumerate(specs)]
+                original = deepcopy(rows)
+                self.assertEqual(render_template({}, key, {'_boss_entries': rows}, now=self.now),
+                    f'내일 {period} {hour}시 7, 8챕, 오딘, 최하층굴베, 최하층스네르, 최하층강글, 길던 일정이 있습니다. 많은 참여 부탁드립니다.')
+                self.assertEqual(rows, original)
+
 
 if __name__ == '__main__':
     unittest.main()

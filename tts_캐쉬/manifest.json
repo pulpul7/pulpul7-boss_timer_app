@@ -48,6 +48,14 @@
       "updated_at": 1790563204,
       "volume_steps": 0
     },
+    "01c76c59793f34d5f43255ecb29ed1447799e84c623c725305699c18c304ebc0": {
+      "path": "message/cd1b9f6eace0bb7a2354c615.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 1분 전입니다.",
+      "updated_at": 1793308812,
+      "volume_steps": 0
+    },
     "01d96b32127d664f5de559b30b923f54e37ff5fa6f237b2092af47a4bf44ccb0": {
       "path": "boss/e9c41ca8176c79cf5d3e14b6.mp3",
       "rate_steps": 1,
@@ -336,6 +344,14 @@
       "updated_at": 1792062797,
       "volume_steps": 0
     },
+    "0fd49adff98e222df342a835edf52dc27bc8d55d73d2dcecd97f99cd9845cbd5": {
+      "path": "boss/14cd3f4c1921d3acc36caa08.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 타임입니다.",
+      "updated_at": 1793308849,
+      "volume_steps": 0
+    },
     "0fe54a4963a75fcc0e3a56a7fda8dd69eb4fde1a032e9237dd1ec80dc667651d": {
       "path": "message/0fe54a4963a75fcc0e3a56a7fda8dd69eb4fde1a032e9237dd1ec80dc667651d.mp3",
       "rate_steps": 0,
@@ -432,6 +448,14 @@
       "updated_at": 1791345536,
       "volume_steps": 0
     },
+    "12e0f870388d8067811e13b8a172bd1d40eba8c528036e2f2b49c6542a35ed27": {
+      "path": "fixed/854438542e96e318c0ce3a36.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 공성전 입찰시작 타임입니다.",
+      "updated_at": 1793308813,
+      "volume_steps": 0
+    },
     "12f988de37a50e9a9d073fe18bb9b47352ca3f157166c68c6517c3637b9f89d1": {
       "path": "sec/59.mp3",
       "rate_steps": 3,
@@ -486,6 +510,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "황금고블린 일분 전입니다.",
       "updated_at": 1790569737,
+      "volume_steps": 0
+    },
+    "14eef25ddce8e92bdca55710e1b6cd19a4219deb39d17237b808a9ba46d201bf": {
+      "path": "boss/36555b105bb2d0e2c061b580.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 젠",
+      "updated_at": 1793309105,
       "volume_steps": 0
     },
     "14f5b54c2fc457c00d7014d75989b24091e1acb07cab947d72b4dde96e8e0d1a": {
@@ -560,6 +592,14 @@
       "updated_at": 1790600337,
       "volume_steps": 0
     },
+    "177a0e9c7c1297e896a969bd3d3263a1ae905ceafce8cc5e99c203be9b496cd4": {
+      "path": "boss/1a968a60aadb6c7003ff2971.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 5분 남았습니다.",
+      "updated_at": 1793308813,
+      "volume_steps": 0
+    },
     "17b0dce7bdac28e88a59cc5061a99db465abd3ef1d118de71b014bec1bbbf38f": {
       "path": "message/17b0dce7bdac28e88a59cc5061a99db465abd3ef1d118de71b014bec1bbbf38f.mp3",
       "rate_steps": 0,
@@ -590,6 +630,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "바우티 외 3개",
       "updated_at": 1790563194,
+      "volume_steps": 0
+    },
+    "18f5b1fe457f19934593f394d4d1d16a9752475a546d1e1da1227fd38ac3643d": {
+      "path": "boss/d50ae7be31a3689527b31302.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 5분 남았습니다.",
+      "updated_at": 1793309108,
       "volume_steps": 0
     },
     "197909c3a742d05e72a32d4b31763d4472d054e6fdb3e1a069b85c96b6ae9c2b": {
@@ -630,6 +678,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "비요른 일분 남았습니다.",
       "updated_at": 1790564039,
+      "volume_steps": 0
+    },
+    "1a600049bbb90c53e7a50b88b1d4194ba3c273a598b1bb15615abe64fa828c33": {
+      "path": "message/1a600049bbb90c53e7a50b88b1d4194ba3c273a598b1bb15615abe64fa828c33.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "흐니르 브륀힐드",
+      "updated_at": 1793232216,
       "volume_steps": 0
     },
     "1a767537ee8e13675acc3a037565ca5bcd0dfa79c4031d8355402c0c49d34be9": {
@@ -710,6 +766,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "곧 발할라 대전이 종료합니다. 다음 보스는 11분 후 황금고블린.",
       "updated_at": 1790569136,
+      "volume_steps": 0
+    },
+    "1d0da1c368d1aef85cb3ac85539e04f118df65a4fe33a27db32e18083ff8e724": {
+      "path": "fixed/76532e55c9a2c271af8725ce.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 일분 전입니다.",
+      "updated_at": 1793308850,
       "volume_steps": 0
     },
     "1d28922f0d3e026bb3c495457456dd87cd52132359e3de61a3c572bbdfa1b4c8": {
@@ -904,6 +968,14 @@
       "updated_at": 1790572251,
       "volume_steps": 0
     },
+    "2731dc2ab9f3514390dc81e032fecd8e1429d0c5314c5c090fd01f21886abd34": {
+      "path": "message/2731dc2ab9f3514390dc81e032fecd8e1429d0c5314c5c090fd01f21886abd34.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 흐니르 라이노르 타임입니다.",
+      "updated_at": 1792825486,
+      "volume_steps": 0
+    },
     "278a5b738f743d258020bed412242368f376f34d496f48a749eac6f62e64416a": {
       "path": "message/278a5b738f743d258020bed412242368f376f34d496f48a749eac6f62e64416a.mp3",
       "rate_steps": 0,
@@ -958,6 +1030,22 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "셀로비아 스칼라니르 5분 남았습니다.",
       "updated_at": 1790822363,
+      "volume_steps": 0
+    },
+    "297772c9b312d4fb9cfc57586e19f707f7da53158b52243f3b07406d9c11059a": {
+      "path": "message/297772c9b312d4fb9cfc57586e19f707f7da53158b52243f3b07406d9c11059a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 수드리 페티 타임입니다.",
+      "updated_at": 1793232218,
+      "volume_steps": 0
+    },
+    "29f128b1ddf4b0430f9f9457e98713762ee5335c6257e6e1763365749858e077": {
+      "path": "boss/2a521f4715bd18a14b6c7195.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 일분 남았습니다.",
+      "updated_at": 1793308983,
       "volume_steps": 0
     },
     "29f17923b68855e6bacaa64798f88cd1abb6c1e326207168db2d6b398d83e1f7": {
@@ -1168,6 +1256,22 @@
       "updated_at": 1792049933,
       "volume_steps": 0
     },
+    "33c8710cf727855271e6a0c75830813361a98fda23618334f212a33f3bfa9010": {
+      "path": "message/33c8710cf727855271e6a0c75830813361a98fda23618334f212a33f3bfa9010.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 미미르 라타토스크 타임입니다.",
+      "updated_at": 1793232219,
+      "volume_steps": 0
+    },
+    "352afd2d9ed8e2875cb91e2145462536a16dedf30dcbdf14b1e8cb0138298535": {
+      "path": "message/352afd2d9ed8e2875cb91e2145462536a16dedf30dcbdf14b1e8cb0138298535.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "파르바 외 8개",
+      "updated_at": 1793289538,
+      "volume_steps": 0
+    },
     "353cde522b061d83032b6a4456ca1dae5a11c9cf08a3fe4cd28958f15b2ea7c5": {
       "path": "message/ad1b4b3edc3d0846b787b65a.mp3",
       "rate_steps": 1,
@@ -1206,6 +1310,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "굴베이그 5분 남았습니다.",
       "updated_at": 1790589658,
+      "volume_steps": 0
+    },
+    "3669b56913ee60b917aa6f8d4e99f490fda24b3e73cfc9778777909e87b88dee": {
+      "path": "message/f61a4135872b1a051a61a264.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 1분 전입니다.",
+      "updated_at": 1793308983,
       "volume_steps": 0
     },
     "367c52b8597c792659aad0151fc338c8c02d20223ff74c89d1540e68fecf0d6d": {
@@ -1262,6 +1374,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "곧 그로아 외 2개 타임입니다.",
       "updated_at": 1790563200,
+      "volume_steps": 0
+    },
+    "3a897ea134ddb8a4f342a0f95d2c6e2d0836d83335092c76a6705867e7a00720": {
+      "path": "boss/232733b410289713cd3457fc.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 젠",
+      "updated_at": 1793308811,
       "volume_steps": 0
     },
     "3aaf60ab0d866c92f80dca5919a4a4e58f956af0c5ed19365c1e313502604a04": {
@@ -1326,6 +1446,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "야른 젠",
       "updated_at": 1790821861,
+      "volume_steps": 0
+    },
+    "3c1506029a07142285a29e9c22aa58e57a56e4ab04c5796557920432b248c74c": {
+      "path": "boss/b51b75822dd8ace186131a77.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 일분 남았습니다.",
+      "updated_at": 1793308813,
       "volume_steps": 0
     },
     "3c8a3b42e26dfa56d96b0cf071166e2b518c22c5bddec3398979b9c593e1b608": {
@@ -1576,6 +1704,14 @@
       "updated_at": 1790822339,
       "volume_steps": 0
     },
+    "46b7ee67b00645604b0a7305b8bf05a104da958adb222c8c1b34a1b2e61702b2": {
+      "path": "boss/ce1d5d67846377350b215a11.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 일분 남았습니다.",
+      "updated_at": 1793308850,
+      "volume_steps": 0
+    },
     "4736a10728820fa758c274a3be144a554b25fb2d36557c4df50fc803d1a40302": {
       "path": "message/953c46485cf1ad9aa9a62903.mp3",
       "rate_steps": 1,
@@ -1792,6 +1928,14 @@
       "updated_at": 1790583418,
       "volume_steps": 0
     },
+    "517d131fef191d36231c95407004fc2a06d17c2b45c3cd29cfda5d5faf405913": {
+      "path": "boss/f6b2fe0113018e4a64c63484.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 타임입니다.",
+      "updated_at": 1793308982,
+      "volume_steps": 0
+    },
     "526f2e9a78d1823a686d15e1c3838f98de97fafd964ca8bb79d6364d3f2dfa57": {
       "path": "message/0820ebf95cf6e4bd5046e5d4.mp3",
       "rate_steps": 1,
@@ -1814,6 +1958,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "10층",
       "updated_at": 1791157318,
+      "volume_steps": 0
+    },
+    "534eb3d63861277e98d38452a5ef5e9944167229a3ad0c3e2627bd2bdd975cc0": {
+      "path": "message/534eb3d63861277e98d38452a5ef5e9944167229a3ad0c3e2627bd2bdd975cc0.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "흐니르 라이노르",
+      "updated_at": 1792825485,
       "volume_steps": 0
     },
     "53796e0d1b2759d8be27202ac57e971e44157277ca7232bb5bdd0ae43fb0958d": {
@@ -1872,6 +2024,14 @@
       "updated_at": 1792565728,
       "volume_steps": 0
     },
+    "5631e9ac26ef557076c86fa12836b69cc05ce465af3c939a5823ae10566a0025": {
+      "path": "fixed/6e4a2d81e2b9c5325adb7635.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 일분 전입니다.",
+      "updated_at": 1793308984,
+      "volume_steps": 0
+    },
     "56c6fa0655641b50e8c3a756b2e70f8b34ec29e315058dde15032077bac04f33": {
       "path": "message/56c6fa0655641b50e8c3a756b2e70f8b34ec29e315058dde15032077bac04f33.mp3",
       "rate_steps": 1,
@@ -1926,6 +2086,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스칼드메르 일분 남았습니다.",
       "updated_at": 1791302878,
+      "volume_steps": 0
+    },
+    "5a2c07db985d6e456accc246421fe2a4785b412b804e759b2f2bd24d16e62c03": {
+      "path": "fixed/616342ae8b24275a5a547018.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 5분 전입니다.",
+      "updated_at": 1793309108,
       "volume_steps": 0
     },
     "5a7f2c92e62e538a8b701426af69df42a3d4e049eef5b6d28fd22d64a359f968": {
@@ -2032,6 +2200,14 @@
       "updated_at": 1790822353,
       "volume_steps": 0
     },
+    "5f7bc3f9bab0a626b714904334d698af15b0e79e820040e41f77d5b9e0080f35": {
+      "path": "fixed/557944e178b727d0500759af.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 일분 전입니다.",
+      "updated_at": 1793309108,
+      "volume_steps": 0
+    },
     "5fe442bcc0776cb39552015ec26f577f7ff641c02d5f94d679b75ae94355ceb1": {
       "path": "message/5fe442bcc0776cb39552015ec26f577f7ff641c02d5f94d679b75ae94355ceb1.mp3",
       "rate_steps": 1,
@@ -2120,12 +2296,28 @@
       "updated_at": 1790822961,
       "volume_steps": 0
     },
+    "6406302032308b168145487ee8fb93255f67e8206782cd20bc478f99bba27c32": {
+      "path": "boss/676f6203b045d0d5440fc7d2.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 일분 남았습니다.",
+      "updated_at": 1793309107,
+      "volume_steps": 0
+    },
     "641398a17d83de6fd8a225f5ace97eacf60bd099bdedf05b9b723845415acd2b": {
       "path": "message/8152315ae555c433965dd1bd.mp3",
       "rate_steps": 1,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "셀로비아 스칼라니르",
       "updated_at": 1790822361,
+      "volume_steps": 0
+    },
+    "648527d4e9ec85ca058308d16fac1089b7a3a3b344b6bddcd314f47ef6c8664a": {
+      "path": "message/648527d4e9ec85ca058308d16fac1089b7a3a3b344b6bddcd314f47ef6c8664a.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 라이노르 흐니르 타임입니다.",
+      "updated_at": 1792825485,
       "volume_steps": 0
     },
     "648f604c90ad1f576efd7a30d879c14644b9f7dd552f728120fcb1703dc8c867": {
@@ -2272,6 +2464,14 @@
       "updated_at": 1790583718,
       "volume_steps": 0
     },
+    "6a50d711ff9e817b627499ca358e51e44729f675c84cebf4ad245f8e8fda19f2": {
+      "path": "message/6a50d711ff9e817b627499ca358e51e44729f675c84cebf4ad245f8e8fda19f2.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 흐니르 브륀힐드 타임입니다.",
+      "updated_at": 1793232217,
+      "volume_steps": 0
+    },
     "6aaaf4bc9d0a0957e350fd203adb1b45c180c9b383d1677ebec83273563d055a": {
       "path": "message/6aaaf4bc9d0a0957e350fd203adb1b45c180c9b383d1677ebec83273563d055a.mp3",
       "rate_steps": 1,
@@ -2350,6 +2550,22 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "트리니티 리그",
       "updated_at": 1792149332,
+      "volume_steps": 0
+    },
+    "6df8e1d34f0a51bb652fa68759ca8c39d8e1ef0cf8268e40991514f11e7a140d": {
+      "path": "message/6df8e1d34f0a51bb652fa68759ca8c39d8e1ef0cf8268e40991514f11e7a140d.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "페티 라타토스크",
+      "updated_at": 1793289860,
+      "volume_steps": 0
+    },
+    "6e005148c6f5b1ca81ff0bc54adb27bf6d34c1a3a29ae80f9863c32033a7bdca": {
+      "path": "boss/9ffb389395d13344efbe5177.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 타임입니다.",
+      "updated_at": 1793308812,
       "volume_steps": 0
     },
     "6e26c639b8ebdefe05a2eb6db4483dfa4e8e891461a2e1414b0241b221c6da33": {
@@ -2536,6 +2752,14 @@
       "updated_at": 1792049935,
       "volume_steps": 0
     },
+    "777b62b05c6d1919714c8f5bfa59f0302a226bc5ad64c8eab5f17b13af6b059e": {
+      "path": "message/777b62b05c6d1919714c8f5bfa59f0302a226bc5ad64c8eab5f17b13af6b059e.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "브륀힐드 흐니르",
+      "updated_at": 1793289873,
+      "volume_steps": 0
+    },
     "77941e6fc829b0ad293c09a4627e5aa09abf937e06da0bbad0b03d97d11739ee": {
       "path": "message/77941e6fc829b0ad293c09a4627e5aa09abf937e06da0bbad0b03d97d11739ee.mp3",
       "rate_steps": 0,
@@ -2614,6 +2838,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "스바르트 외 4개",
       "updated_at": 1792214732,
+      "volume_steps": 0
+    },
+    "7aa20fc756dcd5b091e9063048db96847662c5b32c7b654427bfd39fd00d4913": {
+      "path": "boss/a457c7c303463cdc6e5d2e72.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 젠",
+      "updated_at": 1793308982,
       "volume_steps": 0
     },
     "7aec9aa895d021a4253a48635e8b6e6340cdf55f225e8718c9dfcb0fc15f668e": {
@@ -2782,6 +3014,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "미미르 수르트 5분 남았습니다.",
       "updated_at": 1790822331,
+      "volume_steps": 0
+    },
+    "8272688e5e27fd8c24804f15d15770566a1dde9c696be1dbef347539a52dd686": {
+      "path": "message/8272688e5e27fd8c24804f15d15770566a1dde9c696be1dbef347539a52dd686.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 브륀힐드 흐니르 타임입니다.",
+      "updated_at": 1793232216,
       "volume_steps": 0
     },
     "836de82aaebfa416168d720a72d5dc7035e90705f87f32fd55166ec410c1be84": {
@@ -3016,12 +3256,36 @@
       "updated_at": 1790817298,
       "volume_steps": 0
     },
+    "8c1da93d2add2bd5a1110fad4eedcb4922b4b8618e9e81ba32cf3eba9f1069a4": {
+      "path": "message/8c1da93d2add2bd5a1110fad4eedcb4922b4b8618e9e81ba32cf3eba9f1069a4.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "라타토스크 미미르",
+      "updated_at": 1793282558,
+      "volume_steps": 0
+    },
     "8c33d0f215883d5df9bbe4399c03f33e6387e52e64454ff60b91609aa5d8cbe6": {
       "path": "message/8c33d0f215883d5df9bbe4399c03f33e6387e52e64454ff60b91609aa5d8cbe6.mp3",
       "rate_steps": 0,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "10층 외 2개",
       "updated_at": 1792007754,
+      "volume_steps": 0
+    },
+    "8c3b85d575d2ebbd3edef233da8a881e39996470ea3cfc4507317cd5cc5345b5": {
+      "path": "boss/853e871fd0874fb639077f5e.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 초읽기 시작",
+      "updated_at": 1793308811,
+      "volume_steps": 0
+    },
+    "8c683e9a7e8e3f4ff4fb0e8f8c3ad7072762f7ca9106e816b22c57a8828fa8e5": {
+      "path": "boss/b87ae3d8c036419d334eb8ee.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 젠",
+      "updated_at": 1793308848,
       "volume_steps": 0
     },
     "8c7019e09d141e29a04a303cf7884dd633b7ca93e502202bec435e325e22e202": {
@@ -3136,6 +3400,22 @@
       "updated_at": 1790822401,
       "volume_steps": 0
     },
+    "9049b744f08bc750440a2922bb90746d4c5543b4949cd728b16d976133d43688": {
+      "path": "boss/7cca693a96ce43d289d39aa5.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 5분 남았습니다.",
+      "updated_at": 1793308984,
+      "volume_steps": 0
+    },
+    "91f3d700a6be5ef2e7f370042d825a12f108e98eeddddbe8093775a4dbd5ce02": {
+      "path": "message/91f3d700a6be5ef2e7f370042d825a12f108e98eeddddbe8093775a4dbd5ce02.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "브륀힐드 흐니르",
+      "updated_at": 1793232216,
+      "volume_steps": 0
+    },
     "91fd1ad8a2f488d6d36722a41687d7c686e2b1d3a5cb9767708d1fee9dced1c8": {
       "path": "message/0f97f7f8af2e5764af4aa83c.mp3",
       "rate_steps": 1,
@@ -3174,6 +3454,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "정기점검 타임입니다.",
       "updated_at": 1791932400,
+      "volume_steps": 0
+    },
+    "940e1f1d6e6996c77cd2b0cc31d56eba7f0c5fc5c3908709bfeab2d67555eb11": {
+      "path": "fixed/88cfda7618b29fefe4d828c5.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 월드던전 1차 타임입니다.",
+      "updated_at": 1793308983,
       "volume_steps": 0
     },
     "94dc86d781ca72b299eb5a38316d03bf865281cd5e31ed6a113848e4d6136b3e": {
@@ -3238,6 +3526,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "신마라 엘드룬",
       "updated_at": 1792558651,
+      "volume_steps": 0
+    },
+    "9842247793cb6776f1ff2d4db62472af33a305ec5d6a86d7edc45818aa9499a6": {
+      "path": "message/e513e365ec8e5cc6afe07033.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 1분 전입니다.",
+      "updated_at": 1793308849,
       "volume_steps": 0
     },
     "992b09971fbde6a655708285bc10ce629751ca3d18a416afdcc574fe6bb67439": {
@@ -3320,6 +3616,14 @@
       "updated_at": 1790565654,
       "volume_steps": 0
     },
+    "9bab43dd5c8834930e49bcce09556efbea7aa8a4bb75ea77160f45621bef2df8": {
+      "path": "boss/650a1edb45958ca4a968511a.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차",
+      "updated_at": 1793309105,
+      "volume_steps": 0
+    },
     "9ce3f43e7960603f89e42e4a2d8750a8b53eb42624edd5e1cf270d7c33aabc3a": {
       "path": "message/9ce3f43e7960603f89e42e4a2d8750a8b53eb42624edd5e1cf270d7c33aabc3a.mp3",
       "rate_steps": 0,
@@ -3398,6 +3702,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "곧 발할라 대전이 종료합니다. 다음 보스는 8분 후 미미르.",
       "updated_at": 1792574335,
+      "volume_steps": 0
+    },
+    "a2c355c12575743b5cd4ca261e85fe01a215abc9b10ff9c64846c7543efa84e9": {
+      "path": "message/684152ce64ec5f1fda7b2a1f.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 1분 전입니다.",
+      "updated_at": 1793309107,
       "volume_steps": 0
     },
     "a2ceaebf7fe8f2331030dd200d0d59e850fc3fbad2c7eb58c4eef4086ce2d93f": {
@@ -3688,6 +4000,14 @@
       "updated_at": 1790822325,
       "volume_steps": 0
     },
+    "b0013bd6ff02907505ed9595d97acd0acd9ad3dc31093c6919c853a8ecb85b39": {
+      "path": "boss/278f66133f683e4785308bb5.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 초읽기 시작",
+      "updated_at": 1793308982,
+      "volume_steps": 0
+    },
     "b00767f5a2f5101521c3ada3294ab2dce035e0177aa2ebff1b471f369783dfb3": {
       "path": "sec/9.mp3",
       "rate_steps": 3,
@@ -3896,6 +4216,14 @@
       "updated_at": 1791364735,
       "volume_steps": 0
     },
+    "b66bf3183be43b00c4af8bb052f61b28de42faf26399c00385b51fb4fabe7145": {
+      "path": "message/b66bf3183be43b00c4af8bb052f61b28de42faf26399c00385b51fb4fabe7145.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "곧 라타토스크 미미르 타임입니다.",
+      "updated_at": 1793282559,
+      "volume_steps": 0
+    },
     "b6d11dbf9a6da87e4b8de5fd1385c306c61e6a20c957d949fab1baaf6a7cf2de": {
       "path": "message/b6d11dbf9a6da87e4b8de5fd1385c306c61e6a20c957d949fab1baaf6a7cf2de.mp3",
       "rate_steps": 1,
@@ -3928,12 +4256,28 @@
       "updated_at": 1790569135,
       "volume_steps": 0
     },
+    "b87dc498ae423decf01af953f5a711e514a0f5c2f7c83526a1ca500592a3f417": {
+      "path": "boss/15d921fe778610105c5dc590.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차",
+      "updated_at": 1793308981,
+      "volume_steps": 0
+    },
     "b8c67214d430cea21750eaf9741a6e60d24a30f4d5051a2e7c82b627126567bc": {
       "path": "sec/18.mp3",
       "rate_steps": 3,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+30%|+0%|+15Hz",
       "text": "십팔",
       "updated_at": 1790563214,
+      "volume_steps": 0
+    },
+    "b92a6ab1380266428bceea36dd89c1a6cb2a1846bd5984148052292f1d1357ef": {
+      "path": "boss/089113452168ae18ebde7bd8.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 초읽기 시작",
+      "updated_at": 1793308848,
       "volume_steps": 0
     },
     "ba299cef6eba4a8d31664a37dd5d0741d157ebc1176c0f174acd86ecb680677a": {
@@ -3982,6 +4326,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "파르바 흐니르",
       "updated_at": 1790822358,
+      "volume_steps": 0
+    },
+    "bb5c6c5695ab82bfd27d6aca7787f24b894b2a07f75768b961a2381940d2d3aa": {
+      "path": "fixed/fe21ba3639cdd3acaff3a82e.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 공성전 공격대상 선택 타임입니다.",
+      "updated_at": 1793308849,
       "volume_steps": 0
     },
     "bb7f4fdd085817867511fe829d9db9d14126b71b26c8908eb04ac01c9879207c": {
@@ -4088,6 +4440,14 @@
       "updated_at": 1790563206,
       "volume_steps": 0
     },
+    "c11f1d98026e5eb213539f6e550109d42f7cb47c7afd242eea16fc2735634673": {
+      "path": "boss/09e3a1477b21c5eeddfd14af.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 초읽기 시작",
+      "updated_at": 1793309106,
+      "volume_steps": 0
+    },
     "c190704e48469d0144a81b1f8ee68f7e08c86a44f1854e57431a7a199af756cd": {
       "path": "boss/96ed1113a0969676f9548774.mp3",
       "rate_steps": 1,
@@ -4150,6 +4510,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "야른 라이노르 1분전입니다.",
       "updated_at": 1790822373,
+      "volume_steps": 0
+    },
+    "c4815a52bd6561e78c8854927d6026a3a8d451df2aa598d88c13549827de8136": {
+      "path": "boss/3677eee5ed87a9cc6175ab0a.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 5분 남았습니다.",
+      "updated_at": 1793308851,
       "volume_steps": 0
     },
     "c4918d8f11845467bd1c08c97235a06baf8ddf9c7ebb794566e76063bb43997e": {
@@ -4320,6 +4688,14 @@
       "updated_at": 1790563799,
       "volume_steps": 0
     },
+    "cbad58c727559aea7c44e177a1c91a2904b84f5dbbef04929ae1d7274718f4af": {
+      "path": "fixed/ec7cc7d04797c767cae456ed.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "곧 월드던전 2차 타임입니다.",
+      "updated_at": 1793309107,
+      "volume_steps": 0
+    },
     "cc06057400da4822e2338b22b1728ba38f41cff81d2326bbadc2bac31af7a2e5": {
       "path": "message/cc06057400da4822e2338b22b1728ba38f41cff81d2326bbadc2bac31af7a2e5.mp3",
       "rate_steps": 1,
@@ -4352,6 +4728,14 @@
       "updated_at": 1790563196,
       "volume_steps": 0
     },
+    "ccbdfd3158ffcb7f5e99a1d16e78615f1eee696267a4bc78d5464a74aa10638c": {
+      "path": "fixed/8181158247dcf78b142a2801.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택 5분 전입니다.",
+      "updated_at": 1793308851,
+      "volume_steps": 0
+    },
     "ccc443c4effb80fe6cd2f048a66131964e998d7ffe97d3e788dae1f048ba30d7": {
       "path": "message/ccc443c4effb80fe6cd2f048a66131964e998d7ffe97d3e788dae1f048ba30d7.mp3",
       "rate_steps": 1,
@@ -4382,6 +4766,22 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "곧 스카디 티르 타임입니다.",
       "updated_at": 1790817614,
+      "volume_steps": 0
+    },
+    "cdc41af8c9f9deb90d907f58ee3f28e870149e8c6ba4e7507e75ff8b06fde169": {
+      "path": "boss/ccb122bd6fad68476406579b.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 공격대상 선택",
+      "updated_at": 1793308848,
+      "volume_steps": 0
+    },
+    "cdf8919b191bad5f824f9fc78917ccea096a7a6dba597e849654d0ddebe421a4": {
+      "path": "message/cdf8919b191bad5f824f9fc78917ccea096a7a6dba597e849654d0ddebe421a4.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "미미르 라타토스크",
+      "updated_at": 1793232218,
       "volume_steps": 0
     },
     "ce35f84a4c584479d7270f1425233e8b748e0b120da6e81cf2e22e8e75db271f": {
@@ -4664,12 +5064,28 @@
       "updated_at": 1790563228,
       "volume_steps": 0
     },
+    "dc44f15842f5bd57f152ecbf4c07fc4f9e000c44a6b72cf9404a52a992e024df": {
+      "path": "message/dc44f15842f5bd57f152ecbf4c07fc4f9e000c44a6b72cf9404a52a992e024df.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "라이노르 흐니르",
+      "updated_at": 1792825484,
+      "volume_steps": 0
+    },
     "dcbd7716f4dde3f3cf45128e98fc4059cdafbdd1ad89f15555e84c9644b68c95": {
       "path": "message/dcbd7716f4dde3f3cf45128e98fc4059cdafbdd1ad89f15555e84c9644b68c95.mp3",
       "rate_steps": 1,
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
       "text": "메기르 일분 남았습니다.",
       "updated_at": 1792226218,
+      "volume_steps": 0
+    },
+    "dce65952d0d577567f08d4fddaf79809c7bfd00bbe75ae9d3e60fe9794ab85c1": {
+      "path": "fixed/d33e577a295ab6884d500cb7.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작 5분 전입니다.",
+      "updated_at": 1793308814,
       "volume_steps": 0
     },
     "dd11434c13e8d712c669c1a576711932256110ba7a2278400e21221a74575612": {
@@ -4752,6 +5168,14 @@
       "updated_at": 1790565894,
       "volume_steps": 0
     },
+    "e053ed60b4a1f9fb2e81ce29dcfc447f1fc5b9fba5bc33637595f65e2fcf71d0": {
+      "path": "boss/e1e2d1e1dfddf01f7a4823fc.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "공성전 입찰시작",
+      "updated_at": 1793308811,
+      "volume_steps": 0
+    },
     "e060aae966170167c8e460774c41ebef0e624a953239b409cb4ecb875eb984a0": {
       "path": "message/f2bd1868022e849d7c88394e.mp3",
       "rate_steps": 1,
@@ -4808,6 +5232,22 @@
       "updated_at": 1790817606,
       "volume_steps": 0
     },
+    "e2c06e98fda7e9f50e043f8d5bb39f04310ed2d76a8f205de5858c2af4cddd7a": {
+      "path": "fixed/2ec6985160b0497eafe66880.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 1차 5분 전입니다.",
+      "updated_at": 1793308984,
+      "volume_steps": 0
+    },
+    "e3674c91852f37571926cfe77c177e24776afd84560fcb795de43fa94fc0305b": {
+      "path": "boss/9d1ca27c9a88e82e4504af8e.mp3",
+      "rate_steps": 1,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+10%|+0%|+15Hz",
+      "text": "월드던전 2차 타임입니다.",
+      "updated_at": 1793309106,
+      "volume_steps": 0
+    },
     "e3e6b3ce5b462cd2de33b422609735befb30bfaa28692f07df9db7e6de4e5934": {
       "path": "message/e3e6b3ce5b462cd2de33b422609735befb30bfaa28692f07df9db7e6de4e5934.mp3",
       "rate_steps": 1,
@@ -4854,6 +5294,14 @@
       "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
       "text": "곧 수르트 헤르가름 타임입니다.",
       "updated_at": 1792007757,
+      "volume_steps": 0
+    },
+    "e851ca35ebe60212fe183a32efb8d6185c34ace1e93c744b2929a83af4993ee4": {
+      "path": "message/e851ca35ebe60212fe183a32efb8d6185c34ace1e93c744b2929a83af4993ee4.mp3",
+      "rate_steps": 0,
+      "settings": "strict-selected-voice-v2|ko-KR-SunHiNeural|+0%|+0%|+15Hz",
+      "text": "수드리 페티",
+      "updated_at": 1793232217,
       "volume_steps": 0
     },
     "e86908c9f4e58e8f9cf8d1a16bc895f4981d609076b9036262f1921e11545c71": {

@@ -3,19 +3,19 @@ const checks=[];
 function check(ok,message){if(!ok)throw Error(message);checks.push(message);}
 const module=source.split('// BEGIN WEB PAGE REFRESH')[1].split('// END WEB PAGE REFRESH')[0];
 function fixture({token='a'.repeat(32),version='b'.repeat(64),saved=null}={}){
-  let serial=0,dirty=false,saves=0;const timers=new Map(),events={},navigations=[],scrolls=[],storage=new Map();
+  let serial=0,dirty=false,colorPending=false,saves=0;const timers=new Map(),events={},navigations=[],scrolls=[],storage=new Map();
   if(saved)storage.set('BossTimer.webRefreshView.v1',JSON.stringify(saved));
   const document={hidden:false,documentElement:{dataset:{webRefreshToken:token,webPageVersion:version}},
     addEventListener:(type,fn)=>events[type]=fn};
   const window={scrollY:42,location:{replace:path=>navigations.push(path)},scrollTo:(...args)=>scrolls.push(args),
     addEventListener:(type,fn)=>events[type]=fn};
   const sessionStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
-  const api=new Function('document','window','sessionStorage','setTimeout','clearTimeout','customDirty','saveCustomSelection',
+  const api=new Function('document','window','sessionStorage','setTimeout','clearTimeout','customDirty','saveCustomSelection','WebBossSpectrum',
     `let selectedFilter='custom',allDay='2026-10-19';function selectFilter(v){selectedFilter=v;allDay='';}
      ${module};return {...WebPageRefresh,view:()=>({filter:selectedFilter,day:allDay})};`)(document,window,sessionStorage,
-      (fn,delay)=>{timers.set(++serial,{fn,delay});return serial;},id=>timers.delete(id),()=>dirty,()=>{saves++;throw Error('refresh must not save selections');});
+      (fn,delay)=>{timers.set(++serial,{fn,delay});return serial;},id=>timers.delete(id),()=>dirty,()=>{saves++;throw Error('refresh must not save selections');},{hasPendingWork:()=>colorPending});
   return {api,document,events,navigations,storage,scrolls,timers,
-    dirty(){dirty=true;},saved(){dirty=false;},saves:()=>saves,
+    dirty(){dirty=true;},saved(){dirty=false;},colorPending(value){colorPending=value;},saves:()=>saves,
     fire(){const jobs=[...timers];timers.clear();for(const [,job]of jobs)job.fn();}};
 }
 const same=fixture();same.api.observe({web_refresh_token:'a'.repeat(32),web_page_version:'b'.repeat(64)});
@@ -41,6 +41,10 @@ changed.api.observe({web_refresh_token:'c'.repeat(32)});changed.fire();
 check(changed.navigations.length===0&&changed.saves()===0,'repeated refresh cannot implicitly commit selections');
 changed.saved();changed.api.observe({web_refresh_token:'c'.repeat(32)});changed.fire();
 check(changed.navigations.length===1&&changed.saves()===0,'manual save or undo permits deferred refresh');
+const coloring=fixture();coloring.colorPending(true);coloring.api.observe({web_refresh_token:'c'.repeat(32)});coloring.fire();
+check(coloring.navigations.length===0,'unsaved color preview or save in flight defers refresh');
+coloring.colorPending(false);coloring.api.observe({web_refresh_token:'c'.repeat(32)});coloring.fire();
+check(coloring.navigations.length===1,'finishing color work permits deferred refresh');
 const restore=fixture({saved:{at:Date.now(),filter:'custom',day:'2026-10-20',scroll:120}});restore.api.restore();restore.fire();
 check(restore.api.view().day==='2026-10-20'&&restore.scrolls[0][1]===120&&restore.storage.size===0,'automatic refresh restores tab/date/scroll once');
 const stale=fixture({saved:{at:Date.now()-400000,filter:'all',scroll:999}});stale.api.restore();stale.fire();

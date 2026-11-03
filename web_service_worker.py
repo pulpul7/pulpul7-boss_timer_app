@@ -9,6 +9,7 @@ import argparse
 import ctypes
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
 import json
 import math
 import os
@@ -153,6 +154,8 @@ class LocalHandler(BaseHTTPRequestHandler):
                 f"127.0.0.1:{port}", f"localhost:{port}"}:
             self._json(403, dict(message="접속 주소를 확인해주세요."))
             return None
+        if self.command == "POST" and urlsplit(self.path).path == "/api/login":
+            self.server.access.refresh()
         with self.server.counter_lock:
             self.server.request_count += 1
         self._record_visit = records_visit(self.command, urlsplit(self.path).path,
@@ -215,6 +218,12 @@ class LocalHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 diagnostic(self.server.logger, 'web_boss_spectrum_load_failed', error_type=type(exc).__name__)
                 self._json(503, dict(message='보스 색상을 불러오지 못했습니다. 기존 색상을 사용합니다.'), cookies)
+        elif path == '/custom-editor.js':
+            if not self._authorized(context):
+                return
+            from web_custom_editor import editor_asset
+            raw, mime = editor_asset()
+            self._send(200, raw, mime, cookies, extra=(("ETag", '"'+hashlib.sha256(raw).hexdigest()+'"'),))
         elif path.startswith('/cinematic/'):
             if not self._authorized(context):
                 return
@@ -376,7 +385,7 @@ class LocalHandler(BaseHTTPRequestHandler):
         try:
             code, message, cookies = self.server.access.login(context, payload.get("pin"), self.client_address[0],
                                                             nickname=payload.get("nickname", "guest"))
-            wait = (self.server.access.logout_wait(context) or 2) if code == 429 else 0
+            wait = (self.server.access.login_retry_after(context, self.client_address[0]) or 2) if code == 429 else 0
             self._json(code, dict(message=message, retry_after=wait), [*context["cookies"], *cookies],
                        extra=(("Retry-After", str(wait)),) if wait else ())
         except Exception as exc:

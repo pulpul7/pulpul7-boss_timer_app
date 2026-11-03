@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "agent_navigation_index_not_exhaustive_dependency_graph",
-  "verified_on": "2026-10-22",
+  "verified_on": "2026-10-30",
   "usage": {
     "start": [
       "AGENTS.md",
@@ -132,12 +132,18 @@
       "at": [
         "boss_timer_gui.py#BossTimerApp.open_schedule_input_window",
         "boss_timer_gui.py#BossTimerApp._parse_schedule_input_lines",
+        "boss_timer_gui.py#BossTimerApp._parse_schedule_input_line",
+        "boss_timer_gui.py#BossTimerApp._build_schedule_control_event_for_item",
         "boss_timer_gui.py#BossTimerApp._apply_schedule_input_batch",
         "boss_timer_gui.py#BossTimerApp._apply_schedule_parsed_batch",
+        "boss_timer_gui.py#BossTimerApp._build_schedule_entries_for_item",
+        "boss_timer_gui.py#BossTimerApp._merge_schedule_import_batch",
+        "boss_timer_gui.py#BossTimerApp._add_schedule_active_entries_by_text",
         "schedule_order.py#assign_input_order"
       ],
       "tests": [
         "test_schedule_multi_boss_input.py",
+        "test_schedule_active_import.py",
         "test_schedule_fractional_time.py",
         "test_schedule_boss_usage.py",
         "test_schedule_ocr1_regions.py",
@@ -147,6 +153,9 @@
     },
     "boss_definitions_schedule": {
       "match": [
+        "임시점검",
+        "정기점검",
+        "서버오픈",
         "보스설정",
         "고정보스",
         "약칭",
@@ -170,6 +179,8 @@
         "boss_timer_gui.py#BossTimerApp._load_schedule_state",
         "boss_timer_gui.py#BossTimerApp._save_schedule_state",
         "boss_timer_gui.py#BossTimerApp._normalize_schedule_event_items",
+        "boss_timer_gui.py#BossTimerApp._ensure_schedule_events_cover_generation_end",
+        "boss_timer_gui.py#BossTimerApp._on_schedule_maintenance_changed",
         "schedule_order.py#event_sort_key"
       ],
       "tests": [
@@ -182,7 +193,58 @@
       "docs": [
         "docs/fixed_boss_identity.md",
         "docs/boss_last_hit.md"
-      ]
+      ],
+      "branches": {
+        "maintenance_control_visibility": {
+          "uses_routes": [
+            "schedule_input_ocr",
+            "notice_collection_messages",
+            "web_snapshot_remote_sync"
+          ],
+          "read": [
+            "boss_timer_gui.py",
+            "schedule_maintenance.py",
+            "schedule_maintenance_host.py",
+            "notice_runtime.py",
+            "notice_module/payload/notice_maintenance_lifecycle.py",
+            "notice_module/payload/notice_maintenance_import.py",
+            "notice_module/payload/notice_server_open.py",
+            "notice_module/payload/main.py"
+          ],
+          "at": [
+            "boss_timer_gui.py#BossTimerApp._normalize_schedule_control_name",
+            "boss_timer_gui.py#BossTimerApp._get_schedule_active_control_event",
+            "boss_timer_gui.py#BossTimerApp._is_schedule_event_visible",
+            "boss_timer_gui.py#BossTimerApp._is_fixed_boss_schedule_row_visible",
+            "boss_timer_gui.py#BossTimerApp._merge_schedule_control_events",
+            "boss_timer_gui.py#BossTimerApp._apply_notice_maintenance_transition",
+            "boss_timer_gui.py#BossTimerApp._apply_notice_regular_maintenance",
+            "boss_timer_gui.py#BossTimerApp._apply_notice_temporary_maintenance",
+            "notice_runtime.py#NoticeHost",
+            "schedule_maintenance.py#regular_boundary",
+            "schedule_maintenance.py#fixed_visible",
+            "schedule_maintenance.py#ordinary_visible",
+            "schedule_maintenance.py#merge_controls",
+            "schedule_maintenance_host.py#apply_transition",
+            "notice_module/payload/notice_maintenance_lifecycle.py#import_transitions",
+            "boss_timer_discord_bot.py#ScheduleReader.upcoming_rows",
+            "boss_timer_discord_bot.py#ScheduleReader._build_fixed_boss_jobs",
+            "notice_module/payload/notice_maintenance_import.py#import_temporary_maintenance",
+            "notice_module/payload/notice_server_open.py#server_open_override"
+          ],
+          "tests": [
+            "test_maintenance_lifecycle.py",
+            "test_notice_regular_maintenance.py",
+            "test_notice_server_open.py",
+            "test_schedule_input_day_default.py",
+            "test_notice_maintenance_extensions.py",
+            "test_notice_maintenance_formats.py"
+          ],
+          "docs": [
+            "docs/maintenance_structure_review.md"
+          ]
+        }
+      }
     },
     "github_data": {
       "match": [
@@ -393,6 +455,11 @@
         "web_snapshot_memo.py#source_key",
         "boss_timer_gui.py#BossTimerApp._collect_schedule_share_rows",
         "boss_timer_gui.py#BossTimerApp._collect_schedule_share_base_rows",
+        "boss_timer_gui.py#BossTimerApp._get_fixed_boss_schedule_rows_for_share_range",
+        "boss_timer_gui.py#BossTimerApp._is_fixed_boss_schedule_row_visible",
+        "boss_timer_gui.py#BossTimerApp._is_schedule_event_visible",
+        "boss_timer_gui.py#BossTimerApp._get_schedule_active_control_event",
+        "boss_timer_gui.py#BossTimerApp._delete_selected_schedule_rows",
         "web_service_manager.py#WebServiceManager.offer_snapshot",
         "web_delegated_hosting.py#DelegatedHosting._source_upload",
         "web_schedule_snapshot.py#_rest_rules"
@@ -407,6 +474,8 @@
     },
     "web_server_network_auth": {
       "match": [
+        "웹 관리자 등록 해제",
+        "signed member browser web-only administrator permissions",
         "PWA",
         "앱 설치",
         "manifest",
@@ -429,6 +498,7 @@
       "read": [
         "web_push.py",
         "web_assets/login.html",
+        "web_assets/login.js",
         "web_service_login.py",
         "web_assets/pwa/icon.svg",
         "web_assets/pwa/install.js",
@@ -440,6 +510,10 @@
         "web_https_server.py",
         "web_access_runtime.py",
         "web_access_settings.py",
+        "web_admin_permissions.py",
+        "web_admin_ui.py",
+        "web_service_ui.py",
+        "web_font_library.py",
         "web_request_limits.py",
         "web_direct_hosting.py",
         "web_network_diagnostics.py",
@@ -452,6 +526,19 @@
       ],
       "at": [
         "web_push.py#push_asset",
+        "web_access_runtime.py#AccessRuntime.context",
+        "web_access_runtime.py#AccessRuntime.refresh",
+        "web_access_runtime.py#AccessRuntime._refresh_locked",
+        "web_access_runtime.py#AccessRuntime.login",
+        "web_access_runtime.py#AccessRuntime._login_rate_wait",
+        "web_access_runtime.py#AccessRuntime.login_retry_after",
+        "web_access_settings.py#AccessSettings.change",
+        "web_admin_permissions.py#registered_web_admin",
+        "web_service_ui.py#WebServiceWindow._build_password",
+        "web_service_manager.py#WebServiceManager._access_jobs",
+        "web_https_app.py#HTTPSApplication.__call__",
+        "web_service_worker.py#LocalHandler.do_POST",
+        "web_service_worker.py#LocalHandler._context",
         "web_service_manager.py#WebServiceManager.diagnostics",
         "web_service_worker.py#main",
         "web_reload_wait.py#render_reload_wait",
@@ -464,6 +551,8 @@
         "test_web_pwa_install.js",
         "check_web_pwa_browser.py",
         "test_web_access_handover.py",
+        "test_web_admins.py",
+        "test_web_login_input.js",
         "test_web_session_recovery.js",
         "test_web_request_limits.py",
         "test_web_visitor_tracking.py",
@@ -480,6 +569,9 @@
     },
     "web_ui_themes_copy": {
       "match": [
+        "주요보스선택 색지정 내부 탭 독립 선택",
+        "unassigned and future boss picker selected green fill theme spectrum priority",
+        "web administrator color editor companion shared picker",
         "웹 UI",
         "테마",
         "폰트",
@@ -550,7 +642,7 @@
         "schedule TXT Kakao chat speech bubble host portrait sad soul title width wrapping theme surrounding color",
         "chat body14 speaker plus2 separate minus2 phone only plus4 is-phone compact line height intrinsic longest-line width focus outline hidden copy selection",
         "TXT theme return delayed zero hidden textarea height shared cached plan no repeated scan formatting",
-        "current tab manual refresh pagehide sessionStorage restore once content height custom TXT phantom scroll no frame padding",
+        "current tab manual refresh pagehide sessionStorage restore once initial leftmost reordered tab missing invalid blocked storage content height custom TXT phantom scroll no frame padding",
         "TXT skip unused derived rest calculation independent copy rest checkbox cache",
         "gray theme system device font default reset personal choice preserved",
         "major settings compact54x24 clock-controls header no separate flex alarm wrap",
@@ -571,6 +663,8 @@
         "web_theme_bootstrap.py",
         "web_boss_spectrum_frontend.js",
         "web_boss_spectrum.py",
+        "web_assets/custom-editor.js",
+        "web_custom_editor.py",
         "web_font_frontend.js",
         "web_font_library.py",
         "schedule_order.py",
@@ -649,6 +743,8 @@
         "test_web_cinematic_preferences.js",
         "check_web_cinematic_preferences.js",
         "test_web_boss_spectrum.py",
+        "test_web_custom_editor.js",
+        "test_web_custom_selection_style.py",
         "test_web_theme_defaults.js",
         "test_web_theme_bootstrap.js",
         "test_web_limited_sakura.py",
@@ -733,6 +829,8 @@
         "WebScheduleTXT.stop",
         "WebNotices.groupGap",
         "renderCustomEditor",
+        "web_assets/custom-editor.js#WebCustomEditor",
+        "customEditorSelection",
         "web_theme_bootstrap.py#THEME_PREFERENCE",
         "readThemePreference",
         "WebScheduleTXT.fit",
@@ -758,7 +856,9 @@
         "web_limited_sakura.py#theme_asset",
         "web_limited_sakura.py#_checked_host",
         "web_boss_spectrum.py#BossSpectrumStore._resolved",
-        "web_boss_spectrum.py#BossSpectrumStore.save"
+        "web_boss_spectrum.py#BossSpectrumStore.save",
+        "web_custom_editor.py#editor_asset",
+        "sync_web_sakura.py#compact_embedded_indent"
       ]
     },
     "web_animation_performance": {
@@ -889,7 +989,12 @@
         "notice_module/payload/notice_schedule_update.py#synchronize_web_schedule_notice",
         "notice_web_publication.py#schedule_published",
         "notice_module/payload/notice_remaining.py#third_notices",
+        "notice_module/payload/notice_remaining.py#classified_targets",
         "notice_module/payload/notice_remaining.py#remaining_message",
+        "notice_module/payload/notice_participation.py#evening_notices",
+        "notice_module/payload/notice_participation.py#evening_summary",
+        "notice_module/payload/notice_participation.py#boss_group",
+        "notice_module/payload/notice_participation.py#grouped_targets",
         "notice_module/payload/notice_participation.py#slot_allowed",
         "notice_module/payload/notice_management.py#NoticeStore.complete_delivery",
         "notice_module/payload/notice_maintenance_import.py#regular_maintenance_candidate",

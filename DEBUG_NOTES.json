@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "purpose": "debugging_evidence_and_resolution_log_not_code_navigation_tree",
-  "updated_on": "2026-10-22",
+  "updated_on": "2026-11-03",
   "rules": [
     "Record only investigated facts; user reports, hypotheses, confirmed causes and resolutions are distinct.",
     "No credentials, private user data or raw production logs. Reference code symbols/tests and sanitized event names.",
@@ -11,6 +11,434 @@
     "After debugging review route coverage: extend an existing route first, add a distinct route only when needed, merge duplicates and remove stale current-code claims from CODEMAP.json. Historical entries here retain their original context and must not be used as current dependencies without revalidation."
   ],
   "entries": [
+    {
+      "id": "singleton_chapter_absolute_names_and_combined_seven_eight_summary",
+      "recorded_on": "2026-11-03",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Read names for one boss in chapter 7/8; collapse multiple bosses in one chapter; combine chapters 7 and 8 when both are represented and their unique total reaches three. User added: singleton absolute also reads its boss name.",
+      "changes": [
+        "Shared grouped_targets now performs chronological classification and distinct canonical boss counting for first/second, third, dawn and morning notice text.",
+        "One boss in each of chapters 7/8 yields both names; multiple bosses in only one chapter yield that chapter; both chapters with at least three distinct bosses yield one 7, 8-chapter group positioned at the earliest constituent time.",
+        "One absolute boss reads its display name; two or more distinct absolute bosses read the absolute class. Absolute/fixed targets are never added to chapter counts; repeated schedules/aliases of the same canonical boss do not inflate counts.",
+        "Other chapter/depth/event behavior, target eligibility, delivery timing/quotas, manual text and update structure remain intact. Existing classified_targets remains a wrapper over the shared helper for derivative render paths."
+      ],
+      "verification": [
+        "Initial full regression after count-aware changes: 230 passed.",
+        "Final regression after adding render-time count transitions and updating template examples: all 231 tests passed; changed source syntax and navigation/debug JSON validated.",
+        "Added a ten-case chapter-count matrix, repeat-schedule checks, absolute singleton/plural/duplicate cases, chapter double-count prevention, alias and earliest combined-group ordering checks.",
+        "Added a render-time transition check where expired bosses split a combined group back into individual chapter names and a plural absolute class back into its remaining name."
+      ],
+      "limits": [
+        "Current source only; no live AppData edits, running process/module restart, TTS/Discord output, EXE/ZIP/build/deployment.",
+        "Only chapter 7/8 and absolute singleton behavior changed; other chapters retain the previous classification policy."
+      ]
+    },
+    {
+      "id": "all_evening_events_and_shared_major_boss_classes",
+      "recorded_on": "2026-11-03",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Announce every eligible siege-through-guild-dungeon event in evening notices plus major-boss classes; apply chapter/absolute/individual-depth classes to other notice types while keeping fixed event names.",
+      "confirmed_cause": [
+        "Old evening_notices chose one event-priority representative and excluded earlier rows from spoken data; template rendering additionally used a 30-minute slice. An earlier guild dungeon disappeared behind later defense.",
+        "Old remaining speech used individual names for singleton classes, merged unclassified depth targets by area and truncated four or more classes to two plus a many-target phrase."
+      ],
+      "changes": [
+        "Evening first/second keep the existing 21:00-through-midnight eligibility but retain every future target in a dedicated metadata-rich _evening_entries value. Summary speaks all fixed/designated event names and then unique ordinary-boss classes, without representative-based or 30-minute speech exclusion.",
+        "Shared boss_group retains fixed/special event names, keeps absolute separate from chapters, distinguishes whitespace-normalized lowest-floor Gulbe/Sner/Gangl, supports other/future chapters and preserves fallback area/name classes.",
+        "Third notice always reads each class once, including singletons, in earliest-member order; four or more classes are no longer silently abbreviated. Dawn/morning entries retain class metadata and share this grouping within their existing 30-minute speech window.",
+        "Event aliases normalize to one special-event group. Representative priority/receipt timing, delivery quotas, target eligibility, user-edited templates/direct TTS and existing manual notice controls remain intact.",
+        "CODEMAP existing notice route, current implementation documentation and UPDATE_POLICY implementation scope updated."
+      ],
+      "verification": [
+        "Initial first/second selection/template checks: 86 passed; shared-class focused checks: 101 passed.",
+        "Broader first pass: 227 tests, one recovery assertion still expected the superseded individual-name speech; updated that assertion to the requested 8-chapter summary before the final rerun.",
+        "Final rerun: all 227 schedule/classification/templates/morning/delivery/preparation/chat/recovery/defaults/runtime/audio/bridge tests passed.",
+        "Added earlier-guild/later-defense, all six event types, alias deduplication, later-than-30-minutes targets, exclusion/time boundaries, separate depth types, fixed-name preservation, future chapter, all-class retention and current dawn/morning payload checks."
+      ],
+      "limits": [
+        "No live AppData/settings/schedules/module selection changed, no live Discord/TTS output, no build/ZIP/deployment/restart.",
+        "A prior local simulation report is a dated artifact of the earlier name-based speech, not a current-policy guarantee. New behavior applies when current source is loaded; an older independently installed module or already running process can still use previous code.",
+        "Legacy saved dawn/morning entries without classification metadata retain name-based fallback until schedule synchronization regenerates them. Personal literal wording/direct TTS is not overwritten."
+      ]
+    },
+    {
+      "id": "evening_second_defense_priority_excludes_earlier_guild_dungeon",
+      "recorded_on": "2026-11-03",
+      "status": "current_source_behavior_reproduced_no_policy_change",
+      "user_report": "20:00 world-boss preannouncement was followed by manager text mentioning defense at 22:00 alone; later screenshot includes an earlier guild-dungeon one-minute notice. User asks whether omitting guild dungeon is correct.",
+      "confirmed": [
+        "evening_notices selects first/second representatives by event_priority before scheduled_at: siege, trinity league, defense, occupation, fortress, guild dungeon, then other starred bosses.",
+        "After selecting defense at 22:00, _boss_entries includes only rows at or after that representative. An earlier guild-dungeon row is excluded before the subsequent 30-minute speech-window rendering.",
+        "The prior chronological-order change was localized to third-notice classified_targets, not first/second evening_notices selection."
+      ],
+      "verification": [
+        "In-memory input at 19:59 with eligible fixed guild dungeon 21:29 and defense 22:00: retained event body contains both, representative is defense 22:00, spoken input contains defense alone and generated text mentions only defense.",
+        "test_notice_daily_slots and test_notice_templates: 52 passed. Existing tests explicitly expect event priority before time."
+      ],
+      "remaining": [
+        "This proves an existing code path matching the symptom, not the administrator's actual historical input or loaded module.",
+        "No first/second selection policy was changed in this diagnostic turn; no live data, broadcast, build or deployment."
+      ]
+    },
+    {
+      "id": "local_profile_virtual_input_notice_pipeline",
+      "recorded_on": "2026-11-02",
+      "status": "memory_simulation_passed_live_files_preserved",
+      "request": "Run virtual schedule input on this PC and inspect notice creation.",
+      "scope": [
+        "Read active-profile boss definitions and portable notice preferences from this PC only. Both Eldir and Odin are starred; collection, participation category and output are enabled; no custom participation.remaining template is stored.",
+        "Ran the real Discord input parser, parsed-batch application and schedule merge, followed by the real GUI notice snapshot and synchronize_schedule/NoticeStore methods. The existing fixture stops before GUI/disk/audio follow-up. Store transaction work ran in memory with virtual first/second completion receipts; live notices/quotas were not reused as simulated completions.",
+        "Simulated 2026-11-01 KST, using only relevant ordinary bosses; recurring fixed rows and unrelated schedules were excluded from the fixture. No process injection, live TTS/Discord or installed-module restart."
+      ],
+      "results": [
+        "21:08 input of Eldir 21:40 and Odin 23:15 without any prior completed first/second announcement does not generate a third notice, including at 21:35.",
+        "After virtual second-announcement completion retaining Eldir 21:35, reinputting Eldir 21:40 at 21:08 replaces its scheduled time but retains the 21:35 notice anchor. At 21:35 delivery is eligible and text names Eldir then Odin. Virtual completion prevents repeat delivery.",
+        "If the retained representative was Eldir 21:40 from the outset, 21:35 delivery is blocked; at 21:40 the remaining notice names Odin alone because Eldir has reached its spawn time.",
+        "Injecting hour precision or cut_applied into the otherwise-starred Odin row independently reproduces Eldir-only text at 21:35. These are simulated states, not confirmed administrator facts.",
+        "Actual 2140/2315 text inputs produced minute precision and cut_applied=false. Input at 21:08 alone did not omit Odin.",
+        "Hashes of watched active-profile selection, boss definitions, schedule state, notice state and module-selection state were identical before/after. Runtime selection record on this PC reports bundled 1.0.2; simulation used current repository source."
+      ],
+      "artifacts": ["notice_input_simulation_report.json"],
+      "remaining": [
+        "This PC's successful simulation does not establish the administrator's earlier representative receipt or Odin flags at 21:35.",
+        "No EXE/ZIP/test distribution folder created; no live settings, schedules, notices or module files modified."
+      ]
+    },
+    {
+      "id": "remaining_major_notice_chronological_speech_order",
+      "recorded_on": "2026-11-02",
+      "status": "source_changed_nonbuild_verified",
+      "request": "Read remaining major-boss names in earliest spawn order, such as Eldir 21:40 before Odin 23:15; explain whether input at 21:08 accounts for a 21:35 administrator notice.",
+      "confirmed": [
+        "classified_targets previously sorted classes by absolute/chapter/event priority after collecting targets in time order. That made a later absolute boss precede an earlier chapter boss.",
+        "Third notice timing uses the representative retained in an actual first/second completion receipt, not the later schedule-input timestamp. Eligible start time is anchor <= now < anchor plus two minutes.",
+        "The screenshot confirms an administrator-side remaining-boss message at 21:35 and an Odin announcement later, but does not expose the retained representative, Odin's earlier snapshot/precision/flags or the loaded administrator module version."
+      ],
+      "resolution": [
+        "Keep chronological insertion order for classified groups and remove class-priority ranking. Absolute membership still overrides chapter membership. Existing plural class summaries, deduplication and four-or-more-class abbreviation remain; summarized classes are ordered by their earliest member.",
+        "Do not change target eligibility, representative timing, delivery quota, stored user text or update/module-selection behavior."
+      ],
+      "validation": [
+        "96 tests passed across remaining speech, third slot, templates, schedule synchronization, preparation and chat output.",
+        "Added reversed-input Eldir/Odin order, chronological plural/many-class summaries, and 21:08 input with retained 21:34 anchor and eligible 21:35 delivery regressions.",
+        "Updated existing CODEMAP route with classified_targets and current notice implementation documentation."
+      ],
+      "remaining": [
+        "Actual reason for the administrator's Odin omission and actual historical representative time remain unconfirmed. The current-source integration example is not evidence of administrator data.",
+        "Source only: no EXE/ZIP, deployment, running module restart, live Discord transmission or production settings/schedule edits."
+      ]
+    },
+    {
+      "id": "administrator_remaining_notice_odin_omission_review",
+      "recorded_on": "2026-11-02",
+      "status": "current_source_reproduced_administrator_cause_unconfirmed",
+      "user_report": "Administrator-side BossTimer manager text at 21:35 named only Eldir at 21:40 although Odin at 23:15 also existed. User clarified this was not this PC's state.",
+      "user_followup": "User reports Odin's program-side star checkbox was enabled. Treat star-off as excluded by the report, not as an established incident cause.",
+      "confirmed": [
+        "Current third_notices includes eligible important rows strictly after max(anchor, now) through the following 01:30:00, including fractional seconds; there is no 30-minute target slice or 23:00 cutoff in this path.",
+        "important requires the host boss definition star flag or a recognized special-event name. Absolute/chapter status and web personal major-boss selections do not independently grant importance.",
+        "eligible requires minute/second precision, no invasion or cut_applied flag, and no elapsed/control/deleted state. The GUI snapshot reads ordinary targets from schedule_events and star from schedule_boss_definitions.",
+        "With both targets eligible and starred, Odin absolute and Eldir chapter 8 occupy separate classes and both names are rendered.",
+        "Current preparation acquire checks both revision/generation and exact tts_text; Discord notice text is taken from that prepared lease. Ordinary schedule changes update retained target values/text and invalidate old preparation, so an old speech file alone is not evidence of this omission.",
+        "The third notice start is anchored to the retained representative of the latest completed first/second evening announcement; its delivery window ends two minutes after that anchor. New input does not itself move that retained anchor."
+      ],
+      "verification": [
+        "Inline isolated reproduction at 2026-11-01 21:35 KST with Eldir 21:40 and Odin 23:15 rendered both names. Independently disabling Odin star, using hour precision, cut_applied, elapsed state or invasion produced Eldir-only output.",
+        "test_notice_remaining and test_notice_third_slot: 17 tests passed in this review.",
+        "test_notice_preparation and test_notice_chat_output: 27 additional tests passed while checking preparation freshness and text delivery.",
+        "Existing CODEMAP notice_collection_messages route already covers the actual snapshot, selection, rendering and validation paths; no duplicate route added."
+      ],
+      "remaining": [
+        "Administrator's actual module version/source, snapshot, definition flags, retained remaining entries and customized notice text at delivery are unavailable; none of the exclusion conditions is established as the incident cause.",
+        "Do not infer administrator AppData values from this PC or repository defaults. No production behavior/settings, running service, build or deployment was changed."
+      ],
+      "evidence": [
+        "boss_timer_gui.py#BossTimerApp._get_notice_schedule_snapshot",
+        "notice_module/payload/notice_participation.py#eligible",
+        "notice_module/payload/notice_participation.py#important",
+        "notice_module/payload/notice_remaining.py#third_notices",
+        "notice_module/payload/notice_remaining.py#remaining_message"
+      ]
+    },
+    {
+      "id": "all_boss_picker_selection_green_independent_of_spectrum_assignment",
+      "recorded_on": "2026-10-30",
+      "status": "source_fixed_offline_structure_verified_browser_engine_unverified",
+      "user_report": "New World Dungeon phase1 and phase2 choices did not turn green when selected; future additions should also show selection consistently.",
+      "confirmed_cause": [
+        "The common bright-green selected rule required both custom-choice and spectrum-choice. New/unassigned catalog entries lack spectrum-choice, so solid/photo/Iron-Man theme selection rules can supply a different background and ink.",
+        "The picker renderer gives all catalog entries the same custom-choice class and aria-pressed state; the failure is not specific to a boss name, fixed-boss identity or chapter."
+      ],
+      "changes": [
+        "Scoped the selected-green rule to all custom-choice buttons under custom-editor, without requiring spectrum assignment. Its ID scope and important background/color/border/shadow override theme selection styles only inside the picker.",
+        "Selected labels/small/star text use matching contrast ink. Color-number badges retain their own contrast rule. Deselection naturally restores the existing theme or assigned spectrum because no inline state or stored color is rewritten.",
+        "Shared DOM means the rule covers personal selection and color targeting as well as dynamically added/future catalog rows. Page revision227; stylesheet and Python fallback synchronized."
+      ],
+      "validation": [
+        "python -m unittest test_web_custom_layout test_web_custom_selection_style test_web_boss_catalog:17 tests, OK with1 opt-in browser test skipped (16 passed).",
+        "Added an opt-in isolated Chromium computed-style matrix:16 themes,2 editor modes,6 existing/new/future/plain/assigned entries,5 selection/release assertions per case (960). It is not reported as passed here.",
+        "An attempted sandboxed browser launch failed with GPU/access restrictions. Unsandboxed Chrome/Edge launchers returned no DOM output, and an isolated remote-debugging probe produced no endpoint. The matching temporary browser process was identified by executable/profile and closed; operational browser profiles were not used."
+      ],
+      "remaining": [
+        "Real computed-style/visual verification remains unconfirmed in this environment. No build, deployment, Git upload, operational restart or live schedule/color-preference mutation was performed. Apply updated web files and refresh to use the change."
+      ]
+    },
+    {
+      "id": "web_color_tab_compacted_module_hook_and_template_binding_failure",
+      "recorded_on": "2026-10-30",
+      "status": "source_fixed_integrated_compacted_path_verified_not_live_applied",
+      "user_report": "The administrator color-assignment tab could not be selected after the editor split.",
+      "confirmed_cause": [
+        "compact_module rewrites identifier tokens without property context. The private busy binding also renamed the public busy hook key passed to WebCustomEditor, causing hooks.busy is not a function on tab click.",
+        "The spectrum compaction list included specs/levels/colorName, which are also referenced inside template interpolation. Templates remain intact while the declarations were renamed; a real palette refresh then raised colorName is not defined.",
+        "Previous tests checked the editor with manually supplied hooks, palette-data equality and the missing-companion fallback. They did not exercise the actual compacted spectrum init hooked to the real editor."
+      ],
+      "changes": [
+        "Quoted the public busy key and removed template-referenced specs/levels/colorName from the spectrum private-name compaction list. Re-embedded source and bumped only page revision226, retaining web versionv1.0.1 and the six-file size contract.",
+        "Added readable/compacted integration checks with the real editor and spectrum modules: permission exposure, tab click, shared-picker move, independent color targets, real palette choice/POST save, in-flight locking, post-save tab return and no extra reads."
+      ],
+      "validation": [
+        "The integrated regression reproduces hooks.busy is not a function when the unquoted compacted key is restored; the fixed readable/embedded paths pass36 editor checks.",
+        "354 isolated Node VM checks passed across editor, existing major-boss selection/default/invasion, theme/current tabs, page refresh, visibility/performance and both readable/embedded font modules. Current full script parses.",
+        "python -m unittest test_web_custom_layout test_web_asset_selection test_web_live_assets:27 checks passed. Final six-file validate_assets, embedded SCRIPT/PAGE/STYLE byte equality and1MiB limits pass; schedule.js1048482 bytes."
+      ],
+      "remaining": [
+        "No actual browser visual test or live user-session mutation was performed. Updated static files must be applied and the page refreshed on a host that already has the revision225 backend/companion.",
+        "No build, deployment, Git upload, runtime restart or AppData modification was performed."
+      ]
+    },
+    {
+      "id": "web_admin_registration_and_independent_boss_color_editor",
+      "recorded_on": "2026-10-30",
+      "status": "source_implemented_offline_verified_not_built_or_published",
+      "request": "Split major-boss preferences into personal boss-selection and administrator color-assignment tabs; add web-only administrator registration/list in desktop web password settings while retaining existing master/developer conditions.",
+      "confirmed": [
+        "The previous spectrum module read customDraft and placed palette controls in the personal selection footer. Color targeting and personal schedule selection shared the same UI state.",
+        "The existing developer gate allowed the retained developer nickname or local master mode. The access policy/session signing already provided stable browser IDs and signed member/guest epochs."
+      ],
+      "changes": [
+        "Added a shared picker companion with separate immutable color-target Set, accessible internal tabs and one reused picker DOM. Personal save/undo and bulk actions remain in their own tab; color bulk actions never modify personal selections.",
+        "Added desktop password-tab administrator registration from currently authenticated member browser records, a registered-device list and revocation. Password content, epochs, global program/Discord rights and existing master/developer conditions are unchanged.",
+        "Optional validated web_admins data is persisted with the private access policy and retained by existing encrypted export/import. Rights use the registered browser ID plus the signed session's member role, not a supplied nickname/flag or stale visitor role. Guest/unregistered/same-nickname devices cannot use new grants.",
+        "The existing server-side spectrum/font developer gate includes registered web administrators. Revocation is checked server-side on requests, with UI visibility updated on reload/denied save.",
+        "HTTP/HTTPS serve an authenticated, ETag-revalidated custom-editor.js companion. The existing six-file/1MiB updater contract is retained. A host without the companion keeps personal selection and published color reads, with the new color tab inactive.",
+        "sync_web_sakura now embeds and compacts the readable spectrum module into schedule.js and its Python fallback. Public pending-work API names avoid the compactor's private-name rewrite. Unsaved color preview/in-flight save defers existing automatic page refresh; color edits do not rebuild the picker or add polling.",
+        "Updated page revision225, current navigation paths, UI/compatibility docs, update policy and build handoff. No user media/default declarations or live access policy were modified."
+      ],
+      "validation": [
+        "python -m unittest test_web_admins test_web_boss_spectrum test_web_custom_layout test_web_fonts test_web_font_defaults test_web_access_handover test_web_request_limits test_web_visitor_tracking test_web_live_assets test_web_asset_selection:116 tests passed.",
+        "Isolated Node VM:340 checks passed across independent editor22, first-use14, manual-save19, release-default19, invasion20, theme-tab17, current-tab76, page-refresh17, settings-visibility36, visible-updates17, theme-performance19, and readable/embedded font modules32 each.",
+        "New authorization tests cover persistence/export-import, legacy defaults, malformed grants, signed-session role versus stale visitor metadata, guest/same-name/blocked/unauthenticated denial, existing developer/master behavior, desktop queue validation, immediate policy revocation, HTTPS conditional GET and matching loopback resource serving.",
+        "Editor checks cover independent color targets, bulk/clear isolation, busy-save protection, keyboard navigation, revocation, shared DOM reuse, retained personal choices and missing-companion fallback with one color read."
+      ],
+      "remaining": [
+        "Actual Tk/browser visual QA, packaged EXE operation and live multi-PC handover were not performed. No EXE/ZIP build, deployment, GitHub upload, live restart or AppData modification was performed.",
+        "Full functionality requires the new desktop/server Python code and bundled companion, not just the six static web files. Administrator grants are per trusted browser/device; cleared cookies or another device require registration again. Existing developer nickname/local-master rules are intentionally retained."
+      ]
+    },
+    {
+      "id": "web_initial_navigation_uses_leftmost_reordered_tab",
+      "recorded_on": "2026-10-30",
+      "status": "source_fixed_offline_verified_not_published",
+      "user_report": "After moving major bosses left of all bosses, a first visit still opened the all-bosses tab. First navigation should follow the leftmost tab.",
+      "confirmed_cause": "selectedFilter starts as all; WebCurrentTab.restore previously returned without selecting anything when no valid session navigation state existed. Restoring the DOM tab order did not change that initial filter.",
+      "changes": [
+        "On the first valid payload only, WebCurrentTab selects the remembered valid filter or falls back to the first currently ordered schedule tab, then all if none exist. Explicit restored guard prevents later payloads from reapplying the default.",
+        "Saved current-tab/theme and WebPageRefresh restoration retain priority. Personal boss choices, saved tab order, schedules, authentication and updater protocols are unchanged.",
+        "Embedded the readable module into schedule.js and its Python fallback; page revision224, versionv1.0.1 retained. Updated the existing navigation index entry and UI/handoff documentation."
+      ],
+      "validation": [
+        "Isolated Node VM execution: test_web_current_tab.js76 checks across readable/embedded modules; test_web_theme_tab.js17 checks; all93 passed. Covers default/reordered all/custom/TXT, missing/malformed/blocked storage, saved-current priority, legacy today, theme/pagehide, one-time application and tab reordering.",
+        "python -m unittest test_web_asset_selection test_web_live_assets test_web_page_refresh:33 tests passed.",
+        "Full schedule.js parses. Six-file validate_assets contract and Python SCRIPT/PAGE/STYLE mirrors pass; schedule.js1048063 bytes remains below1048576."
+      ],
+      "remaining": [
+        "No browser visual test, EXE/ZIP build, deployment, Git upload, live restart or user-data mutation was performed. Existing deployed pages require applying the updated static files and reloading."
+      ]
+    },
+    {
+      "id": "maintenance_occurrence_lifecycle_shared_visibility_implementation",
+      "recorded_on": "2026-10-30",
+      "status": "source_improved_offline_verified_not_built_or_live_applied",
+      "request": "Improve the reviewed structural differences between regular/temporary maintenance after administrator fixed bosses disappeared from the web.",
+      "confirmed_cause": [
+        "The old fixed producer passed created_at=None into ordinary freshness checks and also required ordinary schedule data. A retained temporary start could hide fixed rows indefinitely despite new ordinary input.",
+        "Notice start import, read-only regular opening facts, weekly templates, parser precedence and Discord fixed generation were separate paths; starting a maintenance did not provide a shared completion lifecycle."
+      ],
+      "changes": [
+        "Added schedule_maintenance pure policy and schedule_maintenance_host guarded commands. Existing control dictionaries preserve optional planned_end_at, reopened_at, cancelled_at and maintenance_id; no timer-driven migration/deletion.",
+        "Dated regular occurrences replace only that calendar week's boundary, preserving weekly settings. Planned end is not completion. Explicit opening closes the matching occurrence; a previous-cycle control no longer poisons current fixed display.",
+        "GUI/web fixed producers no longer require ordinary rows or created_at. Discord text/image queries and ordinary/fixed jobs apply shared maintenance eligibility, preserving their own periods and switches.",
+        "Notice1.0.2 uses an optional host transition callback for start/plan/complete/cancel with profile/season/update/input/handover guards and rollback on save failure. Legacy optional APIs remain available. Per-action durable intent/results prevent duplicate application; deferred retries, failed/pending do not imply success.",
+        "Conflicting completion times, completion-vs-cancellation, unreadable decisive notices and unmatched historical temporary completions are held. Late regular completion can create the exact dated occurrence before closing it.",
+        "Reserved maintenance/server-open cut text is parsed before generic boss cut. Removed implicit old-future deletion on unrelated new input. Cancelled rows are excluded from alarms/current controls/visible rows and dated regular UI duplication is avoided.",
+        "Updated CODEMAP current symbols, removed obsolete helper references, and documented source/runtime compatibility and remaining limits in UPDATE_POLICY, BUILD_HANDOFF and maintenance/web/input docs."
+      ],
+      "validation": [
+        "python -m unittest discover -p test_notice*.py:455 tests, OK with1 skipped.",
+        "python -m unittest test_maintenance_lifecycle test_discord_schedule_reader test_fixed_boss_aliases test_web_boss_catalog test_web_snapshot_memo test_schedule_active_import test_schedule_input_day_default test_schedule_input_order test_schedule_multi_boss_input test_schedule_fractional_time:90 tests, OK.",
+        "21 new lifecycle checks cover planned-vs-confirmed end, no stale resurrection, history retention, next-cycle boundary, one-occurrence closure, weekly exception/cancellation, legacy labels, delete cutoffs, reserved input, save rollback, fixed-without-ordinary, start-extension-completion persistence, actual web snapshot validation, Discord fixed jobs, GUI-thread callback and conservative conflicts.",
+        "test_app_patch_notes:3 checks passed. Changed Python files parse successfully; JSON documents and all maintenance navigation paths/symbols validate. git diff --check reports no whitespace errors."
+      ],
+      "remaining": [
+        "No administrator production state/EXE execution trace was obtained; the deployed incident is not claimed fixed in place. No EXE/ZIP/build/deployment, live process restart, Git publication or AppData/media mutation was performed.",
+        "New source requires updated GUI/bot plus notice1.0.2 for completion callbacks. Static six-file web update alone is insufficient. Installed module selection was not forced; old host/module fallback remains.",
+        "The regular read-only opening input/alarm adapter remains separate. Ambiguous/missing starts and interrupted/failed application require review. Cross-version re-saving/sync and actual packaged runtime remain unverified."
+      ]
+    },
+    {
+      "id": "maintenance_lifecycle_cross_feature_structural_review",
+      "recorded_on": "2026-10-30",
+      "status": "structural_review_reproduced_documented_no_production_behavior_change",
+      "user_report": "Repeated temporary/regular maintenance issues prompted a request to inspect structural causes, after administrator fixed bosses vanished from the web following temporary maintenance.",
+      "confirmed": [
+        "Weekly regular settings, derived maintenance_stale, one-shot temporary controls, and manual server_open events have different representations. Textual regular maintenance still normalizes to temporary_maintenance while the dedicated regular UI/notice adapter modifies weekly settings.",
+        "Temporary notice imports store a start but omit an end; completion/extension/cancellation are excluded from that importer. NoticeHost has start/weekly-setting callbacks and no temporary completion callback. server_open_override handles only regular notice articles and returns read-only input/alarm information.",
+        "The latest retained past control remains active without an explicit close/expiration. A freshly imported ordinary schedule after the following week's regular maintenance does not retire the old temporary control. Actual isolated methods reproduced normal-visible/fixed-hidden onOctober30 andNovember5 with theOctober29 temporary record.",
+        "Fixed visibility passes created_at=None into an ordinary-event freshness rule. Parser precedence classifies server-open-cut text as an ordinary boss. These are separate confirmed causes of surprising behavior, not just different display names.",
+        "New input can invoke backed-up removal of old future rows while the temporary control remains selected. Visibility and mutation therefore share a control dependency. Discord fixed generation does not apply the same GUI visibility criteria.",
+        "A notice's dated regular occurrence updates weekly weekday/time variables. This one-off-versus-template coupling is an additional design risk, not proven to be the current incident cause."
+      ],
+      "validation": [
+        "68 existing offline notice/maintenance/input checks passed across six test modules. Separate actual-method matrix confirmed regular-text aliasing, generic opening-cut parsing, old temporary control surviving the next weekly cycle, and differing regular/temporary completion override results.",
+        "This review did not alter production behavior or claim the existing deployed administrator process was fixed. Current source was inspected; a complete administrator state/EXE execution trace was not obtained."
+      ],
+      "deliverable": "docs/maintenance_structure_review.md",
+      "remaining": [
+        "Proposed occurrence lifecycle, shared eligibility policy, reserved-input validation, explicit cleanup boundaries and end-to-end tests are recommendations, not implemented capabilities.",
+        "A real implementation needs backward-compatible notice host integration, stored-control migration and source-key invalidation while preserving user schedules and existing cleanup intentions. No build, deployment, live restart, data deletion, setting mutation or Git publication was performed."
+      ]
+    },
+    {
+      "id": "server_open_cut_is_ordinary_boss_existing_version_control_only_removal",
+      "recorded_on": "2026-10-30",
+      "status": "input_mismatch_and_targeted_recovery_verified_not_applied_live",
+      "user_report": "User entered1031 서버오픈 컷 and restarted the administrator web, but fixed bosses remained absent. Actual maintenance end wasOctober29 10:31; the follow-up date isOctober30.",
+      "confirmed": [
+        "_parse_schedule_input_line checks generic clock-cut syntax before control syntax.1031 서버오픈 컷 produces state=scheduled, cut_applied=True and no control_type. It is an ordinary boss-like cut entry, not a server_open control, so it does not supersede temporary maintenance.",
+        "With a reference ofOctober30 00:15 the cut resolves toOctober29 10:31.0일1031서버오픈 (with spaces) instead produces a control onOctober30 10:31, so repeating the previous same-day workaround after midnight would use the wrong date.",
+        "_delete_selected_schedule_rows separates event identities from control identities, backs up the selected rows and removes only the selected control when only maintenance is selected. It does not set an after-delete cutoff. _get_schedule_future_delete_event_items returns empty for a control-only selection."
+      ],
+      "validation": [
+        "An isolated actual parser check confirmed both interpretations and resolved dates. No file or runtime schedule was written.",
+        "An isolated real selected-row deletion method with one past temporary-maintenance control changed future fixed visibilityFalse->True, kept ordinary scheduled rows equal and stored one control/zero events in the deleted-row backup. UI confirmation, disk saving and redraw were mocked; live administrator state was untouched."
+      ],
+      "guidance": [
+        "For immediate existing-version recovery after actual maintenance has ended, back up the current schedule and delete only theOctober29 temporary-maintenance control row using selected-row deletion. Do not use whole-schedule or thereafter-delete. Refresh the web after normal publication/relay propagation.",
+        "The ordinary server-open-named cut row, if present, is an erroneous separate schedule item and can be inspected/removed as a selected row. Do not repeat0일 for an actual previous-day opening time."
+      ],
+      "remaining": [
+        "No production parser or visibility behavior was changed. Reserved control names with cut suffix still have the existing ambiguous interpretation; a future source change would need parser/generation regression coverage and a new runtime before affecting this deployed version.",
+        "Live administrator recovery remains unconfirmed. Another future maintenance/deletion cutoff, missing visible ordinary schedule, or separate host state could still restrict fixed rows. No build, ZIP, deployment, service restart, password/browser/profile operation, schedule deletion or Git publication was performed."
+      ]
+    },
+    {
+      "id": "fixed_web_hidden_after_temporary_maintenance_existing_version_recovery",
+      "recorded_on": "2026-10-29",
+      "status": "maintenance_condition_reproduced_existing_version_workaround_verified_not_applied",
+      "user_report": "Administrator ajes01 web omitted fixed bosses while Discord schedule listed them. User confirmed all-tab/fixed-ON, next-day, multiple devices and web restart did not help; later reported the problem began after today's temporary maintenance. Local bambi01 web is normal. Provided API excerpt contains fixed events datedOctober28 only; a complete current-day payload was not supplied.",
+      "confirmed": [
+        "Discord ScheduleReader.upcoming_rows reads enabled fixed definitions and date rules directly. Web uses the GUI share-range generator and its visibility/control predicates. The two outputs can differ despite unchanged fixed definition files.",
+        "_is_fixed_boss_schedule_row_visible passes created_at=None to _is_schedule_event_visible. An active past temporary_maintenance control admits post-control timed boss rows with newer created_at but rejects fixed rows at/after the control. This exactly reproduced normal=True, fixed=False, web fixed rows0, Discord fixed date match=True.",
+        "The maintenance control persists in schedule state and is considered after web restart. _get_schedule_active_control_event chooses the latest nonhistorical past control; a later past server_open control changes the visibility branch to scheduled_at>=opening_time.",
+        "Other inspected exclusion paths are fixed browser prefs, custom/TXT selections, date range, explicit hidden registration events, missing visible timed schedule data, definition enable/day/repeat rules, and maintenance/delete cutoffs. They were not assumed to be this incident's cause.",
+        "Local bambi01 published57 fixed rows and production JS showed7 next-day fixed rows, but those counts are not evidence for the administrator's separate ajes01 host. User ruled out date range and per-device settings. Public ajes01 login.js and schedule.js exactly matched current workspace bytes; no authenticated remote payload was fetched or login attempted."
+      ],
+      "validation": [
+        "109 existing production view-function checks passed. Read-only public static HTTP checks succeeded through an approved network-only escalation after the sandbox blocked direct sockets. No credentials/cookies were accessed or transmitted.",
+        "Isolated actual parser/build-control/merge-control/visibility methods accepted explicit-day text0일1500서버오픈 with spaces between the tokens. It resolved to the current day15:00, changed active control to server_open, changed future fixed visibilityFalse->True, and left ordinary event rows unchanged. A plain past1200서버오픈 input resolved to tomorrow, so explicit0일 is necessary for a same-day past opening time.",
+        "_apply_schedule_parsed_batch with a control-only input has no imported boss keys or generated boss/active rows. The temporary-maintenance hidden-row cleanup is inactive when latest control is server_open. No live schedule mutation or operational restart was performed by the agent."
+      ],
+      "guidance": [
+        "Recommend recording the actual same-day maintenance-end/server-open time on the schedule-owning administrator PC using explicit0일 HHMM 서버오픈 in the normal schedule input. Use the real opening time, not an invented value;15:00 is only a tested example. Refresh the web after normal snapshot/relay propagation.",
+        "Upload/delete/sync is not the preferred remedy: schedule exports include control state, so it can restore the same maintenance condition; thereafter-delete also stores an additional cutoff. Do not erase the full schedule or AppData to clear this symptom."
+      ],
+      "remaining": [
+        "The complete administrator payload and exact stored control times were not inspected. User-reported trigger and the reproduced source path agree, but the proposed opening input has not yet been confirmed on the live administrator PC. A future maintenance/delete cutoff could still impose a separate visibility limit.",
+        "No production source, settings, schedules, media, EXE, ZIP, deployment, browser profile, Git publication or server state was changed in this investigation. Only navigation/debug notes were updated."
+      ]
+    },
+    {
+      "id": "active_boss_stale_future_chain_retention_and_regeneration",
+      "recorded_on": "2026-10-28",
+      "status": "two_source_paths_reproduced_fixed_reported_row_origin_unconfirmed",
+      "user_report": "Web screenshot showed lowest-floor Sner both active and scheduled at16:47 while it was actually present. User initially said the desktop schedule also showed it, then corrected that desktop state had not been checked. Only the web observation is confirmed.",
+      "confirmed": [
+        "_build_schedule_entries_for_item creates only an active entry for an active observation. _merge_schedule_import_batch previously removed old future schedule rows only for imported scheduled keys, leaving the old future chain when the same boss was imported as active. The confirmation count used the same narrower condition.",
+        "_add_schedule_active_entries_by_text and GUI/OCR parsed input reach the same _apply_schedule_parsed_batch/merge path. Discord channel recognition accepts clock inputs, not bare active text; no unsupported Discord active route is claimed.",
+        "_ensure_schedule_events_cover_generation_end previously extended past schedule rows without checking current active keys. Changing maintenance settings could recreate an old future chain even after a new active observation. A72-hour past16:47 anchor reproduced a future16:47 row while the boss remained active.",
+        "The bundled Sner definition has a72-hour respawn. This explains a reproducible old-chain mechanism, not the exact origin of the user's16:47 anchor.",
+        "Web collect_snapshot exports schedule rows and active rows independently; it does not derive a future time from an active row or suppress the contradiction. Snapshot memo keys include both source lists, and frontend structural-version changes fetch a complete schedule before applying it.",
+        "A read-only local schedule scan did not locate the reported active-profile Sner incident. Available older rows in another profile do not identify the screenshot's data source. No user data was changed."
+      ],
+      "resolution": [
+        "Import merge and overwrite-confirmation counts use all imported keys, including active observations, for removal of existing rows within the current overwrite scope. Default behavior removes same-boss future rows while preserving past history; explicit cutoffs, other bosses and invasion raw keys remain separate.",
+        "Generation extension skips keys currently recorded as state=active, preventing preserved history from recreating an unconfirmed next spawn. Normal other-boss extension and existing invasion exclusions are retained.",
+        "No frontend filtering, guessed replacement time, startup cleanup or schedule migration was added. Existing loaded contradictory data is not silently rewritten by this source edit; a new active/time/cut input uses the corrected path."
+      ],
+      "validation": [
+        "Before fixes, regression tests reproduced retained16:47 futures, missing overwrite confirmation, and automatic regeneration from an old72-hour anchor. The first draft's Discord active case was removed because channel syntax does not support it; real canonical normalization replaced the simplified parser fixture for colon-active input.",
+        "55 current offline tests passed: active-import7, input order, multi-boss parsing, fractional time, snapshot memo and public boss catalog. Coverage includes active syntax variants, cancel before replacement, future-chain cleanup, past/other/invasion preservation, explicit scope, normal GUI/Discord time replacement, public snapshot consistency and regeneration blocking.",
+        "No Tk window, network service, executable, ZIP or deployment was created by these tests. Runtime user schedules, settings and media were not edited."
+      ],
+      "remaining": [
+        "The exact16:47 row's original input/creation history and whether the desktop source also contained both states remain unconfirmed. The two demonstrated paths can produce the reported shape but are not asserted to be the actual incident sequence.",
+        "Fix is desktop Python code and requires a runtime containing it; static web files alone do not deliver it. No build, service restart, Git publication or live schedule correction was performed."
+      ]
+    },
+    {
+      "id": "whale_dedicated_profile_http_shortcut_login_followup",
+      "recorded_on": "2026-10-22",
+      "status": "user_reports_resolved_using_https_shortcut",
+      "user_report": "The previous day an already-running Whale app shortcut using a dedicated LOCALAPPDATA BossTimerWhale profile and an HTTP DuckDNS URL lost its remembered login; manually entering the correct password also failed.",
+      "confirmed": [
+        "The shortcut explicitly starts with HTTP. Current LocalWebServer binds only127.0.0.1 and accepts loopback Host values; external login is HTTPSApplication and issues Secure cookies. No application HTTP-to-HTTPS redirect was found in these listeners.",
+        "The dedicated Whale profile directory exists, separate from the browser's ordinary profile. Its Preferences exit_type was Crashed, which alone does not establish profile loss or the login cause, especially for a running browser.",
+        "Read-only cookie/history metadata access was unavailable in this tool context. HTTP/HTTPS endpoint probes and web access failed here, so actual browser upgrades, redirects, serving host and live cookie state were not verified.",
+        "Available local logs for the previous day contain policy revision13 loads and one successful member login, with no retained login_failed or desktop access-setting-change event in that day. Many authority-status changes were recorded. These are only this PC's retained logs; they do not identify the user's exact failing request or prove which PC served it.",
+        "Existing authentication paths remain covered by the current web_server_network_auth route; no additional navigation route is needed. No additional production source modification was made during this follow-up."
+      ],
+      "assessment": [
+        "An unexpected logout during ongoing use followed by sustained rejection is not explained solely by the previously reproduced roughly one-second policy-refresh window.",
+        "Starting the app directly at its configured HTTPS address removes dependence on HTTP upgrade behavior, while preserving the existing profile and all settings. This is a configuration recommendation, not a demonstrated fix for password mismatches.",
+        "A host/policy/key/epoch change or different entered/autofilled value could explain portions of the symptoms, but none is confirmed for the reported incident. Existing valid cookies cannot themselves make the runtime return password-mismatch401; that response follows PIN verification failure against the serving worker's policy."
+      ],
+      "remaining": [
+        "User subsequently reported that HTTP was the cause and HTTPS fixed the shortcut login. This is user-confirmed resolution; the agent did not independently observe redirect/cookie behavior. No profile reset, cookie deletion, password change, service restart, build, deployment or credential-bearing request was performed."
+      ]
+    },
+    {
+      "id": "web_login_rejection_cache_audit_and_retry_deadline",
+      "recorded_on": "2026-10-22",
+      "status": "stale_login_policy_window_and_retry_fixed_production_cause_unconfirmed",
+      "user_report": "A correct web password was rejected intermittently for several users; some could connect. Screenshots confirmed both password mismatch and too-many-login-attempts messages. User asked whether caches were repeatedly cleared.",
+      "confirmed": [
+        "AccessRuntime.login returns401 only when neither configured role matches a four-ASCII-digit input;429 covers existing IP/global failure, attempt and inflight limits. Current screenshots show both responses, not a cache error.",
+        "Source audit found no Clear-Site-Data, whole localStorage/sessionStorage clearing or periodic login-cookie wipe. The cinematic cleanup removes only older BossTimer.cinematic.vN CacheStorage names. The PWA worker has no fetch cache interception. Cache-Control no-store/no-cache does not delete authentication cookies.",
+        "Session cookies have a365-day Max-Age; explicit logout or a session/key mismatch can clear them. Password changes, role disable and logout-all can invalidate the corresponding session epoch. A retained session and successful fresh password verification are distinct.",
+        "Read-only local diagnostic review showed login_failed records before and after one desktop PIN save, with policy revision13 then14 loaded by the worker. This does not establish whether the actual PIN changed, whether the reporting clients used this host, or which input they sent. No credential values were printed or changed.",
+        "HTTP and HTTPS hardcoded a two-second Retry-After for general login limiting even when failure windows required up to300seconds. A password policy replaced during an unsuccessful verification could also be counted as an ordinary password failure.",
+        "Both login transports previously used the worker's loaded policy without checking for a newer file before cookie context creation. Worker refresh is periodic, about one second. A controlled newer-file scenario returned401 for the new correct PIN on both HTTP and HTTPS before the fix; this is a reproduced rejection window, not proof of the full reported production incident."
+      ],
+      "resolution": [
+        "Both login transports refresh policy before cookie context creation. AccessRuntime.refresh serializes disk reads with the existing runtime lock so concurrent login/worker checks cannot replace newer state with an older read. Unchanged file stat retains the existing no-JSON-reload optimization; no credential regeneration.",
+        "_login_rate_wait calculates the earliest deadline satisfying the existing IP/global failure thresholds, attempt limit and inflight capacity. login_retry_after exposes the maximum with logout cooldown to both transports. Existing frontend countdown accepts that deadline; no frontend/version or update contract change.",
+        "Rate-limited retries still perform no hashing, append no failures and do not extend the existing deadline. Limits, hashing parameters, bans and authentication requirements are unchanged.",
+        "If password verifier/salt changes during a nonmatching verification, return the existing settings-changed403 without recording a wrong-password failure. PIN data remains private.",
+        "Login diagnostic events include policy revision and, for mismatches, only a boolean input-format result. No PIN, hash, cookie or token is added to logs.",
+        "Updated stale authentication test run_id fixture to the32-hex format required by PageRefresh, without changing runtime validation. Expanded the existing authentication navigation route rather than adding a duplicate."
+      ],
+      "validation": [
+        "45 offline Python authentication handover, visitor tracking and request-limit tests passed. New cases cover shared-IP cooldown, another-IP eligibility, exact expiry, repeated retry stability, global/attempt/inflight waits, policy replacement during hashing, and HTTP/HTTPS Retry-After plus response body.",
+        "The transport regression failed before the refresh fix for both HTTP and HTTPS (new correct PIN returned401). It passed after the fix, including replacement of stale-key visitor cookies and valid authenticated follow-up sessions. A real refresh-method test confirms changed disk policy is loaded, unchanged stat avoids repeated JSON reads, and no credentials/file are rewritten.",
+        "11 production-script session-recovery checks passed: temporary503/429 or unconfirmed failures do not redirect or log out; confirmed expiry and administrator blocks remain effective. 21 production login-script checks prove current input and nickname are sent, leading zeros retained, stale stored PIN/password keys never read, no password persistence and input clearing only after submission."
+      ],
+      "remaining": [
+        "A short saved-policy propagation rejection window is reproduced and fixed; the original production failure, particularly persistent failures long after a save, is not proven resolved. Exact common address/serving host and affected-client input remain unconfirmed. Browser autofill of old values, differing host policy and retained sessions are possibilities, not established causes.",
+        "Live screenshots predate applying these source changes. No live login attempt, password reset, settings import, AppData mutation, service restart, EXE build, ZIP, deployment or Git publication was performed. Backend changes require a runtime containing these Python sources; static web-only updates do not deliver them.",
+        "Read-only DPAPI display checks were unavailable in this tool context and process WMI inventory was access-denied. Neither result establishes broken authentication or password storage in the user application."
+      ]
+    },
     {
       "id": "cinematic_controls_skin_recovery_caption_gating",
       "recorded_on": "2026-10-22",

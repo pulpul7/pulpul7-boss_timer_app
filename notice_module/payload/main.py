@@ -240,7 +240,16 @@ class NoticePlugin:
             # never wait for the speech-preparation worker or its 5-second debounce.
             regular_key = (server_id, str((snapshot or {}).get('season', '')), self.store_stamp)
             apply_regular = getattr(self.host, 'apply_regular_maintenance', None)
-            if usable and callable(apply_regular) and self.regular_observed != regular_key:
+            lifecycle = getattr(self.host, 'apply_maintenance_transition', None)
+            lifecycle_key = (regular_key, repr((snapshot or {}).get('control_events', [])))
+            if usable and callable(lifecycle) and getattr(self, 'lifecycle_observed', None) != lifecycle_key:
+                from .notice_maintenance_lifecycle import import_transitions
+                revision_before = self.change_gate.revision
+                import_transitions(NoticeStore(self.host.data_root, server_id), snapshot, lifecycle)
+                self.lifecycle_observed = lifecycle_key
+                if not self.change_gate.current(revision_before):
+                    return
+            elif usable and not callable(lifecycle) and callable(apply_regular) and self.regular_observed != regular_key:
                 from .notice_maintenance_import import import_regular_maintenance
                 revision_before = self.change_gate.revision
                 import_regular_maintenance(NoticeStore(self.host.data_root, server_id), snapshot, apply_regular)
@@ -256,7 +265,7 @@ class NoticePlugin:
                     epoch = self.prepared_audio.epoch
                 if revision is not None:
                     apply = getattr(self.host, 'apply_temporary_maintenance', None)
-                    if callable(apply):
+                    if callable(apply) and not callable(lifecycle):
                         from .notice_maintenance_import import import_temporary_maintenance
                         import_temporary_maintenance(NoticeStore(self.host.data_root, server_id), snapshot, apply)
                     if not self.change_gate.current(revision):

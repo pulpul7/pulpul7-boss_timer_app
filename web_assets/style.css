@@ -520,9 +520,9 @@ html .schedule-app :is(.hero,.following,.event-row:not(.elapsed)).spectrum-backg
 html:not([data-theme-solid]) .schedule-app .hero.spectrum-background .hero-countdown.imminent,html:not([data-theme-solid]) .schedule-app :is(.following,.event-row:not(.elapsed)).spectrum-background.imminent :is(.following-state,.event-state){color:var(--boss-spectrum-alert)!important}
 html .schedule-app .custom-choice.spectrum-choice{background:var(--boss-spectrum-fill,var(--boss-spectrum-bg))!important;color:var(--boss-spectrum-ink)!important}
 html .schedule-app .custom-choice.spectrum-choice :is(small,.custom-choice-star){color:var(--boss-spectrum-ink)!important}
-/* Selection owns the green fill; assigned spectrum remains visible when released. */
-html .schedule-app .custom-choice.spectrum-choice[aria-pressed="true"]{background:linear-gradient(135deg,#e7ffd2,#bfee92)!important;color:#254b16!important;border-color:#76b650;outline:2px solid #8dd46c;outline-offset:1px;box-shadow:inset 0 0 12px #d3ffad66,0 0 8px #91dd5150}
-html .schedule-app .custom-choice.spectrum-choice[aria-pressed="true"] :is(small,.custom-choice-star){color:#254b16!important;text-shadow:none!important}
+/* All picker selections own the green fill, including unassigned/future bosses. */
+html .schedule-app #custom-editor .custom-choice[aria-pressed="true"]{background:linear-gradient(135deg,#e7ffd2,#bfee92)!important;color:#254b16!important;border-color:#76b650!important;outline:2px solid #8dd46c;outline-offset:1px;box-shadow:inset 0 0 12px #d3ffad66,0 0 8px #91dd5150!important;text-shadow:none!important}
+html .schedule-app #custom-editor .custom-choice[aria-pressed="true"] :is(small,.custom-choice-star,span:not(.custom-spectrum-badge)){color:#254b16!important;-webkit-text-fill-color:currentColor!important;text-shadow:none!important}
 .hidden-menu .hidden-menu-title{display:flex;align-items:center;gap:12px;margin:0 0 2px;font-weight:800}
 .hidden-menu .hidden-menu-title::after{content:'';height:1px;flex:1;background:var(--line)}
 .hidden-menu .hidden-setting-card{min-width:0;margin:0;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 3px 12px #00000018}
@@ -983,3 +983,8 @@ html[data-theme="avengers"] .schedule-app .hero:is(:not([data-cinematic-size="ex
 html[data-theme="avengers"] .schedule-app .hero:is(:not([data-cinematic-size="expanded"]),[data-cinematic="paused"]) .hero-countdown{min-height:54px;font-size:clamp(27px,7vw,45px)}
 @media(prefers-reduced-motion:reduce){html[data-theme="avengers"] .spawn-blink,html[data-theme="avengers"] .avengers-reactor-energy::after{animation:none!important}html[data-theme="avengers"] .avengers-reactor-energy::before{animation-duration:12s}}
 /* END WEB AVENGERS THEME */
+.schedule-app .custom-editor-tabs{display:flex;gap:6px;border-bottom:2px solid var(--accent,#72b7ff);margin:8px 0 0}
+.schedule-app .custom-editor-tabs button{min-height:38px;padding:6px 14px;border:2px solid transparent;border-radius:8px 8px 0 0;background:transparent;color:var(--muted);font:inherit;font-weight:700;cursor:pointer}
+.schedule-app .custom-editor-tabs button[aria-selected="true"]{color:var(--text);background:var(--panel,#26384b);border-color:var(--accent,#72b7ff);border-bottom-color:var(--panel,#26384b);box-shadow:inset 0 3px 0 var(--accent,#72b7ff)}
+.schedule-app #custom-editor [role="tabpanel"]{border:1px solid var(--accent,#72b7ff);border-top:0;padding:8px;min-width:0}
+.schedule-app .custom-editor-tabs [hidden],.schedule-app #custom-editor [role="tabpanel"][hidden]{display:none!important}

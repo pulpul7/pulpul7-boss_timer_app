@@ -2,43 +2,19 @@
 from datetime import timedelta
 
 from .notice_management import parse_time, encode_time
-from .notice_participation import SPECIAL_EVENTS, chapter, event_priority
+from .notice_participation import grouped_targets
 
 
 def classified_targets(rows):
-    """One boss belongs to one class; absolute takes precedence over chapter."""
-    groups = {}
-    for row in sorted(rows, key=lambda item: parse_time(item['scheduled_at'])):
-        name = str(row.get('display_name') or row.get('boss_name') or '').strip()
-        if not name:
-            continue
-        number = chapter(row)
-        if row.get('absolute'):
-            key, label, rank = 'absolute', '절대자', (0, 0)
-        elif number and not row.get('fixed'):
-            key, label = f'chapter/{number}', f'{number}챕보스'
-            rank = (1, {7: 0, 8: 1}.get(number, number + 2))
-        elif row.get('fixed') or event_priority(row.get('boss_name')) < len(SPECIAL_EVENTS):
-            # Different named events remain different classes, including when
-            # manual input supplied the event rather than a fixed schedule.
-            key = 'event/' + ''.join(str(row.get('boss_name') or name).split())
-            label, rank = name, (3, event_priority(row.get('boss_name')))
-        else:
-            label = str(row.get('area') or '기타보스')
-            key, rank = 'area/' + label, (2, 0)
-        group = groups.setdefault(key, dict(label=label, names=[], rank=rank))
-        if name not in group['names']:
-            group['names'].append(name)
-    return sorted(groups.values(), key=lambda item: item['rank'])
+    """Shared singleton/combined-class rules for remaining and dawn speech."""
+    return grouped_targets(rows)
 
 
 def remaining_message(rows):
     groups = classified_targets(rows)
     if not groups:
         return ''
-    names = [group['label'] if len(group['names']) >= 2 else group['names'][0] for group in groups]
-    if len(groups) >= 4:
-        return f"오늘은 {', '.join(names[:2])} 외 다수 주요보스가 남아있습니다."
+    names = [group['label'] for group in groups]
     listing = ', '.join(names)
     last = listing[-1]
     particle = '이' if '가' <= last <= '힣' and (ord(last) - 0xAC00) % 28 else '가'

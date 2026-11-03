@@ -256,12 +256,13 @@ def collect_snapshot(app, *, boss_orders=None, slot_grid=None):
             event["row_scale"] = float(row.get("row_scale") or 1.0)
         events.append(event)
     for item in app.schedule_control_events:
-        if not isinstance(item, dict) or item.get("historical_only"):
+        if not isinstance(item, dict) or item.get("historical_only") or item.get("cancelled_at"):
             continue
         when, control = item.get("scheduled_at"), item.get("control_type")
         if not isinstance(when, datetime) or not start <= when <= end:
             continue
         names = {"server_open": ("server_open", "서버 오픈"),
+                 "regular_maintenance": ("maintenance", "정기점검"),
                  "temporary_maintenance": ("maintenance", "임시점검")}
         if control not in names:
             continue

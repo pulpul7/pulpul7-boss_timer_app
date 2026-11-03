@@ -53,36 +53,81 @@ class DailySlotTests(unittest.TestCase):
         for name in ('공성전 입찰시작', '공성전 공격대상 선택', '점령전 신청', '방어전 신청마감'):
             self.assertFalse(important(dict(boss_name=name)), name)
 
-    def test_event_priority_precedes_time_and_singular_plural_speech(self):
-        self.snapshot['events'] = [self.row('길던', 21), self.row('공성전', 22), self.row('프레이', 21, star=True)]
+    def test_all_events_and_starred_classes_keep_representative_timing(self):
+        self.snapshot['events'] = [self.row('길던', 21), self.row('공성전', 22),
+                                   self.row('프레이', 21, star=True, area='니플하임')]
         self.refresh()
         self.assertEqual(self.event('evening_first')['tts_text'],
-            '오늘 저녁 22시 공성전 일정이 있습니다. 많은 참여 부탁드립니다.')
-        self.snapshot['events'] = [self.row('프레이', 22, star=True)]
+            '오늘은 길던, 공성전 외 프레이 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.')
+        self.assertEqual(self.event('evening_first')['tts_values']['_representative']['boss_name'], '공성전')
+        self.snapshot['events'] = [self.row('프레이', 22, star=True, area='니플하임')]
         self.refresh()
         self.assertEqual(self.event('evening_first')['tts_text'],
-            '오늘 저녁 22시 프레이 일정이 있습니다. 많은 참여 부탁드립니다.')
+            '오늘은 프레이 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.')
         self.assertEqual([event_priority(name) for name in ('공성전', '트리니트리그', '방어전', '점령전', '지옥성체', '길던')], list(range(6)))
 
-    def test_evening_window_counts_names_once_and_preserves_full_body(self):
-        self.snapshot['events'] = [self.row('공성전', 22), self.row('프레이', 22, 10, star=True),
-                                   self.row('오딘', 22, 29, star=True), self.row('제외보스', 22, 30, star=True)]
+    def test_evening_summary_includes_all_classes_beyond_old_thirty_minute_window(self):
+        self.snapshot['events'] = [self.row('공성전', 22),
+                                   self.row('프레이', 22, 10, star=True, area='니플하임'),
+                                   self.row('오딘', 22, 29, star=True, absolute=True, area='알브하임'),
+                                   self.row('엘디르', 23, 30, star=True, area='바나하임')]
         self.refresh()
         event = self.event('evening_first')
-        self.assertEqual(event['tts_text'], '오늘 저녁 22시 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.')
-        self.assertIn('제외보스', event['body'])
+        self.assertEqual(event['tts_text'], '오늘은 공성전 외 프레이, 오딘, 엘디르 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.')
+        self.assertIn('엘디르', event['body'])
         self.assertEqual(self.event('evening_second')['tts_text'], event['tts_text'])
 
-    def test_existing_name_and_time_template_uses_the_same_group(self):
+    def test_existing_name_and_time_template_keeps_wording_and_uses_full_summary(self):
         from notice_module.payload.notice_templates import render_template
-        self.snapshot['events'] = [self.row('공성전', 22), self.row('프레이', 22, 10, star=True),
-                                   self.row('오딘', 22, 29, star=True), self.row('제외보스', 22, 30, star=True)]
+        self.snapshot['events'] = [self.row('공성전', 22), self.row('프레이', 22, 10, star=True, area='니플하임'),
+                                   self.row('오딘', 22, 29, star=True, absolute=True),
+                                   self.row('엘디르', 23, 30, star=True, area='바나하임')]
         self.refresh()
         event = self.event('evening_first')
         state = {'tts_templates': {'participation.general':
                  '오늘은 {시작시간}에 {알림제목} 일정이 있습니다. 많은 참여 부탁드립니다.'}}
         self.assertEqual(render_template(state, 'participation.general', event['tts_values'], now=self.now),
-                         '오늘은 22시에 공성전 외 2개 일정이 있습니다. 많은 참여 부탁드립니다.')
+                         '오늘은 22시에 공성전 외 프레이, 오딘, 엘디르 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.')
+
+    def test_earlier_guild_dungeon_and_later_defense_are_both_named(self):
+        self.snapshot['events'] = [self.row('방어전', 22), self.row('길던', 21, 29)]
+        self.refresh()
+        for slot in ('evening_first', 'evening_second'):
+            self.assertEqual(self.event(slot)['tts_text'],
+                             '오늘은 길던, 방어전 일정이 있습니다. 많은 참여 부탁드립니다.')
+
+    def test_six_event_types_and_classes_are_named_without_duplicates_or_truncation(self):
+        self.snapshot['events'] = [self.row(name, 21, index * 5) for index, name in enumerate(
+            ('공성전', '트리니티 리그', '방어전', '점령전', '지옥 성채', '길던'))]
+        self.snapshot['events'] += [self.row('길드던전', 22),
+            self.row('히로킨', 22, 10, star=True, area='니플하임'),
+            self.row('호드', 22, 20, star=True, area='니플하임'),
+            self.row('엘디르', 23, star=True, area='바나하임'),
+            self.row('오딘', 23, 15, star=True, absolute=True, area='알브하임')]
+        self.refresh()
+        self.assertEqual(self.event('evening_second')['tts_text'],
+            '오늘은 공성전, 트리니티 리그, 방어전, 점령전, 지옥 성채, 길던 외 7, 8챕, 오딘 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.')
+
+    def test_summary_keeps_eligibility_and_evening_boundaries(self):
+        self.snapshot['events'] = [self.row('공성전', 21),
+            self.row('방어전', 20, 59), dict(self.row('길던', 22), precision='hour'),
+            self.row('점령전', 22, cut_applied=True), self.row('지옥성채', 22, state='deleted'),
+            self.row('트리니트리그', 22, is_invasion=True),
+            self.row('일반', 22, area='니플하임'), self.row('공성전 신청마감', 22),
+            dict(self.row('길던', 0), scheduled_at=(self.now.replace(hour=0) + timedelta(days=1)).isoformat()),
+            dict(self.row('방어전', 0), scheduled_at=(self.now.replace(hour=0) + timedelta(days=1, seconds=1)).isoformat())]
+        self.refresh()
+        self.assertEqual(self.event('evening_second')['tts_text'],
+                         '오늘은 공성전, 길던 일정이 있습니다. 많은 참여 부탁드립니다.')
+
+    def test_evening_summary_distinguishes_all_three_depth_bosses(self):
+        self.snapshot['events'] = [self.row('공성전', 21),
+            self.row('최하층 굴베', 21, 10, star=True, area='던전'),
+            self.row('최하층스네르', 22, star=True, area='던전'),
+            self.row('최하층 강글', 23, star=True, area='던전')]
+        self.refresh()
+        self.assertEqual(self.event('evening_second')['tts_text'],
+            '오늘은 공성전 외 최하층굴베, 최하층스네르, 최하층강글 주요보스 일정이 있습니다. 많은 참여 부탁드립니다.')
 
     def test_chain_priority_then_highest_chapter_then_time(self):
         day = self.now.replace(hour=0)

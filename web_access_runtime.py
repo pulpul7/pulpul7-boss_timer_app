@@ -150,6 +150,12 @@ class AccessRuntime:
             raise ValueError("invalid visitor role")
 
     def refresh(self):
+        # The worker tick and login threads can refresh concurrently. Do not
+        # let an older read replace a policy already loaded by another request.
+        with self.lock:
+            self._refresh_locked()
+
+    def _refresh_locked(self):
         try:
             path = self.root / "access_settings.json"
             stat = path.stat()
@@ -234,6 +240,7 @@ class AccessRuntime:
             identity, separator, epoch = session.partition(":")
             role = _session_role(self.settings, epoch) if separator and identity == visitor else ""
             result["authenticated"] = bool(role) and not self.logout_wait(result)
+            result["role"] = role if result["authenticated"] else ""
             if result["authenticated"] and record_visit:
                 row.update(last_auth=now, epoch=epoch, role=role)
                 # Renew only daily; no Set-Cookie churn on 3-second polling.
@@ -278,6 +285,24 @@ class AccessRuntime:
     def logout_wait(self, context):
         return self.cooldowns.wait(('login', context.get('visitor', '')))
 
+    def _login_rate_wait(self, ip, now):
+        """Under self.lock: report when every existing login limit allows retry."""
+        recent = sorted(row['at'] for row in self.failures if now - row['at'] < 300)
+        same_ip = sorted(row['at'] for row in self.failures
+                         if row['ip'] == ip and now - row['at'] < 300)
+        while self.attempts and now - self.attempts[0] >= 60:
+            self.attempts.popleft()
+        waits = [2 if self.inflight >= 2 else 0]
+        for times, limit, window in ((recent, 30, 300), (same_ip, 5, 300),
+                                     (sorted(self.attempts), 30, 60)):
+            if len(times) >= limit:
+                waits.append(times[-limit] + window - now)
+        return max(0, min(300, math.ceil(max(waits))))
+
+    def login_retry_after(self, context, ip):
+        with self.lock:
+            return max(self.logout_wait(context), self._login_rate_wait(normalize_ip(ip), time.time()))
+
     def login(self, context, pin, ip, secure=False, *, nickname="guest"):
         ip = normalize_ip(ip)
         try:
@@ -294,13 +319,11 @@ class AccessRuntime:
             if context["authenticated"]:
                 return 200, "로그인되었습니다.", []
             now = time.time()
-            recent = [row for row in self.failures if now - row["at"] < 300]
-            while self.attempts and now - self.attempts[0] >= 60:
-                self.attempts.popleft()
-            if (len(recent) >= 30 or sum(row["ip"] == ip for row in recent) >= 5
-                    or len(self.attempts) >= 30 or self.inflight >= 2):
+            wait = self._login_rate_wait(ip, now)
+            if wait:
                 if time.monotonic() - self.last_throttle_notice >= 30:
-                    diagnostic(self.logger, "login_rate_limited")
+                    diagnostic(self.logger, "login_rate_limited", retry_after=wait,
+                               revision=self.settings["revision"])
                     self.last_throttle_notice = time.monotonic()
                 return 429, "로그인 시도가 많습니다. 잠시 후 다시 시도해주세요.", []
             self.attempts.append(now)
@@ -325,6 +348,8 @@ class AccessRuntime:
             if self.logout_wait(context):
                 return 429, "로그아웃 후 최소 2초가 지난 뒤 접속할 수 있습니다.", []
             if (not self.available or (role and _session_role(self.settings, epoch) != role)
+                    or (not role and any(self.settings[prefix + field] != settings[prefix + field]
+                                         for prefix in ("", "guest_") for field in ("salt", "verifier")))
                     or self.settings["key"] != settings["key"]
                     or visitor in self.settings["banned_visitors"] or ip in self.settings["banned_ips"]):
                 return 403, "접속 설정이 변경되었습니다. 페이지를 다시 열어주세요.", []
@@ -335,12 +360,14 @@ class AccessRuntime:
                 row["failures"] += 1
                 self.failures.append(dict(at=time.time(), ip=ip, visitor=visitor))
                 self.dirty = True
-                diagnostic(self.logger, "login_failed", visitor=visitor[:8])
+                diagnostic(self.logger, "login_failed", visitor=visitor[:8], revision=settings["revision"],
+                           pin_format_valid=isinstance(pin, str) and re.fullmatch(r"[0-9]{4}", pin) is not None)
                 return 401, "비밀번호가 맞지 않습니다.", []
             row.update(last_auth=time.time(), last_login=time.time(), epoch=epoch, nickname=nickname, role=role)
             self.cooldowns.clear([('reload', visitor, False), ('reload', visitor, True)])
             self.dirty = True
-            diagnostic(self.logger, "login_succeeded", visitor=visitor[:8], role=role)
+            diagnostic(self.logger, "login_succeeded", visitor=visitor[:8], role=role,
+                       revision=self.settings["revision"])
             return 200, "로그인되었습니다.", [cookie_header(
                 SESSION_COOKIE, self._sign("session", visitor + ":" + epoch), secure)]
 

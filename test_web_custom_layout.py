@@ -1,6 +1,7 @@
 """User-editor layout checks against real HTML/CSS; no browser or build."""
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 import unittest
 
 
@@ -28,6 +29,9 @@ class Elements(HTMLParser):
 class CustomLayoutTests(unittest.TestCase):
     def setUp(self):
         self.html=Path('web_assets/index.html').read_text(encoding='utf-8')
+        module=Path('web_assets/custom-editor.js').read_text(encoding='utf-8')
+        markup=re.search(r'if\(mount\)mount.innerHTML=`([^`]+)`;', module).group(1)
+        self.html=self.html.replace('<div id="spectrum-mount"></div>', '<div id="spectrum-mount">'+markup+'</div>')
         self.css=Path('web_assets/style.css').read_text(encoding='utf-8')
         self.ids=Elements(self.html).ids
 
@@ -45,14 +49,18 @@ class CustomLayoutTests(unittest.TestCase):
             self.assertIn('schedule-view',{attrs.get('id') for _,attrs in self.ids[identity][1]})
         self.assertNotIn('hidden-menu-toggle',self.ids)
 
-    def test_palette_occupies_its_own_footer_row_above_bulk_actions(self):
+    def test_palette_has_its_own_tab_and_does_not_share_personal_save_actions(self):
         for identity in ('boss-spectrum-controls','boss-spectrum-palette'):
             ancestors=self.ids[identity][1]
             self.assertTrue(any(attrs.get('id')=='boss-spectrum-tools' for _,attrs in ancestors))
             self.assertTrue(any('custom-savebar' in attrs.get('class','').split() for _,attrs in ancestors))
             self.assertFalse(any('custom-save-actions' in attrs.get('class','').split() for _,attrs in ancestors))
-        self.assertGreater(self.html.index('id="boss-spectrum-palette"'),self.html.index('id="custom-groups"'))
-        self.assertLess(self.html.index('id="boss-spectrum-palette"'),self.html.index('id="custom-stars-bottom"'))
+            self.assertIn('custom-color-panel', {attrs.get('id') for _,attrs in ancestors})
+            self.assertNotIn('custom-selection-panel', {attrs.get('id') for _,attrs in ancestors})
+        for identity in ('custom-save','custom-undo','custom-stars-bottom'):
+            self.assertIn('custom-selection-panel', {attrs.get('id') for _,attrs in self.ids[identity][1]})
+        self.assertIn('hidden', self.ids['custom-color-tab'][0])
+        self.assertEqual(self.ids['custom-color-tab'][0]['aria-controls'], 'custom-color-panel')
         self.assertIn('.custom-savebar{display:grid;grid-template-columns:minmax(0,1fr);',self.css)
         self.assertIn('.boss-spectrum-palette{position:static;',self.css)
         self.assertIn('.custom-spectrum-badge{position:absolute;top:-8px;left:4px;',self.css)
@@ -62,8 +70,7 @@ class CustomLayoutTests(unittest.TestCase):
             self.assertTrue(any('custom-save-actions' in attrs.get('class','').split()
                                 for _,attrs in self.ids[identity][1]))
             self.assertLess(self.html.index('id="'+identity+'"'),self.html.index('id="custom-undo"'))
-        self.assertIn('id="custom-stars-bottom" type="button">주요보스선택</button>',self.html)
-        self.assertIn('id="custom-clear-bottom" class="quiet" type="button">전체해제</button>',self.html)
+            self.assertEqual(self.ids[identity][0]['type'], 'button')
 
 
 if __name__=='__main__':unittest.main()

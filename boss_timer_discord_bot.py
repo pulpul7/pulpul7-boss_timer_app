@@ -994,7 +994,7 @@ class ScheduleReader:
         if not isinstance(payload, dict):
             payload = {}
         jobs = self._build_schedule_event_jobs(payload, alarm_settings)
-        jobs.extend(self._build_fixed_boss_jobs(alarm_settings))
+        jobs.extend(self._build_fixed_boss_jobs(alarm_settings, payload))
         jobs.sort(key=lambda item: (item.due_at, item.target_at, item.phase))
         return jobs
 
@@ -1015,6 +1015,9 @@ class ScheduleReader:
             if scheduled_at is None or scheduled_at < window_start or scheduled_at > window_end:
                 continue
             if str(raw_item.get("state") or "scheduled") not in {"scheduled", ""}:
+                continue
+            from schedule_maintenance import ordinary_visible_from_state
+            if not ordinary_visible_from_state(scheduled_at, parse_datetime(raw_item.get("created_at")), now, payload):
                 continue
             name = event_name(raw_item)
             if not name:
@@ -1067,7 +1070,7 @@ class ScheduleReader:
             ))
         return jobs
 
-    def _build_fixed_boss_jobs(self, alarm_settings: dict[str, Any]) -> list[AlertJob]:
+    def _build_fixed_boss_jobs(self, alarm_settings: dict[str, Any], payload=None) -> list[AlertJob]:
         if not bool(alarm_settings.get("fixed_boss_enabled", True)):
             return []
         overrides = alarm_settings.get("fixed_boss_overrides") if isinstance(alarm_settings.get("fixed_boss_overrides"), dict) else {}
@@ -1091,6 +1094,9 @@ class ScheduleReader:
                     continue
                 scheduled_at = datetime.combine(target_date, entry["time_value"])
                 if scheduled_at < now - timedelta(seconds=10) or scheduled_at > now + timedelta(days=1, minutes=5):
+                    continue
+                from schedule_maintenance import fixed_visible_from_state
+                if not fixed_visible_from_state(scheduled_at, now, payload or {}):
                     continue
                 for offset in sorted(offsets, reverse=True):
                     if offset <= 0:
@@ -1237,6 +1243,9 @@ class ScheduleReader:
                 name = event_name(item)
                 if not isinstance(scheduled_at, datetime) or not name or scheduled_at < now - timedelta(seconds=2) or scheduled_at > end_at:
                     continue
+                from schedule_maintenance import ordinary_visible_from_state
+                if not ordinary_visible_from_state(scheduled_at, parse_datetime(item.get("created_at")), now, payload):
+                    continue
                 invasion = bool(item.get("is_invasion"))
                 source = re.sub(r"^침공\s*", "", strip_last_hit_marker(item.get("boss_name") or name)).strip()
                 definition = boss_definitions.get(source, boss_definitions.get(re.sub(r"^침공\s*", "", name).strip(), {}))
@@ -1262,6 +1271,9 @@ class ScheduleReader:
                     continue
                 scheduled_at = datetime.combine(target_date, entry["time_value"])
                 if scheduled_at < now - timedelta(seconds=2) or scheduled_at > end_at:
+                    continue
+                from schedule_maintenance import fixed_visible_from_state
+                if not fixed_visible_from_state(scheduled_at, now, payload if isinstance(payload, dict) else {}):
                     continue
                 rows.append({
                     "scheduled_at": scheduled_at,

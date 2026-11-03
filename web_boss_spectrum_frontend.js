@@ -1,4 +1,4 @@
-/* Theme-specific, developer-owned boss colors. Only one initial read; explicit saves. */
+/* Admin-owned boss colors. Only one initial read; explicit saves. */
 const WebBossSpectrum=(()=>{
 const el=id=>document.getElementById(id);
 const specs={sakura:{saturation:58,hues:[355,330,283],names:['로즈','분홍','보라']},
@@ -56,6 +56,9 @@ if(!['winter','rain'].includes(hooks.theme()) || ink(color)!=='#ffffff') return 
 return `linear-gradient(100deg,${color}fc 0%,${color}f7 65%,${color}e6 100%)`;
 }
 let numbers={},allowed=false,ready=false,busy=false,hooks=null,currentTheme='',number=null,preview=false,paletteOpen=false;
+const editingColors=()=>globalThis.WebCustomEditor?.active()===true;
+const selection=fallback=>globalThis.WebCustomEditor?.selection(fallback)||fallback;
+const changeSelection=change=>globalThis.WebCustomEditor?.change(change);
 const ids=()=>[...hooks.selected()].filter(id=>hooks.known(id));
 const theme=()=>Object.hasOwn(palettes,hooks.theme())?hooks.theme():null;
 function assigned(id) {
@@ -85,7 +88,7 @@ button.style.removeProperty('--boss-spectrum-bg');button.style.removeProperty('-
 button.style.removeProperty('--boss-spectrum-fill');
 }
 const badge=button.querySelector('.custom-spectrum-badge');
-if(!index || !allowed) {badge?.remove();continue;}
+if(!index || !editingColors()) {badge?.remove();continue;}
 const target=badge || document.createElement('span');
 target.className='custom-spectrum-badge';target.textContent=String(index);
 target.style.backgroundColor=background;target.title=`${index}번 · ${colorName(t,index-1)}`;
@@ -95,7 +98,9 @@ if(!badge) button.append(target);
 }
 function refresh() {
 if(!hooks) return;
-if(hooks.editing?.()===false) paletteOpen=false;
+if(hooks.editing?.()===false) {paletteOpen=false;preview=false;}
+globalThis.WebCustomEditor?.refresh(allowed,hooks.editing?.()!==false);
+if(!el('boss-spectrum-controls'))return;
 el('boss-spectrum-tools').hidden=!allowed;
 el('boss-spectrum-controls').hidden=!allowed;
 if(hooks.editing?.()!==false)paintChoices();
@@ -176,7 +181,9 @@ finally {clearTimeout(timer);busy=false;refresh();}
 }
 function init(options) {
 hooks=options;
-if(!el('boss-spectrum-controls')) return;
+globalThis.WebCustomEditor?.init({known:hooks.known,catalog:hooks.catalog,'busy':()=>busy,repaint:hooks.repaint,
+switched:()=>{preview=false;paletteOpen=false;refresh();hooks.repaint();}});
+if(!el('boss-spectrum-controls')){load();return;}
 el('boss-spectrum-select').addEventListener('click',()=>{
 if(!allowed || busy || !theme()) return;
 paletteOpen=!paletteOpen;refresh();
@@ -220,5 +227,5 @@ if(event.key==='Escape' && paletteOpen) {paletteOpen=false;refresh();el('boss-sp
 });
 load();
 }
-return {init,refresh,color,palettes,ink,gradient};
+return {init,refresh,color,palettes,ink,gradient,selection,editingColors,changeSelection,hasPendingWork:()=>busy || dirty()};
 })();

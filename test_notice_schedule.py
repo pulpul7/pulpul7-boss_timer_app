@@ -88,9 +88,9 @@ class ScheduleNoticeTests(unittest.TestCase):
                          ['최하층 강글', '최하층 굴베', 'morning'])
         synchronize_schedule(self.store, self.snapshot)
         event = self.store.snapshot()['events'][plan['id']]
-        self.assertIn('내일 새벽 2시 30분 최하층 강글', event['tts_text'])
+        self.assertIn('내일 새벽 2시 30분 최하층강글', event['tts_text'])
         morning = next(item for item in self.store.snapshot()['events'].values() if item['tts_template'] == 'participation.morning')
-        self.assertIn('내일 아침 6시 30분 최하층 굴베', morning['tts_text'])
+        self.assertIn('내일 아침 6시 30분 최하층굴베', morning['tts_text'])
         self.snapshot['regular_maintenance'] = '2026-09-23T07:00:00+09:00'
         self.assertNotIn('morning', [e['name'] for item in self.planned() for e in item['tts_values']['_boss_entries']])
 

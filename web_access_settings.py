@@ -96,6 +96,17 @@ def validate_settings(data):
     if data.get("iterations") != ITERATIONS or type(data.get("revision")) is not int or data["revision"] < 1:
         raise ValueError("invalid access revision")
     data = deepcopy(data)
+    data.setdefault("web_admins", {})
+    admins = data["web_admins"]
+    if not isinstance(admins, dict) or len(admins) > 200:
+        raise ValueError("invalid web administrators")
+    for identity, row in admins.items():
+        if (not valid_id(identity) or not isinstance(row, dict)
+                or set(row) != {"nickname", "registered_at"}
+                or not isinstance(row["nickname"], str) or not 1 <= len(row["nickname"]) <= 40
+                or re.search(r"[\x00-\x1f\x7f]", row["nickname"])
+                or not isinstance(row["registered_at"], str) or len(row["registered_at"]) > 64):
+            raise ValueError("invalid web administrator")
     # Old policies remain usable without changing the member password or sessions.
     data.setdefault("guest_salt", "")
     data.setdefault("guest_verifier", "")
@@ -183,6 +194,17 @@ class AccessSettings:
             data["epoch"] = secrets.token_hex(16)
             data["guest_epoch"] = secrets.token_hex(16)
             message = "모든 브라우저의 로그인을 해제했습니다."
+        elif operation == "admin_add":
+            if (not isinstance(value, dict) or not valid_id(value.get("id"))
+                    or not isinstance(value.get("nickname"), str)):
+                raise ValueError("등록할 로그인 기기를 다시 선택해주세요.")
+            data["web_admins"][value["id"]] = dict(nickname=value["nickname"], registered_at=timestamp())
+            message = "웹 관리자로 등록했습니다. 해당 웹페이지를 새로고침해주세요."
+        elif operation == "admin_remove":
+            if not valid_id(value):
+                raise ValueError("해제할 웹 관리자를 선택해주세요.")
+            data["web_admins"].pop(value, None)
+            message = "등록된 기기의 웹 관리자 권한을 해제했습니다."
         elif operation in {"ban_visitor", "unban_visitor"}:
             if not valid_id(value):
                 raise ValueError("접속자를 다시 선택해주세요.")
@@ -211,6 +233,7 @@ class AccessSettings:
                     member_configured=bool(self.data["verifier"]) and self.error is None,
                     guest_configured=bool(self.data["guest_verifier"]) and self.error is None,
                     settings_error=self.error is not None, revision=self.data["revision"],
+                    web_admins=[dict(id=key, **row) for key, row in self.data["web_admins"].items()],
                     bans=[dict(kind=kind, value=value, at=at) for kind, values in (
                         ("visitor", self.data["banned_visitors"]), ("ip", self.data["banned_ips"]))
                         for value, at in values.items()])

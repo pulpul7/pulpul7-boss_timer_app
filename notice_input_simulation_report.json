@@ -1,0 +1,533 @@
+{
+  "scope": "This PC active profile preferences + definitions, real input/merge/snapshot/store code, memory-only schedules and delivery receipts",
+  "source": "current repository payload, not a live process injection",
+  "simulated_date": "2026-11-01",
+  "server_name": "오9",
+  "active_profile_module": {
+    "version": "1.0.2",
+    "source": "bundled",
+    "at": "2026-11-01T05:39:42+09:00"
+  },
+  "definitions": {
+    "엘디르": {
+      "boss_name": "엘디르",
+      "alias": "",
+      "respawn": "060:00",
+      "area": "바나하임",
+      "absolute": false,
+      "star": true,
+      "enabled": true
+    },
+    "오딘": {
+      "boss_name": "오딘",
+      "alias": "",
+      "respawn": "072:00",
+      "area": "알브하임",
+      "absolute": true,
+      "star": true,
+      "enabled": true
+    }
+  },
+  "live_files_unchanged": true,
+  "actual_discord_or_audio": false,
+  "results": [
+    {
+      "case": "no_completed_prior_announcement",
+      "trace": [
+        {
+          "label": "21:08 최초 입력, 이전 안내 완료 기록 없음",
+          "now": "21:08",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "21:35에도 이전 안내 완료 없으면 3차 없음",
+          "now": "21:35",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        }
+      ]
+    },
+    {
+      "case": "retained_2135_anchor_after_2108_correction",
+      "representative": {
+        "boss_name": "엘디르",
+        "scheduled_at": "2026-11-01T21:35:00"
+      },
+      "trace": [
+        {
+          "label": "20시 안내 직전 가상 일정",
+          "now": "19:59",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:35:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "20시 안내 시점",
+          "now": "20:00",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:35:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "21:08 엘디르를 21:40으로 다시 입력",
+          "now": "21:08",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:35:00+09:00",
+          "text": "오늘 남은 주요보스 엘디르, 오딘이 남았습니다.",
+          "targets": [
+            "엘디르",
+            "오딘"
+          ],
+          "deliverable": false
+        },
+        {
+          "label": "보존된 대표 시각 21:35 도달",
+          "now": "21:35",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:35:00+09:00",
+          "text": "오늘 남은 주요보스 엘디르, 오딘이 남았습니다.",
+          "targets": [
+            "엘디르",
+            "오딘"
+          ],
+          "deliverable": true
+        },
+        {
+          "label": "가상 송출 완료 후 중복 확인",
+          "now": "21:35",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:35:00+09:00",
+          "text": "오늘 남은 주요보스 엘디르, 오딘이 남았습니다.",
+          "targets": [
+            "엘디르",
+            "오딘"
+          ],
+          "deliverable": false
+        }
+      ]
+    },
+    {
+      "case": "2140_anchor",
+      "representative": {
+        "boss_name": "엘디르",
+        "scheduled_at": "2026-11-01T21:40:00"
+      },
+      "trace": [
+        {
+          "label": "20시 안내 직전 가상 일정",
+          "now": "19:59",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "20시 안내 시점",
+          "now": "20:00",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "21:08 동일 시각 재입력",
+          "now": "21:08",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:40:00+09:00",
+          "text": "오늘 남은 주요보스 오딘이 남았습니다.",
+          "targets": [
+            "오딘"
+          ],
+          "deliverable": false
+        },
+        {
+          "label": "대표 시각 21:40이면 21:35에 안내하지 않음",
+          "now": "21:35",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:40:00+09:00",
+          "text": "오늘 남은 주요보스 오딘이 남았습니다.",
+          "targets": [
+            "오딘"
+          ],
+          "deliverable": false
+        },
+        {
+          "label": "21:40 출현한 엘디르는 제외, 남은 오딘 안내",
+          "now": "21:40",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:40:00+09:00",
+          "text": "오늘 남은 주요보스 오딘이 남았습니다.",
+          "targets": [
+            "오딘"
+          ],
+          "deliverable": true
+        }
+      ]
+    },
+    {
+      "case": "hour_precision",
+      "trace": [
+        {
+          "label": "20시 안내 직전 가상 일정",
+          "now": "19:59",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:35:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "20시 안내 시점",
+          "now": "20:00",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:35:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "가상 오딘 제외 상태 주입: hour_precision",
+          "now": "21:35",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "hour",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:35:00+09:00",
+          "text": "오늘 남은 주요보스 엘디르가 남았습니다.",
+          "targets": [
+            "엘디르"
+          ],
+          "deliverable": true
+        }
+      ]
+    },
+    {
+      "case": "cut_applied",
+      "trace": [
+        {
+          "label": "20시 안내 직전 가상 일정",
+          "now": "19:59",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:35:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "20시 안내 시점",
+          "now": "20:00",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:35:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": false
+        },
+        {
+          "label": "가상 오딘 제외 상태 주입: cut_applied",
+          "now": "21:35",
+          "inputs": [
+            {
+              "boss_name": "엘디르",
+              "scheduled_at": "2026-11-01T21:40:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": false,
+              "state": "scheduled"
+            },
+            {
+              "boss_name": "오딘",
+              "scheduled_at": "2026-11-01T23:15:00",
+              "precision": "minute",
+              "star": true,
+              "cut_applied": true,
+              "state": "scheduled"
+            }
+          ],
+          "third_created": true,
+          "anchor": "2026-11-01T21:35:00+09:00",
+          "text": "오늘 남은 주요보스 엘디르가 남았습니다.",
+          "targets": [
+            "엘디르"
+          ],
+          "deliverable": true
+        }
+      ]
+    }
+  ]
+}

@@ -257,6 +257,8 @@ class WebServiceWindow:
         return button
 
     def _build_password(self, frame):
+        from web_admin_ui import password_body, WebAdminPanel, bind_password_wheel
+        frame = password_body(frame)
         self.pin_status = tk.StringVar()
         tk.Label(frame, textvariable=self.pin_status, font=("맑은 고딕", 11, "bold"),
                  bg="#f8fafc", fg="#1e3a8a", anchor="w").pack(fill="x", padx=22, pady=(20, 10))
@@ -306,8 +308,10 @@ class WebServiceWindow:
                     "아래 버튼은 일반·게스트 모두의 로그인을 해제합니다.",
                     anchor="w", justify="left", wraplength=630).pack(fill="x", padx=22, pady=6)
         self._operation(frame, "모든 브라우저 로그인 해제", lambda: self._submit_access("logout_all")).pack(anchor="w", padx=22, pady=12)
+        self.web_admin_panel = WebAdminPanel(self, frame)
         tk.Label(frame, textvariable=self.access_message, font=self.font, bg="#f8fafc", fg="#1e3a8a",
                  anchor="w", justify="left", wraplength=630).pack(fill="x", padx=22, pady=10)
+        bind_password_wheel(frame)
 
     def _build_access(self, frame):
         self.visitor_status = tk.StringVar()
@@ -421,6 +425,7 @@ class WebServiceWindow:
 
     def _refresh_access(self):
         data = self.manager.access_status()
+        self.web_admin_panel.refresh(data)
         pins = self.manager.desktop_pin_status()
         for role, variable in (("member", self.current_pin), ("guest", self.current_guest_pin)):
             item = pins[role]

@@ -29,6 +29,7 @@ class VisitorTrackingTests(unittest.TestCase):
             self.runtime = AccessRuntime(Path('unused'), 'a' * 32, None)
         self.runtime.settings = validate_settings(self.policy)
         self.runtime.available = True
+        self.runtime.refresh = Mock()  # No policy file exists in this isolated fixture.
         self.runtime.dirty = False
 
     def context(self, path, cookie='', ip='127.0.0.1', method='GET'):

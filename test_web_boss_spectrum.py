@@ -168,6 +168,19 @@ class BossSpectrumTests(unittest.TestCase):
         self.assertEqual(self.store.numbers()[self.a], 10)
         self.assertTrue(self.call()['body']['can_save'])
 
+    def test_registered_member_can_save_but_revoked_or_guest_cannot(self):
+        self.context['role']='member'
+        self.access.settings={'web_admins':{self.context['visitor']:{'nickname':'ordinary'}}}
+        job=dict(theme='gray',bosses=[self.a],number=7)
+        self.assertTrue(self.call()['body']['can_save'])
+        self.assertEqual(self.call(job)['code'],200)
+        self.context['role']='guest'
+        self.assertEqual(self.call(job)['code'],403)
+        self.context['role']='member'
+        self.access.settings['web_admins'].clear()
+        self.assertFalse(self.call()['body']['can_save'])
+        self.assertEqual(self.call(job)['code'],403)
+
     def test_worker_routes_share_validation_and_authorization(self):
         handler = Handler.__new__(Handler)
         handler.path = '/api/boss-spectrum'

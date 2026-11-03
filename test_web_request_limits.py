@@ -68,6 +68,7 @@ class CooldownTests(unittest.TestCase):
             verifier=hashlib.pbkdf2_hmac('sha256', b'1234', bytes.fromhex(salt), ITERATIONS).hex(),
             banned_ips={}, banned_visitors={}))
         access.available = True
+        access.refresh = Mock()  # This fixture supplies an in-memory policy, not a disk file.
         return access
 
     def test_rejected_reloads_do_not_extend_five_second_window(self):
@@ -103,6 +104,146 @@ class CooldownTests(unittest.TestCase):
         self.assertFalse(access.context(cookies, '192.0.2.1', 'test')['authenticated'])
         self.now = 2
         self.assertEqual(access.login(first, '1234', '192.0.2.1')[0], 200)
+
+    def test_login_failure_deadline_is_shared_by_ip_and_does_not_extend_on_retry(self):
+        access = self.make_access()
+        context = access.context('', '192.0.2.1', 'test')
+        other = access.context('', '192.0.2.2', 'test')
+        access.failures.extend(dict(at=at, ip='192.0.2.1', visitor=context['visitor'])
+                               for at in (700, 710, 720, 730, 740, 750))
+        policy = dict(access.settings)
+        with patch('web_access_runtime.time.time', return_value=1000.25):
+            self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 10)
+            self.assertEqual(access.login_retry_after(other, '192.0.2.2'), 0)
+            with patch('web_access_runtime.hashlib.pbkdf2_hmac') as hash_pin:
+                for _ in range(3):
+                    self.assertEqual(access.login(context, '1234', '192.0.2.1')[0], 429)
+                    self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 10)
+                hash_pin.assert_not_called()
+        self.assertEqual(len(access.failures), 6)
+        self.assertEqual(access.settings, policy)
+        with patch('web_access_runtime.time.time', return_value=1010):
+            self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 0)
+            code, _, cookies = access.login(context, '1234', '192.0.2.1')
+            self.assertEqual(code, 200)
+            self.assertFalse(any('Max-Age=0' in cookie for cookie in cookies))
+
+    def test_login_global_attempt_and_busy_limits_report_the_longest_real_wait(self):
+        access = self.make_access()
+        context = dict(visitor='a' * 32)
+        access.failures.extend(dict(at=800, ip='192.0.2.2', visitor='b' * 32) for _ in range(30))
+        access.attempts.extend([990] * 30)
+        access.inflight = 2
+        with patch('web_access_runtime.time.time', return_value=1000):
+            self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 100)
+            access.failures.clear()
+            self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 50)
+            access.attempts.clear()
+            self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 2)
+            access.inflight = 0
+            self.assertEqual(access.login_retry_after(context, '192.0.2.1'), 0)
+
+    def test_password_change_during_verification_is_not_recorded_as_wrong_password(self):
+        access = self.make_access()
+        context = access.context('', '192.0.2.1', 'test')
+        def concurrent_change(*args):
+            access.settings = dict(access.settings, verifier='4' * 64, revision=2)
+            return bytes(32)
+        with patch('web_access_runtime.hashlib.pbkdf2_hmac', side_effect=concurrent_change):
+            code, _, cookies = access.login(context, '9999', '192.0.2.1')
+        self.assertEqual(code, 403)
+        self.assertEqual(cookies, [])
+        self.assertFalse(access.failures)
+        self.assertEqual(access.visitors[context['visitor']]['failures'], 0)
+
+    def test_http_and_https_login_send_failure_window_in_retry_header_and_body(self):
+        import json
+        from email.message import Message
+        access = self.make_access()
+        context = access.context('', '192.0.2.1', 'test')
+        access.failures.extend(dict(at=990, ip='192.0.2.1', visitor=context['visitor']) for _ in range(5))
+        raw = b'{"pin":"1234"}'
+        handler = LocalHandler.__new__(LocalHandler)
+        handler.path = '/api/login'
+        handler.client_address = ('192.0.2.1', 10000)
+        handler._context = Mock(return_value=context)
+        handler._json = Mock()
+        handler.server = NS(access=access, logger=None)
+        handler.headers = Message()
+        for key, value in [('Host', '127.0.0.1:8765'), ('Origin', 'http://127.0.0.1:8765'),
+                           ('Content-Type', 'application/json'), ('Content-Length', str(len(raw)))]:
+            handler.headers[key] = value
+        handler.rfile = BytesIO(raw)
+        app = HTTPSApplication('test.duckdns.org', 8766, Mock(), access, None,
+                               authority_check=lambda: True, assets={name: b'asset' for name in self.asset_names()})
+        reply = {}
+        def start(status, headers):
+            reply.update(status=int(status.split()[0]), headers=headers)
+        with patch('web_access_runtime.time.time', return_value=1000):
+            handler.do_POST()
+            args = handler._json.call_args
+            self.assertEqual(args.args[0], 429)
+            self.assertEqual(args.args[1]['retry_after'], 290)
+            self.assertIn(('Retry-After', '290'), args.kwargs['extra'])
+            body = b''.join(app(dict(REQUEST_METHOD='POST', PATH_INFO='/api/login',
+                HTTP_HOST='test.duckdns.org:8766', REMOTE_ADDR='192.0.2.1',
+                HTTP_ORIGIN='https://test.duckdns.org:8766', CONTENT_TYPE='application/json',
+                CONTENT_LENGTH=str(len(raw)), **{'wsgi.url_scheme': 'https', 'wsgi.input': BytesIO(raw)}), start))
+            self.assertEqual(reply['status'], 429)
+            self.assertEqual(json.loads(body)['retry_after'], 290)
+            self.assertIn(('Retry-After', '290'), reply['headers'])
+            self.assertFalse(any('Max-Age=0' in value for name, value in reply['headers'] if name == 'Set-Cookie'))
+
+    def test_transports_load_new_policy_before_authenticating_login_cookies_or_pin(self):
+        import json
+        import threading
+        from email.message import Message
+        raw = b'{"pin":"5678"}'
+        for transport in ('http', 'https'):
+            with self.subTest(transport=transport):
+                access = self.make_access()
+                previous = access.context('', '192.0.2.1', 'test')
+                stale_cookie = previous['cookies'][0].split(';')[0]
+                new_policy = dict(access.settings, revision=2, key='4' * 64, epoch='5' * 32,
+                    verifier=hashlib.pbkdf2_hmac('sha256', b'5678', bytes.fromhex(access.settings['salt']), ITERATIONS).hex())
+                access.refresh = Mock(side_effect=lambda: setattr(access, 'settings', new_policy))
+                if transport == 'http':
+                    handler = LocalHandler.__new__(LocalHandler)
+                    handler.path, handler.command = '/api/login', 'POST'
+                    handler.client_address = ('192.0.2.1', 10000)
+                    handler._json = Mock()
+                    handler.server = NS(access=access, logger=None, server_port=8765,
+                                        counter_lock=threading.Lock(), request_count=0)
+                    handler.headers = Message()
+                    for key, value in [('Host', '127.0.0.1:8765'), ('Origin', 'http://127.0.0.1:8765'),
+                                       ('Content-Type', 'application/json'), ('Content-Length', str(len(raw))),
+                                       ('Cookie', stale_cookie)]:
+                        handler.headers[key] = value
+                    handler.rfile = BytesIO(raw)
+                    handler.do_POST()
+                    code = handler._json.call_args.args[0]
+                    cookies = handler._json.call_args.args[2]
+                else:
+                    app = HTTPSApplication('test.duckdns.org', 8766, Mock(), access, None,
+                        authority_check=lambda: True, assets={name: b'asset' for name in self.asset_names()})
+                    reply = {}
+                    def start(status, headers):
+                        reply.update(code=int(status.split()[0]), headers=headers)
+                    b''.join(app(dict(REQUEST_METHOD='POST', PATH_INFO='/api/login',
+                        HTTP_HOST='test.duckdns.org:8766', REMOTE_ADDR='192.0.2.1', HTTP_COOKIE=stale_cookie,
+                        HTTP_ORIGIN='https://test.duckdns.org:8766', CONTENT_TYPE='application/json',
+                        CONTENT_LENGTH=str(len(raw)), **{'wsgi.url_scheme': 'https', 'wsgi.input': BytesIO(raw)}), start))
+                    code = reply['code']
+                    cookies = [value for name, value in reply['headers'] if name == 'Set-Cookie']
+                self.assertEqual(code, 200)
+                access.refresh.assert_called_once_with()
+                self.assertFalse(access.failures)
+                received = '; '.join(cookie.split(';')[0] for cookie in cookies)
+                self.assertTrue(access.context(received, '192.0.2.1', 'test')['authenticated'])
+
+    @staticmethod
+    def asset_names():
+        return ('index.html', 'login.html', 'schedule.js', 'login.js', 'style.css')
 
     def test_page_gate_does_not_throttle_normal_read_api_or_other_known_viewer(self):
         with patch('web_access_runtime.read_json', side_effect=FileNotFoundError):

@@ -80,6 +80,8 @@ class HTTPSApplication:
                 self.request_count += 1
             method, path = environ.get("REQUEST_METHOD"), environ.get("PATH_INFO", "")
             raw_cookie, ip = environ.get("HTTP_COOKIE", ""), environ.get("REMOTE_ADDR", "")
+            if method == "POST" and path == "/api/login":
+                self.access.refresh()
             record_visit = records_visit(method, path, ip, raw_cookie)
             context = self.access.context(raw_cookie, ip, environ.get("HTTP_USER_AGENT", ""),
                                           secure=True, record_visit=record_visit)
@@ -114,6 +116,16 @@ class HTTPSApplication:
                             return send(304, b"", extra=headers)
                         return send(200, *assets[path], extra=headers)
                     return send(200, *assets[path])
+                if path == '/custom-editor.js':
+                    if not context['authenticated']:
+                        return send(401, dict(message='다시 로그인해주세요.'))
+                    from web_custom_editor import editor_asset
+                    resource = editor_asset()
+                    etag = '"' + hashlib.sha256(resource[0]).hexdigest() + '"'
+                    extra = (("ETag", etag), ("Cache-Control", "private, no-cache"))
+                    if etag in {v.strip() for v in environ.get('HTTP_IF_NONE_MATCH', '').split(',')}:
+                        return send(304, b'', extra=extra)
+                    return send(200, *resource, extra=extra)
                 if path.startswith('/cinematic/'):
                     if not context['authenticated']:
                         return send(401, dict(message='다시 로그인해주세요.'))
@@ -301,7 +313,7 @@ class HTTPSApplication:
             code, message, issued = self.access.login(context, payload.get("pin"), environ.get("REMOTE_ADDR", ""),
                                                     secure=True, nickname=payload.get("nickname", "guest"))
             cookies.extend(issued)
-            wait = (self.access.logout_wait(context) or 2) if code == 429 else 0
+            wait = (self.access.login_retry_after(context, environ.get("REMOTE_ADDR", "")) or 2) if code == 429 else 0
             return send(code, dict(message=message, retry_after=wait),
                         extra=(("Retry-After", str(wait)),) if wait else ())
         except Exception as exc:

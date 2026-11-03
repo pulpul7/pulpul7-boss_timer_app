@@ -68,7 +68,8 @@ def schedule_notices(snapshot, state, now):
             continue
         seen.add(identity)
         groups[group].append({'name': DEPTH_NAMES.get(compact, item.get('display_name') or name),
-                              'at': when.isoformat(), 'period': period})
+                              'at': when.isoformat(), 'period': period,
+                              **{key: item[key] for key in ('boss_name', 'area', 'chapter', 'absolute', 'fixed') if key in item}})
     result = evening_notices(snapshot, state, now) + third_notices(snapshot, state, now)
     for group, entries in groups.items():
         if not entries:

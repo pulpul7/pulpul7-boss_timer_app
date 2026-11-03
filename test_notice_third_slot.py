@@ -97,6 +97,23 @@ class ThirdSlotTests(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.event('evening_third')['valid_from'], self.day.replace(hour=22).isoformat())
 
+    def test_2108_input_keeps_completed_anchor_and_reads_chapter_before_absolute(self):
+        self.snapshot['events'] = [self.row('대표보스', 21, 34, star=True)]
+        self.announce_first()
+        self.now = self.day.replace(hour=21, minute=8)
+        self.snapshot['events'].extend([
+            self.row('오딘', 23, 15, star=True, absolute=True, area='알브하임'),
+            self.row('엘디르', 21, 40, star=True, area='바나하임')])
+        self.refresh()
+        third = self.event('evening_third')
+        self.assertEqual(third['valid_from'], self.day.replace(hour=21, minute=34).isoformat())
+        self.assertIsNone(self.store.delivery_token(third['id']))
+        self.now = self.day.replace(hour=21, minute=35)
+        self.refresh()
+        third = self.event('evening_third')
+        self.assertEqual(third['tts_text'], '오늘 남은 주요보스 엘디르, 오딘이 남았습니다.')
+        self.assertIsNotNone(self.store.delivery_token(third['id']))
+
     def test_older_completion_record_can_use_retained_representative_entry(self):
         self.announce_first()
         first = self.event('evening_first')

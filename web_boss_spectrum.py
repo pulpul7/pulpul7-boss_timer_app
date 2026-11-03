@@ -121,7 +121,7 @@ def public_spectrum(access, context, ip):
 
 def save_spectrum(access, context, ip, payload, catalog):
     if not font_developer_allowed(access, context, ip):
-        raise PermissionError('개발자·마스터 관리자만 보스 스펙트럼을 저장할 수 있습니다.')
+        raise PermissionError('등록된 웹 관리자·개발자·마스터 관리자만 보스 스펙트럼을 저장할 수 있습니다.')
     result = BossSpectrumStore(access.root).save(payload.get('theme'), payload.get('bosses'),
                                                 payload.get('number'), catalog)
     return dict(result, ok=True, message='보스 박스 배경색을 저장했습니다. 다음 배포 빌드에 포함됩니다.')

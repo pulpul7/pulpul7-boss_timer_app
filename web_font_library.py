@@ -32,6 +32,9 @@ def valid_size_defaults(value):
 def font_developer_allowed(access, context, ip):
     if not context or not context.get('authenticated') or not context.get('visitor'):
         return False
+    from web_admin_permissions import registered_web_admin
+    if registered_web_admin(access, context):
+        return True
     try:
         with access.lock:
             visitor = access.visitors.get(context['visitor'], {})
@@ -271,7 +274,7 @@ def font_asset(root, path, *, access=None, context=None, ip=''):
 
 def save_font_size_default(access, context, ip, payload):
     if not font_developer_allowed(access, context, ip):
-        raise PermissionError('개발자·마스터 관리자만 기본 크기를 저장할 수 있습니다.')
+        raise PermissionError('등록된 웹 관리자·개발자·마스터 관리자만 기본 크기를 저장할 수 있습니다.')
     library = WebFontLibrary(access.root)
     library.set_size_default(payload.get('font_id'), payload.get('size'))
     return dict(ok=True, size_defaults=library.public_catalog()['size_defaults'], message='폰트 기본 크기를 저장했습니다. 다음 배포 빌드에도 포함됩니다.')

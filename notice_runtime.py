@@ -32,8 +32,9 @@ class NoticeHost:
     apply_temporary_maintenance: object = None  # Optional idempotent GUI-thread command.
     get_preparation_profile: object = None  # GUI captures immutable voice settings + isolated factory.
     get_output_context: object = None  # Optional authenticated, GUI-owned Discord transport.
-    apply_regular_maintenance: object = None  # Optional confirmed weekly setting update on Tk.
+    apply_regular_maintenance: object = None  # Legacy optional dated regular-start command on Tk.
     get_output_wait_reason: object = None  # Optional cached transport diagnostic, captured on Tk.
+    apply_maintenance_transition: object = None  # Optional dated start/plan/complete/cancel command.
 
 
 class _SourceLoader(importlib.abc.Loader):

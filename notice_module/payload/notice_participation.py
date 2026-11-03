@@ -30,6 +30,68 @@ def chapter(item):
     return int(match[1]) if match else 0
 
 
+def boss_group(row):
+    """Fixed events retain names; ordinary bosses share explicit class labels."""
+    name = str(row.get('display_name') or row.get('boss_name') or '').strip()
+    compact = re.sub(r'\s+', '', str(row.get('boss_name') or name))
+    priority = event_priority(row.get('boss_name'))
+    if row.get('fixed') or priority < len(SPECIAL_EVENTS):
+        return ('event/' + (str(priority) if priority < len(SPECIAL_EVENTS) else compact), name)
+    if row.get('absolute'):
+        return 'absolute', '절대자'
+    if compact in {'최하층굴베', '최하층스네르', '최하층강글'}:
+        return 'depth/' + compact, compact
+    number = chapter(row)
+    if number:
+        return f'chapter/{number}', f'{number}챕'
+    area = str(row.get('area') or '').strip()
+    return ('area/' + area, area) if area else ('boss/' + compact, name)
+
+
+def grouped_targets(rows):
+    """Order by first spawn; singleton chapters 7/8 and absolutes retain names."""
+    groups = {}
+    for row in sorted(rows, key=lambda item: parse_time(item['scheduled_at'])):
+        name = str(row.get('display_name') or row.get('boss_name') or '').strip()
+        if not name:
+            continue
+        key, label = boss_group(row)
+        group = groups.setdefault(key, dict(key=key, label=label, names=[], identities=set()))
+        identity = re.sub(r'\s+', '', str(row.get('boss_name') or name))
+        group['identities'].add(identity)
+        if name not in group['names']:
+            group['names'].append(name)
+    chapters = [group for key, group in groups.items() if key in {'chapter/7', 'chapter/8'}]
+    merge_chapters = len(chapters) == 2 and sum(len(group['identities']) for group in chapters) >= 3
+    result = []
+    for key, group in groups.items():
+        if merge_chapters and key in {'chapter/7', 'chapter/8'}:
+            if group is chapters[0]:
+                result.append(dict(key='chapter/7,8', label='7, 8챕',
+                                   names=[name for chapter_group in chapters for name in chapter_group['names']]))
+            continue
+        label = group['label']
+        if key in {'chapter/7', 'chapter/8', 'absolute'} and len(group['identities']) == 1:
+            label = group['names'][0]
+        result.append(dict(key=key, label=label, names=group['names']))
+    return result
+
+
+def evening_summary(rows, now=None):
+    """Name every evening event and summarize starred bosses by unique class."""
+    events, classes = [], []
+    future = [row for row in rows if now is None or parse_time(row['scheduled_at']) > parse_time(now)]
+    for group in grouped_targets(future):
+        if group['key'].startswith('event/'):
+            events.append(group['label'])
+        else:
+            classes.append(group['label'])
+    listing = ', '.join(events)
+    if classes:
+        listing += (' 외 ' if events else '') + ', '.join(classes) + ' 주요보스'
+    return listing
+
+
 def eligible(item):
     return (item.get('precision') in {'minute', 'second'} and not item.get('is_invasion')
             and not item.get('cut_applied') and item.get('state') not in {'elapsed', 'control', 'deleted'})
@@ -114,11 +176,14 @@ def evening_notices(snapshot, state, now):
                   '_participation_name': name + other, '_manual_participation': target.get('manual_text', ''),
                   '_manual_source': target.get('manual_source', ''), '_manual_revision': target.get('manual_revision'),
                   '_midnight': at == end}
-        # Keep the configured event priority. Speak its time just once and
-        # include only the following 30-minute window; retain all rows in body.
+        # Keep the existing representative for third-notice timing, but speak
+        # every eligible evening event/class, including targets before it.
         values['_boss_entries'] = [dict(name=row.get('display_name') or row['boss_name'],
                                        at=row['scheduled_at'], period='' if at == end else '저녁')
-                                  for row in future if parse_time(row['scheduled_at']) >= at]
+                                   for row in future]
+        values['_evening_entries'] = [{key: row[key] for key in (
+            'boss_name', 'display_name', 'scheduled_at', 'area', 'chapter', 'absolute', 'fixed') if key in row}
+            for row in future]
         plans = [('evening_first', first_opportunity(rows, day)),
                  ('evening_second', dict(kind='world_boss', at=encode_time(day.replace(hour=20))))]
         for slot, plan in plans:
@@ -133,7 +198,7 @@ def evening_notices(snapshot, state, now):
                 valid_from=encode_time(start), valid_until=encode_time(until), event_from=encode_time(at),
                 event_until=encode_time(end + timedelta(seconds=1)), policy='participation_slot',
                 trigger='immediate' if plan['kind'] == 'timer' else 'major_boss_after',
-                analysis_evidence='별 체크 / 행사 우선순위 · 1차 18~19시, 2차 20시 월드보스 안내 완료 후',
+                analysis_evidence='21~24시 지정 행사 전체 이름 / 별 체크 주요보스 분류 요약 · 1차 18~19시, 2차 20시 월드보스 안내 완료 후',
                 body='\n'.join(f"{row['scheduled_at']} {row['boss_name']}" for row in targets)))
     if sieges and now < day.replace(hour=12, minute=2):
         results.append(dict(id=prefix + '/siege_noon', source_key=prefix + '/siege_noon', category='participation',

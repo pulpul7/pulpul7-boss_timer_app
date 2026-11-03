@@ -3693,6 +3693,7 @@ class BossTimerApp:
                 get_schedule_snapshot=self._get_notice_schedule_snapshot,
                 apply_temporary_maintenance=self._apply_notice_temporary_maintenance,
                 apply_regular_maintenance=self._apply_notice_regular_maintenance,
+                apply_maintenance_transition=self._apply_notice_maintenance_transition,
                 get_preparation_profile=self._get_notice_preparation_profile,
                 get_output_context=self._get_notice_output_context,
                 get_output_wait_reason=lambda: getattr(self, 'notice_output_wait_reason', ''),
@@ -3820,10 +3821,14 @@ class BossTimerApp:
             opened = custom
         started = previous(now) if callable(previous) else None
         from notice_web_publication import schedule_published
-        controls = [dict(control_type=item.get('control_type'), scheduled_at=item['scheduled_at'].isoformat())
+        from schedule_maintenance import control_kind
+        controls = [dict(control_type=control_kind(item), scheduled_at=item['scheduled_at'].isoformat(),
+                         **{key: item[key].isoformat() for key in ('planned_end_at', 'reopened_at', 'cancelled_at')
+                            if isinstance(item.get(key), datetime)},
+                         notice_import_key=item.get('notice_import_key', ''))
                     for item in getattr(self, 'schedule_control_events', [])
                     if not item.get('historical_only') and isinstance(item.get('scheduled_at'), datetime)
-                    and item.get('control_type') in {'temporary_maintenance', 'server_open'}]
+                    and control_kind(item) in {'regular_maintenance', 'temporary_maintenance', 'server_open'}]
         return dict(server_id=str(getattr(self, 'schedule_server_profile_id', '') or ''),
                     season=str(self.current_season_no), events=rows,
                     server_open=opened.isoformat() if isinstance(opened, datetime) else None,
@@ -3834,49 +3839,12 @@ class BossTimerApp:
                     regular_maintenance=maintenance.isoformat() if maintenance else None)
 
     def _apply_notice_regular_maintenance(self, request):
-        if (getattr(self, 'discord_handover_busy', False)
-                or getattr(self, 'schedule_input_window_busy', False)
-                or request.get('server_id') != str(getattr(self, 'schedule_server_profile_id', '') or '')
-                or str(request.get('season')) != str(self.current_season_no)):
-            return 'deferred'
-        from program_update_guard import active
-        if active():
-            return 'deferred'
-        from datetime import timezone
-        def local(value):
-            parsed = datetime.fromisoformat(value)
-            if parsed.tzinfo is None:
-                raise ValueError('점검 공지에 시간대가 없습니다.')
-            return parsed.astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None)
-        start, end = local(request['scheduled_at']), local(request['event_until'])
-        now = self._get_schedule_reference_datetime()
-        # This is the notice's actual calendar occurrence, not "next 07:00".
-        # Retain today's elapsed start even when collection finishes after the end.
-        if (not start < end < start + timedelta(days=7)
-                or now < start - timedelta(days=7)
-                or (now >= end and start.date() != now.date())):
-            return 'conflict'
-        variables = (self.schedule_maintenance_weekday_var, self.schedule_maintenance_hour_var,
-                     self.schedule_maintenance_minute_var)
-        previous = tuple(var.get() for var in variables)
-        if (re.sub(r'[^0-9]', '', previous[1]) in {'0', '00'}
-                and re.sub(r'[^0-9]', '', previous[2]) in {'0', '00'}):
-            return 'conflict'  # Preserve explicitly disabled regular maintenance.
-        desired = (('월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일')[start.weekday()],
-                   f'{start.hour:02d}시', f'{start.minute:02d}분')
-        if previous == desired:
-            return 'existing'
-        try:
-            for var, value in zip(variables, desired):
-                var.set(value)
-            self._save_schedule_state(mark_github_dirty=True, raise_on_error=True)
-        except Exception:
-            for var, value in zip(variables, previous):
-                var.set(value)
-            raise
-        self._refresh_schedule_tree_scope()
-        self._append_debug_log(f'notice_regular_maintenance_applied start={start.isoformat()}')
-        return 'applied'
+        from schedule_maintenance_host import apply_transition
+        return apply_transition(self, dict(request, kind="regular_maintenance", action="start"))
+
+    def _apply_notice_maintenance_transition(self, request):
+        from schedule_maintenance_host import apply_transition
+        return apply_transition(self, request)
 
     def _apply_notice_temporary_maintenance(self, request):
         if (getattr(self, 'discord_handover_busy', False)
@@ -13715,46 +13683,20 @@ class BossTimerApp:
         self._refresh_schedule_view_weekday_style(resolved_date)
 
     def _get_schedule_maintenance_cutoff_datetime(self, reference_datetime: datetime) -> datetime | None:
-        try:
-            hour = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_hour_var.get() or "").strip()))
-            minute = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_minute_var.get() or "").strip()))
-        except ValueError:
-            hour = 8
-            minute = 0
-        if hour == 0 and minute == 0:
-            return None
-        target_weekday = self._get_schedule_maintenance_weekday_index()
-        days_until = (target_weekday - reference_datetime.weekday()) % 7
-        target_datetime = (reference_datetime + timedelta(days=days_until)).replace(
-            hour=hour,
-            minute=minute,
-            second=0,
-            microsecond=0,
-        )
-        if target_datetime <= reference_datetime:
-            target_datetime += timedelta(days=7)
-        return target_datetime
+        from schedule_maintenance import regular_boundary, weekly_settings
+        settings = dict(maintenance_weekday=self.schedule_maintenance_weekday_var.get(),
+                        maintenance_hour=self.schedule_maintenance_hour_var.get(),
+                        maintenance_minute=self.schedule_maintenance_minute_var.get())
+        return regular_boundary(reference_datetime, *weekly_settings(settings),
+                                getattr(self, "schedule_control_events", []))
 
     def _get_schedule_previous_maintenance_datetime(self, reference_datetime: datetime) -> datetime | None:
-        try:
-            hour = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_hour_var.get() or "").strip()))
-            minute = int(re.sub(r"[^0-9]", "", (self.schedule_maintenance_minute_var.get() or "").strip()))
-        except ValueError:
-            hour = 8
-            minute = 0
-        if hour == 0 and minute == 0:
-            return None
-        target_weekday = self._get_schedule_maintenance_weekday_index()
-        days_since = (reference_datetime.weekday() - target_weekday) % 7
-        target_datetime = (reference_datetime - timedelta(days=days_since)).replace(
-            hour=hour,
-            minute=minute,
-            second=0,
-            microsecond=0,
-        )
-        if target_datetime > reference_datetime:
-            target_datetime -= timedelta(days=7)
-        return target_datetime
+        from schedule_maintenance import regular_boundary, weekly_settings
+        settings = dict(maintenance_weekday=self.schedule_maintenance_weekday_var.get(),
+                        maintenance_hour=self.schedule_maintenance_hour_var.get(),
+                        maintenance_minute=self.schedule_maintenance_minute_var.get())
+        return regular_boundary(reference_datetime, *weekly_settings(settings),
+                                getattr(self, "schedule_control_events", []), previous=True)
 
     def _get_schedule_cycle_window_start_datetime(self, reference_datetime: datetime) -> datetime:
         previous_maintenance = self._get_schedule_previous_maintenance_datetime(reference_datetime)
@@ -13861,7 +13803,7 @@ class BossTimerApp:
         if isinstance(previous_regular_maintenance, datetime) and saved_value < previous_regular_maintenance <= reference_value:
             return True
         for item in self.schedule_control_events:
-            if not isinstance(item, dict) or bool(item.get("historical_only")):
+            if not isinstance(item, dict) or bool(item.get("historical_only")) or item.get("cancelled_at"):
                 continue
             if str(item.get("control_type") or "") != "temporary_maintenance":
                 continue
@@ -13937,41 +13879,14 @@ class BossTimerApp:
         return max(created_candidates) if created_candidates else None
 
     def _get_schedule_active_control_event(self, reference_datetime: datetime) -> dict[str, object] | None:
-        candidates: list[dict[str, object]] = []
-        previous_maintenance = self._get_schedule_previous_maintenance_datetime(reference_datetime)
-        imported_at = self._get_schedule_last_imported_at()
-        if previous_maintenance is not None and (imported_at is None or imported_at < previous_maintenance):
-            candidates.append(
-                {
-                    "control_type": "maintenance_stale",
-                    "scheduled_at": previous_maintenance,
-                    "display_name": "정기점검",
-                    "created_at": previous_maintenance,
-                }
-            )
-        for item in self.schedule_control_events:
-            if bool(item.get("historical_only")):
-                continue
-            scheduled_at = item.get("scheduled_at")
-            if isinstance(scheduled_at, datetime) and scheduled_at <= reference_datetime:
-                candidates.append(item)
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: item.get("scheduled_at") or datetime.min)
-        return candidates[-1]
+        from schedule_maintenance import active_control
+        return active_control(self.schedule_control_events, reference_datetime,
+                              self._get_schedule_previous_maintenance_datetime(reference_datetime),
+                              self._get_schedule_last_imported_at())
 
     def _get_schedule_next_temporary_maintenance_datetime(self, reference_datetime: datetime) -> datetime | None:
-        reference_value = reference_datetime.replace(microsecond=0)
-        candidate_times = [
-            scheduled_at.replace(microsecond=0)
-            for item in self.schedule_control_events
-            for scheduled_at in [item.get("scheduled_at")]
-            if str(item.get("control_type") or "") == "temporary_maintenance"
-            and not bool(item.get("historical_only"))
-            and isinstance(scheduled_at, datetime)
-            and scheduled_at.replace(microsecond=0) > reference_value
-        ]
-        return min(candidate_times) if candidate_times else None
+        from schedule_maintenance import next_maintenance
+        return next_maintenance(self.schedule_control_events, reference_datetime.replace(microsecond=0))
 
     def _get_schedule_latest_generation_control_datetime(self, reference_datetime: datetime) -> datetime | None:
         if not isinstance(reference_datetime, datetime):
@@ -13979,10 +13894,10 @@ class BossTimerApp:
         reference_value = reference_datetime.replace(microsecond=0)
         candidate_times: list[datetime] = []
         for item in self.schedule_control_events:
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or item.get("historical_only") or item.get("cancelled_at"):
                 continue
             control_type = str(item.get("control_type") or "")
-            if control_type not in {"temporary_maintenance", "server_open"}:
+            if control_type not in {"regular_maintenance", "temporary_maintenance", "server_open"}:
                 continue
             scheduled_at = item.get("scheduled_at")
             if not isinstance(scheduled_at, datetime):
@@ -14003,25 +13918,10 @@ class BossTimerApp:
     ) -> bool:
         if is_invasion and not self._is_schedule_invasion_datetime_visible(scheduled_at):
             return False
-        if future_cutoff_datetime is not None and scheduled_at >= future_cutoff_datetime:
-            return False
-        future_temporary_maintenance = self._get_schedule_next_temporary_maintenance_datetime(reference_datetime)
-        if isinstance(future_temporary_maintenance, datetime) and scheduled_at >= future_temporary_maintenance:
-            return isinstance(created_at, datetime) and created_at > future_temporary_maintenance
-        active_control = self._get_schedule_active_control_event(reference_datetime)
-        if active_control is None:
-            return True
-        control_time = active_control.get("scheduled_at")
-        if not isinstance(control_time, datetime):
-            return True
-        control_type = str(active_control.get("control_type") or "")
-        if control_type == "server_open":
-            return scheduled_at >= control_time
-        if control_type in {"temporary_maintenance", "maintenance_stale"}:
-            if scheduled_at < control_time:
-                return True
-            return isinstance(created_at, datetime) and created_at > control_time
-        return True
+        from schedule_maintenance import ordinary_visible
+        return ordinary_visible(scheduled_at, created_at, reference_datetime,
+                                self.schedule_control_events, future_cutoff_datetime,
+                                self._get_schedule_previous_maintenance_datetime(reference_datetime))
 
     def _is_schedule_alarm_event_visible(
         self,
@@ -14656,6 +14556,8 @@ class BossTimerApp:
         for scheduled_at, *_rest in self._get_fixed_boss_schedule_rows():
             available_dates.add(scheduled_at.date())
         for item in self.schedule_control_events:
+            if item.get("cancelled_at"):
+                continue
             scheduled_at = item.get("scheduled_at")
             if isinstance(scheduled_at, datetime):
                 available_dates.add(scheduled_at.date())
@@ -14667,36 +14569,6 @@ class BossTimerApp:
         if next_maintenance is not None:
             available_dates.add(next_maintenance.date())
         return sorted(available_dates)
-
-    def _has_schedule_data_for_fixed_boss_rows(self, reference_datetime: datetime | None = None) -> bool:
-        reference_value = (
-            reference_datetime.replace(microsecond=0)
-            if isinstance(reference_datetime, datetime)
-            else self._get_schedule_reference_datetime().replace(microsecond=0)
-        )
-        window_start = reference_value.replace(hour=0, minute=0, second=0, microsecond=0)
-        cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
-        temporary_cutoff_datetime = self._get_schedule_next_temporary_maintenance_datetime(reference_value)
-        if isinstance(temporary_cutoff_datetime, datetime) and (
-            cutoff_datetime is None or temporary_cutoff_datetime < cutoff_datetime
-        ):
-            cutoff_datetime = temporary_cutoff_datetime
-        window_end = cutoff_datetime if isinstance(cutoff_datetime, datetime) else window_start + timedelta(days=SCHEDULE_GENERATION_DAYS)
-        if window_end <= window_start:
-            return False
-        for item, scheduled_at in self._iter_schedule_alarm_events_between(window_start, window_end - timedelta(microseconds=1)):
-            scheduled_value = scheduled_at.replace(microsecond=0)
-            created_at = item.get("created_at")
-            if not self._is_schedule_event_visible(
-                scheduled_value,
-                created_at if isinstance(created_at, datetime) else None,
-                reference_value,
-                cutoff_datetime,
-                is_invasion=self._is_schedule_invasion_item(item),
-            ):
-                continue
-            return True
-        return False
 
     def _get_fixed_boss_effective_colors(self, text_color: str, bg_color: str) -> tuple[str, str]:
         if not bool(self.fixed_boss_color_data_enabled_var.get()):
@@ -14712,12 +14584,10 @@ class BossTimerApp:
         reference_datetime: datetime,
         future_cutoff_datetime: datetime | None,
     ) -> bool:
-        return self._is_schedule_event_visible(
-            scheduled_at.replace(microsecond=0),
-            None,
-            reference_datetime.replace(microsecond=0),
-            future_cutoff_datetime,
-        )
+        from schedule_maintenance import fixed_visible
+        return fixed_visible(scheduled_at.replace(microsecond=0), reference_datetime,
+                             self.schedule_control_events, future_cutoff_datetime,
+                             self._get_schedule_previous_maintenance_datetime(reference_datetime))
 
     def _get_fixed_boss_schedule_rows(self) -> list[tuple[datetime, str, str, str, str, str, str, str]]:
         view_datetime = self._get_schedule_view_datetime()
@@ -14729,8 +14599,6 @@ class BossTimerApp:
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         window_start = view_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
         window_end = window_start + timedelta(days=2)
-        if not self._has_schedule_data_for_fixed_boss_rows(reference_now):
-            return []
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
         rows: list[tuple[datetime, str, str, str, str, str]] = []
         current_date = window_start.date()
@@ -14789,8 +14657,6 @@ class BossTimerApp:
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         window_start = reference_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
         window_end = window_start + timedelta(days=max(1, int(days)))
-        if not self._has_schedule_data_for_fixed_boss_rows(reference_datetime):
-            return []
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
         rows: list[tuple[datetime, str, str, str, str, str, str, str]] = []
         current_date = window_start.date()
@@ -14847,8 +14713,6 @@ class BossTimerApp:
         future_cutoff_datetime = self._get_schedule_visible_cutoff_datetime()
         window_start = start_datetime.replace(microsecond=0)
         window_end = end_datetime.replace(microsecond=0) + timedelta(seconds=1)
-        if not self._has_schedule_data_for_fixed_boss_rows(reference_datetime):
-            return []
         weekday_labels = ("월", "화", "수", "목", "금", "토", "일")
         rows: list[tuple[datetime, str, str, str, str, str, str, str]] = []
         current_date = window_start.date()
@@ -19024,6 +18888,8 @@ class BossTimerApp:
             if reference_now < scheduled_at < window_end:
                 candidate_times.append(scheduled_at)
         for item in self.schedule_control_events:
+            if item.get("cancelled_at"):
+                continue
             scheduled_at = item.get("scheduled_at")
             if isinstance(scheduled_at, datetime) and reference_now < scheduled_at < window_end:
                 candidate_times.append(scheduled_at)
@@ -34547,10 +34413,10 @@ class BossTimerApp:
         automatic_open = self._get_schedule_server_open_alarm_datetime(current_second)
         manual_open_today = False
         for item in self.schedule_control_events:
-            if not isinstance(item, dict) or bool(item.get("historical_only")):
+            if not isinstance(item, dict) or bool(item.get("historical_only")) or item.get("cancelled_at"):
                 continue
             control_type = str(item.get("control_type") or "")
-            if control_type not in {"temporary_maintenance", "server_open"}:
+            if control_type not in {"regular_maintenance", "temporary_maintenance", "server_open"}:
                 continue
             scheduled_at = item.get("scheduled_at")
             if not isinstance(scheduled_at, datetime):
@@ -34564,6 +34430,8 @@ class BossTimerApp:
             display_name = str(item.get("display_name") or "").strip()
             if control_type == "server_open":
                 display_name = "서버오픈"
+            elif control_type == "regular_maintenance":
+                display_name = "정기점검"
             elif self._normalize_schedule_boss_lookup_key(display_name) in {"정기점검", "정기정검"}:
                 display_name = "정기점검"
             else:
@@ -45028,6 +44896,11 @@ class BossTimerApp:
         if not self.schedule_events:
             return
         generation_end = self._get_schedule_generation_end_datetime(self._get_schedule_reference_datetime())
+        active_keys = {
+            str(item.get("raw_key") or "")
+            for item in self.schedule_active_entries
+            if isinstance(item, dict) and str(item.get("state") or "") == "active"
+        }
         grouped_events: dict[str, list[dict[str, object]]] = {}
         for item in self.schedule_events:
             raw_key = str(item.get("raw_key") or "")
@@ -45036,6 +44909,8 @@ class BossTimerApp:
             grouped_events.setdefault(raw_key, []).append(item)
         appended_events: list[dict[str, object]] = []
         for raw_key, items in grouped_events.items():
+            if raw_key in active_keys:
+                continue  # Past history cannot anchor a new time while this boss is active.
             items.sort(key=lambda entry: entry.get("scheduled_at") or datetime.min)
             template = items[0]
             if bool(template.get("is_invasion")):
@@ -45561,7 +45436,9 @@ class BossTimerApp:
 
     def _normalize_schedule_control_name(self, text: str) -> str | None:
         normalized = self._normalize_schedule_boss_lookup_key(text)
-        if normalized in {"임시점검", "점검", "정검", "정기점검", "정기정검"}:
+        if normalized in {"정기점검", "정기정검"}:
+            return "regular_maintenance"
+        if normalized in {"임시점검", "점검", "정검"}:
             return "temporary_maintenance"
         if normalized == "서버오픈":
             return "server_open"
@@ -45637,6 +45514,18 @@ class BossTimerApp:
                 )
                 if target_datetime is None:
                     return None
+            control_text = clock_cut_match.group("boss")
+            control_type = self._normalize_schedule_control_name(control_text)
+            if control_type is not None:
+                return {
+                    "state": "control", "mode": "clock", "control_type": control_type,
+                    "display_name": self._get_schedule_control_display_name(control_text, control_type),
+                    "day_offset": (target_datetime.date() - reference_datetime.date()).days,
+                    "day_offset_explicit": True,
+                    "clock_hours": target_datetime.hour, "clock_minutes": target_datetime.minute,
+                    "clock_seconds": target_datetime.second, "precision": precision,
+                    "source_text": cleaned,
+                }
             boss_info = self._normalize_schedule_input_boss_name(clock_cut_match.group("boss"))
             return {
                 **boss_info,
@@ -46360,7 +46249,7 @@ class BossTimerApp:
         if str(item.get("state") or "") != "control":
             return None
         control_type = str(item.get("control_type") or "")
-        if control_type not in {"temporary_maintenance", "server_open"}:
+        if control_type not in {"regular_maintenance", "temporary_maintenance", "server_open"}:
             return None
         generation_reference = base_datetime if isinstance(base_datetime, datetime) else reference_datetime
         if str(item.get("mode") or "") == "clock":
@@ -46398,63 +46287,9 @@ class BossTimerApp:
     ) -> None:
         if not control_entries:
             return
-        resolved_reference = (
-            reference_datetime
-            if isinstance(reference_datetime, datetime)
-            else self._get_schedule_reference_datetime()
-        )
-        future_temporary_entries = [
-            entry
-            for entry in control_entries
-            if str(entry.get("control_type") or "") == "temporary_maintenance"
-            and isinstance(entry.get("scheduled_at"), datetime)
-            and entry["scheduled_at"] >= resolved_reference
-        ]
-        if len(future_temporary_entries) > 1:
-            keep_future_temporary_entry = future_temporary_entries[-1]
-            control_entries = [
-                entry
-                for entry in control_entries
-                if not (
-                    str(entry.get("control_type") or "") == "temporary_maintenance"
-                    and isinstance(entry.get("scheduled_at"), datetime)
-                    and entry["scheduled_at"] >= resolved_reference
-                )
-            ]
-            control_entries.append(keep_future_temporary_entry)
-        preserved: list[dict[str, object]] = []
-        for existing in self.schedule_control_events:
-            existing_type = str(existing.get("control_type") or "")
-            existing_time = existing.get("scheduled_at")
-            if not isinstance(existing_time, datetime):
-                continue
-            should_replace = False
-            for new_entry in control_entries:
-                new_type = str(new_entry.get("control_type") or "")
-                new_time = new_entry.get("scheduled_at")
-                if not isinstance(new_time, datetime):
-                    continue
-                new_time_value = new_time
-                existing_time_value = existing_time
-                if (
-                    new_type == "temporary_maintenance"
-                    and existing_type == "temporary_maintenance"
-                    and new_time_value >= resolved_reference
-                    and existing_time_value >= resolved_reference
-                ):
-                    should_replace = True
-                    break
-                if (
-                    new_type != "temporary_maintenance"
-                    and new_type == existing_type
-                    and new_time.date() == existing_time.date()
-                ):
-                    should_replace = True
-                    break
-            if not should_replace:
-                preserved.append(existing)
-        self.schedule_control_events = preserved + control_entries
-        self.schedule_control_events.sort(key=lambda item: item.get("scheduled_at") or datetime.max)
+        from schedule_maintenance import merge_controls
+        reference = reference_datetime if isinstance(reference_datetime, datetime) else self._get_schedule_reference_datetime()
+        self.schedule_control_events = merge_controls(self.schedule_control_events, control_entries, reference)
 
     def _add_temporary_maintenance_control_event(self, scheduled_at: datetime, *, source_label: str = "임시점검", notice_key: str = "") -> None:
         scheduled_value = scheduled_at.replace(microsecond=0)
@@ -46480,86 +46315,6 @@ class BossTimerApp:
             if not notice_key:
                 raise
             self._append_debug_log('notice_temporary_maintenance_saved_refresh_failed')
-
-    def _delete_schedule_hidden_after_temporary_maintenance_if_needed(
-        self,
-        reference_datetime: datetime,
-        *,
-        new_schedule_data_count: int,
-    ) -> dict[str, int]:
-        empty_counts = {"events": 0, "active": 0, "controls": 0, "quick_cut": 0, "total": 0}
-        if int(new_schedule_data_count or 0) <= 0:
-            return empty_counts
-        active_control = self._get_schedule_active_control_event(reference_datetime)
-        if not isinstance(active_control, dict) or str(active_control.get("control_type") or "") != "temporary_maintenance":
-            return empty_counts
-        control_time = active_control.get("scheduled_at")
-        if not isinstance(control_time, datetime):
-            return empty_counts
-        cutoff_datetime = control_time.replace(microsecond=0)
-
-        def _is_hidden_old_schedule_item(item: dict[str, object]) -> bool:
-            scheduled_at = item.get("scheduled_at")
-            if not isinstance(scheduled_at, datetime) or scheduled_at.replace(microsecond=0) < cutoff_datetime:
-                return False
-            created_at = item.get("created_at")
-            return not isinstance(created_at, datetime) or created_at.replace(microsecond=0) <= cutoff_datetime
-
-        removed_event_items = [dict(item) for item in self.schedule_events if _is_hidden_old_schedule_item(item)]
-        if not removed_event_items:
-            return empty_counts
-
-        snapshot = self._create_schedule_restore_snapshot()
-        self._backup_current_schedule_shared_export(
-            self.current_season_no,
-            self.current_season_started_at,
-        )
-        self.schedule_events = [
-            dict(item)
-            for item in self.schedule_events
-            if not _is_hidden_old_schedule_item(item)
-        ]
-        removed_raw_keys = {
-            str(item.get("raw_key") or "").strip()
-            for item in removed_event_items
-            if str(item.get("raw_key") or "").strip()
-        }
-        removed_identities = {
-            identity
-            for identity in (
-                self._get_schedule_item_identity("event", item)
-                for item in removed_event_items
-            )
-            if isinstance(identity, tuple)
-        }
-        self.schedule_tree_quick_cut_history = [
-            dict(entry)
-            for entry in self.schedule_tree_quick_cut_history
-            if isinstance(entry, dict) and not self._schedule_delete_history_entry_matches_cutoff(entry, cutoff_datetime)
-        ]
-        self.schedule_active_quick_cut_history = [
-            dict(entry)
-            for entry in self.schedule_active_quick_cut_history
-            if isinstance(entry, dict) and not self._schedule_delete_history_entry_matches_cutoff(entry, cutoff_datetime)
-        ]
-        self._purge_schedule_cut_state(identities=removed_identities, raw_keys=removed_raw_keys)
-        cleared_offset_count = self._clear_schedule_second_precision_offsets_for_raw_keys(removed_raw_keys)
-        counts = {
-            "events": len(removed_event_items),
-            "active": 0,
-            "controls": 0,
-            "quick_cut": 0,
-            "total": len(removed_event_items),
-            "second_precision_offset_cleared": cleared_offset_count,
-        }
-        self._append_schedule_delete_history_entry(
-            snapshot=snapshot,
-            entry_type="delete",
-            cutoff_datetime=cutoff_datetime,
-            summary=counts,
-        )
-        self._save_schedule_delete_history(prune=False)
-        return counts
 
     def _build_schedule_entries_for_item(
         self,
@@ -46736,7 +46491,9 @@ class BossTimerApp:
                 if isinstance(custom_overwrite_cutoff, datetime)
                 else (start_datetime if raw_key in force_past_update_keys else default_cutoff)
             )
-            if raw_key in imported_schedule_keys and isinstance(scheduled_at, datetime) and scheduled_at >= overwrite_cutoff:
+            # A fresh active observation also invalidates this boss's old
+            # future chain; its next spawn is unknown until a new cut/time.
+            if raw_key in imported_keys and isinstance(scheduled_at, datetime) and scheduled_at >= overwrite_cutoff:
                 overwritten_count += 1
                 continue
             preserved_schedule_events.append(item)
@@ -46812,9 +46569,9 @@ class BossTimerApp:
         if isinstance(server_open, datetime) and server_open <= reference_value:
             candidates.append(server_open.replace(microsecond=0))
         for item in self.schedule_control_events:
-            if not isinstance(item, dict) or bool(item.get("historical_only")):
+            if not isinstance(item, dict) or bool(item.get("historical_only")) or item.get("cancelled_at"):
                 continue
-            if str(item.get("control_type") or "") not in {"temporary_maintenance", "server_open"}:
+            if str(item.get("control_type") or "") not in {"regular_maintenance", "temporary_maintenance", "server_open"}:
                 continue
             scheduled_at = item.get("scheduled_at")
             if isinstance(scheduled_at, datetime) and scheduled_at <= reference_value:
@@ -46987,6 +46744,8 @@ class BossTimerApp:
                         )
                     )
                 for item in self.schedule_control_events:
+                    if item.get("cancelled_at"):
+                        continue
                     scheduled_at = item.get("scheduled_at")
                     if not isinstance(scheduled_at, datetime):
                         continue
@@ -46994,13 +46753,13 @@ class BossTimerApp:
                         continue
                     control_type = str(item.get("control_type") or "")
                     if control_type == "server_open":
-                        note_text = "OPEN · 이후 이벤트만 표시"
+                        note_text = "OPEN · 서버오픈 확인"
                     else:
-                        note_text = "CUT · 이후 기존 스케쥴 숨김"
+                        note_text = "점검 종료 확인됨" if item.get("reopened_at") else "점검 이후 이전 자료 숨김"
                     visible_rows.append(
                         (
                             scheduled_at,
-                            "서버오픈" if control_type == "server_open" else "임시점검",
+                            "서버오픈" if control_type == "server_open" else "정기점검" if control_type == "regular_maintenance" else "임시점검",
                             "제어",
                             "-",
                             "",
@@ -47053,7 +46812,8 @@ class BossTimerApp:
                                 "cut_anchor_datetime": None,
                             },
                         )
-                visible_rows.extend(maintenance_rows.values())
+                control_times = {row[0] for row in visible_rows if row[8] == "control"}
+                visible_rows.extend(row for at, row in maintenance_rows.items() if at not in control_times)
                 visible_rows = self._insert_schedule_break_rows_into_visible_rows(visible_rows)
                 if not visible_rows:
                     date_header_text = f"  {window_start.strftime(f'%m-%d ({self._get_weekday_label(window_start)})')}  "
@@ -47455,7 +47215,7 @@ class BossTimerApp:
                 if isinstance(custom_overwrite_cutoff, datetime)
                 else (start_datetime if raw_key in effective_force_past_keys else default_overwrite_cutoff)
             )
-            if raw_key in imported_schedule_keys and isinstance(scheduled_at, datetime) and scheduled_at >= overwrite_cutoff:
+            if raw_key in imported_keys and isinstance(scheduled_at, datetime) and scheduled_at >= overwrite_cutoff:
                 overwritten_count += 1
         overwritten_count += sum(1 for item in self.schedule_active_entries if str(item.get("raw_key") or "") in imported_keys)
         if overwritten_count > 0 and not skip_overwrite_confirm:
@@ -47496,10 +47256,7 @@ class BossTimerApp:
         )
         self._merge_schedule_control_events(control_entries, reference_datetime)
         self._apply_schedule_parsed_cut_states(parsed_items, generation_reference_datetime)
-        hidden_delete_counts = self._delete_schedule_hidden_after_temporary_maintenance_if_needed(
-            reference_datetime,
-            new_schedule_data_count=len(schedule_entries) + len(active_entries),
-        )
+        # Maintenance visibility does not delete unrelated saved boss history.
         cleared_delete_cutoff = False
         if ignore_delete_cutoff and isinstance(self.schedule_delete_active_cutoff_datetime, datetime):
             self.schedule_delete_active_cutoff_datetime = None
@@ -47566,10 +47323,6 @@ class BossTimerApp:
         if auto_applied_past_cut_count > 0:
             current_status = str(self.schedule_input_status_var.get() or "").strip()
             suffix = f" (지난 시각 {auto_applied_past_cut_count}건 자동 컷 적용)"
-            self.schedule_input_status_var.set(f"{current_status}{suffix}" if current_status else suffix.strip())
-        if int(hidden_delete_counts.get("total", 0) or 0) > 0:
-            current_status = str(self.schedule_input_status_var.get() or "").strip()
-            suffix = f" (임시점검 이후 숨김 스케쥴 {hidden_delete_counts['events']}건 삭제/백업)"
             self.schedule_input_status_var.set(f"{current_status}{suffix}" if current_status else suffix.strip())
         if isinstance(backup_payload, dict):
             backup_payload["summary_text"] = applied_summary

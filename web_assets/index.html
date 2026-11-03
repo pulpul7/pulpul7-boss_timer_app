@@ -5,7 +5,7 @@
 <meta name="color-scheme" content="only light">
 <link rel="manifest" href="/manifest.webmanifest"><meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="/pwa/install.css"><script src="/pwa/install.js" defer></script>
-<link rel="stylesheet" href="/style.css"><script src="/cinematic/player.js" defer></script><script src="/schedule.js" defer></script></head><body>
+<link rel="stylesheet" href="/style.css"><script src="/cinematic/player.js" defer></script><script src="/custom-editor.js" defer></script><script src="/schedule.js" defer></script></head><body>
 <div id="theme-paper" class="theme-paper" aria-hidden="true" hidden></div>
 <div id="sakura-art" class="sakura-art" aria-hidden="true" hidden><svg viewBox="0 0 900 1000" preserveAspectRatio="xMidYMin slice" focusable="false"><defs>
 <radialGradient id="sakura-petal"><stop stop-color="#fff8fc"/><stop offset=".52" stop-color="#edb5d0"/><stop offset="1" stop-color="#cf85b3" stop-opacity=".45"/></radialGradient>
@@ -58,10 +58,16 @@
 <section id="active-section" class="active-panel" hidden><h2>출현 중 / 시간 미확정</h2><ul id="active"></ul></section>
 <div id="custom-actions" class="custom-actions" hidden><button id="custom-open" aria-controls="custom-editor" aria-expanded="false"><span>설정</span><span class="settings-gear" aria-hidden="true">⚙</span></button></div>
 <section id="custom-editor" class="custom-editor" aria-labelledby="custom-title" hidden>
-<div class="custom-heading"><div><h2 id="custom-title">주요보스 설정</h2><p>보고 싶은 보스를 눌러 켜세요. 선택 후 저장 버튼을 눌러주세요.</p></div><button id="custom-close" class="quiet">뒤로 가기</button></div>
+<div class="custom-heading"><div><h2 id="custom-title">주요보스 설정</h2></div><button id="custom-close" class="quiet">뒤로 가기</button></div>
+<div class="custom-editor-tabs" role="tablist" aria-label="설정"><button id="custom-selection-tab" role="tab" aria-controls="custom-selection-panel" aria-selected="true">주요보스선택</button><button id="custom-color-tab" role="tab" aria-controls="custom-color-panel" aria-selected="false" tabindex="-1" hidden>색지정</button></div>
+<p id="custom-catalog-note" class="custom-catalog-note" role="status"></p>
+<section id="custom-selection-panel" role="tabpanel" aria-labelledby="custom-selection-tab">
 <div class="custom-tools"><button id="custom-stars">주요보스체크</button><button id="custom-clear" class="quiet">전체 해제</button></div>
-<p id="custom-catalog-note" class="custom-catalog-note" role="status"></p><div id="custom-groups" class="custom-groups"></div>
-<div class="custom-savebar"><div id="boss-spectrum-tools" class="custom-spectrum-tools" hidden><div id="boss-spectrum-controls" class="boss-spectrum-controls" hidden><button id="boss-spectrum-select" aria-controls="boss-spectrum-palette" aria-expanded="false"><span id="boss-spectrum-swatch" class="boss-spectrum-swatch" aria-hidden="true"></span><span id="boss-spectrum-label">스펙트럼 선택</span></button><button id="boss-spectrum-save" disabled>배경 저장</button></div><div id="boss-spectrum-palette" class="boss-spectrum-palette" hidden><div id="boss-spectrum-bar" class="boss-spectrum-bar" role="group" aria-label="밝은 테마 공통 박스 배경색 1~30번"></div><button id="boss-spectrum-reset">기존 보스색</button></div></div><div><strong id="custom-selected-count">선택 0개</strong><p id="custom-save-status" role="status">변경사항 없음</p></div><div class="custom-save-actions"><button id="custom-stars-bottom" type="button">주요보스선택</button><button id="custom-clear-bottom" class="quiet" type="button">전체해제</button><button id="custom-undo" class="quiet" disabled>되돌리기</button><button id="custom-save" disabled>저장</button></div></div></section>
+<div id="custom-selection-host"><div id="custom-groups" class="custom-groups"></div></div>
+<div class="custom-savebar"><div><strong id="custom-selected-count">선택 0개</strong><p id="custom-save-status" role="status">변경사항 없음</p></div><div class="custom-save-actions"><button id="custom-stars-bottom" type="button">주요보스선택</button><button id="custom-clear-bottom" type="button" class="quiet">전체해제</button><button id="custom-undo" class="quiet" disabled>되돌리기</button><button id="custom-save" disabled>저장</button></div></div></section>
+<section id="custom-color-panel" role="tabpanel" aria-labelledby="custom-color-tab" hidden><p>색지정은 개인 보스 선택을 바꾸지 않습니다.</p>
+<div class="custom-tools"><button id="custom-color-all">전체 선택</button><button id="custom-color-clear" class="quiet">전체 해제</button><span id="custom-color-count">색지정 0개</span></div><div id="custom-color-host"></div>
+<div class="custom-savebar"><div id="spectrum-mount"></div></div></section></section>
 <div id="events" class="event-list" aria-label="보스 스케줄"></div><p id="empty" class="empty" hidden>이 기간에 표시할 일정이 없습니다.</p>
 <nav id="schedule-bottom-nav" class="schedule-bottom-nav" aria-label="전체 일정 하단 이동" hidden><button id="schedule-top">위로</button><button id="day-next-bottom" disabled>다음날</button></nav>
 <div id="push-controls" class="push-controls" hidden><button id="push-toggle" class="quiet" aria-pressed="false" hidden>푸시 OFF</button><button id="push-test" class="quiet" disabled>알림 테스트</button><span id="push-note" role="status">알림 ON인 보스를 설정한 시각에 안내합니다.</span></div>

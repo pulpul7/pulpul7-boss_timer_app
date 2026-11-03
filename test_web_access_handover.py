@@ -42,9 +42,10 @@ class AccessHandoverTests(unittest.TestCase):
 
     def runtime(self, data):
         with patch('web_access_runtime.read_json', side_effect=FileNotFoundError):
-            runtime = AccessRuntime(Path('unused'), 'run', None)
+            runtime = AccessRuntime(Path('unused'), 'a' * 32, None)
         runtime.settings = policy.validate_settings(data)
         runtime.available = True
+        runtime.refresh = Mock()  # Imported policy is supplied directly by this offline fixture.
         return runtime
 
     def cookies(self, data, role):
@@ -71,6 +72,29 @@ class AccessHandoverTests(unittest.TestCase):
         self.assertTrue(self.authorized(self.access.data, member))
         self.assertTrue(self.authorized(self.access.data, guest))
         self.assertEqual(policy.readable_pins(self.access.data)['member']['value'], '1234')
+
+    def test_disk_policy_refresh_reads_changes_without_rewriting_or_rotating_saved_credentials(self):
+        runtime = self.runtime(self.access.data)
+        before = deepcopy(self.access.data)
+        self.access.change('pin', '4321')
+        after = deepcopy(self.access.data)
+        disk = dict(data=before, stamp=1)
+        runtime.refresh = AccessRuntime.refresh.__get__(runtime)
+        with patch.object(Path, 'stat', side_effect=lambda: NS(st_size=4096, st_mtime_ns=disk['stamp'])), \
+             patch('web_access_runtime.read_json', side_effect=lambda _: deepcopy(disk['data'])) as reader, \
+             patch('web_access_runtime.write_json') as writer:
+            runtime.refresh()
+            runtime.refresh()
+            self.assertEqual(reader.call_count, 1)
+            self.assertEqual(runtime.settings, before)
+            disk.update(data=after, stamp=2)
+            runtime.refresh()
+            self.assertEqual(reader.call_count, 2)
+            self.assertEqual(runtime.settings, after)
+            self.assertEqual(runtime.settings['key'], before['key'])
+            writer.assert_not_called()
+            context = runtime.context('', '192.0.2.1', 'test')
+            self.assertEqual(runtime.login(context, '4321', '192.0.2.1')[0], 200)
 
     def test_external_reentry_without_initial_cookies_preserves_remembered_login(self):
         runtime = self.runtime(self.access.data)

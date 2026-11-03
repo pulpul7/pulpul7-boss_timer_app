@@ -68,12 +68,16 @@ def compact_embedded_indent(source):
                                     line.lstrip().startswith(('// BEGIN WEB ', '// END WEB '))) + source[b:]
     # These blocks use only whitespace-free regex literals; keep their public
     # names and string/template contents intact while reducing the bundle size.
-    for name in ('NOTICE MODULE', 'NOTICE SOUND MODULE', 'NAVIGATION GUARD', 'PAGE REFRESH', 'SCHEDULE TXT'):
+    for name in ('NOTICE MODULE', 'NOTICE SOUND MODULE', 'NAVIGATION GUARD', 'PAGE REFRESH', 'SCHEDULE TXT', 'BOSS SPECTRUM MODULE'):
         begin, end = '// BEGIN WEB ' + name, '// END WEB ' + name
         if begin not in source or end not in source:
             continue
         a, b = source.index(begin) + len(begin), source.index(end)
-        private = ('planEvents planPrefs testUntil testTimer windowMs loadSeen occurrence drawSettings'
+        # Template literals stay intact: their interpolated binding names must
+        # stay readable too. Public hook keys are quoted in the source module.
+        private = ('COLOR_COUNT luminance tone currentTheme paletteOpen assigned paintChoices clean dirty read save choose allowed ready busy preview'
+                   if name == 'BOSS SPECTRUM MODULE' else
+                   'planEvents planPrefs testUntil testTimer windowMs loadSeen occurrence drawSettings'
                    if name == 'NOTICE MODULE' else 'acceptedAt interval shared wait message reload last'
                    if name == 'NAVIGATION GUARD' else
                    'pending navigating timer token version run next asset raw saved root key'
@@ -134,6 +138,9 @@ def embed(root):
     begin, end = '// BEGIN WEB FONT MODULE', '// END WEB FONT MODULE'
     a, b = source.index(begin) + len(begin), source.index(end)
     source = source[:a] + '\n' + (root / 'web_font_frontend.js').read_text(encoding='utf-8') + '\n' + source[b:]
+    begin, end = '// BEGIN WEB BOSS SPECTRUM MODULE', '// END WEB BOSS SPECTRUM MODULE'
+    a, b = source.index(begin) + len(begin), source.index(end)
+    source = source[:a] + '\n' + (root / 'web_boss_spectrum_frontend.js').read_text(encoding='utf-8') + '\n' + source[b:]
     begin, end = '// BEGIN WEB LIMITED SAKURA MODULE', '// END WEB LIMITED SAKURA MODULE'
     a, b = source.index(begin) + len(begin), source.index(end)
     source = source[:a] + '\n' + compact_module(module) + '\n' + source[b:]

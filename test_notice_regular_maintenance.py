@@ -202,7 +202,8 @@ class RegularHostTests(unittest.TestCase):
     def test_saved_time_drives_prerecorded_alarm_at_seven_and_never_eight(self):
         app = self.app()
         self.assertEqual(self.apply(app), 'applied')
-        self.assertEqual(app.schedule_maintenance_hour_var.get(), '07시')
+        self.assertEqual(app.schedule_maintenance_hour_var.get(), '08시')  # Weekly template is preserved.
+        self.assertEqual(app.schedule_control_events[0]['scheduled_at'], datetime(2026, 9, 23, 7))
         app._save_schedule_state.assert_called_once_with(mark_github_dirty=True, raise_on_error=True)
         rows = app._get_schedule_maintenance_alarm_candidates(datetime(2026, 9, 23, 6, 59, 30))
         self.assertIn((datetime(2026, 9, 23, 7), '정기점검', 'regular_maintenance'), rows)
@@ -260,6 +261,9 @@ class RegularHostTests(unittest.TestCase):
         app._refresh_schedule_tree_scope.assert_not_called()
         app._save_schedule_state.reset_mock(side_effect=True)
         app.schedule_maintenance_hour_var.set('07시')
+        self.assertEqual(app.schedule_control_events, [])
+        self.assertEqual(self.apply(app), 'applied')  # A matching template is not an imported occurrence.
+        app._save_schedule_state.reset_mock()
         self.assertEqual(self.apply(app), 'existing')
         app._save_schedule_state.assert_not_called()
 
